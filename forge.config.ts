@@ -19,6 +19,8 @@ const config: ForgeConfig = {
   },
   rebuildConfig: {},
   hooks: {
+    // Forge's Vite plugin excludes externalized modules from the packaged app, so copy the
+    // native runtime tree before Packager prunes and AutoUnpackNatives extracts its binaries.
     packageAfterCopy: async (_forgeConfig, buildPath) => {
       await Promise.all(
         nativeRuntimeDependencies.map(async (dependency) => {

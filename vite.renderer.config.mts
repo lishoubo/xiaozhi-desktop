@@ -9,6 +9,11 @@ import tailwindcss from '@tailwindcss/vite';
 // https://vitejs.dev/config
 export default defineConfig({
   plugins: [tailwindcss(), svelte()],
+  server: {
+    // Keep the development server local; Electron is its only intended client.
+    host: '127.0.0.1',
+    strictPort: true,
+  },
   resolve: {
     alias: {
       $lib: path.resolve('./src/renderer'),

@@ -4,7 +4,7 @@ import { defineConfig } from 'vite';
 
 export default defineConfig({
   build: {
-    target: 'node22',
+    target: 'node24',
     outDir: '.e2e/build',
     emptyOutDir: false,
     lib: {

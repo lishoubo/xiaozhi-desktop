@@ -8,7 +8,7 @@ export default defineConfig({
     MAIN_WINDOW_VITE_NAME: JSON.stringify('main_window'),
   },
   build: {
-    target: 'node22',
+    target: 'node24',
     outDir: '.e2e/build',
     emptyOutDir: true,
     lib: {

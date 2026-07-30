@@ -16,14 +16,21 @@ export function openDatabase(databasePath: string, migrationsFolder: string): Da
   fs.mkdirSync(path.dirname(databasePath), { recursive: true });
 
   const sqlite = new Database(databasePath);
-  sqlite.pragma('foreign_keys = ON');
-  sqlite.pragma('journal_mode = WAL');
+  try {
+    sqlite.pragma('foreign_keys = ON');
+    sqlite.pragma('journal_mode = WAL');
+    sqlite.pragma('synchronous = NORMAL');
+    sqlite.pragma('busy_timeout = 5000');
 
-  const db = drizzle(sqlite, { schema });
-  migrate(db, { migrationsFolder });
+    const db = drizzle(sqlite, { schema });
+    migrate(db, { migrationsFolder });
 
-  return {
-    db,
-    close: () => sqlite.close(),
-  };
+    return {
+      db,
+      close: () => sqlite.close(),
+    };
+  } catch (error: unknown) {
+    sqlite.close();
+    throw error;
+  }
 }

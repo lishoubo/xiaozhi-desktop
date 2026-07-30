@@ -1,0 +1,20 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "allowImportingTsExtensions": true,
+    "noEmit": true,
+    "types": ["node"]
+  },
+  "include": [
+    "src/main.ts",
+    "src/preload.ts",
+    "src/main/**/*.ts",
+    "src/preload/**/*.ts",
+    "src/shared/**/*.ts",
+    "src/renderer/app.d.ts",
+    "tests/unit/**/*.ts",
+    "tests/e2e/**/*.ts",
+    "*.ts",
+    "*.mts"
+  ]
+}
