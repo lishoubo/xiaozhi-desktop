@@ -1,4 +1,4 @@
-import { asc, eq } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import type { JsonValue } from '../../shared/settings';
 import type { AppDatabase } from '../database/connection';
 import { appSettings } from '../database/schema';
@@ -25,11 +25,21 @@ export class SettingsRepository {
   public constructor(private readonly db: AppDatabase) {}
 
   public list(): StoredSetting[] {
-    return this.db.select().from(appSettings).orderBy(asc(appSettings.key)).all().map(mapSetting);
+    return this.db.query.appSettings
+      .findMany({
+        orderBy: (settings, { asc }) => [asc(settings.key)],
+      })
+      .sync()
+      .map(mapSetting);
   }
 
   public get(key: string): StoredSetting | null {
-    const row = this.db.select().from(appSettings).where(eq(appSettings.key, key)).get();
+    const row = this.db.query.appSettings
+      .findFirst({
+        where: (settings, { eq }) => eq(settings.key, key),
+      })
+      .sync();
+
     return row ? mapSetting(row) : null;
   }
 
