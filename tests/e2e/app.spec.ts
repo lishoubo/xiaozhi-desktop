@@ -69,3 +69,14 @@ test('starts the Electron window with the Svelte browser shell', async () => {
   expect(versions.electron).toBeTruthy();
   expect(versions.name).toBeTruthy();
 });
+
+test('navigates static routes and loads settings through TanStack Query', async () => {
+  await page.getByRole('link', { name: '设置' }).click();
+
+  await expect(page).toHaveURL(/#\/settings$/);
+  await expect(page.getByRole('heading', { name: '本地设置' })).toBeVisible();
+  await expect(page.getByText('目前还没有保存任何设置。')).toBeVisible();
+
+  await page.getByRole('link', { name: '浏览器' }).click();
+  await expect(page).toHaveURL(/#\/$/);
+});

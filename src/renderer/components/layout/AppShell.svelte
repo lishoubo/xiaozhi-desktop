@@ -13,5 +13,6 @@
     display: grid;
     grid-template-rows: 64px minmax(0, 1fr);
     height: 100%;
+    min-height: 0;
   }
 </style>
