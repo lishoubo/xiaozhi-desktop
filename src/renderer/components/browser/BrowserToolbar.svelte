@@ -1,14 +1,25 @@
 <script lang="ts">
+  import ArrowLeft from '@lucide/svelte/icons/arrow-left';
+  import ArrowRight from '@lucide/svelte/icons/arrow-right';
+  import RotateCw from '@lucide/svelte/icons/rotate-cw';
+  import { Button } from '$lib/components/ui/button';
+
   let address = 'https://example.com';
 </script>
 
 <header class="toolbar">
-  <div class="window-title">Hotel Butler</div>
+  <div class="window-title select-none">Hotel Butler</div>
 
   <nav class="navigation" aria-label="浏览器控制">
-    <button type="button" aria-label="后退" disabled>←</button>
-    <button type="button" aria-label="前进" disabled>→</button>
-    <button type="button" aria-label="刷新" disabled>↻</button>
+    <Button variant="ghost" size="icon" aria-label="后退" disabled>
+      <ArrowLeft size={17} strokeWidth={1.8} />
+    </Button>
+    <Button variant="ghost" size="icon" aria-label="前进" disabled>
+      <ArrowRight size={17} strokeWidth={1.8} />
+    </Button>
+    <Button variant="ghost" size="icon" aria-label="刷新" disabled>
+      <RotateCw size={16} strokeWidth={1.8} />
+    </Button>
   </nav>
 
   <input class="address" aria-label="网址" bind:value={address} spellcheck="false" />
@@ -20,8 +31,8 @@
     align-items: center;
     gap: 14px;
     padding: 12px 18px;
-    background: #ffffff;
-    border-bottom: 1px solid #e3e8f0;
+    background: var(--background);
+    border-bottom: 1px solid var(--border);
   }
 
   .window-title {
@@ -34,21 +45,14 @@
     gap: 6px;
   }
 
-  button {
-    width: 34px;
-    height: 34px;
-    border: 1px solid #d7deea;
-    border-radius: 8px;
-    background: #f8fafc;
-    color: #596579;
-  }
-
   .address {
     width: 100%;
     height: 38px;
     padding: 0 14px;
-    border: 1px solid #d7deea;
+    border: 1px solid var(--input);
     border-radius: 9px;
+    background: var(--background);
+    color: var(--foreground);
     outline: none;
   }
 

@@ -10,6 +10,10 @@
     "baseUrl": ".",
     "outDir": "dist",
     "moduleResolution": "node",
-    "resolveJsonModule": true
+    "resolveJsonModule": true,
+    "paths": {
+      "$lib": ["./src/renderer"],
+      "$lib/*": ["./src/renderer/*"]
+    }
   }
 }

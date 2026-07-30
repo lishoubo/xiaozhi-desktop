@@ -1,0 +1,19 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "noEmit": true,
+    "paths": {
+      "$lib": ["./src/renderer"],
+      "$lib/*": ["./src/renderer/*"]
+    }
+  },
+  "include": [
+    "src/renderer.ts",
+    "src/renderer/**/*.ts",
+    "src/renderer/**/*.svelte",
+    "src/vite-env.d.ts",
+    "vite.renderer.config.mts"
+  ]
+}
