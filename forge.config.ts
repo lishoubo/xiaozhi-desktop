@@ -1,3 +1,5 @@
+import fs from 'node:fs/promises';
+import path from 'node:path';
 import type { ForgeConfig } from '@electron-forge/shared-types';
 import { MakerSquirrel } from '@electron-forge/maker-squirrel';
 import { MakerZIP } from '@electron-forge/maker-zip';
@@ -8,12 +10,31 @@ import { AutoUnpackNativesPlugin } from '@electron-forge/plugin-auto-unpack-nati
 import { FusesPlugin } from '@electron-forge/plugin-fuses';
 import { FuseV1Options, FuseVersion } from '@electron/fuses';
 
+const nativeRuntimeDependencies = ['better-sqlite3', 'node-addon-api'] as const;
+
 const config: ForgeConfig = {
   packagerConfig: {
     asar: true,
     extraResource: ['drizzle'],
   },
   rebuildConfig: {},
+  hooks: {
+    packageAfterCopy: async (_forgeConfig, buildPath) => {
+      await Promise.all(
+        nativeRuntimeDependencies.map(async (dependency) => {
+          await fs.cp(
+            path.resolve('node_modules', dependency),
+            path.join(buildPath, 'node_modules', dependency),
+            {
+              recursive: true,
+              dereference: true,
+              force: true,
+            },
+          );
+        }),
+      );
+    },
+  },
   makers: [new MakerSquirrel({}), new MakerZIP({}, ['darwin']), new MakerRpm({}), new MakerDeb({})],
   plugins: [
     new VitePlugin({
