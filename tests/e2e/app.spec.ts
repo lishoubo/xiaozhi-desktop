@@ -5,12 +5,16 @@ import {
   type ElectronApplication,
   type Page,
 } from '@playwright/test';
+import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 
 let electronApp: ElectronApplication;
 let page: Page;
+let runtimeDirectory: string;
 
 test.beforeAll(async () => {
+  runtimeDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'hotel-butler-e2e-'));
   const launchEnvironment = { ...process.env };
   delete launchEnvironment.ELECTRON_RUN_AS_NODE;
   delete launchEnvironment.NO_COLOR;
@@ -21,6 +25,7 @@ test.beforeAll(async () => {
     env: {
       ...launchEnvironment,
       ELECTRON_DISABLE_SECURITY_WARNINGS: 'true',
+      HOTEL_BUTLER_DATABASE_PATH: path.join(runtimeDirectory, 'hotel-butler.sqlite3'),
     },
   });
   page = await electronApp.firstWindow();
@@ -28,6 +33,27 @@ test.beforeAll(async () => {
 
 test.afterAll(async () => {
   await electronApp?.close();
+  fs.rmSync(runtimeDirectory, { force: true, recursive: true });
+});
+
+test('persists settings through preload, IPC, Drizzle and SQLite', async () => {
+  const result = await page.evaluate(async () => {
+    const created = await window.hotelButler.settings.set('browser.homepage', {
+      url: 'https://example.com',
+    });
+    const loaded = await window.hotelButler.settings.get('browser.homepage');
+    const listed = await window.hotelButler.settings.list();
+    const deleted = await window.hotelButler.settings.delete('browser.homepage');
+    const afterDelete = await window.hotelButler.settings.get('browser.homepage');
+
+    return { created, loaded, listed, deleted, afterDelete };
+  });
+
+  expect(result.created.value).toEqual({ url: 'https://example.com' });
+  expect(result.loaded).toEqual(result.created);
+  expect(result.listed).toContainEqual(result.created);
+  expect(result.deleted).toBe(true);
+  expect(result.afterDelete).toBeNull();
 });
 
 test('starts the Electron window with the Svelte browser shell', async () => {

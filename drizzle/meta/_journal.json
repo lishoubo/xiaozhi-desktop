@@ -1,0 +1,13 @@
+{
+  "version": "7",
+  "dialect": "sqlite",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "6",
+      "when": 1785383564535,
+      "tag": "0000_mute_the_enforcers",
+      "breakpoints": true
+    }
+  ]
+}

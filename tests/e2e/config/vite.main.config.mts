@@ -17,7 +17,13 @@ export default defineConfig({
       fileName: () => 'main.js',
     },
     rollupOptions: {
-      external: ['electron', 'electron-squirrel-startup', ...builtinModules, /^node:/],
+      external: [
+        'better-sqlite3',
+        'electron',
+        'electron-squirrel-startup',
+        ...builtinModules,
+        /^node:/,
+      ],
     },
   },
 });
