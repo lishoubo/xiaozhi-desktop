@@ -239,7 +239,11 @@ implementation:
     - "Use Svelte class attributes, bind:value for two-way form bindings, and event attributes such as onclick."
     - "Prefer existing shadcn-svelte primitives from $lib/components/ui before creating a new accessible primitive."
     - "Customize shadcn-svelte through semantic CSS variables, component variants, and Tailwind CSS utilities."
-    - "Use @lucide/svelte for interface icons and preserve an accessible text label or aria-label for icon-only controls."
+    - "Use @lucide/svelte exclusively for interface icons; do not mix icon libraries, hand-authored SVG icons, or emoji as control icons."
+    - "Import Lucide icons individually, keep size and stroke treatment consistent within a surface, and preserve an accessible text label or aria-label for icon-only controls."
+    - "Apply a less-is-more product philosophy: implement the smallest clear interface that supports the requested task."
+    - "Do not invent explanatory copy, promotional sections, helper cards, headings, badges, or decorative elements that the requested workflow does not need."
+    - "Prefer hierarchy, spacing, familiar controls, and progressive disclosure over persistent instructional text."
     - "Keep reusable UI in src/renderer/components and page-level composition in src/renderer/pages."
     - "Do not assume server rendering, server components, or filesystem access from the renderer."
   semanticTokenMapping:
@@ -566,9 +570,36 @@ This specification is implemented in the Electron renderer with **Svelte 5**, **
 - Check `$lib/components/ui` before implementing buttons, inputs, dialogs, sheets, menus, tabs, tooltips, or other common primitives. Extend the existing shadcn-svelte component with variants and Tailwind classes where possible.
 - Use semantic utilities such as `bg-background`, `text-foreground`, `bg-primary`, `text-primary-foreground`, `border-border`, and `ring-ring`. The mapping in `implementation.semanticTokenMapping` defines how those roles relate to this design.
 - Keep semantic theme values in `src/renderer/styles/global.css`. Use Tailwind utilities for layout, spacing, responsive behavior, and component-specific states.
-- Use icons from `@lucide/svelte`. Icon-only controls must have an accessible name and an adequate touch target.
+- Use icons exclusively from `@lucide/svelte`. Do not mix in another icon package, hand-authored SVG icons, Unicode symbols, or emoji as interface controls. Import icons individually, use the established size and stroke treatment for the surrounding surface, and give icon-only controls an accessible name and an adequate touch target.
 - This is a desktop Electron renderer. Do not assume server rendering or direct filesystem access in a Svelte component; privileged operations must go through the project's preload and IPC boundary.
 - Inter Variable is the licensed, installed substitute for Notion Sans and should be used through the existing project font configuration.
+
+## Product Experience Principles
+
+The application follows a **less-is-more** product philosophy. The detailed visual tokens in this document define consistency; they do not require every product surface to reproduce the density, illustration, or promotional content of the referenced marketing examples.
+
+- Design the smallest clear interface that completes the requested user task.
+- Add only the controls, states, and information necessary for the requested workflow. Do not infer adjacent features or expand a small request into a dashboard, onboarding flow, tutorial, or marketing surface.
+- Do not add explanatory paragraphs, redundant headings, helper cards, badges, banners, hints, or placeholder copy merely to make a layout look complete.
+- Prefer clear hierarchy, grouping, alignment, spacing, conventional control placement, and recognizable Lucide icons over instructional text.
+- Keep labels concise. Add supporting copy only when it prevents a likely mistake, communicates a meaningful constraint, explains an irreversible consequence, or is required for accessibility.
+- Use progressive disclosure for secondary and advanced actions. Keep the primary action obvious and avoid presenting many equal-weight choices.
+- Avoid decorative UI that does not improve comprehension or task completion. Empty space is an intentional design tool.
+- Reuse familiar interaction patterns and existing components so the interface feels predictable without extra explanation.
+- Keep feedback concise but complete: users must still receive clear loading, success, empty, disabled, validation, and error states.
+- Minimalism must never remove essential context, accessibility, error recovery, destructive-action confirmation, or security-relevant information.
+- When a requirement specifies behavior but not layout, choose the simplest arrangement consistent with existing nearby screens and components. Do not over-interpret the requirement or invent a new visual concept.
+
+### Iconography
+
+- `@lucide/svelte` is the single canonical icon source for the product UI.
+- Search Lucide before creating or sourcing an icon. Choose the most semantically direct icon, not a decorative approximation.
+- Use icons only when they improve recognition, scanning, or control affordance. Do not add icons to every label or heading by default.
+- Prefer a text label for unfamiliar or consequential actions. An icon may accompany the label when useful.
+- Icon-only buttons are appropriate only for widely understood actions in a clear context and must include an accessible name, tooltip when discoverability requires it, visible focus treatment, and an adequate hit target.
+- Keep icon size, stroke width, alignment, color, hover state, and disabled state consistent with the component and surrounding interface.
+- Do not use emoji, text glyphs, a second icon library, or hand-authored SVG markup as substitutes for available Lucide icons.
+- If Lucide has no suitable icon, first reconsider whether the icon is necessary. Any exception must follow an existing project asset convention and be documented rather than silently introducing another icon system.
 
 ## Known Gaps
 
