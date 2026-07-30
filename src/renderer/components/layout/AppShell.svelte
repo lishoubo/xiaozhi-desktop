@@ -3,16 +3,7 @@
   import BrowserViewport from '../browser/BrowserViewport.svelte';
 </script>
 
-<main class="app-shell">
+<main class="grid h-full min-h-0 grid-rows-[68px_minmax(0,1fr)]">
   <BrowserToolbar />
   <BrowserViewport />
 </main>
-
-<style>
-  .app-shell {
-    display: grid;
-    grid-template-rows: 64px minmax(0, 1fr);
-    height: 100%;
-    min-height: 0;
-  }
-</style>

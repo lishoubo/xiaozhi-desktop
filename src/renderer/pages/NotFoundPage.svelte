@@ -1,34 +1,10 @@
 <script lang="ts">
+  import { buttonVariants } from '$lib/components/ui/button';
   import { link } from 'svelte-spa-router';
 </script>
 
-<main class="not-found">
-  <p>404</p>
-  <h1>页面不存在</h1>
-  <a href="/" use:link>返回浏览器</a>
+<main class="grid h-full place-content-center justify-items-center bg-secondary text-center">
+  <p class="m-0 text-sm font-semibold text-primary">404</p>
+  <h1 class="mt-2 mb-5 text-[28px] leading-tight font-semibold">页面不存在</h1>
+  <a class={buttonVariants()} href="/" use:link>返回浏览器</a>
 </main>
-
-<style>
-  .not-found {
-    display: grid;
-    height: 100%;
-    place-content: center;
-    justify-items: center;
-    text-align: center;
-  }
-
-  p {
-    margin: 0;
-    color: #5578ee;
-    font-weight: 750;
-  }
-
-  h1 {
-    margin: 8px 0 18px;
-  }
-
-  a {
-    color: #3557cb;
-    font-weight: 650;
-  }
-</style>

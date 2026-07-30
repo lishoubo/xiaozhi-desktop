@@ -8,88 +8,40 @@
   let { children }: { children: Snippet } = $props();
 </script>
 
-<div class="app-frame">
-  <aside class="sidebar">
-    <div class="brand" aria-label="Hotel Butler">HB</div>
+<div class="grid h-full grid-cols-[80px_minmax(0,1fr)] bg-background">
+  <aside
+    class="flex flex-col items-center gap-8 border-r border-sidebar-border bg-sidebar px-2.5 py-5"
+  >
+    <div
+      class="grid size-10 select-none place-items-center rounded-lg bg-sidebar-primary text-[13px] font-semibold tracking-[0.04em] text-sidebar-primary-foreground"
+      aria-label="Hotel Butler"
+    >
+      HB
+    </div>
 
-    <nav class="app-navigation" aria-label="应用导航">
-      <a href="/" use:link use:active={{ className: 'active' }}>
-        <Globe2 size={19} strokeWidth={1.8} />
+    <nav class="grid w-full gap-1.5" aria-label="应用导航">
+      <a
+        class="grid justify-items-center gap-1 rounded-md px-1 py-2.5 text-xs font-medium text-muted-foreground no-underline transition-colors duration-150 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground [&.active]:bg-sidebar-accent [&.active]:text-sidebar-accent-foreground"
+        href="/"
+        use:link
+        use:active={{ className: 'active' }}
+      >
+        <Globe2 size={18} strokeWidth={1.8} />
         <span>浏览器</span>
       </a>
-      <a href="/settings" use:link use:active={{ className: 'active' }}>
-        <Settings size={19} strokeWidth={1.8} />
+      <a
+        class="grid justify-items-center gap-1 rounded-md px-1 py-2.5 text-xs font-medium text-muted-foreground no-underline transition-colors duration-150 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground [&.active]:bg-sidebar-accent [&.active]:text-sidebar-accent-foreground"
+        href="/settings"
+        use:link
+        use:active={{ className: 'active' }}
+      >
+        <Settings size={18} strokeWidth={1.8} />
         <span>设置</span>
       </a>
     </nav>
   </aside>
 
-  <section class="route-content">
+  <section class="min-h-0 min-w-0 overflow-hidden">
     {@render children()}
   </section>
 </div>
-
-<style>
-  .app-frame {
-    display: grid;
-    grid-template-columns: 84px minmax(0, 1fr);
-    height: 100%;
-    background: var(--background);
-  }
-
-  .sidebar {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 28px;
-    padding: 18px 10px;
-    border-right: 1px solid var(--border);
-    background: var(--sidebar);
-  }
-
-  .brand {
-    display: grid;
-    width: 42px;
-    height: 42px;
-    place-items: center;
-    border-radius: 12px;
-    color: var(--primary-foreground);
-    background: var(--primary);
-    font-size: 13px;
-    font-weight: 750;
-    letter-spacing: 0.04em;
-  }
-
-  .app-navigation {
-    display: grid;
-    gap: 8px;
-    width: 100%;
-  }
-
-  .app-navigation a {
-    display: grid;
-    justify-items: center;
-    gap: 5px;
-    padding: 10px 4px;
-    border-radius: 10px;
-    color: var(--muted-foreground);
-    font-size: 12px;
-    font-weight: 600;
-    text-decoration: none;
-    transition:
-      color 120ms ease,
-      background 120ms ease;
-  }
-
-  .app-navigation a:hover,
-  .app-navigation a:global(.active) {
-    color: var(--sidebar-accent-foreground);
-    background: var(--sidebar-accent);
-  }
-
-  .route-content {
-    min-width: 0;
-    min-height: 0;
-    overflow: hidden;
-  }
-</style>

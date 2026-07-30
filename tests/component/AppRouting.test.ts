@@ -32,12 +32,16 @@ describe('App routing and query integration', () => {
     const user = userEvent.setup();
     render(App);
 
-    expect(await screen.findByRole('heading', { name: '浏览器区域' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: '开始浏览' })).toBeInTheDocument();
+    expect(screen.getByText('在地址栏输入网址即可开始。')).toBeInTheDocument();
+    expect(screen.queryByText('Svelte renderer 已连接')).not.toBeInTheDocument();
 
     await user.click(screen.getByRole('link', { name: '设置' }));
 
-    expect(await screen.findByRole('heading', { name: '本地设置' })).toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: '设置' })).toBeInTheDocument();
     expect(await screen.findByText('目前还没有保存任何设置。')).toBeInTheDocument();
+    expect(screen.queryByText(/TanStack Query/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/SQLite/)).not.toBeInTheDocument();
     expect(listSettings).toHaveBeenCalledTimes(1);
     expect(window.location.hash).toBe('#/settings');
   });

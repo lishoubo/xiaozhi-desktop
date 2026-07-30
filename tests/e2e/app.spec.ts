@@ -58,7 +58,8 @@ test('persists settings through preload, IPC, Drizzle and SQLite', async () => {
 
 test('starts the Electron window with the Svelte browser shell', async () => {
   await expect(page).toHaveTitle('Hotel Butler');
-  await expect(page.getByText('Svelte renderer 已连接')).toBeVisible();
+  await expect(page.getByRole('heading', { name: '开始浏览' })).toBeVisible();
+  await expect(page.getByText('在地址栏输入网址即可开始。')).toBeVisible();
   await expect(page.getByRole('textbox', { name: '网址' })).toHaveValue('https://example.com');
 
   const versions = await electronApp.evaluate(({ app }) => ({
@@ -74,7 +75,7 @@ test('navigates static routes and loads settings through TanStack Query', async 
   await page.getByRole('link', { name: '设置' }).click();
 
   await expect(page).toHaveURL(/#\/settings$/);
-  await expect(page.getByRole('heading', { name: '本地设置' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '设置', exact: true })).toBeVisible();
   await expect(page.getByText('目前还没有保存任何设置。')).toBeVisible();
 
   await page.getByRole('link', { name: '浏览器' }).click();

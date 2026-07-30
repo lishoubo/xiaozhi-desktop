@@ -1,43 +1,6 @@
-<section class="browser-viewport" data-browser-viewport>
-  <div>
-    <span class="status">Svelte renderer 已连接</span>
-    <h1>浏览器区域</h1>
-    <p>下一步将在这里接入由 Electron 主进程管理的 WebContentsView。</p>
+<section class="grid min-h-0 place-items-center bg-secondary p-8 text-center" data-browser-viewport>
+  <div class="max-w-md">
+    <h1 class="m-0 text-[28px] leading-tight font-semibold tracking-[-0.01em]">开始浏览</h1>
+    <p class="mt-3 mb-0 text-sm leading-6 text-muted-foreground">在地址栏输入网址即可开始。</p>
   </div>
 </section>
-
-<style>
-  .browser-viewport {
-    display: grid;
-    place-items: center;
-    min-height: 0;
-    padding: 32px;
-    text-align: center;
-    background: radial-gradient(circle at top, rgb(85 120 238 / 9%), transparent 35%), #f5f7fb;
-  }
-
-  .browser-viewport > div {
-    max-width: 500px;
-  }
-
-  .status {
-    display: inline-block;
-    padding: 6px 10px;
-    border-radius: 999px;
-    color: #3557cb;
-    background: #e9eeff;
-    font-size: 13px;
-    font-weight: 650;
-  }
-
-  h1 {
-    margin: 18px 0 8px;
-    font-size: 28px;
-  }
-
-  p {
-    margin: 0;
-    color: #657086;
-    line-height: 1.6;
-  }
-</style>

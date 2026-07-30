@@ -7,10 +7,10 @@
   let address = 'https://example.com';
 </script>
 
-<header class="toolbar">
-  <div class="window-title select-none">Hotel Butler</div>
+<header class="flex items-center gap-3 border-b border-border bg-background px-5 py-3">
+  <div class="select-none whitespace-nowrap text-sm font-semibold">Hotel Butler</div>
 
-  <nav class="navigation" aria-label="浏览器控制">
+  <nav class="flex gap-1" aria-label="浏览器控制">
     <Button variant="ghost" size="icon" aria-label="后退" disabled>
       <ArrowLeft size={17} strokeWidth={1.8} />
     </Button>
@@ -22,42 +22,10 @@
     </Button>
   </nav>
 
-  <input class="address" aria-label="网址" bind:value={address} spellcheck="false" />
+  <input
+    class="h-11 w-full rounded-md border border-input bg-background px-4 text-sm text-foreground outline-none transition-[border-color,box-shadow] duration-150 placeholder:text-muted-foreground focus:border-ring focus:ring-3 focus:ring-ring/15"
+    aria-label="网址"
+    bind:value={address}
+    spellcheck="false"
+  />
 </header>
-
-<style>
-  .toolbar {
-    display: flex;
-    align-items: center;
-    gap: 14px;
-    padding: 12px 18px;
-    background: var(--background);
-    border-bottom: 1px solid var(--border);
-  }
-
-  .window-title {
-    font-weight: 700;
-    white-space: nowrap;
-  }
-
-  .navigation {
-    display: flex;
-    gap: 6px;
-  }
-
-  .address {
-    width: 100%;
-    height: 38px;
-    padding: 0 14px;
-    border: 1px solid var(--input);
-    border-radius: 9px;
-    background: var(--background);
-    color: var(--foreground);
-    outline: none;
-  }
-
-  .address:focus {
-    border-color: #5578ee;
-    box-shadow: 0 0 0 3px rgb(85 120 238 / 14%);
-  }
-</style>
