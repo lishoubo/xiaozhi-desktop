@@ -12,12 +12,7 @@
       <button type="button" aria-label="刷新" disabled>↻</button>
     </nav>
 
-    <input
-      class="address"
-      aria-label="网址"
-      bind:value={address}
-      spellcheck="false"
-    />
+    <input class="address" aria-label="网址" bind:value={address} spellcheck="false" />
   </header>
 
   <section class="browser-placeholder">
@@ -83,9 +78,7 @@
     place-items: center;
     padding: 32px;
     text-align: center;
-    background:
-      radial-gradient(circle at top, rgb(85 120 238 / 9%), transparent 35%),
-      #f5f7fb;
+    background: radial-gradient(circle at top, rgb(85 120 238 / 9%), transparent 35%), #f5f7fb;
   }
 
   .browser-placeholder div {
