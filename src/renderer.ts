@@ -26,8 +26,14 @@
  * ```
  */
 
+import { mount } from 'svelte';
+import App from './App.svelte';
 import './index.css';
 
-console.log(
-  '👋 This message is being logged by "renderer.ts", included via Vite',
-);
+const target = document.getElementById('app');
+
+if (!target) {
+  throw new Error('Could not find the Svelte mount target');
+}
+
+mount(App, { target });
