@@ -42,9 +42,12 @@ describe('BrowserWorkspace', () => {
 
   it('keeps a separate tab set for each OTA shortcut', async () => {
     const user = userEvent.setup();
-    render(BrowserWorkspace);
+    const { container } = render(BrowserWorkspace);
 
     expect(await screen.findByRole('tab', { name: '携程后台' })).toBeInTheDocument();
+    for (const image of container.querySelectorAll('img')) {
+      expect(image).toHaveAttribute('src', expect.stringMatching(/^data:image\/png;base64,/));
+    }
 
     await user.click(screen.getByRole('button', { name: '飞猪酒店商家' }));
     expect(await screen.findByRole('tab', { name: '飞猪后台' })).toBeInTheDocument();

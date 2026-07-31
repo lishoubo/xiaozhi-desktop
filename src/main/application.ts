@@ -5,6 +5,7 @@ import { openDatabase, type DatabaseConnection } from './database/connection';
 import { registerSettingsHandlers } from './ipc/settings-handlers';
 import { registerBrowserHandlers } from './ipc/browser-handlers';
 import { BrowserManager } from './browser/browser-manager';
+import { configureNetworkPrivacy } from './security/network-privacy';
 import { SettingsRepository } from './settings/settings-repository';
 import { SettingsService } from './settings/settings-service';
 import { createMainWindow } from './windows/main-window';
@@ -14,6 +15,8 @@ let databaseConnection: DatabaseConnection | null = null;
 let unregisterIpcHandlers: (() => void) | null = null;
 let browserManager: BrowserManager | null = null;
 let unregisterBrowserHandlers: (() => void) | null = null;
+
+configureNetworkPrivacy(app.commandLine);
 
 function getDatabasePath(): string {
   const testDatabasePath = app.isPackaged ? undefined : process.env.HOTEL_BUTLER_DATABASE_PATH;

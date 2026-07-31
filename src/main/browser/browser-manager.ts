@@ -2,6 +2,7 @@ import { BrowserWindow, session, WebContentsView, type Rectangle, type Session }
 import { randomUUID } from 'node:crypto';
 import { IPC_CHANNELS } from '../../shared/ipc-channels';
 import type { BrowserTab } from '../../shared/browser';
+import { denyEmbeddedPagePermissions } from '../security/session-permissions';
 
 type ManagedTab = {
   id: string;
@@ -27,9 +28,7 @@ export class BrowserManager {
 
   constructor(private readonly window: BrowserWindow) {
     this.browserSession = session.fromPartition('persist:hotel-butler-browser');
-    this.browserSession.setPermissionRequestHandler((_webContents, _permission, callback) => {
-      callback(false);
-    });
+    denyEmbeddedPagePermissions(this.browserSession);
   }
 
   create(channelId: string, url: string): BrowserTab {
