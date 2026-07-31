@@ -1,11 +1,12 @@
 <script lang="ts">
   import Globe2 from '@lucide/svelte/icons/globe-2';
   import Settings from '@lucide/svelte/icons/settings';
+  import CircleUserRound from '@lucide/svelte/icons/circle-user-round';
   import { link } from 'svelte-spa-router';
   import active from 'svelte-spa-router/active';
   import type { Snippet } from 'svelte';
 
-  let { children }: { children: Snippet } = $props();
+  let { children, phone }: { children: Snippet; phone: string } = $props();
 </script>
 
 <div class="grid h-full grid-cols-[80px_minmax(0,1fr)] bg-background">
@@ -28,6 +29,16 @@
       >
         <Globe2 size={18} strokeWidth={1.8} />
         <span>浏览器</span>
+      </a>
+      <a
+        class="grid justify-items-center gap-1 rounded-md px-1 py-2.5 text-xs font-medium text-muted-foreground no-underline transition-colors duration-150 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground [&.active]:bg-sidebar-accent [&.active]:text-sidebar-accent-foreground"
+        href="/profile"
+        use:link
+        use:active={{ className: 'active' }}
+        aria-label={`用户中心 ${phone}`}
+      >
+        <CircleUserRound size={18} strokeWidth={1.8} />
+        <span>用户中心</span>
       </a>
       <a
         class="grid justify-items-center gap-1 rounded-md px-1 py-2.5 text-xs font-medium text-muted-foreground no-underline transition-colors duration-150 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground [&.active]:bg-sidebar-accent [&.active]:text-sidebar-accent-foreground"

@@ -3,6 +3,8 @@ import path from 'node:path';
 import started from 'electron-squirrel-startup';
 import { openDatabase, type DatabaseConnection } from './database/connection';
 import { registerSettingsHandlers } from './ipc/settings-handlers';
+import { registerBrowserHandlers } from './ipc/browser-handlers';
+import { BrowserManager } from './browser/browser-manager';
 import { SettingsRepository } from './settings/settings-repository';
 import { SettingsService } from './settings/settings-service';
 import { createMainWindow } from './windows/main-window';
@@ -10,6 +12,8 @@ import { createMainWindow } from './windows/main-window';
 let mainWindow: BrowserWindow | null = null;
 let databaseConnection: DatabaseConnection | null = null;
 let unregisterIpcHandlers: (() => void) | null = null;
+let browserManager: BrowserManager | null = null;
+let unregisterBrowserHandlers: (() => void) | null = null;
 
 function getDatabasePath(): string {
   const testDatabasePath = app.isPackaged ? undefined : process.env.HOTEL_BUTLER_DATABASE_PATH;
@@ -25,7 +29,16 @@ function getMigrationsFolder(): string {
 
 function openMainWindow(): void {
   mainWindow = createMainWindow();
+  browserManager = new BrowserManager(mainWindow);
+  unregisterBrowserHandlers = registerBrowserHandlers({
+    window: mainWindow,
+    manager: browserManager,
+  });
   mainWindow.once('closed', () => {
+    unregisterBrowserHandlers?.();
+    unregisterBrowserHandlers = null;
+    browserManager?.destroy();
+    browserManager = null;
     mainWindow = null;
   });
 }
@@ -74,5 +87,7 @@ app.on('activate', () => {
 
 app.once('will-quit', () => {
   unregisterIpcHandlers?.();
+  unregisterBrowserHandlers?.();
+  browserManager?.destroy();
   databaseConnection?.close();
 });

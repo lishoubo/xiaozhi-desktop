@@ -1,54 +1,92 @@
 <script lang="ts">
-  import RefreshCw from '@lucide/svelte/icons/refresh-cw';
-  import { createQuery } from '@tanstack/svelte-query';
-  import { Button } from '$lib/components/ui/button';
-  import { settingsListQueryOptions } from '$lib/data/settings';
+  import { onMount } from 'svelte';
+  import Bell from '@lucide/svelte/icons/bell';
+  import MonitorUp from '@lucide/svelte/icons/monitor-up';
+  import Settings2 from '@lucide/svelte/icons/settings-2';
+  import type { SystemPreferences } from '../../shared/browser';
 
-  const settingsQuery = createQuery(settingsListQueryOptions);
+  let preferences = $state<SystemPreferences | null>(null);
+  let notifications = $state(localStorage.getItem('hotel-butler.notifications') !== 'false');
+  let error = $state('');
+
+  onMount(() => {
+    void window.hotelButler.system
+      .getPreferences()
+      .then((value) => {
+        preferences = value;
+      })
+      .catch((reason: unknown) => {
+        error = reason instanceof Error ? reason.message : '设置读取失败';
+      });
+  });
+
+  async function toggleAutoLaunch(enabled: boolean): Promise<void> {
+    try {
+      preferences = await window.hotelButler.system.setAutoLaunch(enabled);
+    } catch (reason) {
+      error = reason instanceof Error ? reason.message : '设置保存失败';
+    }
+  }
+
+  function toggleNotifications(enabled: boolean): void {
+    notifications = enabled;
+    localStorage.setItem('hotel-butler.notifications', String(enabled));
+  }
 </script>
 
 <main class="h-full overflow-auto bg-secondary px-9 py-10">
-  <div class="mx-auto max-w-4xl">
-    <header class="mb-6 flex items-center justify-between gap-6">
-      <h1 class="m-0 text-[28px] leading-tight font-semibold tracking-[-0.01em]">设置</h1>
-
-      <Button
-        variant="outline"
-        disabled={settingsQuery.isFetching}
-        onclick={() => void settingsQuery.refetch()}
-      >
-        <RefreshCw class={settingsQuery.isFetching ? 'animate-spin' : undefined} size={16} />
-        刷新
-      </Button>
+  <div class="mx-auto max-w-3xl">
+    <header>
+      <h1 class="m-0 text-[28px] font-semibold tracking-[-0.02em]">设置</h1>
     </header>
 
-    <section class="min-h-44 rounded-lg border border-border bg-card p-6" aria-live="polite">
-      <h2 class="m-0 text-base font-semibold">已保存的设置</h2>
+    {#if error}<p class="mt-4 text-sm text-destructive" role="alert">{error}</p>{/if}
 
-      {#if settingsQuery.isPending}
-        <p class="my-10 text-center text-sm text-muted-foreground">正在读取设置…</p>
-      {:else if settingsQuery.isError}
-        <p class="my-10 text-center text-sm text-destructive">
-          读取失败：{settingsQuery.error.message}
-        </p>
-      {:else if settingsQuery.data.length === 0}
-        <p class="my-10 text-center text-sm text-muted-foreground">目前还没有保存任何设置。</p>
-      {:else}
-        <dl class="mt-5 grid gap-2.5">
-          {#each settingsQuery.data as setting (setting.key)}
-            <div
-              class="grid grid-cols-[minmax(180px,0.45fr)_minmax(0,1fr)] gap-5 rounded-md bg-muted px-4 py-3"
-            >
-              <dt class="font-medium">{setting.key}</dt>
-              <dd
-                class="m-0 min-w-0 [overflow-wrap:anywhere] font-mono text-[13px] text-muted-foreground"
-              >
-                {JSON.stringify(setting.value)}
-              </dd>
-            </div>
-          {/each}
-        </dl>
-      {/if}
+    <section class="mt-6 overflow-hidden rounded-lg border border-border bg-card">
+      <div class="flex items-center gap-3 border-b border-border px-6 py-4">
+        <Settings2 size={18} class="text-muted-foreground" />
+        <h2 class="m-0 text-sm font-semibold">常规</h2>
+      </div>
+
+      <div class="divide-y divide-border">
+        <label class="flex items-center justify-between gap-6 px-6 py-4">
+          <span class="flex items-center gap-3 text-sm">
+            <MonitorUp size={17} class="text-muted-foreground" />
+            开机自动启动
+          </span>
+          <input
+            class="size-4 accent-primary"
+            type="checkbox"
+            checked={preferences?.autoLaunch ?? false}
+            disabled={!preferences}
+            onchange={(event) => void toggleAutoLaunch(event.currentTarget.checked)}
+          />
+        </label>
+        <label class="flex items-center justify-between gap-6 px-6 py-4">
+          <span class="flex items-center gap-3 text-sm">
+            <Bell size={17} class="text-muted-foreground" />
+            桌面通知
+          </span>
+          <input
+            class="size-4 accent-primary"
+            type="checkbox"
+            checked={notifications}
+            onchange={(event) => toggleNotifications(event.currentTarget.checked)}
+          />
+        </label>
+      </div>
+    </section>
+
+    <section class="mt-5 rounded-lg border border-border bg-card px-6 py-5">
+      <div class="flex items-center justify-between gap-6">
+        <div>
+          <h2 class="m-0 text-sm font-semibold">客户端版本</h2>
+          <p class="mt-1 mb-0 text-xs text-muted-foreground">Hotel Butler 桌面客户端</p>
+        </div>
+        <span class="text-sm font-medium"
+          >V{(preferences?.version ?? '1.0.0').replace(/\.0$/, '')}</span
+        >
+      </div>
     </section>
   </div>
 </main>

@@ -22,6 +22,7 @@ describe('createDesktopApi', () => {
     expect(Object.isFrozen(api)).toBe(true);
     expect(Object.isFrozen(api.versions)).toBe(true);
     expect(Object.isFrozen(api.settings)).toBe(true);
+    expect(Object.isFrozen(api.browser)).toBe(true);
   });
 
   it('maps the settings API to fixed IPC channels', async () => {
@@ -38,6 +39,35 @@ describe('createDesktopApi', () => {
       [IPC_CHANNELS.settings.get, 'theme'],
       [IPC_CHANNELS.settings.set, { key: 'theme', value: { mode: 'dark' } }],
       [IPC_CHANNELS.settings.delete, 'theme'],
+    ]);
+  });
+
+  it('maps browser actions to fixed IPC channels', async () => {
+    const invoke = vi.fn().mockResolvedValue(undefined);
+    const api = createDesktopApi({ chrome: '1', electron: '2', node: '3' }, invoke);
+
+    await api.browser.create('ctrip', 'https://ebooking.ctrip.com/');
+    await api.browser.activate('tab-1');
+    await api.browser.close('tab-1');
+    await api.browser.goBack('tab-1');
+    await api.browser.goForward('tab-1');
+    await api.browser.hide();
+    await api.browser.list();
+    await api.browser.reload('tab-1');
+    await api.browser.setBounds({ x: 80, y: 120, width: 800, height: 600 });
+    await api.cookies.import();
+
+    expect(invoke.mock.calls).toEqual([
+      [IPC_CHANNELS.browser.create, { channelId: 'ctrip', url: 'https://ebooking.ctrip.com/' }],
+      [IPC_CHANNELS.browser.activate, 'tab-1'],
+      [IPC_CHANNELS.browser.close, 'tab-1'],
+      [IPC_CHANNELS.browser.goBack, 'tab-1'],
+      [IPC_CHANNELS.browser.goForward, 'tab-1'],
+      [IPC_CHANNELS.browser.hide],
+      [IPC_CHANNELS.browser.list],
+      [IPC_CHANNELS.browser.reload, 'tab-1'],
+      [IPC_CHANNELS.browser.setBounds, { x: 80, y: 120, width: 800, height: 600 }],
+      [IPC_CHANNELS.cookies.import],
     ]);
   });
 });

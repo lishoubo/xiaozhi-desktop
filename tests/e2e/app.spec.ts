@@ -13,6 +13,8 @@ let electronApp: ElectronApplication;
 let page: Page;
 let runtimeDirectory: string;
 
+test.describe.configure({ mode: 'serial' });
+
 test.beforeAll(async () => {
   runtimeDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'hotel-butler-e2e-'));
   const launchEnvironment = { ...process.env };
@@ -20,7 +22,10 @@ test.beforeAll(async () => {
   delete launchEnvironment.NO_COLOR;
 
   electronApp = await electron.launch({
-    args: [path.resolve('.e2e/build/main.js')],
+    args: [
+      path.resolve('.e2e/build/main.js'),
+      `--user-data-dir=${path.join(runtimeDirectory, 'user-data')}`,
+    ],
     cwd: path.resolve('.'),
     env: {
       ...launchEnvironment,
@@ -34,6 +39,18 @@ test.beforeAll(async () => {
 test.afterAll(async () => {
   await electronApp?.close();
   fs.rmSync(runtimeDirectory, { force: true, recursive: true });
+});
+
+test('logs in with the mock phone verification flow', async () => {
+  await page.getByRole('textbox', { name: '手机号' }).fill('13800138000');
+  await page.getByRole('button', { name: '获取验证码' }).click();
+  await page.getByRole('textbox', { name: '验证码' }).fill('123456');
+  await page.getByRole('checkbox', { name: /我已阅读并同意/ }).check();
+  await page.getByRole('button', { name: '登录' }).click();
+
+  await expect(page.getByRole('button', { name: '携程酒店 eBooking' })).toBeVisible();
+  await expect(page.getByText('导入已有浏览器 Cookie')).toBeVisible();
+  await page.getByRole('button', { name: '暂不导入' }).click();
 });
 
 test('persists settings through preload, IPC, Drizzle and SQLite', async () => {
@@ -58,9 +75,9 @@ test('persists settings through preload, IPC, Drizzle and SQLite', async () => {
 
 test('starts the Electron window with the Svelte browser shell', async () => {
   await expect(page).toHaveTitle('Hotel Butler');
-  await expect(page.getByRole('heading', { name: '开始浏览' })).toBeVisible();
-  await expect(page.getByText('在地址栏输入网址即可开始。')).toBeVisible();
-  await expect(page.getByRole('textbox', { name: '网址' })).toHaveValue('https://example.com');
+  await expect(page.getByRole('button', { name: '携程酒店 eBooking' })).toBeVisible();
+  await expect(page.getByRole('textbox', { name: '网址' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: '刷新' })).toBeVisible();
 
   const versions = await electronApp.evaluate(({ app }) => ({
     electron: process.versions.electron,
@@ -76,7 +93,7 @@ test('navigates static routes and loads settings through TanStack Query', async 
 
   await expect(page).toHaveURL(/#\/settings$/);
   await expect(page.getByRole('heading', { name: '设置', exact: true })).toBeVisible();
-  await expect(page.getByText('目前还没有保存任何设置。')).toBeVisible();
+  await expect(page.getByText('客户端版本')).toBeVisible();
 
   await page.getByRole('link', { name: '浏览器' }).click();
   await expect(page).toHaveURL(/#\/$/);
