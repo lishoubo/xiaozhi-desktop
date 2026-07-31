@@ -27,8 +27,12 @@
  */
 
 import { mount } from 'svelte';
+import log from 'electron-log/renderer';
 import App from './App.svelte';
+import { configureRendererLogging } from './logging';
 import './styles/global.css';
+
+configureRendererLogging(log, { isDevelopment: import.meta.env.DEV });
 
 const target = document.getElementById('app');
 

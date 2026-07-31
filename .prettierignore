@@ -15,3 +15,4 @@ out
 dist
 coverage
 package-lock.json
+*.md

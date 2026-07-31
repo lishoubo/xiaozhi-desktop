@@ -1,4 +1,5 @@
 import { app, BrowserWindow } from 'electron';
+import log from 'electron-log/main';
 import path from 'node:path';
 import started from 'electron-squirrel-startup';
 import { openDatabase, type DatabaseConnection } from './database/connection';
@@ -9,6 +10,7 @@ import { configureNetworkPrivacy } from './security/network-privacy';
 import { SettingsRepository } from './settings/settings-repository';
 import { SettingsService } from './settings/settings-service';
 import { createMainWindow } from './windows/main-window';
+import { configureMainLogging } from './logging/configure-main-logging';
 
 let mainWindow: BrowserWindow | null = null;
 let databaseConnection: DatabaseConnection | null = null;
@@ -17,6 +19,11 @@ let browserManager: BrowserManager | null = null;
 let unregisterBrowserHandlers: (() => void) | null = null;
 
 configureNetworkPrivacy(app.commandLine);
+configureMainLogging(log, {
+  appVersion: app.getVersion(),
+  isPackaged: app.isPackaged,
+  platform: process.platform,
+});
 
 function getDatabasePath(): string {
   const testDatabasePath = app.isPackaged ? undefined : process.env.HOTEL_BUTLER_DATABASE_PATH;
@@ -66,7 +73,7 @@ if (started) {
     .whenReady()
     .then(initializeApplication)
     .catch((error: unknown) => {
-      console.error('应用初始化失败：', error);
+      log.error('Application initialization failed', error);
       app.quit();
     });
 }
