@@ -15,6 +15,10 @@ export type BrowserTab = Readonly<{
   loading: boolean;
 }>;
 
+export type BrowserRequestInterception = Readonly<{
+  ruleId: 'ctrip-soa2';
+}>;
+
 export type BrowserCookieSourceId = 'chrome' | 'edge' | 'firefox' | 'safari';
 
 export type BrowserCookieSource = Readonly<{

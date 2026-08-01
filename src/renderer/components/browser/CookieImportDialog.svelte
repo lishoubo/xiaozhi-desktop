@@ -1,5 +1,6 @@
 <script lang="ts">
   import CheckCircle2 from '@lucide/svelte/icons/circle-check-big';
+  import CircleAlert from '@lucide/svelte/icons/circle-alert';
   import log from 'electron-log/renderer';
   import LoaderCircle from '@lucide/svelte/icons/loader-circle';
   import type {
@@ -9,6 +10,7 @@
   } from '../../../shared/browser';
   import { Button, type ButtonSize, type ButtonVariant } from '$lib/components/ui/button';
   import * as Dialog from '$lib/components/ui/dialog';
+  import * as Alert from '$lib/components/ui/alert';
 
   let {
     triggerLabel,
@@ -141,7 +143,11 @@
       {/if}
 
       {#if error}
-        <p class="m-0 text-sm text-destructive" role="alert">{error}</p>
+        <Alert.Root variant="destructive">
+          <CircleAlert />
+          <Alert.Title>导入失败</Alert.Title>
+          <Alert.Description>{error}</Alert.Description>
+        </Alert.Root>
       {/if}
 
       <Dialog.Footer>

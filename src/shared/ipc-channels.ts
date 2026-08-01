@@ -3,6 +3,7 @@ export const IPC_CHANNELS = {
     getCtripCheckIn: 'automation:get-ctrip-check-in',
   },
   browser: {
+    acknowledgeInterception: 'browser:acknowledge-interception',
     activate: 'browser:activate',
     close: 'browser:close',
     create: 'browser:create',
@@ -11,6 +12,7 @@ export const IPC_CHANNELS = {
     hide: 'browser:hide',
     list: 'browser:list',
     reload: 'browser:reload',
+    requestIntercepted: 'browser:request-intercepted',
     setBounds: 'browser:set-bounds',
     stateChanged: 'browser:state-changed',
   },

@@ -10,7 +10,10 @@ describe('LoginPage', () => {
     render(LoginPage, { onLogin });
 
     await user.click(screen.getByRole('button', { name: '登录' }));
-    expect(screen.getByText('请输入正确的 11 位手机号')).toBeInTheDocument();
+    const validationAlert = screen.getByRole('alert');
+    expect(validationAlert).toHaveTextContent('请输入正确的 11 位手机号');
+    expect(validationAlert).toHaveAttribute('data-slot', 'alert');
+    expect(validationAlert.querySelector('svg')).toBeInTheDocument();
 
     await user.type(screen.getByRole('textbox', { name: '手机号' }), '13800138000');
     await user.click(screen.getByRole('button', { name: '获取验证码' }));

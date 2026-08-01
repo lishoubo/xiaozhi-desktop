@@ -52,10 +52,12 @@ describe('IPC operational logging', () => {
   it('warns when an untrusted browser sender is rejected without logging its payload', () => {
     const logger = createLogger();
     const trustedSender = {};
+    const acknowledgeInterception = vi.fn();
     registerBrowserHandlers({
       window: { webContents: trustedSender },
       manager: {
         browserSession: { cookies: { set: vi.fn() } },
+        acknowledgeInterception,
         activate: vi.fn(),
         close: vi.fn(),
         create: vi.fn(),
@@ -77,6 +79,9 @@ describe('IPC operational logging', () => {
       channel: IPC_CHANNELS.browser.create,
     });
     expect(JSON.stringify(logger.warn.mock.calls)).not.toContain('secret-value');
+
+    invoke(IPC_CHANNELS.browser.acknowledgeInterception, trustedSender);
+    expect(acknowledgeInterception).toHaveBeenCalledOnce();
   });
 
   it('records Cookie application counts and auto-launch changes', async () => {
@@ -87,6 +92,7 @@ describe('IPC operational logging', () => {
       window: { webContents: sender },
       manager: {
         browserSession: { cookies: { set: setCookie } },
+        acknowledgeInterception: vi.fn(),
         activate: vi.fn(),
         close: vi.fn(),
         create: vi.fn(),

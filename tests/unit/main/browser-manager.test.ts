@@ -3,9 +3,30 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const electron = vi.hoisted(() => {
   const views: MockWebContentsView[] = [];
   let nextLoadError: Error | null = null;
+  let beforeRequestListener:
+    | ((
+        details: { url: string; webContentsId?: number },
+        callback: (response: { cancel?: boolean }) => void,
+      ) => void)
+    | null = null;
   const browserSession = {
     setPermissionCheckHandler: vi.fn(),
     setPermissionRequestHandler: vi.fn(),
+    webRequest: {
+      onBeforeRequest: vi.fn(
+        (
+          _filter: unknown,
+          listener:
+            | ((
+                details: { url: string },
+                callback: (response: { cancel?: boolean }) => void,
+              ) => void)
+            | null,
+        ) => {
+          beforeRequestListener = listener;
+        },
+      ),
+    },
   };
 
   class MockWebContentsView {
@@ -15,6 +36,7 @@ const electron = vi.hoisted(() => {
       close: vi.fn(),
       getTitle: vi.fn(() => 'Page title'),
       getURL: vi.fn(() => 'https://example.com/'),
+      id: views.length + 1,
       isDestroyed: vi.fn(() => false),
       loadURL: vi.fn(async () => {
         const error = nextLoadError;
@@ -44,6 +66,7 @@ const electron = vi.hoisted(() => {
 
   return {
     browserSession,
+    getBeforeRequestListener: () => beforeRequestListener,
     MockWebContentsView,
     session: { fromPartition: vi.fn(() => browserSession) },
     setNextLoadError: (error: Error) => {
@@ -81,6 +104,7 @@ beforeEach(() => {
   electron.session.fromPartition.mockClear();
   electron.browserSession.setPermissionCheckHandler.mockClear();
   electron.browserSession.setPermissionRequestHandler.mockClear();
+  electron.browserSession.webRequest.onBeforeRequest.mockClear();
 });
 
 describe('BrowserManager', () => {
@@ -137,5 +161,102 @@ describe('BrowserManager', () => {
     expect(logger.warn).toHaveBeenCalledWith('Blocked invalid browser navigation', {
       channelId: 'ctrip',
     });
+  });
+
+  it('blocks matching Ctrip API requests and opens a renderer Alert Dialog', () => {
+    const logger = createLogger();
+    const window = createWindow();
+    const manager = new BrowserManager(window as never, logger);
+    manager.create('ctrip', 'https://ebooking.ctrip.com/');
+    const callback = vi.fn();
+
+    expect(electron.browserSession.webRequest.onBeforeRequest).toHaveBeenCalledWith(
+      { urls: ['https://m.ctrip.com/restapi/soa2/*'] },
+      expect.any(Function),
+    );
+
+    electron.getBeforeRequestListener()?.(
+      {
+        url: 'https://m.ctrip.com/restapi/soa2/12345/json?token=private',
+        webContentsId: electron.views[0].webContents.id,
+      },
+      callback,
+    );
+
+    expect(callback).toHaveBeenCalledWith({ cancel: true });
+    expect(window.contentView.removeChildView).toHaveBeenCalledWith(electron.views[0]);
+    expect(window.webContents.send).toHaveBeenCalledWith('browser:request-intercepted', {
+      ruleId: 'ctrip-soa2',
+    });
+    expect(logger.info).toHaveBeenCalledWith('Embedded browser request intercepted', {
+      ruleId: 'ctrip-soa2',
+    });
+    expect(JSON.stringify(logger.info.mock.calls)).not.toContain('token=private');
+  });
+
+  it('cancels concurrent matching requests without stacking interception alerts', () => {
+    const window = createWindow();
+    const manager = new BrowserManager(window as never, createLogger());
+    manager.create('ctrip', 'https://ebooking.ctrip.com/');
+    const firstCallback = vi.fn();
+    const secondCallback = vi.fn();
+    const webContentsId = electron.views[0].webContents.id;
+
+    electron.getBeforeRequestListener()?.(
+      { url: 'https://m.ctrip.com/restapi/soa2/first', webContentsId },
+      firstCallback,
+    );
+    electron.getBeforeRequestListener()?.(
+      { url: 'https://m.ctrip.com/restapi/soa2/second', webContentsId },
+      secondCallback,
+    );
+
+    expect(firstCallback).toHaveBeenCalledWith({ cancel: true });
+    expect(secondCallback).toHaveBeenCalledWith({ cancel: true });
+    expect(window.webContents.send).toHaveBeenCalledOnce();
+  });
+
+  it('restores the active embedded page after the interception alert is acknowledged', () => {
+    const window = createWindow();
+    const manager = new BrowserManager(window as never, createLogger());
+    manager.create('ctrip', 'https://ebooking.ctrip.com/');
+    const webContentsId = electron.views[0].webContents.id;
+
+    electron.getBeforeRequestListener()?.(
+      { url: 'https://m.ctrip.com/restapi/soa2/request', webContentsId },
+      vi.fn(),
+    );
+    manager.acknowledgeInterception();
+
+    expect(window.contentView.addChildView).toHaveBeenCalledTimes(2);
+    expect(window.contentView.addChildView).toHaveBeenLastCalledWith(electron.views[0]);
+  });
+
+  it('allows matching requests from the unmanaged background automation view', () => {
+    const window = createWindow();
+    new BrowserManager(window as never, createLogger());
+    const callback = vi.fn();
+
+    electron.getBeforeRequestListener()?.(
+      {
+        url: 'https://m.ctrip.com/restapi/soa2/background-check-in',
+        webContentsId: 999,
+      },
+      callback,
+    );
+
+    expect(callback).toHaveBeenCalledWith({});
+    expect(window.webContents.send).not.toHaveBeenCalled();
+  });
+
+  it('removes the Ctrip request interceptor when the browser manager is destroyed', () => {
+    const manager = new BrowserManager(createWindow() as never, createLogger());
+
+    manager.destroy();
+
+    expect(electron.browserSession.webRequest.onBeforeRequest).toHaveBeenLastCalledWith(
+      { urls: ['https://m.ctrip.com/restapi/soa2/*'] },
+      null,
+    );
   });
 });

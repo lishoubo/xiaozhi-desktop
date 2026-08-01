@@ -11,6 +11,7 @@ type RegisterBrowserHandlersOptions = Readonly<{
     browserSession: Readonly<{
       cookies: Readonly<{ set: (cookie: CookiesSetDetails) => Promise<void> }>;
     }>;
+    acknowledgeInterception: () => void;
     activate: (tabId: string) => unknown;
     close: (tabId: string) => void;
     create: (channelId: string, url: string) => unknown;
@@ -62,6 +63,7 @@ export function registerBrowserHandlers({
     }
     return manager.create(channelId, url);
   });
+  handle(IPC_CHANNELS.browser.acknowledgeInterception, () => manager.acknowledgeInterception());
   handle(IPC_CHANNELS.browser.activate, (_event, tabId) => {
     if (typeof tabId !== 'string') throw new Error('标签标识无效');
     return manager.activate(tabId);
@@ -126,7 +128,9 @@ export function registerBrowserHandlers({
 
   const channels = [
     ...Object.values(IPC_CHANNELS.browser).filter(
-      (channel) => channel !== IPC_CHANNELS.browser.stateChanged,
+      (channel) =>
+        channel !== IPC_CHANNELS.browser.stateChanged &&
+        channel !== IPC_CHANNELS.browser.requestIntercepted,
     ),
     ...Object.values(IPC_CHANNELS.cookies),
     ...Object.values(IPC_CHANNELS.system),

@@ -48,6 +48,7 @@ describe('App routing and query integration', () => {
           delete: vi.fn(),
         },
         browser: {
+          acknowledgeInterception: vi.fn(),
           create: createTab,
           activate: vi.fn(),
           close: vi.fn(),
@@ -58,6 +59,7 @@ describe('App routing and query integration', () => {
           reload: vi.fn(),
           setBounds: vi.fn(),
           onStateChanged: vi.fn(() => vi.fn()),
+          onRequestIntercepted: vi.fn(() => vi.fn()),
         },
         cookies: {
           listSources: listCookieSources,

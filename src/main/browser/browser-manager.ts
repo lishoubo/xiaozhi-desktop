@@ -1,4 +1,11 @@
-import { BrowserWindow, session, WebContentsView, type Rectangle, type Session } from 'electron';
+import {
+  BrowserWindow,
+  session,
+  WebContentsView,
+  type Rectangle,
+  type Session,
+  type WebRequestFilter,
+} from 'electron';
 import { randomUUID } from 'node:crypto';
 import { IPC_CHANNELS } from '../../shared/ipc-channels';
 import type { BrowserTab } from '../../shared/browser';
@@ -14,6 +21,10 @@ type ManagedTab = {
   view: WebContentsView;
 };
 
+const CTRIP_API_REQUEST_FILTER: WebRequestFilter = {
+  urls: ['https://m.ctrip.com/restapi/soa2/*'],
+};
+
 function assertWebUrl(url: string): void {
   const parsed = new URL(url);
   if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
@@ -24,8 +35,10 @@ function assertWebUrl(url: string): void {
 export class BrowserManager {
   readonly browserSession: Session;
   private readonly tabs = new Map<string, ManagedTab>();
+  private readonly managedWebContentsIds = new Set<number>();
   private activeTabId: string | null = null;
   private bounds: Rectangle = { x: 0, y: 0, width: 0, height: 0 };
+  private interceptionAlertOpen = false;
 
   constructor(
     private readonly window: BrowserWindow,
@@ -33,6 +46,7 @@ export class BrowserManager {
   ) {
     this.browserSession = session.fromPartition('persist:hotel-butler-browser');
     denyEmbeddedPagePermissions(this.browserSession);
+    this.installRequestInterceptor();
   }
 
   create(channelId: string, url: string): BrowserTab {
@@ -48,6 +62,7 @@ export class BrowserManager {
         session: this.browserSession,
       },
     });
+    this.managedWebContentsIds.add(view.webContents.id);
     const tab: ManagedTab = {
       id,
       channelId,
@@ -77,7 +92,7 @@ export class BrowserManager {
     if (this.activeTabId !== tabId) {
       const previous = this.activeTabId ? this.tabs.get(this.activeTabId) : undefined;
       if (previous) this.window.contentView.removeChildView(previous.view);
-      this.window.contentView.addChildView(tab.view);
+      if (!this.interceptionAlertOpen) this.window.contentView.addChildView(tab.view);
       this.activeTabId = tabId;
     }
     tab.view.setBounds(this.bounds);
@@ -91,8 +106,19 @@ export class BrowserManager {
       this.activeTabId = null;
     }
     this.tabs.delete(tabId);
+    this.managedWebContentsIds.delete(tab.view.webContents.id);
     tab.view.webContents.close();
     this.logger.info('Browser tab closed', { channelId: tab.channelId });
+  }
+
+  acknowledgeInterception(): void {
+    if (!this.interceptionAlertOpen) return;
+    this.interceptionAlertOpen = false;
+    const active = this.activeTabId ? this.tabs.get(this.activeTabId) : undefined;
+    if (active && !this.window.isDestroyed()) {
+      this.window.contentView.addChildView(active.view);
+      active.view.setBounds(this.bounds);
+    }
   }
 
   goBack(tabId: string): void {
@@ -110,10 +136,10 @@ export class BrowserManager {
   }
 
   hide(): void {
-    if (!this.activeTabId) return;
-    const active = this.tabs.get(this.activeTabId);
+    const active = this.activeTabId ? this.tabs.get(this.activeTabId) : undefined;
     if (active) this.window.contentView.removeChildView(active.view);
     this.activeTabId = null;
+    this.interceptionAlertOpen = false;
   }
 
   list(): BrowserTab[] {
@@ -140,8 +166,34 @@ export class BrowserManager {
       if (!tab.view.webContents.isDestroyed()) tab.view.webContents.close();
     }
     this.tabs.clear();
+    this.managedWebContentsIds.clear();
     this.activeTabId = null;
+    this.interceptionAlertOpen = false;
+    this.browserSession.webRequest.onBeforeRequest(CTRIP_API_REQUEST_FILTER, null);
     if (tabCount > 0) this.logger.info('Browser workspace closed', { tabCount });
+  }
+
+  private installRequestInterceptor(): void {
+    this.browserSession.webRequest.onBeforeRequest(
+      CTRIP_API_REQUEST_FILTER,
+      (details, callback) => {
+        if (!this.managedWebContentsIds.has(details.webContentsId ?? -1)) {
+          callback({});
+          return;
+        }
+
+        callback({ cancel: true });
+        if (this.interceptionAlertOpen || this.window.isDestroyed()) return;
+
+        this.interceptionAlertOpen = true;
+        const active = this.activeTabId ? this.tabs.get(this.activeTabId) : undefined;
+        if (active) this.window.contentView.removeChildView(active.view);
+        this.logger.info('Embedded browser request intercepted', { ruleId: 'ctrip-soa2' });
+        this.window.webContents.send(IPC_CHANNELS.browser.requestIntercepted, {
+          ruleId: 'ctrip-soa2',
+        });
+      },
+    );
   }
 
   private bindTabEvents(tab: ManagedTab): void {

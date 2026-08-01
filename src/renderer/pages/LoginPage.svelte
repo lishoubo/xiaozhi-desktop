@@ -1,8 +1,10 @@
 <script lang="ts">
   import { onDestroy } from 'svelte';
+  import CircleAlert from '@lucide/svelte/icons/circle-alert';
   import ShieldCheck from '@lucide/svelte/icons/shield-check';
   import { CODE_DURATION_MS, MOCK_CODE, MOCK_PHONE } from '../auth';
   import * as Dialog from '$lib/components/ui/dialog';
+  import * as Alert from '$lib/components/ui/alert';
 
   let { onLogin }: { onLogin: (phone: string) => void } = $props();
 
@@ -141,7 +143,11 @@
       </label>
 
       {#if error}
-        <p class="mt-4 mb-0 text-sm text-destructive" role="alert">{error}</p>
+        <Alert.Root class="mt-4" variant="destructive">
+          <CircleAlert />
+          <Alert.Title>无法登录</Alert.Title>
+          <Alert.Description>{error}</Alert.Description>
+        </Alert.Root>
       {/if}
 
       <button

@@ -4,6 +4,7 @@ import type {
   BrowserBounds,
   BrowserCookieSource,
   BrowserCookieSourceId,
+  BrowserRequestInterception,
   BrowserTab,
   CookieImportResult,
   SystemPreferences,
@@ -19,6 +20,7 @@ export type DesktopApi = Readonly<{
     node: string;
   }>;
   browser: Readonly<{
+    acknowledgeInterception: () => Promise<void>;
     create: (channelId: string, url: string) => Promise<BrowserTab>;
     activate: (tabId: string) => Promise<BrowserTab>;
     close: (tabId: string) => Promise<void>;
@@ -28,6 +30,7 @@ export type DesktopApi = Readonly<{
     list: () => Promise<BrowserTab[]>;
     reload: (tabId: string) => Promise<void>;
     setBounds: (bounds: BrowserBounds) => Promise<void>;
+    onRequestIntercepted: (listener: (event: BrowserRequestInterception) => void) => () => void;
     onStateChanged: (listener: (tab: BrowserTab) => void) => () => void;
   }>;
   cookies: Readonly<{
@@ -59,6 +62,7 @@ export function createDesktopApi(
       invoke<CtripCheckInResult | null>(IPC_CHANNELS.automation.getCtripCheckIn),
   });
   const browser = Object.freeze({
+    acknowledgeInterception: () => invoke<void>(IPC_CHANNELS.browser.acknowledgeInterception),
     create: (channelId: string, url: string) =>
       invoke<BrowserTab>(IPC_CHANNELS.browser.create, { channelId, url }),
     activate: (tabId: string) => invoke<BrowserTab>(IPC_CHANNELS.browser.activate, tabId),
@@ -69,6 +73,10 @@ export function createDesktopApi(
     list: () => invoke<BrowserTab[]>(IPC_CHANNELS.browser.list),
     reload: (tabId: string) => invoke<void>(IPC_CHANNELS.browser.reload, tabId),
     setBounds: (bounds: BrowserBounds) => invoke<void>(IPC_CHANNELS.browser.setBounds, bounds),
+    onRequestIntercepted: (listener: (event: BrowserRequestInterception) => void) =>
+      subscribe(IPC_CHANNELS.browser.requestIntercepted, (value) =>
+        listener(value as BrowserRequestInterception),
+      ),
     onStateChanged: (listener: (tab: BrowserTab) => void) =>
       subscribe(IPC_CHANNELS.browser.stateChanged, (value) => listener(value as BrowserTab)),
   });

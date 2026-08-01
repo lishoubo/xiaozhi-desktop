@@ -3,6 +3,7 @@
   import log from 'electron-log/renderer';
   import ArrowLeft from '@lucide/svelte/icons/arrow-left';
   import ArrowRight from '@lucide/svelte/icons/arrow-right';
+  import CircleAlert from '@lucide/svelte/icons/circle-alert';
   import Import from '@lucide/svelte/icons/import';
   import LoaderCircle from '@lucide/svelte/icons/loader-circle';
   import RotateCw from '@lucide/svelte/icons/rotate-cw';
@@ -10,6 +11,8 @@
   import type { BrowserTab } from '../../../shared/browser';
   import { OTA_CHANNELS, type OtaChannel } from '../../data/ota-channels';
   import { Button } from '$lib/components/ui/button';
+  import * as Alert from '$lib/components/ui/alert';
+  import * as AlertDialog from '$lib/components/ui/alert-dialog';
   import CookieImportDialog from './CookieImportDialog.svelte';
 
   const COOKIE_PROMPT_KEY = 'hotel-butler.cookie-import-prompted';
@@ -19,6 +22,7 @@
   let viewport: HTMLElement;
   let cookiePrompt = $state(false);
   let browserError = $state('');
+  let interceptionAlertOpen = $state(false);
   let activeTabs = $derived(tabsByChannel[activeChannelId] ?? []);
   let activeTab = $derived(
     activeTabs.find((tab) => tab.id === activeTabIds[activeChannelId]) ?? activeTabs[0],
@@ -137,10 +141,27 @@
     }
   }
 
+  async function acknowledgeInterception(event: MouseEvent): Promise<void> {
+    event.preventDefault();
+    try {
+      await window.hotelButler.browser.acknowledgeInterception();
+      interceptionAlertOpen = false;
+    } catch (error) {
+      reportBrowserFailure(
+        'Browser interception could not be acknowledged',
+        '页面恢复失败，请重新打开渠道',
+        error,
+      );
+    }
+  }
+
   onMount(() => {
     let mounted = true;
     const unsubscribe = window.hotelButler.browser.onStateChanged((tab) => {
       updateTab(tab);
+    });
+    const unsubscribeInterception = window.hotelButler.browser.onRequestIntercepted(() => {
+      interceptionAlertOpen = true;
     });
     const observer = new ResizeObserver(() => void syncBounds());
     observer.observe(viewport);
@@ -180,6 +201,7 @@
         });
       });
       unsubscribe();
+      unsubscribeInterception();
       observer.disconnect();
       window.removeEventListener('resize', syncBounds);
     };
@@ -300,12 +322,14 @@
       </div>
     {/if}
     {#if browserError}
-      <p
-        class="absolute top-4 left-1/2 -translate-x-1/2 rounded-md bg-destructive px-4 py-2 text-sm text-white"
-        role="alert"
+      <Alert.Root
+        class="absolute top-4 left-1/2 w-auto max-w-[min(32rem,calc(100%-2rem))] -translate-x-1/2 shadow-lg"
+        variant="destructive"
       >
-        {browserError}
-      </p>
+        <CircleAlert />
+        <Alert.Title>页面操作失败</Alert.Title>
+        <Alert.Description>{browserError}</Alert.Description>
+      </Alert.Root>
     {/if}
   </section>
 </main>
@@ -334,3 +358,17 @@
     </div>
   </aside>
 {/if}
+
+<AlertDialog.Root bind:open={interceptionAlertOpen}>
+  <AlertDialog.Content>
+    <AlertDialog.Header>
+      <AlertDialog.Title>请求拦截成功</AlertDialog.Title>
+      <AlertDialog.Description>已拦截携程接口请求：/restapi/soa2/**</AlertDialog.Description>
+    </AlertDialog.Header>
+    <AlertDialog.Footer>
+      <AlertDialog.Action onclick={(event) => void acknowledgeInterception(event)}
+        >知道了</AlertDialog.Action
+      >
+    </AlertDialog.Footer>
+  </AlertDialog.Content>
+</AlertDialog.Root>

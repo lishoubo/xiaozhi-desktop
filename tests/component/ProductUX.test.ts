@@ -42,4 +42,18 @@ describe('product UX restraint', () => {
     expect(await screen.findByText('V1.0')).toBeInTheDocument();
     expect(screen.getByText('小智酒店管家桌面客户端')).toBeInTheDocument();
   });
+
+  it('shows settings failures with the shared icon Alert treatment', async () => {
+    Object.defineProperty(window.hotelButler.system, 'getPreferences', {
+      configurable: true,
+      value: vi.fn().mockRejectedValue(new Error('settings unavailable')),
+    });
+
+    render(SettingsPage);
+
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent('设置读取失败，请重试');
+    expect(alert).toHaveAttribute('data-slot', 'alert');
+    expect(alert.querySelector('svg')).toBeInTheDocument();
+  });
 });
