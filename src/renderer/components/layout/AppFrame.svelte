@@ -1,102 +1,99 @@
 <script lang="ts">
-  import Globe2 from '@lucide/svelte/icons/globe-2';
   import Bot from '@lucide/svelte/icons/bot';
-  import Settings from '@lucide/svelte/icons/settings';
   import CircleUserRound from '@lucide/svelte/icons/circle-user-round';
+  import Globe2 from '@lucide/svelte/icons/globe-2';
+  import Menu from '@lucide/svelte/icons/menu';
+  import Settings from '@lucide/svelte/icons/settings';
   import { link } from 'svelte-spa-router';
   import active from 'svelte-spa-router/active';
   import type { Snippet } from 'svelte';
-  import * as Tooltip from '$lib/components/ui/tooltip';
+  import { enter } from '../../motion';
+  import { Button } from '$lib/components/ui/button';
 
   let { children }: { children: Snippet } = $props();
+  let sidebarOpen = $state(true);
+
+  const navigationClass =
+    'grid size-11 place-items-center rounded-md text-muted-foreground no-underline transition-colors duration-150 ease-out hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2 focus-visible:ring-sidebar-ring focus-visible:outline-none motion-reduce:transition-none [&.active]:bg-sidebar-accent [&.active]:text-sidebar-accent-foreground';
 </script>
 
-<div class="grid h-full grid-cols-[64px_minmax(0,1fr)] bg-background">
+<div
+  class={[
+    'grid h-full bg-background transition-[grid-template-columns] duration-[180ms] ease-out motion-reduce:transition-none',
+    sidebarOpen ? 'grid-cols-[80px_minmax(0,1fr)]' : 'grid-cols-[52px_minmax(0,1fr)]',
+  ]}
+>
   <aside
-    class="flex flex-col items-center gap-7 border-r border-sidebar-border bg-sidebar px-2 py-5"
+    class="flex min-w-0 flex-col items-center gap-5 overflow-hidden border-r border-sidebar-border bg-sidebar px-1.5 py-4"
+    data-state={sidebarOpen ? 'open' : 'closed'}
   >
-    <div
-      class="grid size-9 select-none place-items-center rounded-lg bg-sidebar-primary text-sm font-semibold text-sidebar-primary-foreground"
-      aria-label="小智酒店管家"
+    <Button
+      variant="ghost"
+      size="icon"
+      aria-label={sidebarOpen ? '收起侧边栏' : '展开侧边栏'}
+      aria-controls="app-sidebar-navigation"
+      aria-expanded={sidebarOpen}
+      onclick={() => (sidebarOpen = !sidebarOpen)}
     >
-      智
-    </div>
+      <Menu size={22} strokeWidth={1.9} />
+    </Button>
 
-    <Tooltip.Provider delayDuration={200}>
-      <nav class="grid w-full gap-1.5" aria-label="应用导航">
-        <Tooltip.Root>
-          <Tooltip.Trigger>
-            {#snippet child({ props })}
-              <a
-                {...props}
-                class="grid size-10 place-items-center rounded-md text-muted-foreground no-underline transition-colors duration-150 ease-out hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2 focus-visible:ring-sidebar-ring focus-visible:outline-none motion-reduce:transition-none [&.active]:bg-sidebar-accent [&.active]:text-sidebar-accent-foreground"
-                href="/"
-                use:link
-                use:active={{ className: 'active' }}
-                aria-label="浏览器"
-              >
-                <Globe2 size={19} strokeWidth={1.8} />
-              </a>
-            {/snippet}
-          </Tooltip.Trigger>
-          <Tooltip.Content side="right" sideOffset={8}>浏览器</Tooltip.Content>
-        </Tooltip.Root>
+    {#if sidebarOpen}
+      <div
+        class="grid size-10 shrink-0 select-none place-items-center rounded-lg bg-sidebar-primary text-sm font-semibold text-sidebar-primary-foreground"
+        aria-label="小智酒店管家"
+        in:enter={{ duration: 150, y: 0 }}
+      >
+        智
+      </div>
 
-        <Tooltip.Root>
-          <Tooltip.Trigger>
-            {#snippet child({ props })}
-              <a
-                {...props}
-                class="grid size-10 place-items-center rounded-md text-muted-foreground no-underline transition-colors duration-150 ease-out hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2 focus-visible:ring-sidebar-ring focus-visible:outline-none motion-reduce:transition-none [&.active]:bg-sidebar-accent [&.active]:text-sidebar-accent-foreground"
-                href="/agent"
-                use:link
-                use:active={{ className: 'active' }}
-                aria-label="小智AI 管家"
-              >
-                <Bot size={19} strokeWidth={1.8} />
-              </a>
-            {/snippet}
-          </Tooltip.Trigger>
-          <Tooltip.Content side="right" sideOffset={8}>小智AI 管家</Tooltip.Content>
-        </Tooltip.Root>
+      <nav
+        id="app-sidebar-navigation"
+        class="grid w-full justify-items-center gap-2"
+        aria-label="应用导航"
+        in:enter={{ duration: 150, y: 0 }}
+      >
+        <a
+          class={navigationClass}
+          href="/"
+          use:link
+          use:active={{ className: 'active' }}
+          aria-label="浏览器"
+        >
+          <Globe2 size={22} strokeWidth={1.9} />
+        </a>
 
-        <Tooltip.Root>
-          <Tooltip.Trigger>
-            {#snippet child({ props })}
-              <a
-                {...props}
-                class="grid size-10 place-items-center rounded-md text-muted-foreground no-underline transition-colors duration-150 ease-out hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2 focus-visible:ring-sidebar-ring focus-visible:outline-none motion-reduce:transition-none [&.active]:bg-sidebar-accent [&.active]:text-sidebar-accent-foreground"
-                href="/profile"
-                use:link
-                use:active={{ className: 'active' }}
-                aria-label="用户中心"
-              >
-                <CircleUserRound size={19} strokeWidth={1.8} />
-              </a>
-            {/snippet}
-          </Tooltip.Trigger>
-          <Tooltip.Content side="right" sideOffset={8}>用户中心</Tooltip.Content>
-        </Tooltip.Root>
+        <a
+          class={navigationClass}
+          href="/agent"
+          use:link
+          use:active={{ className: 'active' }}
+          aria-label="小智AI 管家"
+        >
+          <Bot size={22} strokeWidth={1.9} />
+        </a>
 
-        <Tooltip.Root>
-          <Tooltip.Trigger>
-            {#snippet child({ props })}
-              <a
-                {...props}
-                class="grid size-10 place-items-center rounded-md text-muted-foreground no-underline transition-colors duration-150 ease-out hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2 focus-visible:ring-sidebar-ring focus-visible:outline-none motion-reduce:transition-none [&.active]:bg-sidebar-accent [&.active]:text-sidebar-accent-foreground"
-                href="/settings"
-                use:link
-                use:active={{ className: 'active' }}
-                aria-label="设置"
-              >
-                <Settings size={19} strokeWidth={1.8} />
-              </a>
-            {/snippet}
-          </Tooltip.Trigger>
-          <Tooltip.Content side="right" sideOffset={8}>设置</Tooltip.Content>
-        </Tooltip.Root>
+        <a
+          class={navigationClass}
+          href="/profile"
+          use:link
+          use:active={{ className: 'active' }}
+          aria-label="用户中心"
+        >
+          <CircleUserRound size={22} strokeWidth={1.9} />
+        </a>
+
+        <a
+          class={navigationClass}
+          href="/settings"
+          use:link
+          use:active={{ className: 'active' }}
+          aria-label="设置"
+        >
+          <Settings size={22} strokeWidth={1.9} />
+        </a>
       </nav>
-    </Tooltip.Provider>
+    {/if}
   </aside>
 
   <section class="min-h-0 min-w-0 overflow-hidden">

@@ -6,7 +6,6 @@
   import ArrowRight from '@lucide/svelte/icons/arrow-right';
   import CircleAlert from '@lucide/svelte/icons/circle-alert';
   import Import from '@lucide/svelte/icons/import';
-  import LoaderCircle from '@lucide/svelte/icons/loader-circle';
   import RotateCw from '@lucide/svelte/icons/rotate-cw';
   import X from '@lucide/svelte/icons/x';
   import type { BrowserTab } from '../../../shared/browser';
@@ -19,6 +18,7 @@
   } from '../../motion';
   import { OTA_CHANNELS, type OtaChannel } from '../../data/ota-channels';
   import { Button } from '$lib/components/ui/button';
+  import { Spinner } from '$lib/components/ui/spinner';
   import * as Alert from '$lib/components/ui/alert';
   import * as AlertDialog from '$lib/components/ui/alert-dialog';
   import CookieImportDialog from './CookieImportDialog.svelte';
@@ -282,11 +282,11 @@
             window.hotelButler.browser.reload(activeTab.id),
           )}
       >
-        <RotateCw
-          class={activeTab?.loading ? 'animate-spin' : undefined}
-          size={16}
-          strokeWidth={1.8}
-        />
+        {#if activeTab?.loading}
+          <Spinner aria-label="页面加载中" />
+        {:else}
+          <RotateCw size={16} strokeWidth={1.8} />
+        {/if}
       </Button>
     </nav>
 
@@ -312,7 +312,9 @@
             aria-selected={activeTab?.id === tab.id}
             onclick={() => void selectTab(tab)}
           >
-            {#if tab.loading}<LoaderCircle class="shrink-0 animate-spin" size={13} />{/if}
+            {#if tab.loading}
+              <Spinner class="size-[13px] shrink-0" aria-label={`${tab.title}正在加载`} />
+            {/if}
             <span class="min-w-0 flex-1 truncate">{tab.title}</span>
           </button>
           <button

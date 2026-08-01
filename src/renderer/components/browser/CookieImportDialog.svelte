@@ -3,7 +3,6 @@
   import CheckCircle2 from '@lucide/svelte/icons/circle-check-big';
   import CircleAlert from '@lucide/svelte/icons/circle-alert';
   import log from 'electron-log/renderer';
-  import LoaderCircle from '@lucide/svelte/icons/loader-circle';
   import type {
     BrowserCookieSource,
     BrowserCookieSourceId,
@@ -11,6 +10,7 @@
   } from '../../../shared/browser';
   import { ALERT_ANIMATION_OPTIONS, enter, SURFACE_TRANSITION_OPTIONS } from '../../motion';
   import { Button, type ButtonSize, type ButtonVariant } from '$lib/components/ui/button';
+  import { Spinner } from '$lib/components/ui/spinner';
   import * as Dialog from '$lib/components/ui/dialog';
   import * as Alert from '$lib/components/ui/alert';
 
@@ -118,7 +118,7 @@
           class="flex items-center justify-center gap-2 py-10 text-muted-foreground"
           in:enter={SURFACE_TRANSITION_OPTIONS}
         >
-          <LoaderCircle class="animate-spin" size={18} />
+          <Spinner class="size-[18px]" aria-label="正在检测浏览器" />
           <span>正在检测浏览器…</span>
         </div>
       {:else if sources.length === 0}
@@ -176,7 +176,7 @@
           onclick={() => void importCookies()}
         >
           {#if step === 'importing'}
-            <LoaderCircle class="animate-spin" size={16} />
+            <Spinner aria-label="正在导入 Cookie" />
             正在导入
           {:else}
             开始导入

@@ -17,7 +17,11 @@ describe('LoginPage', () => {
 
     await user.type(screen.getByRole('textbox', { name: '手机号' }), '13800138000');
     await user.click(screen.getByRole('button', { name: '获取验证码' }));
-    expect(screen.getByRole('button', { name: /秒后重新获取/ })).toBeDisabled();
+    const countdownButton = screen.getByRole('button', { name: /秒后重新获取/ });
+    expect(countdownButton).toBeDisabled();
+    expect(countdownButton).toHaveClass('text-[11px]');
+    expect(countdownButton).not.toHaveClass('text-xs');
+    expect(countdownButton).not.toHaveClass('text-sm');
 
     await user.type(screen.getByRole('textbox', { name: '验证码' }), '123456');
     await user.click(screen.getByRole('button', { name: '登录' }));

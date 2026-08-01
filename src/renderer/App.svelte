@@ -1,6 +1,6 @@
 <script lang="ts">
   import log from 'electron-log/renderer';
-  import Router from 'svelte-spa-router';
+  import Router, { replace } from 'svelte-spa-router';
   import { onDestroy } from 'svelte';
   import AppFrame from './components/layout/AppFrame.svelte';
   import StartupAutomationDialog from './components/automation/StartupAutomationDialog.svelte';
@@ -17,6 +17,11 @@
     session = null;
     log.info('User session cleared');
   };
+  const login = async (phone: string): Promise<void> => {
+    await replace('/');
+    session = createAuthSession(phone);
+    log.info('User session created');
+  };
   window.addEventListener('hotel-butler:logout', logout);
   onDestroy(() => {
     window.clearInterval(sessionTimer);
@@ -30,10 +35,5 @@
     <Router {routes} />
   </AppFrame>
 {:else}
-  <LoginPage
-    onLogin={(phone) => {
-      session = createAuthSession(phone);
-      log.info('User session created');
-    }}
-  />
+  <LoginPage onLogin={login} />
 {/if}

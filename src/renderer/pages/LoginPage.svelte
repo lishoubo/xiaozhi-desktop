@@ -115,7 +115,10 @@
             bind:value={code}
           />
           <button
-            class="rounded-md border border-input bg-background px-3 text-sm font-medium transition-colors duration-150 ease-out hover:bg-muted motion-reduce:transition-none disabled:text-muted-foreground"
+            class={[
+              'rounded-md border border-input bg-background px-3 font-medium transition-colors duration-150 ease-out hover:bg-muted motion-reduce:transition-none disabled:text-muted-foreground',
+              remainingSeconds > 0 ? 'text-[11px]' : 'text-sm',
+            ]}
             type="button"
             disabled={remainingSeconds > 0}
             onclick={requestCode}

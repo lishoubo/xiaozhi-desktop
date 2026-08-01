@@ -1,6 +1,7 @@
 import { render, screen, waitFor } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { BrowserTab } from '../../src/shared/browser';
 import BrowserWorkspace from '../../src/renderer/components/browser/BrowserWorkspace.svelte';
 
 describe('BrowserWorkspace', () => {
@@ -18,6 +19,7 @@ describe('BrowserWorkspace', () => {
   const listCookieSources = vi.fn();
   const importCookies = vi.fn();
   let requestInterceptedListener: (() => void) | null = null;
+  let stateChangedListener: ((tab: BrowserTab) => void) | null = null;
 
   beforeEach(() => {
     localStorage.clear();
@@ -26,6 +28,7 @@ describe('BrowserWorkspace', () => {
     activate.mockClear();
     acknowledgeInterception.mockReset();
     requestInterceptedListener = null;
+    stateChangedListener = null;
     listCookieSources.mockReset();
     importCookies.mockReset();
     listCookieSources.mockResolvedValue([
@@ -47,7 +50,10 @@ describe('BrowserWorkspace', () => {
           list: vi.fn().mockResolvedValue([]),
           reload: vi.fn(),
           setBounds: vi.fn(),
-          onStateChanged: vi.fn(() => vi.fn()),
+          onStateChanged: vi.fn((listener: (tab: BrowserTab) => void) => {
+            stateChangedListener = listener;
+            return vi.fn();
+          }),
           onRequestIntercepted: vi.fn((listener: () => void) => {
             requestInterceptedListener = listener;
             return vi.fn();
@@ -140,6 +146,25 @@ describe('BrowserWorkspace', () => {
     expect(
       screen.queryByText(/remote method|Users\/private|browser:create/i),
     ).not.toBeInTheDocument();
+  });
+
+  it('uses the shared Spinner while the active page is refreshing', async () => {
+    render(BrowserWorkspace);
+    await screen.findByRole('tab', { name: '携程后台' });
+
+    stateChangedListener?.({
+      id: 'ctrip-tab',
+      channelId: 'ctrip',
+      title: '携程后台',
+      url: 'https://ebooking.ctrip.com/',
+      canGoBack: false,
+      canGoForward: false,
+      loading: true,
+    });
+
+    const refreshButton = screen.getByRole('button', { name: '刷新' });
+    expect(await screen.findByLabelText('页面加载中')).toHaveAttribute('data-slot', 'spinner');
+    expect(refreshButton.querySelector('[data-slot="spinner"]')).toBeInTheDocument();
   });
 
   it('confirms an intercepted embedded-browser request with an Alert Dialog', async () => {

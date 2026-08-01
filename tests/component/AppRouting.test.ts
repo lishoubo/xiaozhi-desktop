@@ -109,6 +109,30 @@ describe('App routing and query integration', () => {
     expect(window.location.hash).toBe('#/agent');
   });
 
+  it('collapses and expands the wider icon sidebar without tooltip wrappers', async () => {
+    const user = userEvent.setup();
+    render(App);
+
+    const toggle = screen.getByRole('button', { name: '收起侧边栏' });
+    const navigation = screen.getByRole('navigation', { name: '应用导航' });
+    const browserLink = screen.getByRole('link', { name: '浏览器' });
+    expect(toggle).toHaveAttribute('aria-expanded', 'true');
+    expect(navigation.querySelector('[data-slot="tooltip-trigger"]')).not.toBeInTheDocument();
+    expect(browserLink).toHaveClass('size-11');
+    expect(browserLink.querySelector('svg')).toHaveAttribute('width', '22');
+
+    await user.click(toggle);
+
+    expect(screen.queryByRole('navigation', { name: '应用导航' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '展开侧边栏' })).toHaveAttribute(
+      'aria-expanded',
+      'false',
+    );
+
+    await user.click(screen.getByRole('button', { name: '展开侧边栏' }));
+    expect(screen.getByRole('navigation', { name: '应用导航' })).toBeInTheDocument();
+  });
+
   it('returns to login after the user signs out', async () => {
     const user = userEvent.setup();
     render(App);
@@ -119,6 +143,23 @@ describe('App routing and query integration', () => {
     const loginHeading = await screen.findByRole('heading', { name: '登录' });
     expect(loginHeading.closest('[data-motion="page"]')).toBeInTheDocument();
     expect(localStorage.getItem('hotel-butler.auth-session')).toBeNull();
+  });
+
+  it('opens the browser workspace after login even when the previous hash was profile', async () => {
+    localStorage.removeItem('hotel-butler.auth-session');
+    window.location.hash = '#/profile';
+    const user = userEvent.setup();
+    render(App);
+
+    await user.type(screen.getByRole('textbox', { name: '手机号' }), '13800138000');
+    await user.click(screen.getByRole('button', { name: '获取验证码' }));
+    await user.type(screen.getByRole('textbox', { name: '验证码' }), '123456');
+    await user.click(screen.getByRole('checkbox', { name: '我已阅读并同意用户协议与隐私政策' }));
+    await user.click(screen.getByRole('button', { name: '登录' }));
+
+    expect(await screen.findByRole('button', { name: '携程酒店 eBooking' })).toBeInTheDocument();
+    expect(window.location.hash).toBe('#/');
+    expect(screen.queryByRole('heading', { name: '用户中心' })).not.toBeInTheDocument();
   });
 
   it('allows cookies to be imported again from settings', async () => {
