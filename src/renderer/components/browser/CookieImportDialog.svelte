@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { autoAnimate } from '@formkit/auto-animate';
   import CheckCircle2 from '@lucide/svelte/icons/circle-check-big';
   import CircleAlert from '@lucide/svelte/icons/circle-alert';
   import log from 'electron-log/renderer';
@@ -8,6 +9,7 @@
     BrowserCookieSourceId,
     CookieImportResult,
   } from '../../../shared/browser';
+  import { ALERT_ANIMATION_OPTIONS } from '../../alert-animation';
   import { Button, type ButtonSize, type ButtonVariant } from '$lib/components/ui/button';
   import * as Dialog from '$lib/components/ui/dialog';
   import * as Alert from '$lib/components/ui/alert';
@@ -142,13 +144,15 @@
         </fieldset>
       {/if}
 
-      {#if error}
-        <Alert.Root variant="destructive">
-          <CircleAlert />
-          <Alert.Title>导入失败</Alert.Title>
-          <Alert.Description>{error}</Alert.Description>
-        </Alert.Root>
-      {/if}
+      <div use:autoAnimate={ALERT_ANIMATION_OPTIONS}>
+        {#if error}
+          <Alert.Root variant="destructive">
+            <CircleAlert />
+            <Alert.Title>导入失败</Alert.Title>
+            <Alert.Description>{error}</Alert.Description>
+          </Alert.Root>
+        {/if}
+      </div>
 
       <Dialog.Footer>
         <Button variant="ghost" disabled={step === 'importing'} onclick={() => (open = false)}

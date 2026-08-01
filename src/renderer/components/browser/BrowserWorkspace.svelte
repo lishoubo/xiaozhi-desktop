@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { autoAnimate } from '@formkit/auto-animate';
   import { onMount } from 'svelte';
   import log from 'electron-log/renderer';
   import ArrowLeft from '@lucide/svelte/icons/arrow-left';
@@ -9,6 +10,7 @@
   import RotateCw from '@lucide/svelte/icons/rotate-cw';
   import X from '@lucide/svelte/icons/x';
   import type { BrowserTab } from '../../../shared/browser';
+  import { ALERT_ANIMATION_OPTIONS } from '../../alert-animation';
   import { OTA_CHANNELS, type OtaChannel } from '../../data/ota-channels';
   import { Button } from '$lib/components/ui/button';
   import * as Alert from '$lib/components/ui/alert';
@@ -321,16 +323,18 @@
         {cookiePrompt ? '导入 Cookie 后开始使用' : '点击上方快捷入口打开平台'}
       </div>
     {/if}
-    {#if browserError}
-      <Alert.Root
-        class="absolute top-4 left-1/2 w-auto max-w-[min(32rem,calc(100%-2rem))] -translate-x-1/2 shadow-lg"
-        variant="destructive"
-      >
-        <CircleAlert />
-        <Alert.Title>页面操作失败</Alert.Title>
-        <Alert.Description>{browserError}</Alert.Description>
-      </Alert.Root>
-    {/if}
+    <div
+      class="pointer-events-none absolute top-4 right-4 z-40 w-[calc(100%-2rem)] max-w-[22rem]"
+      use:autoAnimate={ALERT_ANIMATION_OPTIONS}
+    >
+      {#if browserError}
+        <Alert.Root class="shadow-lg" variant="destructive">
+          <CircleAlert />
+          <Alert.Title>页面操作失败</Alert.Title>
+          <Alert.Description>{browserError}</Alert.Description>
+        </Alert.Root>
+      {/if}
+    </div>
   </section>
 </main>
 

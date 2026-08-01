@@ -1,8 +1,10 @@
 <script lang="ts">
   import log from 'electron-log/renderer';
+  import { autoAnimate } from '@formkit/auto-animate';
   import { onMount } from 'svelte';
   import CalendarCheck2 from '@lucide/svelte/icons/calendar-check-2';
   import CircleAlert from '@lucide/svelte/icons/circle-alert';
+  import { ALERT_ANIMATION_OPTIONS } from '../../alert-animation';
   import * as Alert from '$lib/components/ui/alert';
 
   const AUTO_DISMISS_MS = 5_000;
@@ -45,15 +47,16 @@
   });
 </script>
 
-{#if visible}
-  <Alert.Root
-    class="fixed top-4 right-4 z-40 w-[calc(100%-2rem)] max-w-[22rem] shadow-lg"
-    variant={success ? 'default' : 'destructive'}
-    role="status"
-    aria-live="polite"
-  >
-    {#if success}<CalendarCheck2 />{:else}<CircleAlert />{/if}
-    <Alert.Title>{success ? '携程入住时间' : '获取失败'}</Alert.Title>
-    <Alert.Description>{message}</Alert.Description>
-  </Alert.Root>
-{/if}
+<div
+  class="pointer-events-none fixed top-4 right-4 z-40 w-[calc(100%-2rem)] max-w-[22rem]"
+  aria-live="polite"
+  use:autoAnimate={ALERT_ANIMATION_OPTIONS}
+>
+  {#if visible}
+    <Alert.Root variant={success ? 'default' : 'destructive'} role="status" class="shadow-lg">
+      {#if success}<CalendarCheck2 />{:else}<CircleAlert />{/if}
+      <Alert.Title>{success ? '携程入住时间' : '获取失败'}</Alert.Title>
+      <Alert.Description>{message}</Alert.Description>
+    </Alert.Root>
+  {/if}
+</div>

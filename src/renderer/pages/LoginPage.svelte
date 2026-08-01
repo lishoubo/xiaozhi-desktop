@@ -1,7 +1,9 @@
 <script lang="ts">
+  import { autoAnimate } from '@formkit/auto-animate';
   import { onDestroy } from 'svelte';
   import CircleAlert from '@lucide/svelte/icons/circle-alert';
   import ShieldCheck from '@lucide/svelte/icons/shield-check';
+  import { ALERT_ANIMATION_OPTIONS } from '../alert-animation';
   import { CODE_DURATION_MS, MOCK_CODE, MOCK_PHONE } from '../auth';
   import * as Dialog from '$lib/components/ui/dialog';
   import * as Alert from '$lib/components/ui/alert';
@@ -142,13 +144,15 @@
         </span>
       </label>
 
-      {#if error}
-        <Alert.Root class="mt-4" variant="destructive">
-          <CircleAlert />
-          <Alert.Title>无法登录</Alert.Title>
-          <Alert.Description>{error}</Alert.Description>
-        </Alert.Root>
-      {/if}
+      <div use:autoAnimate={ALERT_ANIMATION_OPTIONS}>
+        {#if error}
+          <Alert.Root class="mt-4" variant="destructive">
+            <CircleAlert />
+            <Alert.Title>无法登录</Alert.Title>
+            <Alert.Description>{error}</Alert.Description>
+          </Alert.Root>
+        {/if}
+      </div>
 
       <button
         class="mt-6 h-11 w-full rounded-md bg-primary text-sm font-medium text-primary-foreground hover:bg-[#4534b3]"

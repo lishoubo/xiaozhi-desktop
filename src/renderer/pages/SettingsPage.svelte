@@ -1,10 +1,12 @@
 <script lang="ts">
+  import { autoAnimate } from '@formkit/auto-animate';
   import { onMount } from 'svelte';
   import log from 'electron-log/renderer';
   import CircleAlert from '@lucide/svelte/icons/circle-alert';
   import Cookie from '@lucide/svelte/icons/cookie';
   import MonitorUp from '@lucide/svelte/icons/monitor-up';
   import Settings2 from '@lucide/svelte/icons/settings-2';
+  import { ALERT_ANIMATION_OPTIONS } from '../alert-animation';
   import type { SystemPreferences } from '../../shared/browser';
   import CookieImportDialog from '../components/browser/CookieImportDialog.svelte';
   import * as Alert from '$lib/components/ui/alert';
@@ -51,13 +53,15 @@
       <h1 class="m-0 text-[28px] font-semibold tracking-[-0.02em]">设置</h1>
     </header>
 
-    {#if error}
-      <Alert.Root class="mt-4" variant="destructive">
-        <CircleAlert />
-        <Alert.Title>设置操作失败</Alert.Title>
-        <Alert.Description>{error}</Alert.Description>
-      </Alert.Root>
-    {/if}
+    <div use:autoAnimate={ALERT_ANIMATION_OPTIONS}>
+      {#if error}
+        <Alert.Root class="mt-4" variant="destructive">
+          <CircleAlert />
+          <Alert.Title>设置操作失败</Alert.Title>
+          <Alert.Description>{error}</Alert.Description>
+        </Alert.Root>
+      {/if}
+    </div>
 
     <section class="mt-6 overflow-hidden rounded-lg border border-border bg-card">
       <div class="flex items-center gap-3 border-b border-border px-6 py-4">

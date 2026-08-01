@@ -19,3 +19,32 @@ Object.defineProperty(globalThis, 'ResizeObserver', {
   configurable: true,
   value: TestResizeObserver,
 });
+
+Object.defineProperty(window, 'matchMedia', {
+  configurable: true,
+  value: vi.fn((query: string) => ({
+    matches: false,
+    media: query,
+    onchange: null,
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
+    addListener: vi.fn(),
+    removeListener: vi.fn(),
+    dispatchEvent: vi.fn(() => true),
+  })),
+});
+
+Object.defineProperty(Element.prototype, 'animate', {
+  configurable: true,
+  value: vi.fn(() => ({
+    addEventListener: vi.fn((event: string, listener: EventListener) => {
+      if (event === 'finish') {
+        queueMicrotask(() => listener(new Event('finish')));
+      }
+    }),
+    cancel: vi.fn(),
+    finished: Promise.resolve(),
+    pause: vi.fn(),
+    play: vi.fn(),
+  })),
+});

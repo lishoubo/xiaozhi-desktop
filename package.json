@@ -76,6 +76,7 @@
     "vitest": "3.2.6"
   },
   "dependencies": {
+    "@formkit/auto-animate": "^0.10.0",
     "better-sqlite3": "^13.0.2",
     "electron-log": "^5.4.4",
     "electron-squirrel-startup": "^1.0.1",
