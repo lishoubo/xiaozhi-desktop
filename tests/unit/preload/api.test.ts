@@ -45,6 +45,7 @@ describe('createDesktopApi', () => {
     await api.browser.setBounds({ x: 80, y: 120, width: 800, height: 600 });
     await api.cookies.listSources();
     await api.cookies.import('edge');
+    await api.automation.getCtripCheckIn();
 
     expect(invoke.mock.calls).toEqual([
       [IPC_CHANNELS.browser.create, { channelId: 'ctrip', url: 'https://ebooking.ctrip.com/' }],
@@ -58,6 +59,7 @@ describe('createDesktopApi', () => {
       [IPC_CHANNELS.browser.setBounds, { x: 80, y: 120, width: 800, height: 600 }],
       [IPC_CHANNELS.cookies.listSources],
       [IPC_CHANNELS.cookies.import, 'edge'],
+      [IPC_CHANNELS.automation.getCtripCheckIn],
     ]);
   });
 });

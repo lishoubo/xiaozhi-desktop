@@ -1,4 +1,5 @@
 import { IPC_CHANNELS } from '../shared/ipc-channels';
+import type { CtripCheckInResult } from '../shared/automation';
 import type {
   BrowserBounds,
   BrowserCookieSource,
@@ -9,6 +10,9 @@ import type {
 } from '../shared/browser';
 
 export type DesktopApi = Readonly<{
+  automation: Readonly<{
+    getCtripCheckIn: () => Promise<CtripCheckInResult | null>;
+  }>;
   versions: Readonly<{
     chrome: string;
     electron: string;
@@ -50,6 +54,10 @@ export function createDesktopApi(
   invoke: Invoke,
   subscribe: Subscribe = () => () => undefined,
 ): DesktopApi {
+  const automation = Object.freeze({
+    getCtripCheckIn: () =>
+      invoke<CtripCheckInResult | null>(IPC_CHANNELS.automation.getCtripCheckIn),
+  });
   const browser = Object.freeze({
     create: (channelId: string, url: string) =>
       invoke<BrowserTab>(IPC_CHANNELS.browser.create, { channelId, url }),
@@ -76,6 +84,7 @@ export function createDesktopApi(
   });
 
   return Object.freeze({
+    automation,
     versions: Object.freeze({
       chrome: versions.chrome,
       electron: versions.electron,

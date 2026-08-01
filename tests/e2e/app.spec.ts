@@ -28,6 +28,7 @@ test.beforeEach(async () => {
     env: {
       ...launchEnvironment,
       ELECTRON_DISABLE_SECURITY_WARNINGS: 'true',
+      HOTEL_BUTLER_DISABLE_STARTUP_AUTOMATION: '1',
     },
   });
   page = await electronApp.firstWindow();

@@ -6,10 +6,14 @@ import { BrowserManager } from './browser/browser-manager';
 import { configureNetworkPrivacy } from './security/network-privacy';
 import { createMainWindow } from './windows/main-window';
 import { configureMainLogging } from './logging/configure-main-logging';
+import { CtripCheckInAutomation } from './automation/ctrip-check-in-automation';
+import { registerAutomationHandlers } from './ipc/automation-handlers';
 
 let mainWindow: BrowserWindow | null = null;
 let browserManager: BrowserManager | null = null;
 let unregisterBrowserHandlers: (() => void) | null = null;
+let ctripAutomation: CtripCheckInAutomation | null = null;
+let unregisterAutomationHandlers: (() => void) | null = null;
 
 configureNetworkPrivacy(app.commandLine);
 configureMainLogging(log, {
@@ -22,12 +26,26 @@ function openMainWindow(): void {
   mainWindow = createMainWindow();
   log.info('Main window created');
   browserManager = new BrowserManager(mainWindow, log);
+  const automationDisabled = process.env.HOTEL_BUTLER_DISABLE_STARTUP_AUTOMATION === '1';
+  ctripAutomation = automationDisabled
+    ? null
+    : new CtripCheckInAutomation(browserManager.browserSession, log);
+  const ctripResult = ctripAutomation?.start() ?? null;
   unregisterBrowserHandlers = registerBrowserHandlers({
     window: mainWindow,
     manager: browserManager,
     logger: log,
   });
+  unregisterAutomationHandlers = registerAutomationHandlers({
+    window: mainWindow,
+    result: ctripResult,
+    logger: log,
+  });
   mainWindow.once('closed', () => {
+    unregisterAutomationHandlers?.();
+    unregisterAutomationHandlers = null;
+    ctripAutomation?.destroy();
+    ctripAutomation = null;
     unregisterBrowserHandlers?.();
     unregisterBrowserHandlers = null;
     browserManager?.destroy();
@@ -78,6 +96,8 @@ app.on('activate', () => {
 app.once('will-quit', () => {
   log.info('Application shutdown started');
   unregisterBrowserHandlers?.();
+  unregisterAutomationHandlers?.();
+  ctripAutomation?.destroy();
   browserManager?.destroy();
   log.info('Application shutdown completed');
 });

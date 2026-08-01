@@ -3,6 +3,7 @@
   import Router from 'svelte-spa-router';
   import { onDestroy } from 'svelte';
   import AppFrame from './components/layout/AppFrame.svelte';
+  import StartupAutomationDialog from './components/automation/StartupAutomationDialog.svelte';
   import LoginPage from './pages/LoginPage.svelte';
   import { clearAuthSession, createAuthSession, readAuthSession, type AuthSession } from './auth';
   import { routes } from './routes';
@@ -24,6 +25,7 @@
 </script>
 
 {#if session}
+  <StartupAutomationDialog />
   <AppFrame>
     <Router {routes} />
   </AppFrame>

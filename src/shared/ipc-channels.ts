@@ -1,4 +1,7 @@
 export const IPC_CHANNELS = {
+  automation: {
+    getCtripCheckIn: 'automation:get-ctrip-check-in',
+  },
   browser: {
     activate: 'browser:activate',
     close: 'browser:close',

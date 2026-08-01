@@ -33,6 +33,9 @@ describe('App routing and query integration', () => {
     Object.defineProperty(window, 'hotelButler', {
       configurable: true,
       value: {
+        automation: {
+          getCtripCheckIn: vi.fn().mockResolvedValue(null),
+        },
         versions: {
           chrome: '1',
           electron: '2',
