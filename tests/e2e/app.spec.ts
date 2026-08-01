@@ -47,6 +47,27 @@ async function login(): Promise<void> {
   await page.getByRole('button', { name: '登录' }).click();
 }
 
+test('animates Xiaozhi ambiently and honors reduced-motion preferences', async () => {
+  const avatar = page.locator('[data-agent-avatar][data-motion="float"]');
+  const status = page.locator('[data-agent-status="breathing"]');
+
+  await expect(avatar).toBeVisible();
+  await expect(status).toBeVisible();
+  expect(await avatar.evaluate((element) => getComputedStyle(element).animationName)).toContain(
+    'agent-float',
+  );
+  expect(
+    await status.evaluate((element) => getComputedStyle(element, '::after').animationName),
+  ).toContain('agent-status-breathe');
+
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+
+  expect(await avatar.evaluate((element) => getComputedStyle(element).animationName)).toBe('none');
+  expect(
+    await status.evaluate((element) => getComputedStyle(element, '::after').animationName),
+  ).toBe('none');
+});
+
 test('logs in with the local phone verification flow', async () => {
   await login();
 
@@ -80,7 +101,8 @@ test('opens the AI concierge from the icon sidebar', async () => {
 
   await expect(page).toHaveURL(/#\/agent$/);
   await expect(page.getByRole('heading', { name: '小智AI 管家' })).toBeVisible();
-  await expect(page.getByLabel('对话内容').getByText('今日运营摘要')).toBeVisible();
+  await expect(page.getByRole('heading', { name: '今天想先处理什么？' })).toBeVisible();
+  await expect(page.getByRole('textbox', { name: '给小智AI 管家发消息' })).toBeVisible();
 });
 
 test('navigates between the browser workspace and settings', async () => {

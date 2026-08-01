@@ -1,5 +1,4 @@
 <script lang="ts">
-  import Bot from '@lucide/svelte/icons/bot';
   import CircleUserRound from '@lucide/svelte/icons/circle-user-round';
   import Globe2 from '@lucide/svelte/icons/globe-2';
   import Menu from '@lucide/svelte/icons/menu';
@@ -8,6 +7,7 @@
   import active from 'svelte-spa-router/active';
   import type { Snippet } from 'svelte';
   import { enter } from '../../motion';
+  import AgentAvatar from '../agent/AgentAvatar.svelte';
   import { Button } from '$lib/components/ui/button';
 
   let { children }: { children: Snippet } = $props();
@@ -64,13 +64,13 @@
         </a>
 
         <a
-          class={navigationClass}
+          class={`${navigationClass} group/agent`}
           href="/agent"
           use:link
           use:active={{ className: 'active' }}
           aria-label="小智AI 管家"
         >
-          <Bot size={22} strokeWidth={1.9} />
+          <AgentAvatar size="sm" online />
         </a>
 
         <a

@@ -1,7 +1,6 @@
 <script lang="ts">
   import { autoAnimate } from '@formkit/auto-animate';
   import ArrowUp from '@lucide/svelte/icons/arrow-up';
-  import Bot from '@lucide/svelte/icons/bot';
   import Check from '@lucide/svelte/icons/check';
   import ClipboardList from '@lucide/svelte/icons/clipboard-list';
   import Copy from '@lucide/svelte/icons/copy';
@@ -10,7 +9,6 @@
   import Paperclip from '@lucide/svelte/icons/paperclip';
   import Plus from '@lucide/svelte/icons/plus';
   import RotateCcw from '@lucide/svelte/icons/rotate-ccw';
-  import Sparkles from '@lucide/svelte/icons/sparkles';
   import ThumbsDown from '@lucide/svelte/icons/thumbs-down';
   import ThumbsUp from '@lucide/svelte/icons/thumbs-up';
   import TriangleAlert from '@lucide/svelte/icons/triangle-alert';
@@ -20,6 +18,7 @@
     PAGE_ENTER_OPTIONS,
     SURFACE_TRANSITION_OPTIONS,
   } from '../motion';
+  import AgentAvatar from '../components/agent/AgentAvatar.svelte';
   import { Button } from '$lib/components/ui/button';
   import { Separator } from '$lib/components/ui/separator';
   import { Textarea } from '$lib/components/ui/textarea';
@@ -32,18 +31,37 @@
   };
 
   const suggestions = [
-    { label: '检查异常订单', prompt: '检查今天的异常订单', icon: TriangleAlert },
-    { label: '生成运营简报', prompt: '生成今日酒店运营简报', icon: FileText },
-    { label: '整理待办事项', prompt: '帮我整理今天的待办事项', icon: ClipboardList },
+    {
+      label: '检查异常订单',
+      description: '找出临近超时和信息缺失的订单',
+      prompt: '检查今天的异常订单',
+      icon: TriangleAlert,
+      tone: 'bg-[#ffe8d4] text-[#793400]',
+    },
+    {
+      label: '生成运营简报',
+      description: '汇总入住、房态、点评和待办',
+      prompt: '生成今日酒店运营简报',
+      icon: FileText,
+      tone: 'bg-[#dcecfa] text-[#005bab]',
+    },
+    {
+      label: '安排今日待办',
+      description: '按紧急程度整理今天的工作',
+      prompt: '帮我整理今天的待办事项',
+      icon: ClipboardList,
+      tone: 'bg-[#d9f3e1] text-[#176c2b]',
+    },
   ];
 
   let prompt = $state('');
   let localMessages = $state<LocalMessage[]>([]);
   let nextMessageId = 1;
-  let showSample = $state(true);
+  let showSample = $state(false);
   let attachmentName = $state('');
   let copied = $state(false);
   let fileInput: HTMLInputElement;
+  let composer = $state<HTMLTextAreaElement | null>(null);
 
   function startNewConversation(): void {
     prompt = '';
@@ -54,19 +72,28 @@
 
   function selectSuggestion(value: string): void {
     prompt = value;
+    composer?.focus();
+  }
+
+  function openSampleConversation(): void {
+    prompt = '';
+    localMessages = [];
+    attachmentName = '';
+    showSample = true;
   }
 
   function submitPrompt(): void {
     const content = prompt.trim();
     if (!content) return;
 
+    showSample = false;
     localMessages = [
       ...localMessages,
       { id: nextMessageId++, role: 'user', content },
       {
         id: nextMessageId++,
         role: 'assistant',
-        content: `已记下这项需求。Agent 服务接入后，小智会根据酒店的实时数据继续执行并在这里返回结果。`,
+        content: '收到。我会先梳理任务所需信息，并把处理进度和结果及时告诉你。',
       },
     ];
     prompt = '';
@@ -93,11 +120,11 @@
 </script>
 
 <div
-  class="grid h-full min-h-0 grid-cols-[224px_minmax(0,1fr)] bg-background"
+  class="grid h-full min-h-0 grid-cols-[200px_minmax(0,1fr)] bg-background"
   data-motion="page"
   in:enter={PAGE_ENTER_OPTIONS}
 >
-  <aside class="flex min-h-0 flex-col border-r border-border bg-secondary/65 px-3 py-4">
+  <aside class="flex min-h-0 flex-col border-r border-border bg-background px-3 py-4">
     <Button class="w-full justify-start" variant="outline" onclick={startNewConversation}>
       <Plus size={16} />
       新对话
@@ -106,9 +133,15 @@
     <div class="mt-6 min-h-0 flex-1 overflow-y-auto">
       <p class="px-2 text-xs font-medium text-muted-foreground">今天</p>
       <button
-        class="mt-1 w-full rounded-md bg-accent px-3 py-2.5 text-left text-sm font-medium text-accent-foreground transition-colors duration-150 ease-out motion-reduce:transition-none"
+        class={[
+          'mt-1 w-full rounded-md px-3 py-2.5 text-left text-sm transition-colors duration-150 ease-out motion-reduce:transition-none',
+          showSample
+            ? 'bg-accent font-medium text-accent-foreground'
+            : 'text-muted-foreground hover:bg-muted hover:text-foreground',
+        ]}
         type="button"
-        onclick={() => (showSample = true)}
+        aria-pressed={showSample}
+        onclick={openSampleConversation}
       >
         今日运营摘要
       </button>
@@ -120,35 +153,33 @@
         订单异常排查
       </button>
     </div>
-
-    <div class="rounded-lg border border-border bg-background px-3 py-3">
-      <div class="flex items-center gap-2 text-xs font-medium">
-        <span class="size-2 rounded-full bg-[#1aae39]"></span>
-        前端预览
-      </div>
-      <p class="mt-1.5 mb-0 text-xs leading-5 text-muted-foreground">
-        实时数据与自动执行能力接入中
-      </p>
-    </div>
   </aside>
 
   <main class="flex min-h-0 min-w-0 flex-col">
-    <header class="flex h-16 shrink-0 items-center justify-between border-b border-border px-6">
-      <div class="flex items-center gap-3">
-        <div class="grid size-8 place-items-center rounded-lg bg-accent text-accent-foreground">
-          <Bot size={18} strokeWidth={1.9} />
-        </div>
+    <header class="flex h-[68px] shrink-0 items-center justify-between border-b border-border px-6">
+      <div class="group/agent flex items-center gap-3">
+        <AgentAvatar />
         <div>
           <h1 class="m-0 text-sm font-semibold">小智AI 管家</h1>
-          <p class="m-0 mt-0.5 text-xs text-muted-foreground">酒店运营助手</p>
+          <p class="m-0 mt-0.5 flex items-center gap-1.5 text-xs text-muted-foreground">
+            <span class="size-1.5 rounded-full bg-[#1aae39]"></span>
+            随时可以帮你
+          </p>
         </div>
       </div>
-      <span class="rounded-md bg-secondary px-2 py-1 text-xs font-medium text-muted-foreground"
-        >示例会话</span
-      >
+      {#if showSample}
+        <span
+          class="rounded-md bg-secondary px-2 py-1 text-xs font-medium text-muted-foreground"
+          in:enter={SURFACE_TRANSITION_OPTIONS}>示例会话</span
+        >
+      {/if}
     </header>
 
-    <section class="min-h-0 flex-1 overflow-y-auto" aria-label="对话内容" aria-live="polite">
+    <section
+      class="min-h-0 flex-1 overflow-y-auto bg-[#fafaf9]"
+      aria-label="对话内容"
+      aria-live="polite"
+    >
       <div class="mx-auto w-full max-w-3xl px-7 py-8">
         {#if showSample}
           <article class="flex justify-end" in:enter={SURFACE_TRANSITION_OPTIONS}>
@@ -158,11 +189,7 @@
           </article>
 
           <article class="mt-7 flex gap-3" in:enter={{ ...SURFACE_TRANSITION_OPTIONS, delay: 40 }}>
-            <div
-              class="mt-0.5 grid size-8 shrink-0 place-items-center rounded-lg bg-accent text-accent-foreground"
-            >
-              <Sparkles size={17} />
-            </div>
+            <AgentAvatar size="sm" />
             <div class="min-w-0 flex-1">
               <p class="m-0 text-sm font-semibold">今日运营摘要</p>
               <p class="mt-3 mb-0 text-sm leading-7 text-foreground">
@@ -279,25 +306,29 @@
           </article>
         {:else if localMessages.length === 0}
           <div
-            class="mx-auto flex max-w-xl flex-col items-center pt-20 text-center"
+            class="mx-auto flex max-w-2xl flex-col items-center pt-[clamp(48px,9vh,88px)] text-center"
             in:enter={SURFACE_TRANSITION_OPTIONS}
           >
-            <div
-              class="grid size-11 place-items-center rounded-xl bg-accent text-accent-foreground"
-            >
-              <Sparkles size={21} />
+            <div class="group/agent">
+              <AgentAvatar size="lg" online motion="float" />
             </div>
-            <h2 class="mt-4 mb-0 text-xl font-semibold">今天想先处理什么？</h2>
-            <div class="mt-6 grid w-full grid-cols-3 gap-2">
+            <p class="mt-5 mb-0 text-sm font-medium text-accent-foreground">你好，我是小智</p>
+            <h2 class="mt-2 mb-0 text-2xl font-semibold tracking-[-0.02em]">今天想先处理什么？</h2>
+            <div class="mt-7 grid w-full grid-cols-3 gap-3">
               {#each suggestions as suggestion}
                 <button
-                  class="rounded-lg border border-border bg-card p-3 text-left text-sm transition-[background-color,border-color,box-shadow,transform] duration-150 ease-out hover:-translate-y-0.5 hover:bg-secondary hover:shadow-sm motion-reduce:transform-none motion-reduce:transition-none"
+                  class="group rounded-xl border border-border bg-card p-4 text-left transition-[background-color,border-color,box-shadow,transform] duration-150 ease-out hover:-translate-y-0.5 hover:border-input hover:shadow-md focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none motion-reduce:transform-none motion-reduce:transition-none"
                   type="button"
                   aria-label={suggestion.label}
                   onclick={() => selectSuggestion(suggestion.prompt)}
                 >
-                  <suggestion.icon size={17} class="mb-3 text-muted-foreground" />
-                  {suggestion.label}
+                  <span class={['mb-4 grid size-9 place-items-center rounded-lg', suggestion.tone]}>
+                    <suggestion.icon size={17} />
+                  </span>
+                  <span class="block text-sm font-medium">{suggestion.label}</span>
+                  <span class="mt-1.5 block text-xs leading-5 text-muted-foreground">
+                    {suggestion.description}
+                  </span>
                 </button>
               {/each}
             </div>
@@ -308,20 +339,21 @@
           {#each localMessages as message (message.id)}
             <article class:justify-end={message.role === 'user'} class="mt-6 flex gap-3">
               {#if message.role === 'assistant'}
-                <div
-                  class="grid size-8 shrink-0 place-items-center rounded-lg bg-accent text-accent-foreground"
-                >
-                  <Sparkles size={17} />
-                </div>
+                <AgentAvatar size="sm" />
               {/if}
-              <p
-                class="m-0 max-w-[78%] rounded-lg px-4 py-3 text-sm leading-6"
-                class:bg-secondary={message.role === 'user'}
-                class:border={message.role === 'assistant'}
-                class:border-border={message.role === 'assistant'}
-              >
-                {message.content}
-              </p>
+              <div class="max-w-[78%]">
+                {#if message.role === 'assistant'}
+                  <p class="m-0 mb-1 text-xs font-medium text-muted-foreground">小智</p>
+                {/if}
+                <p
+                  class="m-0 rounded-lg text-sm leading-6"
+                  class:bg-secondary={message.role === 'user'}
+                  class:px-4={message.role === 'user'}
+                  class:py-3={message.role === 'user'}
+                >
+                  {message.content}
+                </p>
+              </div>
             </article>
           {/each}
         </div>
@@ -330,17 +362,8 @@
 
     <footer class="shrink-0 bg-background px-6 pt-2 pb-5">
       <div class="mx-auto max-w-3xl">
-        <div class="mb-2 flex flex-wrap gap-2">
-          {#each suggestions as suggestion}
-            <Button size="sm" variant="outline" onclick={() => selectSuggestion(suggestion.prompt)}>
-              <suggestion.icon />
-              {suggestion.label}
-            </Button>
-          {/each}
-        </div>
-
         <div
-          class="rounded-xl border border-input bg-background p-2 shadow-sm focus-within:ring-2 focus-within:ring-ring/30"
+          class="rounded-xl border border-input bg-background p-2 shadow-md transition-[border-color,box-shadow] duration-150 ease-out focus-within:border-primary focus-within:ring-3 focus-within:ring-ring/20 motion-reduce:transition-none"
         >
           <div class="mx-1" use:autoAnimate={LAYOUT_ANIMATION_OPTIONS}>
             {#if attachmentName}
@@ -353,10 +376,11 @@
             {/if}
           </div>
           <Textarea
-            class="min-h-12 resize-none border-0 px-2 py-2 shadow-none focus-visible:ring-0"
+            class="min-h-14 resize-none border-0 px-2 py-2.5 shadow-none focus-visible:ring-0"
+            bind:ref={composer}
             bind:value={prompt}
             aria-label="给小智AI 管家发消息"
-            placeholder="向小智描述你想完成的任务…"
+            placeholder="告诉小智你想完成什么…"
             onkeydown={handleComposerKeydown}
           />
           <div class="flex items-center justify-between px-1">

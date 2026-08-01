@@ -4,8 +4,26 @@ import { describe, expect, it, vi } from 'vitest';
 import AgentPage from '../../src/renderer/pages/AgentPage.svelte';
 
 describe('小智AI 管家', () => {
-  it('presents a rich sample agent response with task progress and sources', () => {
+  it('opens with an inviting task-focused welcome state', () => {
+    const { container } = render(AgentPage);
+
+    expect(screen.getByText('你好，我是小智')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: '今天想先处理什么？' })).toBeInTheDocument();
+    expect(screen.getByText('随时可以帮你')).toBeInTheDocument();
+    expect(screen.getByText('找出临近超时和信息缺失的订单')).toBeInTheDocument();
+    expect(screen.getByText('汇总入住、房态、点评和待办')).toBeInTheDocument();
+    expect(screen.getByText('按紧急程度整理今天的工作')).toBeInTheDocument();
+    expect(container.querySelector('[data-agent-avatar][data-motion="float"]')).toBeInTheDocument();
+    expect(container.querySelector('[data-agent-status="breathing"]')).toBeInTheDocument();
+    expect(screen.queryByText('执行过程')).not.toBeInTheDocument();
+    expect(screen.queryByText('示例会话')).not.toBeInTheDocument();
+  });
+
+  it('opens a rich sample response from conversation history', async () => {
+    const user = userEvent.setup();
     render(AgentPage);
+
+    await user.click(screen.getByRole('button', { name: '今日运营摘要' }));
 
     expect(screen.getByText('示例会话')).toBeInTheDocument();
     expect(screen.getAllByText('今日运营摘要')).toHaveLength(2);
@@ -26,7 +44,8 @@ describe('小智AI 管家', () => {
     await user.click(screen.getByRole('button', { name: '发送消息' }));
 
     expect(screen.getByText('检查今天的异常订单')).toBeInTheDocument();
-    expect(screen.getByText(/Agent 服务接入后/)).toBeInTheDocument();
+    expect(screen.getByText(/我会先梳理任务所需信息/)).toBeInTheDocument();
+    expect(screen.queryByText(/Agent 服务接入后/)).not.toBeInTheDocument();
     expect(composer).toHaveValue('');
     expect(animate).toHaveBeenCalled();
   });
@@ -37,8 +56,8 @@ describe('小智AI 管家', () => {
 
     await user.click(screen.getByRole('button', { name: '检查异常订单' }));
 
-    expect(screen.getByRole('textbox', { name: '给小智AI 管家发消息' })).toHaveValue(
-      '检查今天的异常订单',
-    );
+    const composer = screen.getByRole('textbox', { name: '给小智AI 管家发消息' });
+    expect(composer).toHaveValue('检查今天的异常订单');
+    expect(composer).toHaveFocus();
   });
 });

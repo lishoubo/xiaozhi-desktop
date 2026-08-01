@@ -97,11 +97,14 @@ describe('App routing and query integration', () => {
     render(App);
 
     const navigation = screen.getByRole('navigation', { name: '应用导航' });
+    const agentLink = screen.getByRole('link', { name: '小智AI 管家' });
     expect(navigation).not.toHaveTextContent('浏览器');
     expect(navigation).not.toHaveTextContent('用户中心');
     expect(navigation).not.toHaveTextContent('设置');
+    expect(agentLink.querySelector('[data-agent-avatar]')).toBeInTheDocument();
+    expect(agentLink.querySelector('[data-agent-status="breathing"]')).toBeInTheDocument();
 
-    await user.click(screen.getByRole('link', { name: '小智AI 管家' }));
+    await user.click(agentLink);
 
     const agentHeading = await screen.findByRole('heading', { name: '小智AI 管家' });
     expect(agentHeading.closest('[data-motion="page"]')).toBeInTheDocument();
