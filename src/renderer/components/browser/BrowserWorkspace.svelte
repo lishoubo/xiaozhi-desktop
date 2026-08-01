@@ -10,7 +10,13 @@
   import RotateCw from '@lucide/svelte/icons/rotate-cw';
   import X from '@lucide/svelte/icons/x';
   import type { BrowserTab } from '../../../shared/browser';
-  import { ALERT_ANIMATION_OPTIONS } from '../../alert-animation';
+  import {
+    ALERT_ANIMATION_OPTIONS,
+    enter,
+    LAYOUT_ANIMATION_OPTIONS,
+    PAGE_ENTER_OPTIONS,
+    SURFACE_TRANSITION_OPTIONS,
+  } from '../../motion';
   import { OTA_CHANNELS, type OtaChannel } from '../../data/ota-channels';
   import { Button } from '$lib/components/ui/button';
   import * as Alert from '$lib/components/ui/alert';
@@ -210,7 +216,11 @@
   });
 </script>
 
-<main class="grid h-full min-h-0 grid-rows-[62px_48px_minmax(0,1fr)] bg-background">
+<main
+  class="grid h-full min-h-0 grid-rows-[62px_48px_minmax(0,1fr)] bg-background"
+  data-motion="page"
+  in:enter={{ ...PAGE_ENTER_OPTIONS, y: 0 }}
+>
   <nav
     class="flex min-w-0 items-center gap-1 overflow-x-auto border-b border-border px-4"
     aria-label="OTA 快捷入口"
@@ -218,7 +228,7 @@
     {#each OTA_CHANNELS as channel (channel.id)}
       <button
         class={[
-          'flex h-9 shrink-0 items-center gap-2 rounded-md px-3 text-[13px] font-medium transition-colors',
+          'flex h-9 shrink-0 items-center gap-2 rounded-md px-3 text-[13px] font-medium transition-colors duration-150 ease-out motion-reduce:transition-none',
           activeChannelId === channel.id
             ? 'bg-accent text-accent-foreground'
             : 'text-muted-foreground hover:bg-muted hover:text-foreground',
@@ -284,11 +294,12 @@
       class="flex min-w-0 flex-1 items-end gap-1 self-stretch overflow-x-auto pt-1.5"
       role="tablist"
       aria-label="已打开页面"
+      use:autoAnimate={LAYOUT_ANIMATION_OPTIONS}
     >
       {#each activeTabs as tab (tab.id)}
         <div
           class={[
-            'group flex h-[41px] min-w-32 max-w-56 items-center rounded-t-md border border-b-0 text-xs',
+            'group flex h-[41px] min-w-32 max-w-56 items-center rounded-t-md border border-b-0 text-xs transition-colors duration-150 ease-out motion-reduce:transition-none',
             activeTab?.id === tab.id
               ? 'border-border bg-background text-foreground'
               : 'border-transparent text-muted-foreground hover:bg-muted',
@@ -319,7 +330,10 @@
 
   <section class="relative min-h-0 bg-secondary" bind:this={viewport} data-browser-viewport>
     {#if !activeTab}
-      <div class="grid h-full place-items-center text-sm text-muted-foreground">
+      <div
+        class="grid h-full place-items-center text-sm text-muted-foreground"
+        transition:enter={SURFACE_TRANSITION_OPTIONS}
+      >
         {cookiePrompt ? '导入 Cookie 后开始使用' : '点击上方快捷入口打开平台'}
       </div>
     {/if}
@@ -342,6 +356,7 @@
   <aside
     class="fixed right-6 bottom-6 z-40 w-[340px] rounded-lg border border-border bg-card p-5 shadow-xl"
     aria-live="polite"
+    transition:enter={SURFACE_TRANSITION_OPTIONS}
   >
     <div class="flex gap-3">
       <Import class="mt-0.5 shrink-0 text-primary" size={20} strokeWidth={1.8} />

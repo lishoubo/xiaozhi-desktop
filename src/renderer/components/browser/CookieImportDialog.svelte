@@ -9,7 +9,7 @@
     BrowserCookieSourceId,
     CookieImportResult,
   } from '../../../shared/browser';
-  import { ALERT_ANIMATION_OPTIONS } from '../../alert-animation';
+  import { ALERT_ANIMATION_OPTIONS, enter, SURFACE_TRANSITION_OPTIONS } from '../../motion';
   import { Button, type ButtonSize, type ButtonVariant } from '$lib/components/ui/button';
   import * as Dialog from '$lib/components/ui/dialog';
   import * as Alert from '$lib/components/ui/alert';
@@ -93,7 +93,10 @@
     onInteractOutside={(event) => step === 'importing' && event.preventDefault()}
   >
     {#if step === 'success' && result}
-      <div class="flex flex-col items-center py-3 text-center">
+      <div
+        class="flex flex-col items-center py-3 text-center"
+        in:enter={SURFACE_TRANSITION_OPTIONS}
+      >
         <CheckCircle2 class="text-green-600" size={36} strokeWidth={1.8} />
         <Dialog.Title class="mt-4 text-lg">导入完成</Dialog.Title>
         <Dialog.Description class="mt-2">
@@ -111,21 +114,31 @@
       </Dialog.Header>
 
       {#if loadingSources}
-        <div class="flex items-center justify-center gap-2 py-10 text-muted-foreground">
+        <div
+          class="flex items-center justify-center gap-2 py-10 text-muted-foreground"
+          in:enter={SURFACE_TRANSITION_OPTIONS}
+        >
           <LoaderCircle class="animate-spin" size={18} />
           <span>正在检测浏览器…</span>
         </div>
       {:else if sources.length === 0}
-        <p class="rounded-md bg-muted px-4 py-5 text-center text-sm text-muted-foreground">
+        <p
+          class="rounded-md bg-muted px-4 py-5 text-center text-sm text-muted-foreground"
+          in:enter={SURFACE_TRANSITION_OPTIONS}
+        >
           未检测到支持的浏览器 Cookie 数据。
         </p>
       {:else}
-        <fieldset class="grid gap-2" disabled={step === 'importing'}>
+        <fieldset
+          class="grid gap-2"
+          disabled={step === 'importing'}
+          in:enter={SURFACE_TRANSITION_OPTIONS}
+        >
           <legend class="sr-only">浏览器</legend>
           {#each sources as browser (browser.id)}
             <label
               class={[
-                'flex cursor-pointer items-center gap-3 rounded-md border px-4 py-3 transition-colors',
+                'flex cursor-pointer items-center gap-3 rounded-md border px-4 py-3 transition-colors duration-150 ease-out motion-reduce:transition-none',
                 selectedSourceId === browser.id
                   ? 'border-primary bg-accent/60'
                   : 'border-border hover:bg-muted',

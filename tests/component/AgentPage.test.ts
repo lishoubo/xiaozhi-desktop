@@ -1,6 +1,6 @@
 import { render, screen } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import AgentPage from '../../src/renderer/pages/AgentPage.svelte';
 
 describe('小智AI 管家', () => {
@@ -18,6 +18,8 @@ describe('小智AI 管家', () => {
   it('accepts a prompt and renders a local preview response', async () => {
     const user = userEvent.setup();
     render(AgentPage);
+    const animate = vi.mocked(Element.prototype.animate);
+    animate.mockClear();
 
     const composer = screen.getByRole('textbox', { name: '给小智AI 管家发消息' });
     await user.type(composer, '检查今天的异常订单');
@@ -26,6 +28,7 @@ describe('小智AI 管家', () => {
     expect(screen.getByText('检查今天的异常订单')).toBeInTheDocument();
     expect(screen.getByText(/Agent 服务接入后/)).toBeInTheDocument();
     expect(composer).toHaveValue('');
+    expect(animate).toHaveBeenCalled();
   });
 
   it('fills the composer from a suggested prompt', async () => {

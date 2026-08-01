@@ -3,7 +3,7 @@
   import { onDestroy } from 'svelte';
   import CircleAlert from '@lucide/svelte/icons/circle-alert';
   import ShieldCheck from '@lucide/svelte/icons/shield-check';
-  import { ALERT_ANIMATION_OPTIONS } from '../alert-animation';
+  import { ALERT_ANIMATION_OPTIONS, enter, PAGE_ENTER_OPTIONS } from '../motion';
   import { CODE_DURATION_MS, MOCK_CODE, MOCK_PHONE } from '../auth';
   import * as Dialog from '$lib/components/ui/dialog';
   import * as Alert from '$lib/components/ui/alert';
@@ -66,7 +66,11 @@
   }
 </script>
 
-<main class="grid h-full grid-cols-[minmax(320px,0.92fr)_minmax(440px,1.08fr)] bg-background">
+<main
+  class="grid h-full grid-cols-[minmax(320px,0.92fr)_minmax(440px,1.08fr)] bg-background"
+  data-motion="page"
+  in:enter={PAGE_ENTER_OPTIONS}
+>
   <section class="relative overflow-hidden bg-[#0a1530]" aria-label="品牌图片区">
     <div class="absolute inset-x-12 bottom-12 text-white">
       <div class="mb-4 grid size-12 place-items-center rounded-lg bg-primary font-semibold">智</div>
@@ -90,7 +94,7 @@
       <label class="mb-5 block text-sm font-medium">
         手机号
         <input
-          class="mt-2 h-11 w-full rounded-md border border-input bg-background px-3.5 outline-none focus:border-ring focus:ring-3 focus:ring-ring/15"
+          class="mt-2 h-11 w-full rounded-md border border-input bg-background px-3.5 transition-[border-color,box-shadow] duration-150 ease-out outline-none focus:border-ring focus:ring-3 focus:ring-ring/15 motion-reduce:transition-none"
           aria-label="手机号"
           autocomplete="tel"
           inputmode="numeric"
@@ -103,7 +107,7 @@
         验证码
         <div class="mt-2 grid grid-cols-[minmax(0,1fr)_128px] gap-2">
           <input
-            class="h-11 min-w-0 rounded-md border border-input bg-background px-3.5 outline-none focus:border-ring focus:ring-3 focus:ring-ring/15"
+            class="h-11 min-w-0 rounded-md border border-input bg-background px-3.5 transition-[border-color,box-shadow] duration-150 ease-out outline-none focus:border-ring focus:ring-3 focus:ring-ring/15 motion-reduce:transition-none"
             aria-label="验证码"
             autocomplete="one-time-code"
             inputmode="numeric"
@@ -111,7 +115,7 @@
             bind:value={code}
           />
           <button
-            class="rounded-md border border-input bg-background px-3 text-sm font-medium hover:bg-muted disabled:text-muted-foreground"
+            class="rounded-md border border-input bg-background px-3 text-sm font-medium transition-colors duration-150 ease-out hover:bg-muted motion-reduce:transition-none disabled:text-muted-foreground"
             type="button"
             disabled={remainingSeconds > 0}
             onclick={requestCode}
@@ -155,7 +159,7 @@
       </div>
 
       <button
-        class="mt-6 h-11 w-full rounded-md bg-primary text-sm font-medium text-primary-foreground hover:bg-[#4534b3]"
+        class="mt-6 h-11 w-full rounded-md bg-primary text-sm font-medium text-primary-foreground transition-colors duration-150 ease-out hover:bg-[#4534b3] motion-reduce:transition-none"
         type="submit"
       >
         登录

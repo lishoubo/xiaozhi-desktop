@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { autoAnimate } from '@formkit/auto-animate';
   import ArrowUp from '@lucide/svelte/icons/arrow-up';
   import Bot from '@lucide/svelte/icons/bot';
   import Check from '@lucide/svelte/icons/check';
@@ -13,6 +14,12 @@
   import ThumbsDown from '@lucide/svelte/icons/thumbs-down';
   import ThumbsUp from '@lucide/svelte/icons/thumbs-up';
   import TriangleAlert from '@lucide/svelte/icons/triangle-alert';
+  import {
+    enter,
+    LAYOUT_ANIMATION_OPTIONS,
+    PAGE_ENTER_OPTIONS,
+    SURFACE_TRANSITION_OPTIONS,
+  } from '../motion';
   import { Button } from '$lib/components/ui/button';
   import { Separator } from '$lib/components/ui/separator';
   import { Textarea } from '$lib/components/ui/textarea';
@@ -85,7 +92,11 @@
   }
 </script>
 
-<div class="grid h-full min-h-0 grid-cols-[224px_minmax(0,1fr)] bg-background">
+<div
+  class="grid h-full min-h-0 grid-cols-[224px_minmax(0,1fr)] bg-background"
+  data-motion="page"
+  in:enter={PAGE_ENTER_OPTIONS}
+>
   <aside class="flex min-h-0 flex-col border-r border-border bg-secondary/65 px-3 py-4">
     <Button class="w-full justify-start" variant="outline" onclick={startNewConversation}>
       <Plus size={16} />
@@ -95,14 +106,14 @@
     <div class="mt-6 min-h-0 flex-1 overflow-y-auto">
       <p class="px-2 text-xs font-medium text-muted-foreground">今天</p>
       <button
-        class="mt-1 w-full rounded-md bg-accent px-3 py-2.5 text-left text-sm font-medium text-accent-foreground"
+        class="mt-1 w-full rounded-md bg-accent px-3 py-2.5 text-left text-sm font-medium text-accent-foreground transition-colors duration-150 ease-out motion-reduce:transition-none"
         type="button"
         onclick={() => (showSample = true)}
       >
         今日运营摘要
       </button>
       <button
-        class="mt-1 w-full rounded-md px-3 py-2.5 text-left text-sm text-muted-foreground hover:bg-muted hover:text-foreground"
+        class="mt-1 w-full rounded-md px-3 py-2.5 text-left text-sm text-muted-foreground transition-colors duration-150 ease-out hover:bg-muted hover:text-foreground motion-reduce:transition-none"
         type="button"
         onclick={startNewConversation}
       >
@@ -140,13 +151,13 @@
     <section class="min-h-0 flex-1 overflow-y-auto" aria-label="对话内容" aria-live="polite">
       <div class="mx-auto w-full max-w-3xl px-7 py-8">
         {#if showSample}
-          <article class="flex justify-end">
+          <article class="flex justify-end" in:enter={SURFACE_TRANSITION_OPTIONS}>
             <p class="m-0 max-w-[75%] rounded-lg bg-secondary px-4 py-3 text-sm leading-6">
               帮我总结今天的酒店运营情况，标出需要优先处理的事项。
             </p>
           </article>
 
-          <article class="mt-7 flex gap-3">
+          <article class="mt-7 flex gap-3" in:enter={{ ...SURFACE_TRANSITION_OPTIONS, delay: 40 }}>
             <div
               class="mt-0.5 grid size-8 shrink-0 place-items-center rounded-lg bg-accent text-accent-foreground"
             >
@@ -211,14 +222,14 @@
                 <p class="m-0 text-xs font-medium text-muted-foreground">参考来源</p>
                 <div class="mt-2 flex flex-wrap gap-2">
                   <button
-                    class="inline-flex items-center gap-2 rounded-md border border-border bg-background px-3 py-2 text-xs hover:bg-secondary"
+                    class="inline-flex items-center gap-2 rounded-md border border-border bg-background px-3 py-2 text-xs transition-colors duration-150 ease-out hover:bg-secondary motion-reduce:transition-none"
                     type="button"
                   >
                     <Database size={14} />
                     渠道订单·今日
                   </button>
                   <button
-                    class="inline-flex items-center gap-2 rounded-md border border-border bg-background px-3 py-2 text-xs hover:bg-secondary"
+                    class="inline-flex items-center gap-2 rounded-md border border-border bg-background px-3 py-2 text-xs transition-colors duration-150 ease-out hover:bg-secondary motion-reduce:transition-none"
                     type="button"
                   >
                     <FileText size={14} />
@@ -267,7 +278,10 @@
             </div>
           </article>
         {:else if localMessages.length === 0}
-          <div class="mx-auto flex max-w-xl flex-col items-center pt-20 text-center">
+          <div
+            class="mx-auto flex max-w-xl flex-col items-center pt-20 text-center"
+            in:enter={SURFACE_TRANSITION_OPTIONS}
+          >
             <div
               class="grid size-11 place-items-center rounded-xl bg-accent text-accent-foreground"
             >
@@ -277,7 +291,7 @@
             <div class="mt-6 grid w-full grid-cols-3 gap-2">
               {#each suggestions as suggestion}
                 <button
-                  class="rounded-lg border border-border bg-card p-3 text-left text-sm hover:bg-secondary"
+                  class="rounded-lg border border-border bg-card p-3 text-left text-sm transition-[background-color,border-color,box-shadow,transform] duration-150 ease-out hover:-translate-y-0.5 hover:bg-secondary hover:shadow-sm motion-reduce:transform-none motion-reduce:transition-none"
                   type="button"
                   aria-label={suggestion.label}
                   onclick={() => selectSuggestion(suggestion.prompt)}
@@ -290,25 +304,27 @@
           </div>
         {/if}
 
-        {#each localMessages as message (message.id)}
-          <article class:justify-end={message.role === 'user'} class="mt-6 flex gap-3">
-            {#if message.role === 'assistant'}
-              <div
-                class="grid size-8 shrink-0 place-items-center rounded-lg bg-accent text-accent-foreground"
+        <div data-motion-layout="messages" use:autoAnimate={LAYOUT_ANIMATION_OPTIONS}>
+          {#each localMessages as message (message.id)}
+            <article class:justify-end={message.role === 'user'} class="mt-6 flex gap-3">
+              {#if message.role === 'assistant'}
+                <div
+                  class="grid size-8 shrink-0 place-items-center rounded-lg bg-accent text-accent-foreground"
+                >
+                  <Sparkles size={17} />
+                </div>
+              {/if}
+              <p
+                class="m-0 max-w-[78%] rounded-lg px-4 py-3 text-sm leading-6"
+                class:bg-secondary={message.role === 'user'}
+                class:border={message.role === 'assistant'}
+                class:border-border={message.role === 'assistant'}
               >
-                <Sparkles size={17} />
-              </div>
-            {/if}
-            <p
-              class="m-0 max-w-[78%] rounded-lg px-4 py-3 text-sm leading-6"
-              class:bg-secondary={message.role === 'user'}
-              class:border={message.role === 'assistant'}
-              class:border-border={message.role === 'assistant'}
-            >
-              {message.content}
-            </p>
-          </article>
-        {/each}
+                {message.content}
+              </p>
+            </article>
+          {/each}
+        </div>
       </div>
     </section>
 
@@ -326,14 +342,16 @@
         <div
           class="rounded-xl border border-input bg-background p-2 shadow-sm focus-within:ring-2 focus-within:ring-ring/30"
         >
-          {#if attachmentName}
-            <div
-              class="mx-1 mb-1 inline-flex items-center gap-2 rounded-md bg-secondary px-2.5 py-1.5 text-xs"
-            >
-              <FileText size={14} />
-              {attachmentName}
-            </div>
-          {/if}
+          <div class="mx-1" use:autoAnimate={LAYOUT_ANIMATION_OPTIONS}>
+            {#if attachmentName}
+              <div
+                class="mb-1 inline-flex items-center gap-2 rounded-md bg-secondary px-2.5 py-1.5 text-xs"
+              >
+                <FileText size={14} />
+                {attachmentName}
+              </div>
+            {/if}
+          </div>
           <Textarea
             class="min-h-12 resize-none border-0 px-2 py-2 shadow-none focus-visible:ring-0"
             bind:value={prompt}

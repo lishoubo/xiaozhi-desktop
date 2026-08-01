@@ -29,7 +29,7 @@
             {#snippet child({ props })}
               <a
                 {...props}
-                class="grid size-10 place-items-center rounded-md text-muted-foreground no-underline transition-colors duration-150 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2 focus-visible:ring-sidebar-ring focus-visible:outline-none [&.active]:bg-sidebar-accent [&.active]:text-sidebar-accent-foreground"
+                class="grid size-10 place-items-center rounded-md text-muted-foreground no-underline transition-colors duration-150 ease-out hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2 focus-visible:ring-sidebar-ring focus-visible:outline-none motion-reduce:transition-none [&.active]:bg-sidebar-accent [&.active]:text-sidebar-accent-foreground"
                 href="/"
                 use:link
                 use:active={{ className: 'active' }}
@@ -47,7 +47,7 @@
             {#snippet child({ props })}
               <a
                 {...props}
-                class="grid size-10 place-items-center rounded-md text-muted-foreground no-underline transition-colors duration-150 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2 focus-visible:ring-sidebar-ring focus-visible:outline-none [&.active]:bg-sidebar-accent [&.active]:text-sidebar-accent-foreground"
+                class="grid size-10 place-items-center rounded-md text-muted-foreground no-underline transition-colors duration-150 ease-out hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2 focus-visible:ring-sidebar-ring focus-visible:outline-none motion-reduce:transition-none [&.active]:bg-sidebar-accent [&.active]:text-sidebar-accent-foreground"
                 href="/agent"
                 use:link
                 use:active={{ className: 'active' }}
@@ -65,7 +65,7 @@
             {#snippet child({ props })}
               <a
                 {...props}
-                class="grid size-10 place-items-center rounded-md text-muted-foreground no-underline transition-colors duration-150 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2 focus-visible:ring-sidebar-ring focus-visible:outline-none [&.active]:bg-sidebar-accent [&.active]:text-sidebar-accent-foreground"
+                class="grid size-10 place-items-center rounded-md text-muted-foreground no-underline transition-colors duration-150 ease-out hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2 focus-visible:ring-sidebar-ring focus-visible:outline-none motion-reduce:transition-none [&.active]:bg-sidebar-accent [&.active]:text-sidebar-accent-foreground"
                 href="/profile"
                 use:link
                 use:active={{ className: 'active' }}
@@ -83,7 +83,7 @@
             {#snippet child({ props })}
               <a
                 {...props}
-                class="grid size-10 place-items-center rounded-md text-muted-foreground no-underline transition-colors duration-150 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2 focus-visible:ring-sidebar-ring focus-visible:outline-none [&.active]:bg-sidebar-accent [&.active]:text-sidebar-accent-foreground"
+                class="grid size-10 place-items-center rounded-md text-muted-foreground no-underline transition-colors duration-150 ease-out hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2 focus-visible:ring-sidebar-ring focus-visible:outline-none motion-reduce:transition-none [&.active]:bg-sidebar-accent [&.active]:text-sidebar-accent-foreground"
                 href="/settings"
                 use:link
                 use:active={{ className: 'active' }}

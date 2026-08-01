@@ -63,12 +63,15 @@ describe('BrowserWorkspace', () => {
     const { container } = render(BrowserWorkspace);
 
     expect(await screen.findByRole('tab', { name: '携程后台' })).toBeInTheDocument();
+    const animate = vi.mocked(Element.prototype.animate);
+    animate.mockClear();
     for (const image of container.querySelectorAll('img')) {
       expect(image).toHaveAttribute('src', expect.stringMatching(/^data:image\/png;base64,/));
     }
 
     await user.click(screen.getByRole('button', { name: '飞猪酒店商家' }));
     expect(await screen.findByRole('tab', { name: '飞猪后台' })).toBeInTheDocument();
+    expect(animate).toHaveBeenCalled();
     expect(screen.queryByRole('tab', { name: '携程后台' })).not.toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: '携程酒店 eBooking' }));

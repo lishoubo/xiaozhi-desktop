@@ -6,7 +6,7 @@
   import Cookie from '@lucide/svelte/icons/cookie';
   import MonitorUp from '@lucide/svelte/icons/monitor-up';
   import Settings2 from '@lucide/svelte/icons/settings-2';
-  import { ALERT_ANIMATION_OPTIONS } from '../alert-animation';
+  import { ALERT_ANIMATION_OPTIONS, enter, PAGE_ENTER_OPTIONS } from '../motion';
   import type { SystemPreferences } from '../../shared/browser';
   import CookieImportDialog from '../components/browser/CookieImportDialog.svelte';
   import * as Alert from '$lib/components/ui/alert';
@@ -47,7 +47,11 @@
   }
 </script>
 
-<main class="h-full overflow-auto bg-secondary px-9 py-10">
+<main
+  class="h-full overflow-auto bg-secondary px-9 py-10"
+  data-motion="page"
+  in:enter={PAGE_ENTER_OPTIONS}
+>
   <div class="mx-auto max-w-3xl">
     <header>
       <h1 class="m-0 text-[28px] font-semibold tracking-[-0.02em]">设置</h1>

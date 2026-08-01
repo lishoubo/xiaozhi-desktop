@@ -2,12 +2,17 @@
   import LogOut from '@lucide/svelte/icons/log-out';
   import UserRound from '@lucide/svelte/icons/user-round';
   import { maskPhone, readAuthSession } from '../auth';
+  import { enter, PAGE_ENTER_OPTIONS } from '../motion';
   import { Button } from '$lib/components/ui/button';
 
   const session = readAuthSession();
 </script>
 
-<main class="h-full overflow-auto bg-secondary px-9 py-10">
+<main
+  class="h-full overflow-auto bg-secondary px-9 py-10"
+  data-motion="page"
+  in:enter={PAGE_ENTER_OPTIONS}
+>
   <div class="mx-auto max-w-3xl">
     <h1 class="m-0 text-[28px] font-semibold tracking-[-0.02em]">用户中心</h1>
 

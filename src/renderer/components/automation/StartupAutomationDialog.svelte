@@ -4,7 +4,7 @@
   import { onMount } from 'svelte';
   import CalendarCheck2 from '@lucide/svelte/icons/calendar-check-2';
   import CircleAlert from '@lucide/svelte/icons/circle-alert';
-  import { ALERT_ANIMATION_OPTIONS } from '../../alert-animation';
+  import { ALERT_ANIMATION_OPTIONS } from '../../motion';
   import * as Alert from '$lib/components/ui/alert';
 
   const AUTO_DISMISS_MS = 5_000;

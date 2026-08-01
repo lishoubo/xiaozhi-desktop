@@ -86,7 +86,8 @@ describe('App routing and query integration', () => {
 
     await user.click(screen.getByRole('link', { name: '设置' }));
 
-    expect(await screen.findByRole('heading', { name: '设置' })).toBeInTheDocument();
+    const settingsHeading = await screen.findByRole('heading', { name: '设置' });
+    expect(settingsHeading.closest('[data-motion="page"]')).toBeInTheDocument();
     expect(await screen.findByText('V1.0')).toBeInTheDocument();
     expect(window.location.hash).toBe('#/settings');
   });
@@ -102,7 +103,8 @@ describe('App routing and query integration', () => {
 
     await user.click(screen.getByRole('link', { name: '小智AI 管家' }));
 
-    expect(await screen.findByRole('heading', { name: '小智AI 管家' })).toBeInTheDocument();
+    const agentHeading = await screen.findByRole('heading', { name: '小智AI 管家' });
+    expect(agentHeading.closest('[data-motion="page"]')).toBeInTheDocument();
     expect(screen.getByRole('textbox', { name: '给小智AI 管家发消息' })).toBeInTheDocument();
     expect(window.location.hash).toBe('#/agent');
   });
@@ -114,7 +116,8 @@ describe('App routing and query integration', () => {
     await user.click(screen.getByRole('link', { name: /用户中心/ }));
     await user.click(await screen.findByRole('button', { name: '退出登录' }));
 
-    expect(await screen.findByRole('heading', { name: '登录' })).toBeInTheDocument();
+    const loginHeading = await screen.findByRole('heading', { name: '登录' });
+    expect(loginHeading.closest('[data-motion="page"]')).toBeInTheDocument();
     expect(localStorage.getItem('hotel-butler.auth-session')).toBeNull();
   });
 

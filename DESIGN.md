@@ -221,6 +221,17 @@ spacing:
   section-lg: 96px
   hero: 120px
 
+motion:
+  dialog: 100ms
+  state: 150ms
+  page-enter: 160ms
+  layout: 180ms
+  easing-enter: cubic-out
+  easing-state: ease-out
+  distance-page: 6px
+  distance-surface: 8px
+  reduced-motion: remove transforms and reduce durations to effectively immediate feedback
+
 implementation:
   application: "Electron renderer"
   framework: "Svelte 5"
@@ -245,6 +256,7 @@ implementation:
     - "Do not invent explanatory copy, promotional sections, helper cards, headings, badges, or decorative elements that the requested workflow does not need."
     - "Prefer hierarchy, spacing, familiar controls, and progressive disclosure over persistent instructional text."
     - "Keep reusable UI in src/renderer/components and page-level composition in src/renderer/pages."
+    - "Follow docs/UI_ENGINEERING.md for motion ownership: Svelte transitions for presence, AutoAnimate for direct-child layout changes, shadcn-svelte for primitive open/close motion, and Tailwind utilities for visual state changes."
     - "Do not assume server rendering, server components, or filesystem access from the renderer."
   semanticTokenMapping:
     background: "{colors.canvas}"
@@ -573,6 +585,7 @@ This specification is implemented in the Electron renderer with **Svelte 5**, **
 - Use icons exclusively from `@lucide/svelte`. Do not mix in another icon package, hand-authored SVG icons, Unicode symbols, or emoji as interface controls. Import icons individually, use the established size and stroke treatment for the surrounding surface, and give icon-only controls an accessible name and an adequate touch target.
 - This is a desktop Electron renderer. Do not assume server rendering or direct filesystem access in a Svelte component; privileged operations must go through the project's preload and IPC boundary.
 - Inter Variable is the licensed, installed substitute for Notion Sans and should be used through the existing project font configuration.
+- Motion is restrained and task-oriented. Use the tokens under `motion`; animate page or conditional-surface presence, layout continuity, and direct interaction feedback, but never add decorative looping motion or layer multiple animation systems on the same element. Detailed ownership and accessibility rules live in `docs/UI_ENGINEERING.md`.
 
 ## Product Experience Principles
 
@@ -604,6 +617,5 @@ The application follows a **less-is-more** product philosophy. The detailed visu
 ## Known Gaps
 
 - Specific dark-mode token values not surfaced beyond hero bands
-- Animation/transition timings not extracted; recommend 150–200ms ease
 - Form validation success state not explicitly captured
 - Pastel-tint mapping (which feature uses which tint) is observation-based — the actual brand library may have more entries
