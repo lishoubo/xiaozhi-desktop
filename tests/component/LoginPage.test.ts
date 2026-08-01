@@ -32,7 +32,7 @@ describe('LoginPage', () => {
 
     expect(screen.queryByText(/Mock|Electron|后端/)).not.toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: '《隐私政策》' }));
-    expect(screen.getByRole('dialog', { name: 'Hotel Butler 隐私政策' })).toBeVisible();
+    expect(screen.getByRole('dialog', { name: '小智酒店管家隐私政策' })).toBeVisible();
 
     await user.keyboard('{Escape}');
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();

@@ -65,8 +65,8 @@
 <main class="grid h-full grid-cols-[minmax(320px,0.92fr)_minmax(440px,1.08fr)] bg-background">
   <section class="relative overflow-hidden bg-[#0a1530]" aria-label="品牌图片区">
     <div class="absolute inset-x-12 bottom-12 text-white">
-      <div class="mb-4 grid size-12 place-items-center rounded-lg bg-primary font-semibold">HB</div>
-      <h1 class="m-0 text-3xl font-semibold tracking-[-0.02em]">Hotel Butler</h1>
+      <div class="mb-4 grid size-12 place-items-center rounded-lg bg-primary font-semibold">智</div>
+      <h1 class="m-0 text-3xl font-semibold tracking-[-0.02em]">小智酒店管家</h1>
       <p class="mt-3 text-sm text-white/65">酒店渠道聚合管理工作台</p>
     </div>
   </section>
@@ -162,13 +162,13 @@
     <Dialog.Content class="max-h-[78vh] overflow-auto sm:max-w-2xl">
       <Dialog.Header>
         <Dialog.Title>
-          {policy === 'agreement' ? 'Hotel Butler 用户协议' : 'Hotel Butler 隐私政策'}
+          {policy === 'agreement' ? '小智酒店管家用户协议' : '小智酒店管家隐私政策'}
         </Dialog.Title>
       </Dialog.Header>
       {#if policy === 'agreement'}
         <div class="space-y-4 text-sm leading-7 text-secondary-foreground">
           <p>
-            本协议适用于您使用 Hotel Butler
+            本协议适用于您使用小智酒店管家
             酒店渠道聚合管理客户端。您应使用本人或经合法授权的账号登录，并妥善保管验证码、平台凭证及经营数据。
           </p>
           <p>

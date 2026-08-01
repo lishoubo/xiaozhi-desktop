@@ -1,6 +1,6 @@
 {
   "name": "hotel-butler",
-  "productName": "Hotel Butler",
+  "productName": "小智酒店管家",
   "version": "1.0.0",
   "description": "面向酒店运营人员的渠道工作台",
   "main": ".vite/build/main.js",
@@ -42,6 +42,7 @@
     "@electron-forge/plugin-fuses": "^7.11.2",
     "@electron-forge/plugin-vite": "^7.11.2",
     "@electron/fuses": "^1.8.0",
+    "@internationalized/date": "^3.12.3",
     "@lucide/svelte": "^1.27.0",
     "@playwright/test": "^1.62.0",
     "@sveltejs/vite-plugin-svelte": "^4.0.4",

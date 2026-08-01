@@ -59,7 +59,7 @@ test('logs in with the local phone verification flow', async () => {
 
 test('starts the Electron window with the Svelte browser shell', async () => {
   await login();
-  await expect(page).toHaveTitle('Hotel Butler');
+  await expect(page).toHaveTitle('小智酒店管家');
   await expect(page.getByRole('button', { name: '携程酒店 eBooking' })).toBeVisible();
   await expect(page.getByRole('textbox', { name: '网址' })).toHaveCount(0);
   await expect(page.getByRole('button', { name: '刷新' })).toBeVisible();
@@ -71,6 +71,15 @@ test('starts the Electron window with the Svelte browser shell', async () => {
 
   expect(versions.electron).toBeTruthy();
   expect(versions.name).toBeTruthy();
+});
+
+test('opens the AI concierge from the icon sidebar', async () => {
+  await login();
+  await page.getByRole('link', { name: '小智AI 管家' }).click();
+
+  await expect(page).toHaveURL(/#\/agent$/);
+  await expect(page.getByRole('heading', { name: '小智AI 管家' })).toBeVisible();
+  await expect(page.getByLabel('对话内容').getByText('今日运营摘要')).toBeVisible();
 });
 
 test('navigates between the browser workspace and settings', async () => {

@@ -86,6 +86,22 @@ describe('App routing and query integration', () => {
     expect(window.location.hash).toBe('#/settings');
   });
 
+  it('uses icon-only navigation and opens the AI concierge workspace', async () => {
+    const user = userEvent.setup();
+    render(App);
+
+    const navigation = screen.getByRole('navigation', { name: '应用导航' });
+    expect(navigation).not.toHaveTextContent('浏览器');
+    expect(navigation).not.toHaveTextContent('用户中心');
+    expect(navigation).not.toHaveTextContent('设置');
+
+    await user.click(screen.getByRole('link', { name: '小智AI 管家' }));
+
+    expect(await screen.findByRole('heading', { name: '小智AI 管家' })).toBeInTheDocument();
+    expect(screen.getByRole('textbox', { name: '给小智AI 管家发消息' })).toBeInTheDocument();
+    expect(window.location.hash).toBe('#/agent');
+  });
+
   it('returns to login after the user signs out', async () => {
     const user = userEvent.setup();
     render(App);

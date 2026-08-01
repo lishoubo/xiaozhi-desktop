@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Hotel Butler's product surfaces are designed from the user's task, context, and decision needs. The interface must not mirror the implementation structure, database schema, service boundaries, or every available capability merely because those concepts exist in code.
+小智酒店管家的产品界面围绕用户当前的任务、情境与决策需求设计。The interface must not mirror the implementation structure, database schema, service boundaries, or every available capability merely because those concepts exist in code.
 
 This user-centered rule applies to UI, interaction flows, navigation, information architecture, terminology, empty/loading/error states, and product copy. Internal logic remains engineering-centered: model domains accurately, make failure modes explicit, preserve security boundaries, and optimize for correctness and maintainability.
 

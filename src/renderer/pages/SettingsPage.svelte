@@ -89,7 +89,7 @@
       <div class="flex items-center justify-between gap-6">
         <div>
           <h2 class="m-0 text-sm font-semibold">客户端版本</h2>
-          <p class="mt-1 mb-0 text-xs text-muted-foreground">Hotel Butler 桌面客户端</p>
+          <p class="mt-1 mb-0 text-xs text-muted-foreground">小智酒店管家桌面客户端</p>
         </div>
         <span class="text-sm font-medium"
           >V{(preferences?.version ?? '1.0.0').replace(/\.0$/, '')}</span

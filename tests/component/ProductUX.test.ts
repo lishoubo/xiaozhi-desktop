@@ -40,5 +40,6 @@ describe('product UX restraint', () => {
 
     expect(screen.queryByText('桌面通知')).not.toBeInTheDocument();
     expect(await screen.findByText('V1.0')).toBeInTheDocument();
+    expect(screen.getByText('小智酒店管家桌面客户端')).toBeInTheDocument();
   });
 });
