@@ -9,6 +9,7 @@
   import type { BrowserTab } from '../../../shared/browser';
   import { OTA_CHANNELS, type OtaChannel } from '../../data/ota-channels';
   import { Button } from '$lib/components/ui/button';
+  import CookieImportDialog from './CookieImportDialog.svelte';
 
   const COOKIE_PROMPT_KEY = 'hotel-butler.cookie-import-prompted';
   let activeChannelId = $state(OTA_CHANNELS[0].id);
@@ -16,7 +17,6 @@
   let tabsByChannel = $state<Record<string, BrowserTab[]>>({});
   let viewport: HTMLElement;
   let cookiePrompt = $state(false);
-  let importMessage = $state('');
   let browserError = $state('');
   let activeTabs = $derived(tabsByChannel[activeChannelId] ?? []);
   let activeTab = $derived(
@@ -92,17 +92,6 @@
     localStorage.setItem(COOKIE_PROMPT_KEY, 'true');
     cookiePrompt = false;
     await createTab(OTA_CHANNELS[0]);
-  }
-
-  async function importCookies(): Promise<void> {
-    try {
-      const result = await window.hotelButler.cookies.import();
-      if (result.cancelled) return;
-      importMessage = `已导入 ${result.imported} 个 Cookie${result.failed ? `，${result.failed} 个失败` : ''}`;
-      await finishCookiePrompt();
-    } catch (error) {
-      importMessage = error instanceof Error ? error.message : 'Cookie 导入失败';
-    }
   }
 
   onMount(() => {
@@ -259,14 +248,17 @@
       <div>
         <h2 class="m-0 text-sm font-semibold">导入已有浏览器 Cookie</h2>
         <p class="mt-2 mb-0 text-xs leading-5 text-muted-foreground">
-          支持浏览器扩展导出的 JSON 或 Netscape Cookie 文件。导入后将在 OTA 页面自动生效。
+          从本机浏览器自动导入，导入后将在 OTA 页面生效。
         </p>
       </div>
     </div>
-    {#if importMessage}<p class="mt-3 mb-0 text-xs text-destructive">{importMessage}</p>{/if}
     <div class="mt-4 flex justify-end gap-2">
       <Button variant="ghost" size="sm" onclick={() => void finishCookiePrompt()}>暂不导入</Button>
-      <Button size="sm" onclick={() => void importCookies()}>选择文件</Button>
+      <CookieImportDialog
+        triggerLabel="导入 Cookie"
+        triggerSize="sm"
+        onComplete={finishCookiePrompt}
+      />
     </div>
   </aside>
 {/if}

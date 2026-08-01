@@ -1,9 +1,9 @@
-import { app, dialog, ipcMain, type BrowserWindow, type IpcMainInvokeEvent } from 'electron';
-import fs from 'node:fs/promises';
+import { app, ipcMain, type BrowserWindow, type IpcMainInvokeEvent } from 'electron';
 import { IPC_CHANNELS } from '../../shared/ipc-channels';
-import type { BrowserBounds, SystemPreferences } from '../../shared/browser';
+import type { BrowserBounds, BrowserCookieSourceId, SystemPreferences } from '../../shared/browser';
+import { BrowserCookieImporter } from '../browser/browser-cookie-importer';
 import { BrowserManager } from '../browser/browser-manager';
-import { parseCookieExport } from '../browser/cookie-import';
+import { friendlyCookieImportMessage } from '../browser/cookie-import';
 
 type RegisterBrowserHandlersOptions = Readonly<{
   window: BrowserWindow;
@@ -21,6 +21,7 @@ export function registerBrowserHandlers({
   window,
   manager,
 }: RegisterBrowserHandlersOptions): () => void {
+  const cookieImporter = new BrowserCookieImporter();
   const assertTrusted = (event: IpcMainInvokeEvent): void => {
     if (event.sender !== window.webContents) throw new Error('拒绝来自非主应用窗口的请求');
   };
@@ -68,25 +69,27 @@ export function registerBrowserHandlers({
     if (!bounds || typeof bounds !== 'object') throw new Error('浏览器区域尺寸无效');
     manager.setBounds(bounds as BrowserBounds);
   });
-  handle(IPC_CHANNELS.cookies.import, async () => {
-    const selection = await dialog.showOpenDialog(window, {
-      title: '导入浏览器 Cookie',
-      buttonLabel: '导入',
-      properties: ['openFile'],
-      filters: [
-        { name: 'Cookie 导出文件', extensions: ['json', 'txt', 'cookies'] },
-        { name: '所有文件', extensions: ['*'] },
-      ],
-    });
-    if (selection.canceled || !selection.filePaths[0]) {
-      return { cancelled: true, imported: 0, failed: 0 };
+  handle(IPC_CHANNELS.cookies.listSources, () => cookieImporter.listSources());
+  handle(IPC_CHANNELS.cookies.import, async (_event, sourceId) => {
+    try {
+      if (!['chrome', 'edge', 'firefox', 'safari'].includes(sourceId as string)) {
+        throw new Error('浏览器类型无效');
+      }
+      const { cookies, failed: readFailures } = await cookieImporter.readCookies(
+        sourceId as BrowserCookieSourceId,
+      );
+      if (cookies.length === 0 && readFailures === 0) {
+        throw new Error('所选浏览器中没有找到可导入的 Cookie');
+      }
+      const results = await Promise.allSettled(
+        cookies.map((cookie) => manager.browserSession.cookies.set(cookie)),
+      );
+      const imported = results.filter((result) => result.status === 'fulfilled').length;
+      if (imported === 0) throw new Error('未能导入 Cookie，请确认浏览器已登录并允许系统访问');
+      return { imported, failed: readFailures + results.length - imported };
+    } catch (error) {
+      return { imported: 0, failed: 0, error: friendlyCookieImportMessage(error) };
     }
-    const cookies = parseCookieExport(await fs.readFile(selection.filePaths[0], 'utf8'));
-    const results = await Promise.allSettled(
-      cookies.map((cookie) => manager.browserSession.cookies.set(cookie)),
-    );
-    const imported = results.filter((result) => result.status === 'fulfilled').length;
-    return { cancelled: false, imported, failed: results.length - imported };
   });
   handle(IPC_CHANNELS.system.getPreferences, () => systemPreferences());
   handle(IPC_CHANNELS.system.setAutoLaunch, (_event, enabled) => {

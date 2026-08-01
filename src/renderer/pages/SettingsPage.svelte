@@ -1,9 +1,11 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import Bell from '@lucide/svelte/icons/bell';
+  import Cookie from '@lucide/svelte/icons/cookie';
   import MonitorUp from '@lucide/svelte/icons/monitor-up';
   import Settings2 from '@lucide/svelte/icons/settings-2';
   import type { SystemPreferences } from '../../shared/browser';
+  import CookieImportDialog from '../components/browser/CookieImportDialog.svelte';
 
   let preferences = $state<SystemPreferences | null>(null);
   let notifications = $state(localStorage.getItem('hotel-butler.notifications') !== 'false');
@@ -74,6 +76,17 @@
             onchange={(event) => toggleNotifications(event.currentTarget.checked)}
           />
         </label>
+        <div class="flex items-center justify-between gap-6 px-6 py-4">
+          <span class="flex items-center gap-3 text-sm">
+            <Cookie size={17} class="text-muted-foreground" />
+            Cookie
+          </span>
+          <CookieImportDialog
+            triggerLabel="导入 Cookie"
+            triggerVariant="outline"
+            triggerSize="sm"
+          />
+        </div>
       </div>
     </section>
 

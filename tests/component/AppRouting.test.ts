@@ -12,6 +12,8 @@ const createTab = vi.fn().mockResolvedValue({
   canGoForward: false,
   loading: false,
 });
+const listCookieSources = vi.fn();
+const importCookies = vi.fn();
 
 describe('App routing and query integration', () => {
   beforeEach(() => {
@@ -23,6 +25,10 @@ describe('App routing and query integration', () => {
     );
     localStorage.setItem('hotel-butler.cookie-import-prompted', 'true');
     createTab.mockClear();
+    listCookieSources.mockReset();
+    importCookies.mockReset();
+    listCookieSources.mockResolvedValue([{ id: 'firefox', name: 'Mozilla Firefox' }]);
+    importCookies.mockResolvedValue({ imported: 8, failed: 0 });
 
     Object.defineProperty(window, 'hotelButler', {
       configurable: true,
@@ -51,7 +57,8 @@ describe('App routing and query integration', () => {
           onStateChanged: vi.fn(() => vi.fn()),
         },
         cookies: {
-          import: vi.fn(),
+          listSources: listCookieSources,
+          import: importCookies,
         },
         system: {
           getPreferences: vi.fn().mockResolvedValue({ autoLaunch: false, version: '1.0.0' }),
@@ -88,5 +95,21 @@ describe('App routing and query integration', () => {
 
     expect(await screen.findByRole('heading', { name: '登录' })).toBeInTheDocument();
     expect(localStorage.getItem('hotel-butler.auth-session')).toBeNull();
+  });
+
+  it('allows cookies to be imported again from settings', async () => {
+    const user = userEvent.setup();
+    render(App);
+
+    await user.click(await screen.findByRole('link', { name: '设置' }));
+    await user.click(await screen.findByRole('button', { name: '导入 Cookie' }));
+
+    expect(await screen.findByRole('dialog', { name: '从浏览器导入 Cookie' })).toBeVisible();
+    await user.click(screen.getByRole('button', { name: '开始导入' }));
+
+    expect(importCookies).toHaveBeenCalledWith('firefox');
+    expect(await screen.findByText('已从 Mozilla Firefox 导入 8 个 Cookie')).toBeVisible();
+    await user.click(screen.getByRole('button', { name: '完成' }));
+    expect(screen.queryByRole('dialog', { name: '从浏览器导入 Cookie' })).not.toBeInTheDocument();
   });
 });

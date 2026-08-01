@@ -1,61 +1,34 @@
 import { describe, expect, it } from 'vitest';
-import { parseCookieExport } from '../../../src/main/browser/cookie-import';
+import {
+  chromiumTimestampToUnix,
+  friendlyCookieImportMessage,
+  isSupportedCookieDomain,
+} from '../../../src/main/browser/cookie-import';
 
-describe('parseCookieExport', () => {
-  it('normalizes JSON cookie exports for Electron', () => {
-    const cookies = parseCookieExport(
-      JSON.stringify([
-        {
-          domain: '.ctrip.com',
-          expirationDate: 1_900_000_000,
-          httpOnly: true,
-          name: 'session',
-          path: '/',
-          sameSite: 'lax',
-          secure: true,
-          value: 'token',
-        },
-      ]),
-    );
-
-    expect(cookies).toEqual([
-      {
-        domain: '.ctrip.com',
-        expirationDate: 1_900_000_000,
-        httpOnly: true,
-        name: 'session',
-        path: '/',
-        sameSite: 'lax',
-        secure: true,
-        url: 'https://ctrip.com/',
-        value: 'token',
-      },
-    ]);
+describe('automatic browser cookie import', () => {
+  it('only accepts cookie domains used by supported OTA platforms', () => {
+    expect(isSupportedCookieDomain('.ebooking.ctrip.com')).toBe(true);
+    expect(isSupportedCookieDomain('login.taobao.com')).toBe(true);
+    expect(isSupportedCookieDomain('.unrelated.example')).toBe(false);
   });
 
-  it('parses Netscape cookie files and ignores comments', () => {
-    const cookies = parseCookieExport(
-      [
-        '# Netscape HTTP Cookie File',
-        '.meituan.com\tTRUE\t/\tTRUE\t1900000000\tmerchant\tabc',
-      ].join('\n'),
-    );
-
-    expect(cookies).toEqual([
-      {
-        domain: '.meituan.com',
-        expirationDate: 1_900_000_000,
-        httpOnly: false,
-        name: 'merchant',
-        path: '/',
-        secure: true,
-        url: 'https://meituan.com/',
-        value: 'abc',
-      },
-    ]);
+  it('converts Chromium microseconds since 1601 to Unix seconds', () => {
+    expect(chromiumTimestampToUnix(13_344_473_600_000_000)).toBe(1_700_000_000);
+    expect(chromiumTimestampToUnix(0)).toBeUndefined();
   });
 
-  it('rejects a file without importable cookies', () => {
-    expect(() => parseCookieExport('[]')).toThrow('没有找到可导入的 Cookie');
+  it('turns system and browser errors into short Chinese messages', () => {
+    expect(friendlyCookieImportMessage(new Error('没有找到 Safari Cookie 数据'))).toBe(
+      '没有找到可导入的 Cookie',
+    );
+    expect(friendlyCookieImportMessage(new Error('User interaction is not allowed'))).toBe(
+      '无法读取浏览器 Cookie，请允许访问后重试',
+    );
+    expect(friendlyCookieImportMessage(new Error('Windows 应用绑定加密'))).toBe(
+      '该浏览器暂不支持自动导入，请尝试其他浏览器',
+    );
+    expect(friendlyCookieImportMessage(new Error('SQLITE_CORRUPT details'))).toBe(
+      'Cookie 导入失败，请稍后重试',
+    );
   });
 });

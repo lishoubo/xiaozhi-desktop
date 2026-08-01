@@ -20,6 +20,7 @@ export function configureRendererLogging(
   logger: RendererLoggingTarget,
   options: RendererLoggingOptions,
 ): void {
+  
   logger.transports.console.level = options.isDevelopment ? 'debug' : 'warn';
   logger.transports.ipc.level = options.isDevelopment ? 'debug' : 'info';
   logger.hooks.push((message: LogMessageData) => ({

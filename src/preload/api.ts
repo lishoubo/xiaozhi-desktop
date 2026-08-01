@@ -1,6 +1,8 @@
 import { IPC_CHANNELS } from '../shared/ipc-channels';
 import type {
   BrowserBounds,
+  BrowserCookieSource,
+  BrowserCookieSourceId,
   BrowserTab,
   CookieImportResult,
   SystemPreferences,
@@ -32,7 +34,8 @@ export type DesktopApi = Readonly<{
     onStateChanged: (listener: (tab: BrowserTab) => void) => () => void;
   }>;
   cookies: Readonly<{
-    import: () => Promise<CookieImportResult>;
+    listSources: () => Promise<BrowserCookieSource[]>;
+    import: (sourceId: BrowserCookieSourceId) => Promise<CookieImportResult>;
   }>;
   system: Readonly<{
     getPreferences: () => Promise<SystemPreferences>;
@@ -76,7 +79,9 @@ export function createDesktopApi(
       subscribe(IPC_CHANNELS.browser.stateChanged, (value) => listener(value as BrowserTab)),
   });
   const cookies = Object.freeze({
-    import: () => invoke<CookieImportResult>(IPC_CHANNELS.cookies.import),
+    listSources: () => invoke<BrowserCookieSource[]>(IPC_CHANNELS.cookies.listSources),
+    import: (sourceId: BrowserCookieSourceId) =>
+      invoke<CookieImportResult>(IPC_CHANNELS.cookies.import, sourceId),
   });
   const system = Object.freeze({
     getPreferences: () => invoke<SystemPreferences>(IPC_CHANNELS.system.getPreferences),

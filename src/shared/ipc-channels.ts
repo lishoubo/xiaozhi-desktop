@@ -1,4 +1,4 @@
-export const IPC_CHANNELS = {
+  export const IPC_CHANNELS = {
   browser: {
     activate: 'browser:activate',
     close: 'browser:close',
@@ -13,6 +13,7 @@ export const IPC_CHANNELS = {
   },
   cookies: {
     import: 'cookies:import',
+    listSources: 'cookies:list-sources',
   },
   settings: {
     delete: 'settings:delete',

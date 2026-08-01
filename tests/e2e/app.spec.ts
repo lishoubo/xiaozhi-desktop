@@ -50,6 +50,9 @@ test('logs in with the mock phone verification flow', async () => {
 
   await expect(page.getByRole('button', { name: '携程酒店 eBooking' })).toBeVisible();
   await expect(page.getByText('导入已有浏览器 Cookie')).toBeVisible();
+  await page.getByRole('button', { name: '导入 Cookie' }).click();
+  await expect(page.getByRole('dialog', { name: '从浏览器导入 Cookie' })).toBeVisible();
+  await page.getByRole('button', { name: '取消' }).click();
   await page.getByRole('button', { name: '暂不导入' }).click();
 });
 
@@ -94,6 +97,9 @@ test('navigates static routes and loads settings through TanStack Query', async 
   await expect(page).toHaveURL(/#\/settings$/);
   await expect(page.getByRole('heading', { name: '设置', exact: true })).toBeVisible();
   await expect(page.getByText('客户端版本')).toBeVisible();
+  await page.getByRole('button', { name: '导入 Cookie' }).click();
+  await expect(page.getByRole('dialog', { name: '从浏览器导入 Cookie' })).toBeVisible();
+  await page.getByRole('button', { name: '取消' }).click();
 
   await page.getByRole('link', { name: '浏览器' }).click();
   await expect(page).toHaveURL(/#\/$/);

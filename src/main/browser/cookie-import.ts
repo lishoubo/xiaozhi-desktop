@@ -1,103 +1,48 @@
-import type { CookiesSetDetails } from 'electron';
+const SUPPORTED_COOKIE_DOMAINS = [
+  'agoda.com',
+  'alibaba.com',
+  'booking.com',
+  'bytedance.com',
+  'ctrip.com',
+  'douyin.com',
+  'expedia.com',
+  'fliggy.com',
+  'meituan.com',
+  'taobao.com',
+  'trip.com',
+  'tujia.com',
+  'xiaohongshu.com',
+] as const;
 
-type JsonCookie = Readonly<Record<string, unknown>>;
+const CHROMIUM_TO_UNIX_SECONDS = 11_644_473_600;
 
-const SAME_SITE_VALUES = new Set(['unspecified', 'no_restriction', 'lax', 'strict']);
-
-function asBoolean(value: unknown): boolean {
-  return value === true || value === 'TRUE';
+export function isSupportedCookieDomain(domain: string): boolean {
+  const normalized = domain.trim().toLowerCase().replace(/^\./, '');
+  return SUPPORTED_COOKIE_DOMAINS.some(
+    (supported) => normalized === supported || normalized.endsWith(`.${supported}`),
+  );
 }
 
-function normalizeSameSite(value: unknown): CookiesSetDetails['sameSite'] {
-  if (typeof value !== 'string') return undefined;
-  const normalized = value.toLowerCase().replace('none', 'no_restriction');
-  return SAME_SITE_VALUES.has(normalized)
-    ? (normalized as CookiesSetDetails['sameSite'])
-    : undefined;
+export function chromiumTimestampToUnix(value: number): number | undefined {
+  if (!Number.isFinite(value) || value <= 0) return undefined;
+  const unixSeconds = value / 1_000_000 - CHROMIUM_TO_UNIX_SECONDS;
+  return unixSeconds > 0 ? unixSeconds : undefined;
 }
 
-function normalizeJsonCookie(cookie: JsonCookie): CookiesSetDetails | null {
+export function friendlyCookieImportMessage(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error);
+  if (/应用绑定加密|app.?bound|v20/i.test(message)) {
+    return '该浏览器暂不支持自动导入，请尝试其他浏览器';
+  }
+  if (/没有找到|未找到|no cookies?/i.test(message)) {
+    return '没有找到可导入的 Cookie';
+  }
   if (
-    typeof cookie.name !== 'string' ||
-    typeof cookie.value !== 'string' ||
-    typeof cookie.domain !== 'string'
+    /denied|not allowed|cancel(?:led|ed)?|permission|keychain|password|passphrase|eperm|eacces|权限|密码|拒绝|不允许访问/i.test(
+      message,
+    )
   ) {
-    return null;
+    return '无法读取浏览器 Cookie，请允许访问后重试';
   }
-
-  const secure = asBoolean(cookie.secure);
-  const path = typeof cookie.path === 'string' ? cookie.path : '/';
-  const sameSite = normalizeSameSite(cookie.sameSite);
-  const expirationDate =
-    typeof cookie.expirationDate === 'number'
-      ? cookie.expirationDate
-      : typeof cookie.expiration === 'number'
-        ? cookie.expiration
-        : undefined;
-
-  return {
-    url: `${secure ? 'https' : 'http'}://${cookie.domain.replace(/^\./, '')}${path}`,
-    name: cookie.name,
-    value: cookie.value,
-    domain: cookie.domain,
-    path,
-    secure,
-    httpOnly: asBoolean(cookie.httpOnly),
-    ...(expirationDate === undefined ? {} : { expirationDate }),
-    ...(sameSite === undefined ? {} : { sameSite }),
-  };
-}
-
-function parseJson(content: string): CookiesSetDetails[] | null {
-  try {
-    const parsed: unknown = JSON.parse(content);
-    const records = Array.isArray(parsed)
-      ? parsed
-      : typeof parsed === 'object' &&
-          parsed !== null &&
-          Array.isArray((parsed as { cookies?: unknown }).cookies)
-        ? (parsed as { cookies: unknown[] }).cookies
-        : null;
-    if (!records) return null;
-    return records
-      .filter((record): record is JsonCookie => typeof record === 'object' && record !== null)
-      .map(normalizeJsonCookie)
-      .filter((cookie): cookie is CookiesSetDetails => cookie !== null);
-  } catch {
-    return null;
-  }
-}
-
-function parseNetscape(content: string): CookiesSetDetails[] {
-  return content
-    .split(/\r?\n/)
-    .filter((line) => line.trim() && (!line.startsWith('#') || line.startsWith('#HttpOnly_')))
-    .map((line): CookiesSetDetails | null => {
-      const httpOnly = line.startsWith('#HttpOnly_');
-      const fields = line.replace(/^#HttpOnly_/, '').split('\t');
-      if (fields.length < 7) return null;
-      const [domain, , path, secureValue, expirationValue, name, ...valueParts] = fields;
-      const secure = secureValue === 'TRUE';
-      const expirationDate = Number(expirationValue);
-      if (!domain || !path || !name || !Number.isFinite(expirationDate)) return null;
-      return {
-        url: `${secure ? 'https' : 'http'}://${domain.replace(/^\./, '')}${path}`,
-        name,
-        value: valueParts.join('\t'),
-        domain,
-        path,
-        secure,
-        httpOnly,
-        ...(expirationDate > 0 ? { expirationDate } : {}),
-      };
-    })
-    .filter((cookie): cookie is CookiesSetDetails => cookie !== null);
-}
-
-export function parseCookieExport(content: string): CookiesSetDetails[] {
-  const cookies = parseJson(content) ?? parseNetscape(content);
-  if (cookies.length === 0) {
-    throw new Error('没有找到可导入的 Cookie');
-  }
-  return cookies;
+  return 'Cookie 导入失败，请稍后重试';
 }
