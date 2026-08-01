@@ -31,7 +31,27 @@ describe('createDesktopApi', () => {
   });
 
   it('maps browser actions to fixed IPC channels', async () => {
-    const invoke = vi.fn().mockResolvedValue(undefined);
+    const tab = {
+      id: 'tab-1',
+      channelId: 'ctrip',
+      title: 'Ctrip',
+      url: 'https://ebooking.ctrip.com/',
+      canGoBack: false,
+      canGoForward: false,
+      loading: false,
+    };
+    const invoke = vi.fn(async (channel: string) => {
+      if (channel === IPC_CHANNELS.browser.create || channel === IPC_CHANNELS.browser.activate) {
+        return tab;
+      }
+      if (channel === IPC_CHANNELS.browser.list) return [tab];
+      if (channel === IPC_CHANNELS.cookies.listSources) {
+        return [{ id: 'edge', name: 'Microsoft Edge' }];
+      }
+      if (channel === IPC_CHANNELS.cookies.import) return { imported: 1, failed: 0 };
+      if (channel === IPC_CHANNELS.automation.getCtripCheckIn) return null;
+      return undefined;
+    });
     const api = createDesktopApi({ chrome: '1', electron: '2', node: '3' }, invoke);
 
     await api.browser.acknowledgeInterception();
@@ -79,5 +99,31 @@ describe('createDesktopApi', () => {
       expect.any(Function),
     );
     expect(listener).toHaveBeenCalledWith({ ruleId: 'ctrip-soa2' });
+  });
+
+  it('drops malformed main-process events before they reach renderer listeners', () => {
+    const subscribe = vi.fn();
+    const interceptionListener = vi.fn();
+    const stateListener = vi.fn();
+    const api = createDesktopApi({ chrome: '1', electron: '2', node: '3' }, vi.fn(), subscribe);
+
+    api.browser.onRequestIntercepted(interceptionListener);
+    api.browser.onStateChanged(stateListener);
+    const interceptionSubscription = subscribe.mock.calls[0][1] as (value: unknown) => void;
+    const stateSubscription = subscribe.mock.calls[1][1] as (value: unknown) => void;
+    interceptionSubscription({ ruleId: 'unexpected-rule' });
+    stateSubscription({ id: 'tab-1' });
+
+    expect(interceptionListener).not.toHaveBeenCalled();
+    expect(stateListener).not.toHaveBeenCalled();
+  });
+
+  it('rejects malformed invoke responses before returning them to the renderer', async () => {
+    const api = createDesktopApi(
+      { chrome: '1', electron: '2', node: '3' },
+      vi.fn().mockResolvedValue({ autoLaunch: 'yes', version: '1.0.0' }),
+    );
+
+    await expect(api.system.getPreferences()).rejects.toThrow('主进程返回的数据格式无效');
   });
 });

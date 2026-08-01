@@ -1,38 +1,74 @@
-export type BrowserBounds = Readonly<{
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-}>;
+import { z } from 'zod';
 
-export type BrowserTab = Readonly<{
-  id: string;
-  channelId: string;
-  title: string;
-  url: string;
-  canGoBack: boolean;
-  canGoForward: boolean;
-  loading: boolean;
-}>;
+const nonEmptyStringSchema = z
+  .string()
+  .max(256)
+  .refine((value) => value.trim().length > 0);
 
-export type BrowserRequestInterception = Readonly<{
-  ruleId: 'ctrip-soa2';
-}>;
+export const browserWebUrlSchema = z
+  .url()
+  .max(2_048)
+  .refine((value) => {
+    const protocol = new URL(value).protocol;
+    return protocol === 'https:' || protocol === 'http:';
+  });
 
-export type BrowserCookieSourceId = 'chrome' | 'edge' | 'firefox' | 'safari';
+export const browserBoundsSchema = z.strictObject({
+  x: z.number(),
+  y: z.number(),
+  width: z.number().nonnegative(),
+  height: z.number().nonnegative(),
+});
 
-export type BrowserCookieSource = Readonly<{
-  id: BrowserCookieSourceId;
-  name: string;
-}>;
+export type BrowserBounds = Readonly<z.infer<typeof browserBoundsSchema>>;
 
-export type CookieImportResult = Readonly<{
-  imported: number;
-  failed: number;
-  error?: string;
-}>;
+export const browserCreateInputSchema = z.strictObject({
+  channelId: nonEmptyStringSchema,
+  url: browserWebUrlSchema,
+});
 
-export type SystemPreferences = Readonly<{
-  autoLaunch: boolean;
-  version: string;
-}>;
+export const browserTabIdSchema = nonEmptyStringSchema;
+
+export const browserTabSchema = z.strictObject({
+  id: nonEmptyStringSchema,
+  channelId: nonEmptyStringSchema,
+  title: z.string(),
+  url: z.string(),
+  canGoBack: z.boolean(),
+  canGoForward: z.boolean(),
+  loading: z.boolean(),
+});
+
+export type BrowserTab = Readonly<z.infer<typeof browserTabSchema>>;
+
+export const browserRequestInterceptionSchema = z.strictObject({
+  ruleId: z.literal('ctrip-soa2'),
+});
+
+export type BrowserRequestInterception = Readonly<z.infer<typeof browserRequestInterceptionSchema>>;
+
+export const browserCookieSourceIdSchema = z.enum(['chrome', 'edge', 'firefox', 'safari']);
+
+export type BrowserCookieSourceId = z.infer<typeof browserCookieSourceIdSchema>;
+
+export const browserCookieSourceSchema = z.strictObject({
+  id: browserCookieSourceIdSchema,
+  name: nonEmptyStringSchema,
+});
+
+export type BrowserCookieSource = Readonly<z.infer<typeof browserCookieSourceSchema>>;
+
+export const cookieImportResultSchema = z.strictObject({
+  imported: z.number().int().nonnegative(),
+  failed: z.number().int().nonnegative(),
+  error: nonEmptyStringSchema.optional(),
+});
+
+export type CookieImportResult = Readonly<z.infer<typeof cookieImportResultSchema>>;
+
+export const systemPreferencesSchema = z.strictObject({
+  autoLaunch: z.boolean(),
+  version: nonEmptyStringSchema,
+});
+
+export type SystemPreferences = Readonly<z.infer<typeof systemPreferencesSchema>>;

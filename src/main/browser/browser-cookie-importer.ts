@@ -5,34 +5,45 @@ import os from 'node:os';
 import path from 'node:path';
 import Database from 'better-sqlite3';
 import type { CookiesSetDetails } from 'electron';
+import { z, type ZodType } from 'zod';
 import type { BrowserCookieSource, BrowserCookieSourceId } from '../../shared/browser';
 import type { AppLogger } from '../../shared/logging';
 import { chromiumTimestampToUnix, isSupportedCookieDomain } from './cookie-import';
 
 type SupportedPlatform = NodeJS.Platform;
 
-type ChromiumRow = Readonly<{
-  host_key: string;
-  name: string;
-  value: string;
-  encrypted_value: Buffer;
-  path: string;
-  expires_utc: number;
-  is_secure: number;
-  is_httponly: number;
-  samesite: number;
-}>;
+const chromiumRowSchema = z.strictObject({
+  host_key: z.string(),
+  name: z.string(),
+  value: z.string(),
+  encrypted_value: z.instanceof(Buffer),
+  path: z.string(),
+  expires_utc: z.number(),
+  is_secure: z.number(),
+  is_httponly: z.number(),
+  samesite: z.number(),
+});
 
-type FirefoxRow = Readonly<{
-  host: string;
-  name: string;
-  value: string;
-  path: string;
-  expiry: number;
-  isSecure: number;
-  isHttpOnly: number;
-  sameSite: number;
-}>;
+const firefoxRowSchema = z.strictObject({
+  host: z.string(),
+  name: z.string(),
+  value: z.string(),
+  path: z.string(),
+  expiry: z.number(),
+  isSecure: z.number(),
+  isHttpOnly: z.number(),
+  sameSite: z.number(),
+});
+
+const chromiumLocalStateSchema = z.object({
+  os_crypt: z.object({ encrypted_key: z.string() }),
+});
+
+function parseBrowserData<T>(schema: ZodType<T>, input: unknown): T {
+  const result = schema.safeParse(input);
+  if (!result.success) throw new Error('浏览器 Cookie 数据格式无效');
+  return result.data;
+}
 
 type ChromiumDefinition = Readonly<{
   id: 'chrome' | 'edge';
@@ -253,11 +264,11 @@ async function chromiumPassword(
     return crypto.pbkdf2Sync('peanuts', 'saltysalt', 1, 16, 'sha1');
   }
 
-  const localState = JSON.parse(
-    await fs.readFile(path.join(definition.root, 'Local State'), 'utf8'),
-  ) as { os_crypt?: { encrypted_key?: unknown } };
-  const encodedKey = localState.os_crypt?.encrypted_key;
-  if (typeof encodedKey !== 'string') throw new Error('浏览器 Cookie 加密密钥不可用');
+  const localState = parseBrowserData(
+    chromiumLocalStateSchema,
+    JSON.parse(await fs.readFile(path.join(definition.root, 'Local State'), 'utf8')),
+  );
+  const encodedKey = localState.os_crypt.encrypted_key;
   const encryptedKey = Buffer.from(encodedKey, 'base64');
   const dpapiKey = encryptedKey.subarray(Buffer.from('DPAPI').length).toString('base64');
   const script =
@@ -323,16 +334,24 @@ function cookieDetails(input: {
   };
 }
 
-function readChromiumRows(database: Database.Database): { rows: ChromiumRow[]; version: number } {
-  const rows = database
-    .prepare(
-      `SELECT host_key, name, value, encrypted_value, path, expires_utc,
+function readChromiumRows(database: Database.Database): {
+  rows: z.infer<typeof chromiumRowSchema>[];
+  version: number;
+} {
+  const rows = parseBrowserData(
+    z.array(chromiumRowSchema),
+    database
+      .prepare(
+        `SELECT host_key, name, value, encrypted_value, path, expires_utc,
               is_secure, is_httponly, samesite
          FROM cookies`,
-    )
-    .all() as ChromiumRow[];
-  const versionRow = database.prepare("SELECT value FROM meta WHERE key = 'version'").get() as
-    { value: string } | undefined;
+      )
+      .all(),
+  );
+  const versionRow = parseBrowserData(
+    z.strictObject({ value: z.string() }).optional(),
+    database.prepare("SELECT value FROM meta WHERE key = 'version'").get(),
+  );
   return { rows, version: Number(versionRow?.value ?? 0) };
 }
 
@@ -385,15 +404,16 @@ async function readChromiumCookies(
 }
 
 async function readFirefoxCookies(databasePath: string): Promise<CookiesSetDetails[]> {
-  const rows = await withDatabaseCopy(
-    databasePath,
-    (database) =>
+  const rows = await withDatabaseCopy(databasePath, (database) =>
+    parseBrowserData(
+      z.array(firefoxRowSchema),
       database
         .prepare(
           `SELECT host, name, value, path, expiry, isSecure, isHttpOnly, sameSite
              FROM moz_cookies`,
         )
-        .all() as FirefoxRow[],
+        .all(),
+    ),
   );
   return rows
     .filter((row) => isSupportedCookieDomain(row.host))

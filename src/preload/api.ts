@@ -1,14 +1,29 @@
-import { IPC_CHANNELS } from '../shared/ipc-channels';
-import type { CtripCheckInResult } from '../shared/automation';
-import type {
-  BrowserBounds,
-  BrowserCookieSource,
-  BrowserCookieSourceId,
-  BrowserRequestInterception,
-  BrowserTab,
-  CookieImportResult,
-  SystemPreferences,
+import { z, type ZodType } from 'zod';
+import { ctripCheckInResultSchema, type CtripCheckInResult } from '../shared/automation';
+import {
+  browserCookieSourceSchema,
+  browserRequestInterceptionSchema,
+  browserTabSchema,
+  cookieImportResultSchema,
+  systemPreferencesSchema,
+  type BrowserBounds,
+  type BrowserCookieSource,
+  type BrowserCookieSourceId,
+  type BrowserRequestInterception,
+  type BrowserTab,
+  type CookieImportResult,
+  type SystemPreferences,
 } from '../shared/browser';
+import { IPC_CHANNELS } from '../shared/ipc-channels';
+
+/*
+ * IPC types protect compile-time callers; these schemas protect the renderer from
+ * malformed values crossing the process boundary at runtime.
+ */
+const browserTabListSchema = z.array(browserTabSchema);
+const browserCookieSourceListSchema = z.array(browserCookieSourceSchema);
+const optionalCtripCheckInResultSchema = ctripCheckInResultSchema.nullable();
+const voidSchema = z.undefined();
 
 export type DesktopApi = Readonly<{
   automation: Readonly<{
@@ -49,7 +64,7 @@ type RuntimeVersions = Readonly<{
   node: string;
 }>;
 
-type Invoke = <T>(channel: string, ...args: unknown[]) => Promise<T>;
+type Invoke = (channel: string, ...args: unknown[]) => Promise<unknown>;
 type Subscribe = (channel: string, listener: (value: unknown) => void) => () => void;
 
 export function createDesktopApi(
@@ -57,38 +72,66 @@ export function createDesktopApi(
   invoke: Invoke,
   subscribe: Subscribe = () => () => undefined,
 ): DesktopApi {
+  const invokeValidated = <T>(
+    schema: ZodType<T>,
+    channel: string,
+    ...args: unknown[]
+  ): Promise<T> =>
+    invoke(channel, ...args).then((value) => {
+      const result = schema.safeParse(value);
+      if (!result.success) throw new Error('主进程返回的数据格式无效');
+      return result.data;
+    });
+  const subscribeValidated = <T>(
+    schema: ZodType<T>,
+    channel: string,
+    listener: (value: T) => void,
+  ): (() => void) =>
+    subscribe(channel, (value) => {
+      const result = schema.safeParse(value);
+      if (result.success) listener(result.data);
+    });
+
   const automation = Object.freeze({
     getCtripCheckIn: () =>
-      invoke<CtripCheckInResult | null>(IPC_CHANNELS.automation.getCtripCheckIn),
+      invokeValidated(optionalCtripCheckInResultSchema, IPC_CHANNELS.automation.getCtripCheckIn),
   });
   const browser = Object.freeze({
-    acknowledgeInterception: () => invoke<void>(IPC_CHANNELS.browser.acknowledgeInterception),
+    acknowledgeInterception: () =>
+      invokeValidated(voidSchema, IPC_CHANNELS.browser.acknowledgeInterception),
     create: (channelId: string, url: string) =>
-      invoke<BrowserTab>(IPC_CHANNELS.browser.create, { channelId, url }),
-    activate: (tabId: string) => invoke<BrowserTab>(IPC_CHANNELS.browser.activate, tabId),
-    close: (tabId: string) => invoke<void>(IPC_CHANNELS.browser.close, tabId),
-    goBack: (tabId: string) => invoke<void>(IPC_CHANNELS.browser.goBack, tabId),
-    goForward: (tabId: string) => invoke<void>(IPC_CHANNELS.browser.goForward, tabId),
-    hide: () => invoke<void>(IPC_CHANNELS.browser.hide),
-    list: () => invoke<BrowserTab[]>(IPC_CHANNELS.browser.list),
-    reload: (tabId: string) => invoke<void>(IPC_CHANNELS.browser.reload, tabId),
-    setBounds: (bounds: BrowserBounds) => invoke<void>(IPC_CHANNELS.browser.setBounds, bounds),
+      invokeValidated(browserTabSchema, IPC_CHANNELS.browser.create, { channelId, url }),
+    activate: (tabId: string) =>
+      invokeValidated(browserTabSchema, IPC_CHANNELS.browser.activate, tabId),
+    close: (tabId: string) => invokeValidated(voidSchema, IPC_CHANNELS.browser.close, tabId),
+    goBack: (tabId: string) => invokeValidated(voidSchema, IPC_CHANNELS.browser.goBack, tabId),
+    goForward: (tabId: string) =>
+      invokeValidated(voidSchema, IPC_CHANNELS.browser.goForward, tabId),
+    hide: () => invokeValidated(voidSchema, IPC_CHANNELS.browser.hide),
+    list: () => invokeValidated(browserTabListSchema, IPC_CHANNELS.browser.list),
+    reload: (tabId: string) => invokeValidated(voidSchema, IPC_CHANNELS.browser.reload, tabId),
+    setBounds: (bounds: BrowserBounds) =>
+      invokeValidated(voidSchema, IPC_CHANNELS.browser.setBounds, bounds),
     onRequestIntercepted: (listener: (event: BrowserRequestInterception) => void) =>
-      subscribe(IPC_CHANNELS.browser.requestIntercepted, (value) =>
-        listener(value as BrowserRequestInterception),
+      subscribeValidated(
+        browserRequestInterceptionSchema,
+        IPC_CHANNELS.browser.requestIntercepted,
+        listener,
       ),
     onStateChanged: (listener: (tab: BrowserTab) => void) =>
-      subscribe(IPC_CHANNELS.browser.stateChanged, (value) => listener(value as BrowserTab)),
+      subscribeValidated(browserTabSchema, IPC_CHANNELS.browser.stateChanged, listener),
   });
   const cookies = Object.freeze({
-    listSources: () => invoke<BrowserCookieSource[]>(IPC_CHANNELS.cookies.listSources),
+    listSources: () =>
+      invokeValidated(browserCookieSourceListSchema, IPC_CHANNELS.cookies.listSources),
     import: (sourceId: BrowserCookieSourceId) =>
-      invoke<CookieImportResult>(IPC_CHANNELS.cookies.import, sourceId),
+      invokeValidated(cookieImportResultSchema, IPC_CHANNELS.cookies.import, sourceId),
   });
   const system = Object.freeze({
-    getPreferences: () => invoke<SystemPreferences>(IPC_CHANNELS.system.getPreferences),
+    getPreferences: () =>
+      invokeValidated(systemPreferencesSchema, IPC_CHANNELS.system.getPreferences),
     setAutoLaunch: (enabled: boolean) =>
-      invoke<SystemPreferences>(IPC_CHANNELS.system.setAutoLaunch, enabled),
+      invokeValidated(systemPreferencesSchema, IPC_CHANNELS.system.setAutoLaunch, enabled),
   });
 
   return Object.freeze({

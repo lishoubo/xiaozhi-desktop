@@ -1,9 +1,13 @@
 import { WebContentsView, type Session } from 'electron';
+import { z } from 'zod';
 import type { CtripCheckInResult } from '../../shared/automation';
 import type { AppLogger } from '../../shared/logging';
 
 const CTRIP_HOME_URL = 'https://www.ctrip.com/';
 const LOOKUP_ERROR_MESSAGE = '暂时未获取到携程入住时间，请稍后重试';
+const evaluationResponseSchema = z.object({
+  result: z.object({ value: z.string() }),
+});
 
 const CHECK_IN_EXPRESSION = `
   new Promise((resolve) => {
@@ -51,11 +55,9 @@ function isAllowedCtripUrl(url: string): boolean {
 }
 
 function evaluationValue(response: unknown): string | null {
-  if (!response || typeof response !== 'object') return null;
-  const remoteObject = Reflect.get(response, 'result');
-  if (!remoteObject || typeof remoteObject !== 'object') return null;
-  const value = Reflect.get(remoteObject, 'value');
-  return typeof value === 'string' && value.trim() ? value.trim() : null;
+  const parsed = evaluationResponseSchema.safeParse(response);
+  if (!parsed.success) return null;
+  return parsed.data.result.value.trim() || null;
 }
 
 export class CtripCheckInAutomation {

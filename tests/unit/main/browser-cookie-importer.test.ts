@@ -130,6 +130,27 @@ describe('BrowserCookieImporter', () => {
     });
   });
 
+  it('rejects malformed rows from an external browser Cookie database', async () => {
+    const home = temporaryDirectory();
+    const databasePath = path.join(home, '.mozilla', 'firefox', 'default', 'cookies.sqlite');
+    fs.mkdirSync(path.dirname(databasePath), { recursive: true });
+    const database = new Database(databasePath);
+    database.exec(`
+      CREATE TABLE moz_cookies (
+        host BLOB, name TEXT, value TEXT, path TEXT, expiry INTEGER,
+        isSecure INTEGER, isHttpOnly INTEGER, sameSite INTEGER
+      );
+    `);
+    database
+      .prepare('INSERT INTO moz_cookies VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(Buffer.from('.ctrip.com'), 'session', 'token', '/', 1900000000, 1, 1, 1);
+    database.close();
+
+    await expect(
+      new BrowserCookieImporter(createLogger(), home, 'linux', {}).readCookies('firefox'),
+    ).rejects.toThrow('浏览器 Cookie 数据格式无效');
+  });
+
   it('reports Windows app-bound encryption instead of attempting to bypass it', async () => {
     const root = temporaryDirectory();
     const localAppData = path.join(root, 'AppData', 'Local');

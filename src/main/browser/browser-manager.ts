@@ -10,7 +10,7 @@ import {
 } from 'electron';
 import { randomUUID } from 'node:crypto';
 import { IPC_CHANNELS } from '../../shared/ipc-channels';
-import type { BrowserTab } from '../../shared/browser';
+import { browserWebUrlSchema, type BrowserTab } from '../../shared/browser';
 import type { AppLogger } from '../../shared/logging';
 import { denyEmbeddedPagePermissions } from '../security/session-permissions';
 
@@ -39,8 +39,7 @@ function isReloadShortcut(
 }
 
 function assertWebUrl(url: string): void {
-  const parsed = new URL(url);
-  if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
+  if (!browserWebUrlSchema.safeParse(url).success) {
     throw new Error('仅允许打开 HTTP 或 HTTPS 网页');
   }
 }

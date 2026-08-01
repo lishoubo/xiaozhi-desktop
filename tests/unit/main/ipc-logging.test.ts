@@ -122,4 +122,59 @@ describe('IPC operational logging', () => {
     ]);
     expect(JSON.stringify(logger.info.mock.calls)).not.toContain('secret-cookie');
   });
+
+  it('rejects malformed trusted IPC input without exposing its payload or calling the manager', async () => {
+    const logger = createLogger();
+    const sender = {};
+    const create = vi.fn();
+    const setBounds = vi.fn();
+    const readCookies = vi.fn();
+    registerBrowserHandlers({
+      window: { webContents: sender },
+      manager: {
+        browserSession: { cookies: { set: vi.fn() } },
+        acknowledgeInterception: vi.fn(),
+        activate: vi.fn(),
+        close: vi.fn(),
+        create,
+        goBack: vi.fn(),
+        goForward: vi.fn(),
+        hide: vi.fn(),
+        list: vi.fn(),
+        reload: vi.fn(),
+        setBounds,
+      },
+      cookieImporter: { listSources: vi.fn(), readCookies },
+      logger,
+    });
+
+    expect(() =>
+      invoke(IPC_CHANNELS.browser.create, sender, {
+        channelId: '',
+        url: 'javascript:secret-value',
+      }),
+    ).toThrow('浏览器参数无效');
+    expect(() =>
+      invoke(IPC_CHANNELS.browser.setBounds, sender, {
+        x: 0,
+        y: 0,
+        width: Number.NaN,
+        height: 600,
+      }),
+    ).toThrow('浏览器区域尺寸无效');
+    expect(() => invoke(IPC_CHANNELS.cookies.import, sender, 'unknown-browser')).toThrow(
+      '浏览器类型无效',
+    );
+
+    expect(create).not.toHaveBeenCalled();
+    expect(setBounds).not.toHaveBeenCalled();
+    expect(readCookies).not.toHaveBeenCalled();
+    expect(logger.warn.mock.calls).toEqual([
+      ['Rejected invalid IPC request', { channel: IPC_CHANNELS.browser.create }],
+      ['Rejected invalid IPC request', { channel: IPC_CHANNELS.browser.setBounds }],
+      ['Rejected invalid IPC request', { channel: IPC_CHANNELS.cookies.import }],
+    ]);
+    expect(JSON.stringify(logger.warn.mock.calls)).not.toContain('secret-value');
+    expect(JSON.stringify(logger.warn.mock.calls)).not.toContain('unknown-browser');
+  });
 });
