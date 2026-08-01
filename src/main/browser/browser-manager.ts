@@ -2,6 +2,7 @@ import { BrowserWindow, session, WebContentsView, type Rectangle, type Session }
 import { randomUUID } from 'node:crypto';
 import { IPC_CHANNELS } from '../../shared/ipc-channels';
 import type { BrowserTab } from '../../shared/browser';
+import type { AppLogger } from '../../shared/logging';
 import { denyEmbeddedPagePermissions } from '../security/session-permissions';
 
 type ManagedTab = {
@@ -26,7 +27,10 @@ export class BrowserManager {
   private activeTabId: string | null = null;
   private bounds: Rectangle = { x: 0, y: 0, width: 0, height: 0 };
 
-  constructor(private readonly window: BrowserWindow) {
+  constructor(
+    private readonly window: BrowserWindow,
+    private readonly logger: AppLogger,
+  ) {
     this.browserSession = session.fromPartition('persist:hotel-butler-browser');
     denyEmbeddedPagePermissions(this.browserSession);
   }
@@ -55,9 +59,14 @@ export class BrowserManager {
     this.tabs.set(id, tab);
     this.bindTabEvents(tab);
     this.activate(id);
-    void view.webContents.loadURL(url).catch(() => {
+    this.logger.info('Browser tab created', { channelId });
+    void view.webContents.loadURL(url).catch((error: unknown) => {
       tab.loading = false;
       tab.title = '页面加载失败';
+      this.logger.error('Browser page load failed', {
+        channelId,
+        errorName: error instanceof Error ? error.name : 'UnknownError',
+      });
       this.emit(tab);
     });
     return this.snapshot(tab);
@@ -83,6 +92,7 @@ export class BrowserManager {
     }
     this.tabs.delete(tabId);
     tab.view.webContents.close();
+    this.logger.info('Browser tab closed', { channelId: tab.channelId });
   }
 
   goBack(tabId: string): void {
@@ -125,11 +135,13 @@ export class BrowserManager {
   }
 
   destroy(): void {
+    const tabCount = this.tabs.size;
     for (const tab of this.tabs.values()) {
       if (!tab.view.webContents.isDestroyed()) tab.view.webContents.close();
     }
     this.tabs.clear();
     this.activeTabId = null;
+    if (tabCount > 0) this.logger.info('Browser workspace closed', { tabCount });
   }
 
   private bindTabEvents(tab: ManagedTab): void {
@@ -139,6 +151,7 @@ export class BrowserManager {
         this.create(tab.channelId, url);
       } catch {
         // Invalid and non-web popup targets stay blocked.
+        this.logger.warn('Blocked invalid browser popup', { channelId: tab.channelId });
       }
       return { action: 'deny' };
     });
@@ -147,6 +160,7 @@ export class BrowserManager {
         assertWebUrl(url);
       } catch {
         event.preventDefault();
+        this.logger.warn('Blocked invalid browser navigation', { channelId: tab.channelId });
       }
     });
     webContents.on('did-start-loading', () => {

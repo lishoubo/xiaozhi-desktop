@@ -39,10 +39,12 @@ function getMigrationsFolder(): string {
 
 function openMainWindow(): void {
   mainWindow = createMainWindow();
-  browserManager = new BrowserManager(mainWindow);
+  log.info('Main window created');
+  browserManager = new BrowserManager(mainWindow, log);
   unregisterBrowserHandlers = registerBrowserHandlers({
     window: mainWindow,
     manager: browserManager,
+    logger: log,
   });
   mainWindow.once('closed', () => {
     unregisterBrowserHandlers?.();
@@ -50,19 +52,24 @@ function openMainWindow(): void {
     browserManager?.destroy();
     browserManager = null;
     mainWindow = null;
+    log.info('Main window closed');
   });
 }
 
 function initializeApplication(): void {
+  log.info('Application initialization started');
   databaseConnection = openDatabase(getDatabasePath(), getMigrationsFolder());
-  const settingsService = new SettingsService(new SettingsRepository(databaseConnection.db));
+  log.info('Application database ready');
+  const settingsService = new SettingsService(new SettingsRepository(databaseConnection.db), log);
 
   unregisterIpcHandlers = registerSettingsHandlers({
     service: settingsService,
     isTrustedSender: (event) => event.sender === mainWindow?.webContents,
+    logger: log,
   });
 
   openMainWindow();
+  log.info('Application initialization completed');
 }
 
 // Handle creating/removing shortcuts on Windows when installing/uninstalling.
@@ -96,8 +103,10 @@ app.on('activate', () => {
 });
 
 app.once('will-quit', () => {
+  log.info('Application shutdown started');
   unregisterIpcHandlers?.();
   unregisterBrowserHandlers?.();
   browserManager?.destroy();
   databaseConnection?.close();
+  log.info('Application shutdown completed');
 });

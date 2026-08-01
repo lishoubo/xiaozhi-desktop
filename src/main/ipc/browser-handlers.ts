@@ -1,13 +1,28 @@
-import { app, ipcMain, type BrowserWindow, type IpcMainInvokeEvent } from 'electron';
+import { app, ipcMain, type CookiesSetDetails, type IpcMainInvokeEvent } from 'electron';
 import { IPC_CHANNELS } from '../../shared/ipc-channels';
+import type { AppLogger } from '../../shared/logging';
 import type { BrowserBounds, BrowserCookieSourceId, SystemPreferences } from '../../shared/browser';
 import { BrowserCookieImporter } from '../browser/browser-cookie-importer';
-import { BrowserManager } from '../browser/browser-manager';
 import { friendlyCookieImportMessage } from '../browser/cookie-import';
 
 type RegisterBrowserHandlersOptions = Readonly<{
-  window: BrowserWindow;
-  manager: BrowserManager;
+  window: Readonly<{ webContents: unknown }>;
+  manager: Readonly<{
+    browserSession: Readonly<{
+      cookies: Readonly<{ set: (cookie: CookiesSetDetails) => Promise<void> }>;
+    }>;
+    activate: (tabId: string) => unknown;
+    close: (tabId: string) => void;
+    create: (channelId: string, url: string) => unknown;
+    goBack: (tabId: string) => void;
+    goForward: (tabId: string) => void;
+    hide: () => void;
+    list: () => unknown;
+    reload: (tabId: string) => void;
+    setBounds: (bounds: BrowserBounds) => void;
+  }>;
+  logger: AppLogger;
+  cookieImporter?: Pick<BrowserCookieImporter, 'listSources' | 'readCookies'>;
 }>;
 
 function systemPreferences(): SystemPreferences {
@@ -20,17 +35,21 @@ function systemPreferences(): SystemPreferences {
 export function registerBrowserHandlers({
   window,
   manager,
+  logger,
+  cookieImporter = new BrowserCookieImporter(logger),
 }: RegisterBrowserHandlersOptions): () => void {
-  const cookieImporter = new BrowserCookieImporter();
-  const assertTrusted = (event: IpcMainInvokeEvent): void => {
-    if (event.sender !== window.webContents) throw new Error('拒绝来自非主应用窗口的请求');
+  const assertTrusted = (event: IpcMainInvokeEvent, channel: string): void => {
+    if (event.sender !== window.webContents) {
+      logger.warn('Rejected untrusted IPC request', { channel });
+      throw new Error('拒绝来自非主应用窗口的请求');
+    }
   };
   const handle = (
     channel: string,
     listener: (event: IpcMainInvokeEvent, ...args: unknown[]) => unknown,
   ): void => {
     ipcMain.handle(channel, (event, ...args) => {
-      assertTrusted(event);
+      assertTrusted(event, channel);
       return listener(event, ...args);
     });
   };
@@ -86,8 +105,14 @@ export function registerBrowserHandlers({
       );
       const imported = results.filter((result) => result.status === 'fulfilled').length;
       if (imported === 0) throw new Error('未能导入 Cookie，请确认浏览器已登录并允许系统访问');
-      return { imported, failed: readFailures + results.length - imported };
+      const failed = readFailures + results.length - imported;
+      logger.info('Cookies applied to browser session', { source: sourceId, imported, failed });
+      return { imported, failed };
     } catch (error) {
+      logger.warn('Cookie import could not be completed', {
+        source: typeof sourceId === 'string' ? sourceId : 'unknown',
+        errorName: error instanceof Error ? error.name : 'UnknownError',
+      });
       return { imported: 0, failed: 0, error: friendlyCookieImportMessage(error) };
     }
   });
@@ -95,6 +120,7 @@ export function registerBrowserHandlers({
   handle(IPC_CHANNELS.system.setAutoLaunch, (_event, enabled) => {
     if (typeof enabled !== 'boolean') throw new Error('开机启动设置无效');
     app.setLoginItemSettings({ openAtLogin: enabled });
+    logger.info('Auto-launch preference changed', { enabled });
     return systemPreferences();
   });
 

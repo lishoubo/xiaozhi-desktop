@@ -1,5 +1,6 @@
 <script lang="ts">
   import CheckCircle2 from '@lucide/svelte/icons/circle-check-big';
+  import log from 'electron-log/renderer';
   import LoaderCircle from '@lucide/svelte/icons/loader-circle';
   import type {
     BrowserCookieSource,
@@ -38,7 +39,8 @@
     try {
       sources = await window.hotelButler.cookies.listSources();
       selectedSourceId = sources[0]?.id ?? null;
-    } catch {
+    } catch (reason) {
+      log.warn('Browser cookie sources could not be detected', reason);
       error = '浏览器检测失败，请稍后重试';
     } finally {
       loadingSources = false;
@@ -58,7 +60,8 @@
         return;
       }
       step = 'success';
-    } catch {
+    } catch (reason) {
+      log.warn('Cookie import request failed', reason);
       error = 'Cookie 导入失败，请稍后重试';
       step = 'select';
     }

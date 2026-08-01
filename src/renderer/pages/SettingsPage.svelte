@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import Bell from '@lucide/svelte/icons/bell';
+  import log from 'electron-log/renderer';
   import Cookie from '@lucide/svelte/icons/cookie';
   import MonitorUp from '@lucide/svelte/icons/monitor-up';
   import Settings2 from '@lucide/svelte/icons/settings-2';
@@ -18,6 +19,7 @@
         preferences = value;
       })
       .catch((reason: unknown) => {
+        log.warn('System preferences could not be loaded', reason);
         error = reason instanceof Error ? reason.message : '设置读取失败';
       });
   });
@@ -26,6 +28,7 @@
     try {
       preferences = await window.hotelButler.system.setAutoLaunch(enabled);
     } catch (reason) {
+      log.warn('Auto-launch preference could not be changed', reason);
       error = reason instanceof Error ? reason.message : '设置保存失败';
     }
   }

@@ -1,5 +1,6 @@
 <script lang="ts">
   import { QueryClientProvider } from '@tanstack/svelte-query';
+  import log from 'electron-log/renderer';
   import Router from 'svelte-spa-router';
   import { onDestroy } from 'svelte';
   import AppFrame from './components/layout/AppFrame.svelte';
@@ -15,6 +16,7 @@
   const logout = (): void => {
     clearAuthSession();
     session = null;
+    log.info('User session cleared');
   };
   window.addEventListener('hotel-butler:logout', logout);
   onDestroy(() => {
@@ -30,5 +32,10 @@
     </AppFrame>
   </QueryClientProvider>
 {:else}
-  <LoginPage onLogin={(phone) => (session = createAuthSession(phone))} />
+  <LoginPage
+    onLogin={(phone) => {
+      session = createAuthSession(phone);
+      log.info('User session created');
+    }}
+  />
 {/if}

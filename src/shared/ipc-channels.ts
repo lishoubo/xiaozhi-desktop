@@ -1,4 +1,4 @@
-  export const IPC_CHANNELS = {
+export const IPC_CHANNELS = {
   browser: {
     activate: 'browser:activate',
     close: 'browser:close',

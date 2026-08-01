@@ -1,4 +1,5 @@
 import type { AppSetting, JsonValue, SetAppSettingInput } from '../../shared/settings';
+import type { AppLogger } from '../../shared/logging';
 
 type SettingsStore = Readonly<{
   list: () => AppSetting[];
@@ -44,7 +45,10 @@ function validateSetInput(input: unknown): SetAppSettingInput {
 }
 
 export class SettingsService {
-  public constructor(private readonly repository: SettingsStore) {}
+  public constructor(
+    private readonly repository: SettingsStore,
+    private readonly logger: AppLogger,
+  ) {}
 
   public list(): AppSetting[] {
     return this.repository.list();
@@ -56,10 +60,14 @@ export class SettingsService {
 
   public set(input: unknown): AppSetting {
     const setting = validateSetInput(input);
-    return this.repository.set(setting.key, setting.value);
+    const saved = this.repository.set(setting.key, setting.value);
+    this.logger.info('Application setting updated');
+    return saved;
   }
 
   public delete(key: unknown): boolean {
-    return this.repository.delete(validateKey(key));
+    const deleted = this.repository.delete(validateKey(key));
+    this.logger.info('Application setting deleted', { deleted });
+    return deleted;
   }
 }

@@ -2,13 +2,21 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import Database from 'better-sqlite3';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   BrowserCookieImporter,
   parseSafariCookieStore,
 } from '../../../src/main/browser/browser-cookie-importer';
 
 const temporaryDirectories: string[] = [];
+
+function createLogger() {
+  return {
+    info: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+  };
+}
 
 function temporaryDirectory(): string {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'hotel-butler-cookie-test-'));
@@ -31,9 +39,9 @@ describe('BrowserCookieImporter', () => {
   it('keeps Safari available on macOS when its cookie store cannot be accessed yet', async () => {
     const home = temporaryDirectory();
 
-    await expect(new BrowserCookieImporter(home, 'darwin', {}).listSources()).resolves.toEqual([
-      { id: 'safari', name: 'Safari' },
-    ]);
+    await expect(
+      new BrowserCookieImporter(createLogger(), home, 'darwin', {}).listSources(),
+    ).resolves.toEqual([{ id: 'safari', name: 'Safari' }]);
   });
 
   it('detects Safari and installed browsers on macOS', async () => {
@@ -63,7 +71,9 @@ describe('BrowserCookieImporter', () => {
       ),
     );
 
-    await expect(new BrowserCookieImporter(home, 'darwin', {}).listSources()).resolves.toEqual([
+    await expect(
+      new BrowserCookieImporter(createLogger(), home, 'darwin', {}).listSources(),
+    ).resolves.toEqual([
       { id: 'safari', name: 'Safari' },
       { id: 'chrome', name: 'Google Chrome' },
       { id: 'firefox', name: 'Mozilla Firefox' },
@@ -78,7 +88,9 @@ describe('BrowserCookieImporter', () => {
     );
 
     await expect(
-      new BrowserCookieImporter(root, 'win32', { LOCALAPPDATA: localAppData }).listSources(),
+      new BrowserCookieImporter(createLogger(), root, 'win32', {
+        LOCALAPPDATA: localAppData,
+      }).listSources(),
     ).resolves.toEqual([{ id: 'edge', name: 'Microsoft Edge' }]);
   });
 
@@ -99,7 +111,7 @@ describe('BrowserCookieImporter', () => {
     database.close();
 
     await expect(
-      new BrowserCookieImporter(home, 'linux', {}).readCookies('firefox'),
+      new BrowserCookieImporter(createLogger(), home, 'linux', {}).readCookies('firefox'),
     ).resolves.toEqual({
       failed: 0,
       cookies: [
@@ -146,10 +158,51 @@ describe('BrowserCookieImporter', () => {
     database.close();
 
     await expect(
-      new BrowserCookieImporter(root, 'win32', {
+      new BrowserCookieImporter(createLogger(), root, 'win32', {
         LOCALAPPDATA: localAppData,
       }).readCookies('edge'),
     ).rejects.toThrow('Windows 应用绑定加密');
+  });
+
+  it('logs cookie import outcomes without recording cookie contents or local paths', async () => {
+    const home = temporaryDirectory();
+    const databasePath = path.join(home, '.mozilla', 'firefox', 'default', 'cookies.sqlite');
+    fs.mkdirSync(path.dirname(databasePath), { recursive: true });
+    const database = new Database(databasePath);
+    database.exec(`
+      CREATE TABLE moz_cookies (
+        host TEXT, name TEXT, value TEXT, path TEXT, expiry INTEGER,
+        isSecure INTEGER, isHttpOnly INTEGER, sameSite INTEGER
+      );
+      INSERT INTO moz_cookies VALUES
+        ('.meituan.com', 'session', 'private-cookie-value', '/', 1900000000, 1, 1, 1);
+    `);
+    database.close();
+    const logger = createLogger();
+
+    await new BrowserCookieImporter(logger, home, 'linux', {}).readCookies('firefox');
+
+    expect(logger.info.mock.calls).toEqual([
+      ['Cookie import started', { source: 'firefox' }],
+      ['Cookie import completed', { source: 'firefox', imported: 1, failed: 0 }],
+    ]);
+    expect(JSON.stringify(logger.info.mock.calls)).not.toContain('private-cookie-value');
+    expect(JSON.stringify(logger.info.mock.calls)).not.toContain(home);
+  });
+
+  it('logs cookie import failures and preserves the original error', async () => {
+    const logger = createLogger();
+    const home = temporaryDirectory();
+    const importer = new BrowserCookieImporter(logger, home, 'linux', {});
+
+    await expect(importer.readCookies('firefox')).rejects.toThrow(
+      '未找到 Mozilla Firefox Cookie 数据',
+    );
+    expect(logger.error).toHaveBeenCalledWith('Cookie import failed', {
+      source: 'firefox',
+      errorName: 'Error',
+    });
+    expect(JSON.stringify(logger.error.mock.calls)).not.toContain(home);
   });
 });
 

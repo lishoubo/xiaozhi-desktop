@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import log from 'electron-log/renderer';
   import ArrowLeft from '@lucide/svelte/icons/arrow-left';
   import ArrowRight from '@lucide/svelte/icons/arrow-right';
   import Import from '@lucide/svelte/icons/import';
@@ -39,6 +40,7 @@
       activeTabIds[channel.id] = tab.id;
       await syncBounds();
     } catch (error) {
+      log.warn('Browser tab could not be created', error);
       browserError = error instanceof Error ? error.message : '页面打开失败';
     }
   }

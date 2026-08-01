@@ -8,6 +8,12 @@ export type LogMessageData = Readonly<{
   data: unknown[];
 }>;
 
+export type AppLogger = Readonly<{
+  info: (...data: unknown[]) => unknown;
+  warn: (...data: unknown[]) => unknown;
+  error: (...data: unknown[]) => unknown;
+}>;
+
 export function redactLogData(data: unknown[]): unknown[] {
   const visited = new WeakSet<object>();
 

@@ -6,6 +6,7 @@ import path from 'node:path';
 import Database from 'better-sqlite3';
 import type { CookiesSetDetails } from 'electron';
 import type { BrowserCookieSource, BrowserCookieSourceId } from '../../shared/browser';
+import type { AppLogger } from '../../shared/logging';
 import { chromiumTimestampToUnix, isSupportedCookieDomain } from './cookie-import';
 
 type SupportedPlatform = NodeJS.Platform;
@@ -469,6 +470,7 @@ export function parseSafariCookieStore(buffer: Buffer): CookiesSetDetails[] {
 
 export class BrowserCookieImporter {
   constructor(
+    private readonly logger: AppLogger,
     private readonly homeDirectory = os.homedir(),
     private readonly platform: SupportedPlatform = process.platform,
     private readonly environment: NodeJS.ProcessEnv = process.env,
@@ -493,6 +495,27 @@ export class BrowserCookieImporter {
   }
 
   async readCookies(
+    sourceId: BrowserCookieSourceId,
+  ): Promise<{ cookies: CookiesSetDetails[]; failed: number }> {
+    this.logger.info('Cookie import started', { source: sourceId });
+    try {
+      const result = await this.readCookiesFromSource(sourceId);
+      this.logger.info('Cookie import completed', {
+        source: sourceId,
+        imported: result.cookies.length,
+        failed: result.failed,
+      });
+      return result;
+    } catch (error: unknown) {
+      this.logger.error('Cookie import failed', {
+        source: sourceId,
+        errorName: error instanceof Error ? error.name : 'UnknownError',
+      });
+      throw error;
+    }
+  }
+
+  private async readCookiesFromSource(
     sourceId: BrowserCookieSourceId,
   ): Promise<{ cookies: CookiesSetDetails[]; failed: number }> {
     if (sourceId === 'safari') {
