@@ -13,7 +13,6 @@ type MainLoggingTarget = {
   transports: {
     console: { level: string | false };
     file: {
-      getFile: () => { path: string };
       level: string | false;
       maxSize: number;
     };
@@ -55,7 +54,6 @@ export function configureMainLogging(logger: MainLoggingTarget, options: MainLog
   logger.info('Application logging initialized', {
     appVersion: options.appVersion,
     isPackaged: options.isPackaged,
-    logFile: logger.transports.file.getFile().path,
     platform: options.platform,
   });
 }

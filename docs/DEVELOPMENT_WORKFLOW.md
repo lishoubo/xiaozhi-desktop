@@ -66,15 +66,7 @@ It runs unit tests, component tests, the E2E build, and Playwright. Use `npm run
 
 ## Database Validation
 
-For Drizzle schema, relation, migration, or database configuration changes:
-
-```bash
-npm run db:generate
-npm run db:check
-npm run test:unit
-```
-
-Review every generated migration artifact. Do not generate a migration when no schema change is intended or edit an already-applied migration unless the project explicitly permits it. `npm run db:studio` is for inspection, not validation.
+The application currently has no application-owned persistence database; `better-sqlite3` is used only to read browser Cookie databases during an explicit import. If product persistence is introduced, add explicit npm scripts for schema generation and migration validation with the database implementation, then document and run them as part of the required workflow. Review every generated migration artifact and never edit an already-applied migration unless the project explicitly permits it.
 
 ## Interactive and Packaged Validation
 
@@ -105,7 +97,7 @@ npm run test:all
 npm run package
 ```
 
-Add `npm run db:check` for database changes and `npm run make` only when distributable generation is relevant.
+Add the repository's database validation command when a database layer exists, and run `npm run make` only when distributable generation is relevant.
 
 Never claim a command passed unless it actually ran. If the environment prevents a check, report the unexecuted check, the reason, and the resulting risk.
 

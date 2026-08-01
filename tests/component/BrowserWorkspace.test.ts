@@ -112,4 +112,28 @@ describe('BrowserWorkspace', () => {
     expect(localStorage.getItem('hotel-butler.cookie-import-prompted')).toBe('true');
     expect(create).toHaveBeenCalledWith('ctrip', expect.any(String));
   });
+
+  it('shows safe, accessible recovery feedback when a browser tab cannot be opened', async () => {
+    create.mockRejectedValueOnce(
+      new Error("Error invoking remote method 'browser:create': /Users/private/app-data"),
+    );
+    render(BrowserWorkspace);
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('页面打开失败，请重试');
+    expect(
+      screen.queryByText(/remote method|Users\/private|browser:create/i),
+    ).not.toBeInTheDocument();
+  });
+
+  it('recovers when the existing browser tab list cannot be loaded', async () => {
+    Object.defineProperty(window.hotelButler.browser, 'list', {
+      configurable: true,
+      value: vi.fn().mockRejectedValue(new Error('IPC list failure')),
+    });
+
+    render(BrowserWorkspace);
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('浏览器工作区加载失败，请重试');
+    expect(screen.queryByText(/IPC list failure/)).not.toBeInTheDocument();
+  });
 });

@@ -24,6 +24,13 @@
     activeTabs.find((tab) => tab.id === activeTabIds[activeChannelId]) ?? activeTabs[0],
   );
 
+  function reportBrowserFailure(event: string, message: string, reason: unknown): void {
+    log.warn(event, {
+      errorName: reason instanceof Error ? reason.name : 'UnknownError',
+    });
+    browserError = message;
+  }
+
   function updateTab(next: BrowserTab): void {
     const tabs = tabsByChannel[next.channelId] ?? [];
     const index = tabs.findIndex((tab) => tab.id === next.id);
@@ -32,68 +39,102 @@
     if (index === -1 || !activeTabIds[next.channelId]) activeTabIds[next.channelId] = next.id;
   }
 
-  async function createTab(channel: OtaChannel, url = channel.url): Promise<void> {
+  async function createTab(channel: OtaChannel, url = channel.url): Promise<boolean> {
     try {
       browserError = '';
       const tab = await window.hotelButler.browser.create(channel.id, url);
       updateTab(tab);
       activeTabIds[channel.id] = tab.id;
       await syncBounds();
+      return true;
     } catch (error) {
-      log.warn('Browser tab could not be created', error);
-      browserError = error instanceof Error ? error.message : '页面打开失败';
+      reportBrowserFailure('Browser tab could not be created', '页面打开失败，请重试', error);
+      return false;
     }
   }
 
   async function selectChannel(channel: OtaChannel): Promise<void> {
+    browserError = '';
     activeChannelId = channel.id;
     const tabId = activeTabIds[channel.id];
-    if (tabId) {
-      await window.hotelButler.browser.activate(tabId);
-      await syncBounds();
-    } else if (!cookiePrompt) {
-      await createTab(channel);
+    try {
+      if (tabId) {
+        await window.hotelButler.browser.activate(tabId);
+        await syncBounds();
+      } else if (!cookiePrompt) {
+        await createTab(channel);
+      }
+    } catch (error) {
+      reportBrowserFailure('Browser channel could not be selected', '渠道切换失败，请重试', error);
     }
   }
 
   async function selectTab(tab: BrowserTab): Promise<void> {
-    activeTabIds[tab.channelId] = tab.id;
-    await window.hotelButler.browser.activate(tab.id);
-    await syncBounds();
+    browserError = '';
+    try {
+      await window.hotelButler.browser.activate(tab.id);
+      activeTabIds[tab.channelId] = tab.id;
+      await syncBounds();
+    } catch (error) {
+      reportBrowserFailure('Browser tab could not be selected', '标签切换失败，请重试', error);
+    }
   }
 
   async function closeTab(tab: BrowserTab): Promise<void> {
-    const tabs = tabsByChannel[tab.channelId] ?? [];
-    const index = tabs.findIndex((item) => item.id === tab.id);
-    await window.hotelButler.browser.close(tab.id);
-    const nextTabs = tabs.filter((item) => item.id !== tab.id);
-    tabsByChannel[tab.channelId] = nextTabs;
-    if (activeTabIds[tab.channelId] === tab.id) {
-      const next = nextTabs[Math.min(index, nextTabs.length - 1)];
-      if (next) {
-        activeTabIds[tab.channelId] = next.id;
-        await window.hotelButler.browser.activate(next.id);
-      } else {
-        delete activeTabIds[tab.channelId];
+    browserError = '';
+    try {
+      const tabs = tabsByChannel[tab.channelId] ?? [];
+      const index = tabs.findIndex((item) => item.id === tab.id);
+      await window.hotelButler.browser.close(tab.id);
+      const nextTabs = tabs.filter((item) => item.id !== tab.id);
+      tabsByChannel[tab.channelId] = nextTabs;
+      if (activeTabIds[tab.channelId] === tab.id) {
+        const next = nextTabs[Math.min(index, nextTabs.length - 1)];
+        if (next) {
+          await window.hotelButler.browser.activate(next.id);
+          activeTabIds[tab.channelId] = next.id;
+        } else {
+          delete activeTabIds[tab.channelId];
+        }
       }
+    } catch (error) {
+      reportBrowserFailure('Browser tab could not be closed', '标签关闭失败，请重试', error);
     }
   }
 
   async function syncBounds(): Promise<void> {
     if (!viewport) return;
-    const bounds = viewport.getBoundingClientRect();
-    await window.hotelButler.browser.setBounds({
-      x: bounds.x,
-      y: bounds.y,
-      width: bounds.width,
-      height: bounds.height,
-    });
+    try {
+      const bounds = viewport.getBoundingClientRect();
+      await window.hotelButler.browser.setBounds({
+        x: bounds.x,
+        y: bounds.y,
+        width: bounds.width,
+        height: bounds.height,
+      });
+    } catch (error) {
+      reportBrowserFailure(
+        'Browser viewport could not be synchronized',
+        '页面区域同步失败，请调整窗口后重试',
+        error,
+      );
+    }
   }
 
   async function finishCookiePrompt(): Promise<void> {
-    localStorage.setItem(COOKIE_PROMPT_KEY, 'true');
     cookiePrompt = false;
-    await createTab(OTA_CHANNELS[0]);
+    if (await createTab(OTA_CHANNELS[0])) {
+      localStorage.setItem(COOKIE_PROMPT_KEY, 'true');
+    }
+  }
+
+  async function runNavigationAction(event: string, action: () => Promise<void>): Promise<void> {
+    browserError = '';
+    try {
+      await action();
+    } catch (error) {
+      reportBrowserFailure(event, '页面操作失败，请重试', error);
+    }
   }
 
   onMount(() => {
@@ -106,22 +147,38 @@
     window.addEventListener('resize', syncBounds);
     cookiePrompt = localStorage.getItem(COOKIE_PROMPT_KEY) !== 'true';
     if (!cookiePrompt) {
-      void window.hotelButler.browser.list().then(async (tabs) => {
-        if (!mounted) return;
-        for (const tab of tabs) updateTab(tab);
-        const ctripTab = tabs.find((tab) => tab.channelId === OTA_CHANNELS[0].id);
-        if (ctripTab) {
-          activeTabIds[ctripTab.channelId] = ctripTab.id;
-          await window.hotelButler.browser.activate(ctripTab.id);
-          await syncBounds();
-        } else {
-          await createTab(OTA_CHANNELS[0]);
-        }
-      });
+      void window.hotelButler.browser
+        .list()
+        .then(async (tabs) => {
+          if (!mounted) return;
+          for (const tab of tabs) updateTab(tab);
+          const ctripTab = tabs.find((tab) => tab.channelId === OTA_CHANNELS[0].id);
+          if (ctripTab) {
+            await window.hotelButler.browser.activate(ctripTab.id);
+            if (!mounted) return;
+            activeTabIds[ctripTab.channelId] = ctripTab.id;
+            await syncBounds();
+          } else {
+            await createTab(OTA_CHANNELS[0]);
+          }
+        })
+        .catch((error: unknown) => {
+          if (mounted) {
+            reportBrowserFailure(
+              'Browser workspace could not be loaded',
+              '浏览器工作区加载失败，请重试',
+              error,
+            );
+          }
+        });
     }
     return () => {
       mounted = false;
-      void window.hotelButler.browser.hide();
+      void Promise.resolve(window.hotelButler.browser.hide()).catch((error: unknown) => {
+        log.warn('Browser workspace could not be hidden', {
+          errorName: error instanceof Error ? error.name : 'UnknownError',
+        });
+      });
       unsubscribe();
       observer.disconnect();
       window.removeEventListener('resize', syncBounds);
@@ -159,7 +216,11 @@
         size="icon"
         aria-label="后退"
         disabled={!activeTab?.canGoBack}
-        onclick={() => activeTab && void window.hotelButler.browser.goBack(activeTab.id)}
+        onclick={() =>
+          activeTab &&
+          void runNavigationAction('Browser could not go back', () =>
+            window.hotelButler.browser.goBack(activeTab.id),
+          )}
       >
         <ArrowLeft size={16} strokeWidth={1.8} />
       </Button>
@@ -168,7 +229,11 @@
         size="icon"
         aria-label="前进"
         disabled={!activeTab?.canGoForward}
-        onclick={() => activeTab && void window.hotelButler.browser.goForward(activeTab.id)}
+        onclick={() =>
+          activeTab &&
+          void runNavigationAction('Browser could not go forward', () =>
+            window.hotelButler.browser.goForward(activeTab.id),
+          )}
       >
         <ArrowRight size={16} strokeWidth={1.8} />
       </Button>
@@ -177,7 +242,11 @@
         size="icon"
         aria-label="刷新"
         disabled={!activeTab}
-        onclick={() => activeTab && void window.hotelButler.browser.reload(activeTab.id)}
+        onclick={() =>
+          activeTab &&
+          void runNavigationAction('Browser page could not be reloaded', () =>
+            window.hotelButler.browser.reload(activeTab.id),
+          )}
       >
         <RotateCw
           class={activeTab?.loading ? 'animate-spin' : undefined}
@@ -233,6 +302,7 @@
     {#if browserError}
       <p
         class="absolute top-4 left-1/2 -translate-x-1/2 rounded-md bg-destructive px-4 py-2 text-sm text-white"
+        role="alert"
       >
         {browserError}
       </p>

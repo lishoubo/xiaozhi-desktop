@@ -15,12 +15,6 @@ export const IPC_CHANNELS = {
     import: 'cookies:import',
     listSources: 'cookies:list-sources',
   },
-  settings: {
-    delete: 'settings:delete',
-    get: 'settings:get',
-    list: 'settings:list',
-    set: 'settings:set',
-  },
   system: {
     getPreferences: 'system:get-preferences',
     setAutoLaunch: 'system:set-auto-launch',

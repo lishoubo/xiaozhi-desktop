@@ -27,7 +27,6 @@ const electron = vi.hoisted(() => {
 vi.mock('electron', () => ({ app: electron.app, ipcMain: electron.ipcMain }));
 
 import { registerBrowserHandlers } from '../../../src/main/ipc/browser-handlers';
-import { registerSettingsHandlers } from '../../../src/main/ipc/settings-handlers';
 
 function createLogger() {
   return {
@@ -50,24 +49,32 @@ beforeEach(() => {
 });
 
 describe('IPC operational logging', () => {
-  it('warns when an untrusted settings sender is rejected without logging its payload', () => {
+  it('warns when an untrusted browser sender is rejected without logging its payload', () => {
     const logger = createLogger();
-    registerSettingsHandlers({
-      service: {
+    const trustedSender = {};
+    registerBrowserHandlers({
+      window: { webContents: trustedSender },
+      manager: {
+        browserSession: { cookies: { set: vi.fn() } },
+        activate: vi.fn(),
+        close: vi.fn(),
+        create: vi.fn(),
+        goBack: vi.fn(),
+        goForward: vi.fn(),
+        hide: vi.fn(),
         list: vi.fn(),
-        get: vi.fn(),
-        set: vi.fn(),
-        delete: vi.fn(),
+        reload: vi.fn(),
+        setBounds: vi.fn(),
       },
-      isTrustedSender: () => false,
+      cookieImporter: { listSources: vi.fn(), readCookies: vi.fn() },
       logger,
     });
 
     expect(() =>
-      invoke(IPC_CHANNELS.settings.set, {}, { key: 'auth.token', value: 'secret-value' }),
-    ).toThrow('拒绝来自非主应用窗口的数据库请求');
+      invoke(IPC_CHANNELS.browser.create, {}, { channelId: 'ctrip', url: 'secret-value' }),
+    ).toThrow('拒绝来自非主应用窗口的请求');
     expect(logger.warn).toHaveBeenCalledWith('Rejected untrusted IPC request', {
-      channel: IPC_CHANNELS.settings.set,
+      channel: IPC_CHANNELS.browser.create,
     });
     expect(JSON.stringify(logger.warn.mock.calls)).not.toContain('secret-value');
   });

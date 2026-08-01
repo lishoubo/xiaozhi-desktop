@@ -2,6 +2,7 @@
   import { onDestroy } from 'svelte';
   import ShieldCheck from '@lucide/svelte/icons/shield-check';
   import { CODE_DURATION_MS, MOCK_CODE, MOCK_PHONE } from '../auth';
+  import * as Dialog from '$lib/components/ui/dialog';
 
   let { onLogin }: { onLogin: (phone: string) => void } = $props();
 
@@ -12,12 +13,18 @@
   let codeExpiresAt = $state(0);
   let now = $state(Date.now());
   let policy = $state<'agreement' | 'privacy' | null>(null);
+  let policyOpen = $state(false);
   let remainingSeconds = $derived(Math.max(0, Math.ceil((codeExpiresAt - now) / 1000)));
   const timer = window.setInterval(() => {
     now = Date.now();
   }, 1000);
 
   onDestroy(() => window.clearInterval(timer));
+
+  function openPolicy(nextPolicy: 'agreement' | 'privacy'): void {
+    policy = nextPolicy;
+    policyOpen = true;
+  }
 
   function requestCode(): void {
     if (!/^1\d{10}$/.test(phone)) {
@@ -122,13 +129,13 @@
           <button
             class="text-primary hover:underline"
             type="button"
-            onclick={() => (policy = 'agreement')}>《用户协议》</button
+            onclick={() => openPolicy('agreement')}>《用户协议》</button
           >
           和
           <button
             class="text-primary hover:underline"
             type="button"
-            onclick={() => (policy = 'privacy')}>《隐私政策》</button
+            onclick={() => openPolicy('privacy')}>《隐私政策》</button
           >
         </span>
       </label>
@@ -143,31 +150,23 @@
       >
         登录
       </button>
-      <p class="mt-4 text-center text-xs text-muted-foreground">Mock：13800138000 / 123456</p>
+      <p class="mt-4 text-center text-xs text-muted-foreground">
+        体验账号：13800138000，验证码：123456
+      </p>
     </form>
   </section>
 </main>
 
 {#if policy}
-  <div class="fixed inset-0 z-50 grid place-items-center bg-black/35 p-8" role="presentation">
-    <div
-      class="max-h-[78vh] w-full max-w-2xl overflow-auto rounded-lg bg-card p-7 shadow-2xl"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="policy-title"
-    >
-      <div class="flex items-start justify-between gap-6">
-        <h2 id="policy-title" class="m-0 text-xl font-semibold">
+  <Dialog.Root bind:open={policyOpen}>
+    <Dialog.Content class="max-h-[78vh] overflow-auto sm:max-w-2xl">
+      <Dialog.Header>
+        <Dialog.Title>
           {policy === 'agreement' ? 'Hotel Butler 用户协议' : 'Hotel Butler 隐私政策'}
-        </h2>
-        <button
-          class="rounded-md px-3 py-1.5 text-sm hover:bg-muted"
-          type="button"
-          onclick={() => (policy = null)}>关闭</button
-        >
-      </div>
+        </Dialog.Title>
+      </Dialog.Header>
       {#if policy === 'agreement'}
-        <div class="mt-6 space-y-4 text-sm leading-7 text-secondary-foreground">
+        <div class="space-y-4 text-sm leading-7 text-secondary-foreground">
           <p>
             本协议适用于您使用 Hotel Butler
             酒店渠道聚合管理客户端。您应使用本人或经合法授权的账号登录，并妥善保管验证码、平台凭证及经营数据。
@@ -181,19 +180,18 @@
             导入仅在您主动选择本机浏览器并授权后执行。您应确认对其中账号数据拥有合法使用权。因第三方平台调整、网络故障或不可抗力导致的暂时不可用，我们将在合理范围内协助恢复。
           </p>
           <p>
-            您可在用户中心退出登录。账号注销功能将在后端服务就绪后开放。协议更新涉及重大权益时，我们会重新征得您的同意。
+            您可随时在用户中心退出登录并清除本机登录状态。协议更新涉及重大权益时，我们会重新征得您的同意。
           </p>
         </div>
       {:else}
-        <div class="mt-6 space-y-4 text-sm leading-7 text-secondary-foreground">
+        <div class="space-y-4 text-sm leading-7 text-secondary-foreground">
           <p>
-            我们遵循合法、正当、必要和诚信原则处理个人信息。当前 Mock
-            版本仅在本机保存登录手机号、会话到期时间、应用偏好及您主动导入的
+            我们遵循合法、正当、必要和诚信原则处理个人信息。当前版本仅在本机保存登录手机号、会话到期时间、应用偏好及您主动导入的
             Cookie，不向我们的服务器上传。
           </p>
           <p>
-            手机号用于识别登录账号；会话信息用于维持登录状态；Cookie 存储在 Electron
-            的独立持久会话中，仅在对应第三方网站请求时自动携带。您可通过退出登录清除应用登录状态，并可在系统数据目录中清理客户端数据。
+            手机号用于识别登录账号；会话信息用于维持登录状态；Cookie
+            存储在客户端的独立浏览器会话中，仅在对应第三方网站请求时自动携带。您可通过退出登录清除应用登录状态，并可在系统数据目录中清理客户端数据。
           </p>
           <p>
             客户端不会在未经操作时读取其他浏览器的 Cookie
@@ -201,10 +199,10 @@
             Cookie；数据不会上传至我们的服务器。请避免在公共设备保存敏感凭证。
           </p>
           <p>
-            待后端接口接入后，如处理目的、范围或共享对象发生变化，我们会更新本政策并依法另行告知或取得同意。您可通过产品支持渠道提出查阅、更正、删除或撤回同意的请求。
+            如处理目的、范围或共享对象发生变化，我们会更新本政策并依法另行告知或取得同意。您可通过产品支持渠道提出查阅、更正、删除或撤回同意的请求。
           </p>
         </div>
       {/if}
-    </div>
-  </div>
+    </Dialog.Content>
+  </Dialog.Root>
 {/if}

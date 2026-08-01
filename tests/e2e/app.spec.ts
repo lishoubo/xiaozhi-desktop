@@ -13,9 +13,7 @@ let electronApp: ElectronApplication;
 let page: Page;
 let runtimeDirectory: string;
 
-test.describe.configure({ mode: 'serial' });
-
-test.beforeAll(async () => {
+test.beforeEach(async () => {
   runtimeDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'hotel-butler-e2e-'));
   const launchEnvironment = { ...process.env };
   delete launchEnvironment.ELECTRON_RUN_AS_NODE;
@@ -30,23 +28,26 @@ test.beforeAll(async () => {
     env: {
       ...launchEnvironment,
       ELECTRON_DISABLE_SECURITY_WARNINGS: 'true',
-      HOTEL_BUTLER_DATABASE_PATH: path.join(runtimeDirectory, 'hotel-butler.sqlite3'),
     },
   });
   page = await electronApp.firstWindow();
 });
 
-test.afterAll(async () => {
+test.afterEach(async () => {
   await electronApp?.close();
   fs.rmSync(runtimeDirectory, { force: true, recursive: true });
 });
 
-test('logs in with the mock phone verification flow', async () => {
+async function login(): Promise<void> {
   await page.getByRole('textbox', { name: '手机号' }).fill('13800138000');
   await page.getByRole('button', { name: '获取验证码' }).click();
   await page.getByRole('textbox', { name: '验证码' }).fill('123456');
   await page.getByRole('checkbox', { name: /我已阅读并同意/ }).check();
   await page.getByRole('button', { name: '登录' }).click();
+}
+
+test('logs in with the local phone verification flow', async () => {
+  await login();
 
   await expect(page.getByRole('button', { name: '携程酒店 eBooking' })).toBeVisible();
   await expect(page.getByText('导入已有浏览器 Cookie')).toBeVisible();
@@ -56,27 +57,8 @@ test('logs in with the mock phone verification flow', async () => {
   await page.getByRole('button', { name: '暂不导入' }).click();
 });
 
-test('persists settings through preload, IPC, Drizzle and SQLite', async () => {
-  const result = await page.evaluate(async () => {
-    const created = await window.hotelButler.settings.set('browser.homepage', {
-      url: 'https://example.com',
-    });
-    const loaded = await window.hotelButler.settings.get('browser.homepage');
-    const listed = await window.hotelButler.settings.list();
-    const deleted = await window.hotelButler.settings.delete('browser.homepage');
-    const afterDelete = await window.hotelButler.settings.get('browser.homepage');
-
-    return { created, loaded, listed, deleted, afterDelete };
-  });
-
-  expect(result.created.value).toEqual({ url: 'https://example.com' });
-  expect(result.loaded).toEqual(result.created);
-  expect(result.listed).toContainEqual(result.created);
-  expect(result.deleted).toBe(true);
-  expect(result.afterDelete).toBeNull();
-});
-
 test('starts the Electron window with the Svelte browser shell', async () => {
+  await login();
   await expect(page).toHaveTitle('Hotel Butler');
   await expect(page.getByRole('button', { name: '携程酒店 eBooking' })).toBeVisible();
   await expect(page.getByRole('textbox', { name: '网址' })).toHaveCount(0);
@@ -91,7 +73,8 @@ test('starts the Electron window with the Svelte browser shell', async () => {
   expect(versions.name).toBeTruthy();
 });
 
-test('navigates static routes and loads settings through TanStack Query', async () => {
+test('navigates between the browser workspace and settings', async () => {
+  await login();
   await page.getByRole('link', { name: '设置' }).click();
 
   await expect(page).toHaveURL(/#\/settings$/);

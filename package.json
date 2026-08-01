@@ -1,8 +1,8 @@
 {
   "name": "hotel-butler",
-  "productName": "hotel-butler",
+  "productName": "Hotel Butler",
   "version": "1.0.0",
-  "description": "My Electron application description",
+  "description": "面向酒店运营人员的渠道工作台",
   "main": ".vite/build/main.js",
   "private": true,
   "scripts": {
@@ -16,9 +16,6 @@
     "lint": "eslint --ext .ts,.tsx,.mts .",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "db:generate": "drizzle-kit generate",
-    "db:check": "drizzle-kit check",
-    "db:studio": "drizzle-kit studio",
     "test": "npm run test:unit && npm run test:component",
     "test:all": "npm test && npm run test:e2e",
     "test:unit": "vitest run --config vitest.unit.config.mts",
@@ -46,7 +43,6 @@
     "@electron-forge/plugin-vite": "^7.11.2",
     "@electron/fuses": "^1.8.0",
     "@fontsource-variable/inter": "^5.3.0",
-    "@internationalized/date": "^3.12.3",
     "@lucide/svelte": "^1.27.0",
     "@playwright/test": "^1.62.0",
     "@sveltejs/vite-plugin-svelte": "^4.0.4",
@@ -62,7 +58,6 @@
     "@vitest/coverage-v8": "3.2.6",
     "bits-ui": "^2.18.1",
     "clsx": "^2.1.1",
-    "drizzle-kit": "^0.31.10",
     "electron": "43.2.0",
     "eslint": "^8.57.1",
     "eslint-config-prettier": "10.1.8",
@@ -81,9 +76,7 @@
     "vitest": "3.2.6"
   },
   "dependencies": {
-    "@tanstack/svelte-query": "^6.1.38",
     "better-sqlite3": "^13.0.2",
-    "drizzle-orm": "^0.45.2",
     "electron-log": "^5.4.4",
     "electron-squirrel-startup": "^1.0.1",
     "svelte": "^5.56.8",

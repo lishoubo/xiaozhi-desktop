@@ -1,12 +1,10 @@
 <script lang="ts">
-  import { QueryClientProvider } from '@tanstack/svelte-query';
   import log from 'electron-log/renderer';
   import Router from 'svelte-spa-router';
   import { onDestroy } from 'svelte';
   import AppFrame from './components/layout/AppFrame.svelte';
   import LoginPage from './pages/LoginPage.svelte';
   import { clearAuthSession, createAuthSession, readAuthSession, type AuthSession } from './auth';
-  import { queryClient } from './query-client';
   import { routes } from './routes';
 
   let session = $state<AuthSession | null>(readAuthSession());
@@ -26,11 +24,9 @@
 </script>
 
 {#if session}
-  <QueryClientProvider client={queryClient}>
-    <AppFrame phone={session.phone}>
-      <Router {routes} />
-    </AppFrame>
-  </QueryClientProvider>
+  <AppFrame>
+    <Router {routes} />
+  </AppFrame>
 {:else}
   <LoginPage
     onLogin={(phone) => {

@@ -33,26 +33,19 @@ describe('redactLogData', () => {
         },
       },
       'Authorization: Bearer [REDACTED] password=[REDACTED]',
-      expect.objectContaining({
-        name: 'Error',
-        message: 'Request failed: https://example.com/callback?access_token=[REDACTED]&room=101',
-      }),
+      { name: 'Error' },
     ]);
     expect(JSON.stringify(result)).not.toContain('token-value');
     expect(JSON.stringify(result)).not.toContain('plain-text-password');
     expect(JSON.stringify(result)).not.toContain('structured-session');
+    expect(JSON.stringify(result)).not.toContain('https://example.com');
   });
 
   it('handles circular error causes without interrupting logging', () => {
     const error = new Error('cyclic failure');
     error.cause = error;
 
-    expect(redactLogData([error])).toEqual([
-      expect.objectContaining({
-        cause: '[Circular]',
-        message: 'cyclic failure',
-      }),
-    ]);
+    expect(redactLogData([error])).toEqual([{ name: 'Error' }]);
   });
 });
 
@@ -83,7 +76,6 @@ describe('configureMainLogging', () => {
     expect(logger.info).toHaveBeenCalledWith('Application logging initialized', {
       appVersion: '1.2.3',
       isPackaged: true,
-      logFile: '/logs/main.log',
       platform: 'darwin',
     });
   });

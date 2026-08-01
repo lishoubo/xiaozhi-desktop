@@ -1,20 +1,13 @@
 import { app, BrowserWindow } from 'electron';
 import log from 'electron-log/main';
-import path from 'node:path';
 import started from 'electron-squirrel-startup';
-import { openDatabase, type DatabaseConnection } from './database/connection';
-import { registerSettingsHandlers } from './ipc/settings-handlers';
 import { registerBrowserHandlers } from './ipc/browser-handlers';
 import { BrowserManager } from './browser/browser-manager';
 import { configureNetworkPrivacy } from './security/network-privacy';
-import { SettingsRepository } from './settings/settings-repository';
-import { SettingsService } from './settings/settings-service';
 import { createMainWindow } from './windows/main-window';
 import { configureMainLogging } from './logging/configure-main-logging';
 
 let mainWindow: BrowserWindow | null = null;
-let databaseConnection: DatabaseConnection | null = null;
-let unregisterIpcHandlers: (() => void) | null = null;
 let browserManager: BrowserManager | null = null;
 let unregisterBrowserHandlers: (() => void) | null = null;
 
@@ -24,18 +17,6 @@ configureMainLogging(log, {
   isPackaged: app.isPackaged,
   platform: process.platform,
 });
-
-function getDatabasePath(): string {
-  const testDatabasePath = app.isPackaged ? undefined : process.env.HOTEL_BUTLER_DATABASE_PATH;
-
-  return testDatabasePath ?? path.join(app.getPath('userData'), 'hotel-butler.sqlite3');
-}
-
-function getMigrationsFolder(): string {
-  return app.isPackaged
-    ? path.join(process.resourcesPath, 'drizzle')
-    : path.resolve(__dirname, '../../drizzle');
-}
 
 function openMainWindow(): void {
   mainWindow = createMainWindow();
@@ -58,16 +39,6 @@ function openMainWindow(): void {
 
 function initializeApplication(): void {
   log.info('Application initialization started');
-  databaseConnection = openDatabase(getDatabasePath(), getMigrationsFolder());
-  log.info('Application database ready');
-  const settingsService = new SettingsService(new SettingsRepository(databaseConnection.db), log);
-
-  unregisterIpcHandlers = registerSettingsHandlers({
-    service: settingsService,
-    isTrustedSender: (event) => event.sender === mainWindow?.webContents,
-    logger: log,
-  });
-
   openMainWindow();
   log.info('Application initialization completed');
 }
@@ -80,7 +51,9 @@ if (started) {
     .whenReady()
     .then(initializeApplication)
     .catch((error: unknown) => {
-      log.error('Application initialization failed', error);
+      log.error('Application initialization failed', {
+        errorName: error instanceof Error ? error.name : 'UnknownError',
+      });
       app.quit();
     });
 }
@@ -104,9 +77,7 @@ app.on('activate', () => {
 
 app.once('will-quit', () => {
   log.info('Application shutdown started');
-  unregisterIpcHandlers?.();
   unregisterBrowserHandlers?.();
   browserManager?.destroy();
-  databaseConnection?.close();
   log.info('Application shutdown completed');
 });

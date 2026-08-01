@@ -183,8 +183,8 @@ describe('BrowserCookieImporter', () => {
     await new BrowserCookieImporter(logger, home, 'linux', {}).readCookies('firefox');
 
     expect(logger.info.mock.calls).toEqual([
-      ['Cookie import started', { source: 'firefox' }],
-      ['Cookie import completed', { source: 'firefox', imported: 1, failed: 0 }],
+      ['Cookie extraction started', { source: 'firefox' }],
+      ['Cookie extraction completed', { source: 'firefox', extracted: 1, failed: 0 }],
     ]);
     expect(JSON.stringify(logger.info.mock.calls)).not.toContain('private-cookie-value');
     expect(JSON.stringify(logger.info.mock.calls)).not.toContain(home);
@@ -198,7 +198,7 @@ describe('BrowserCookieImporter', () => {
     await expect(importer.readCookies('firefox')).rejects.toThrow(
       '未找到 Mozilla Firefox Cookie 数据',
     );
-    expect(logger.error).toHaveBeenCalledWith('Cookie import failed', {
+    expect(logger.error).toHaveBeenCalledWith('Cookie extraction failed', {
       source: 'firefox',
       errorName: 'Error',
     });

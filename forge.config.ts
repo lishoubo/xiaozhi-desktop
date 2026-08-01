@@ -15,9 +15,7 @@ const nativeRuntimeDependencies = ['better-sqlite3', 'node-addon-api'] as const;
 const config: ForgeConfig = {
   packagerConfig: {
     asar: true,
-    extraResource: ['drizzle'],
   },
-  rebuildConfig: {},
   hooks: {
     // Forge's Vite plugin excludes externalized modules from the packaged app, so copy the
     // native runtime tree before Packager prunes and AutoUnpackNatives extracts its binaries.
@@ -37,6 +35,7 @@ const config: ForgeConfig = {
       );
     },
   },
+  rebuildConfig: {},
   makers: [new MakerSquirrel({}), new MakerZIP({}, ['darwin']), new MakerRpm({}), new MakerDeb({})],
   plugins: [
     new VitePlugin({

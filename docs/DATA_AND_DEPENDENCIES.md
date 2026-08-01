@@ -1,17 +1,17 @@
 # Data and Dependencies
 
-## Drizzle ORM
+## Database Conventions
 
-Use the name **Drizzle ORM** in documentation and comments.
+The application currently has no application-owned persistence database. `better-sqlite3` is limited to read-only access to browser Cookie databases during an explicit import. If product persistence is introduced, establish its schema, client, repository, migration, transaction, and validation conventions together rather than adding a generic renderer-facing data store.
 
-- Treat existing schema, database client, repository, migration, and query conventions as canonical.
+- Treat the established schema, database client, repository, migration, and query conventions as canonical.
 - Use one query style for equivalent operations; do not mix relational APIs, SQL-like builders, raw SQL, and ad hoc abstractions without a clear boundary.
 - Use the established transaction and database access patterns.
 - Prefer inferred schema types and established validators over duplicated handwritten model types.
 - Keep schema changes and migrations aligned. Never edit already-applied migrations unless explicitly permitted.
 - Use raw SQL only when the canonical Drizzle API cannot express the requirement clearly or efficiently. Isolate it, parameterize it, explain why it is needed, and test it.
 - Test queries, constraints, transactions, and migration-sensitive behavior at the appropriate integration boundary.
-- Follow the database validation sequence in `DEVELOPMENT_WORKFLOW.md`.
+- Add and follow a database validation sequence in `DEVELOPMENT_WORKFLOW.md`.
 
 ## Dependency and Version Compatibility
 

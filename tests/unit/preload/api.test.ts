@@ -21,25 +21,13 @@ describe('createDesktopApi', () => {
     });
     expect(Object.isFrozen(api)).toBe(true);
     expect(Object.isFrozen(api.versions)).toBe(true);
-    expect(Object.isFrozen(api.settings)).toBe(true);
     expect(Object.isFrozen(api.browser)).toBe(true);
   });
 
-  it('maps the settings API to fixed IPC channels', async () => {
-    const invoke = vi.fn().mockResolvedValue(undefined);
-    const api = createDesktopApi({ chrome: '1', electron: '2', node: '3' }, invoke);
+  it('does not expose generic settings storage to the renderer', () => {
+    const api = createDesktopApi({ chrome: '1', electron: '2', node: '3' }, vi.fn());
 
-    await api.settings.list();
-    await api.settings.get('theme');
-    await api.settings.set('theme', { mode: 'dark' });
-    await api.settings.delete('theme');
-
-    expect(invoke.mock.calls).toEqual([
-      [IPC_CHANNELS.settings.list],
-      [IPC_CHANNELS.settings.get, 'theme'],
-      [IPC_CHANNELS.settings.set, { key: 'theme', value: { mode: 'dark' } }],
-      [IPC_CHANNELS.settings.delete, 'theme'],
-    ]);
+    expect(api).not.toHaveProperty('settings');
   });
 
   it('maps browser actions to fixed IPC channels', async () => {

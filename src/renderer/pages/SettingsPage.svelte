@@ -1,6 +1,5 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import Bell from '@lucide/svelte/icons/bell';
   import log from 'electron-log/renderer';
   import Cookie from '@lucide/svelte/icons/cookie';
   import MonitorUp from '@lucide/svelte/icons/monitor-up';
@@ -9,33 +8,38 @@
   import CookieImportDialog from '../components/browser/CookieImportDialog.svelte';
 
   let preferences = $state<SystemPreferences | null>(null);
-  let notifications = $state(localStorage.getItem('hotel-butler.notifications') !== 'false');
   let error = $state('');
+  let savingAutoLaunch = $state(false);
 
   onMount(() => {
     void window.hotelButler.system
       .getPreferences()
       .then((value) => {
         preferences = value;
+        error = '';
       })
       .catch((reason: unknown) => {
-        log.warn('System preferences could not be loaded', reason);
-        error = reason instanceof Error ? reason.message : '设置读取失败';
+        log.warn('System preferences could not be loaded', {
+          errorName: reason instanceof Error ? reason.name : 'UnknownError',
+        });
+        error = '设置读取失败，请重试';
       });
   });
 
   async function toggleAutoLaunch(enabled: boolean): Promise<void> {
+    if (savingAutoLaunch) return;
+    savingAutoLaunch = true;
+    error = '';
     try {
       preferences = await window.hotelButler.system.setAutoLaunch(enabled);
     } catch (reason) {
-      log.warn('Auto-launch preference could not be changed', reason);
-      error = reason instanceof Error ? reason.message : '设置保存失败';
+      log.warn('Auto-launch preference could not be changed', {
+        errorName: reason instanceof Error ? reason.name : 'UnknownError',
+      });
+      error = '设置保存失败，请重试';
+    } finally {
+      savingAutoLaunch = false;
     }
-  }
-
-  function toggleNotifications(enabled: boolean): void {
-    notifications = enabled;
-    localStorage.setItem('hotel-butler.notifications', String(enabled));
   }
 </script>
 
@@ -63,20 +67,8 @@
             class="size-4 accent-primary"
             type="checkbox"
             checked={preferences?.autoLaunch ?? false}
-            disabled={!preferences}
+            disabled={!preferences || savingAutoLaunch}
             onchange={(event) => void toggleAutoLaunch(event.currentTarget.checked)}
-          />
-        </label>
-        <label class="flex items-center justify-between gap-6 px-6 py-4">
-          <span class="flex items-center gap-3 text-sm">
-            <Bell size={17} class="text-muted-foreground" />
-            桌面通知
-          </span>
-          <input
-            class="size-4 accent-primary"
-            type="checkbox"
-            checked={notifications}
-            onchange={(event) => toggleNotifications(event.currentTarget.checked)}
           />
         </label>
         <div class="flex items-center justify-between gap-6 px-6 py-4">

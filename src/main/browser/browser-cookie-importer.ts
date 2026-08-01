@@ -497,17 +497,17 @@ export class BrowserCookieImporter {
   async readCookies(
     sourceId: BrowserCookieSourceId,
   ): Promise<{ cookies: CookiesSetDetails[]; failed: number }> {
-    this.logger.info('Cookie import started', { source: sourceId });
+    this.logger.info('Cookie extraction started', { source: sourceId });
     try {
       const result = await this.readCookiesFromSource(sourceId);
-      this.logger.info('Cookie import completed', {
+      this.logger.info('Cookie extraction completed', {
         source: sourceId,
-        imported: result.cookies.length,
+        extracted: result.cookies.length,
         failed: result.failed,
       });
       return result;
     } catch (error: unknown) {
-      this.logger.error('Cookie import failed', {
+      this.logger.error('Cookie extraction failed', {
         source: sourceId,
         errorName: error instanceof Error ? error.name : 'UnknownError',
       });

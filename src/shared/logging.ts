@@ -26,17 +26,7 @@ function redactValue(value: unknown, visited: WeakSet<object>): unknown {
   }
 
   if (value instanceof Error) {
-    if (visited.has(value)) {
-      return '[Circular]';
-    }
-
-    visited.add(value);
-    return {
-      name: value.name,
-      message: redactText(value.message),
-      stack: value.stack ? redactText(value.stack) : undefined,
-      cause: value.cause === undefined ? undefined : redactValue(value.cause, visited),
-    };
+    return { name: value.name };
   }
 
   if (Array.isArray(value)) {

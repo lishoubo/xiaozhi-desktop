@@ -6,7 +6,7 @@
   import active from 'svelte-spa-router/active';
   import type { Snippet } from 'svelte';
 
-  let { children, phone }: { children: Snippet; phone: string } = $props();
+  let { children }: { children: Snippet } = $props();
 </script>
 
 <div class="grid h-full grid-cols-[80px_minmax(0,1fr)] bg-background">
@@ -35,7 +35,7 @@
         href="/profile"
         use:link
         use:active={{ className: 'active' }}
-        aria-label={`用户中心 ${phone}`}
+        aria-label="用户中心"
       >
         <CircleUserRound size={18} strokeWidth={1.8} />
         <span>用户中心</span>

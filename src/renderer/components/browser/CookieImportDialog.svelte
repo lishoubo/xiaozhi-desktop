@@ -40,7 +40,9 @@
       sources = await window.hotelButler.cookies.listSources();
       selectedSourceId = sources[0]?.id ?? null;
     } catch (reason) {
-      log.warn('Browser cookie sources could not be detected', reason);
+      log.warn('Browser cookie sources could not be detected', {
+        errorName: reason instanceof Error ? reason.name : 'UnknownError',
+      });
       error = '浏览器检测失败，请稍后重试';
     } finally {
       loadingSources = false;
@@ -61,7 +63,9 @@
       }
       step = 'success';
     } catch (reason) {
-      log.warn('Cookie import request failed', reason);
+      log.warn('Cookie import request failed', {
+        errorName: reason instanceof Error ? reason.name : 'UnknownError',
+      });
       error = 'Cookie 导入失败，请稍后重试';
       step = 'select';
     }
