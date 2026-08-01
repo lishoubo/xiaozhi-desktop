@@ -19,6 +19,12 @@
     SURFACE_TRANSITION_OPTIONS,
   } from '../motion';
   import AgentAvatar from '../components/agent/AgentAvatar.svelte';
+  import HotelGenerativeUi from '../components/agent/HotelGenerativeUi.svelte';
+  import {
+    findHotelPreview,
+    hotelGenerativeUiPreviews,
+    type HotelPreview,
+  } from '../generative-ui/mock-specs';
   import { Button } from '$lib/components/ui/button';
   import { Separator } from '$lib/components/ui/separator';
   import { Textarea } from '$lib/components/ui/textarea';
@@ -60,6 +66,7 @@
   let showSample = $state(false);
   let attachmentName = $state('');
   let copied = $state(false);
+  let activePreview = $state<HotelPreview | null>(null);
   let fileInput: HTMLInputElement;
   let composer = $state<HTMLTextAreaElement | null>(null);
 
@@ -68,6 +75,7 @@
     localMessages = [];
     attachmentName = '';
     showSample = false;
+    activePreview = null;
   }
 
   function selectSuggestion(value: string): void {
@@ -80,6 +88,15 @@
     localMessages = [];
     attachmentName = '';
     showSample = true;
+    activePreview = null;
+  }
+
+  function openGenerativeUiPreview(preview: HotelPreview): void {
+    prompt = '';
+    localMessages = [];
+    attachmentName = '';
+    showSample = false;
+    activePreview = findHotelPreview(preview.id);
   }
 
   function submitPrompt(): void {
@@ -87,6 +104,7 @@
     if (!content) return;
 
     showSample = false;
+    activePreview = null;
     localMessages = [
       ...localMessages,
       { id: nextMessageId++, role: 'user', content },
@@ -172,6 +190,11 @@
           class="rounded-md bg-secondary px-2 py-1 text-xs font-medium text-muted-foreground"
           in:enter={SURFACE_TRANSITION_OPTIONS}>示例会话</span
         >
+      {:else if activePreview}
+        <span
+          class="rounded-md bg-secondary px-2 py-1 text-xs font-medium text-muted-foreground"
+          in:enter={SURFACE_TRANSITION_OPTIONS}>静态预览</span
+        >
       {/if}
     </header>
 
@@ -181,7 +204,15 @@
       aria-live="polite"
     >
       <div class="mx-auto w-full max-w-3xl px-7 py-8">
-        {#if showSample}
+        {#if activePreview}
+          <article class="flex gap-3" in:enter={SURFACE_TRANSITION_OPTIONS}>
+            <AgentAvatar size="sm" />
+            <div class="min-w-0 flex-1">
+              <p class="m-0 mb-3 text-xs font-medium text-muted-foreground">小智 · 生成式 UI</p>
+              <HotelGenerativeUi spec={activePreview.spec} />
+            </div>
+          </article>
+        {:else if showSample}
           <article class="flex justify-end" in:enter={SURFACE_TRANSITION_OPTIONS}>
             <p class="m-0 max-w-[75%] rounded-lg bg-secondary px-4 py-3 text-sm leading-6">
               帮我总结今天的酒店运营情况，标出需要优先处理的事项。
@@ -331,6 +362,23 @@
                   </span>
                 </button>
               {/each}
+            </div>
+
+            <div class="mt-7 w-full border-t border-border pt-5 text-left">
+              <p class="m-0 text-xs font-medium text-muted-foreground">生成式 UI 快捷预览</p>
+              <div class="mt-3 grid grid-cols-5 gap-2">
+                {#each hotelGenerativeUiPreviews as preview (preview.id)}
+                  <Button
+                    class="h-auto min-h-9 justify-start px-3 py-2 text-xs"
+                    variant="outline"
+                    aria-label={`预览${preview.label}`}
+                    title={preview.description}
+                    onclick={() => openGenerativeUiPreview(preview)}
+                  >
+                    {preview.label}
+                  </Button>
+                {/each}
+              </div>
             </div>
           </div>
         {/if}

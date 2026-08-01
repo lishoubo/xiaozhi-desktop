@@ -1,6 +1,7 @@
 @import 'tailwindcss';
 @import 'tw-animate-css';
 @import 'shadcn-svelte/tailwind.css';
+@source '../../../node_modules/@json-render/shadcn-svelte/dist';
 
 @font-face {
   font-family: 'MiSans Variable';

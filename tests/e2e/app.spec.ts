@@ -105,6 +105,17 @@ test('opens the AI concierge from the icon sidebar', async () => {
   await expect(page.getByRole('textbox', { name: '给小智AI 管家发消息' })).toBeVisible();
 });
 
+test('previews generated hotel UI with static data', async () => {
+  await login();
+  await page.getByRole('link', { name: '小智AI 管家' }).click();
+  await page.getByRole('button', { name: '预览房态库存' }).click();
+
+  await expect(page.getByRole('heading', { name: '房态与库存' })).toBeVisible();
+  await expect(page.getByText('高级双床房库存偏紧')).toBeVisible();
+  await expect(page.getByText('Mock 数据')).toBeVisible();
+  await expect(page.locator('[data-generative-ui="hotel"]')).toBeVisible();
+});
+
 test('navigates between the browser workspace and settings', async () => {
   await login();
   await page.getByRole('link', { name: '设置' }).click();

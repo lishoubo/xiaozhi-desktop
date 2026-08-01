@@ -60,4 +60,20 @@ describe('小智AI 管家', () => {
     expect(composer).toHaveValue('检查今天的异常订单');
     expect(composer).toHaveFocus();
   });
+
+  it('previews hotel operations UI from quick actions without a backend', async () => {
+    const user = userEvent.setup();
+    render(AgentPage);
+
+    expect(screen.getByRole('button', { name: '预览异常订单' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '预览房态库存' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '预览渠道经营' })).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: '预览异常订单' }));
+
+    expect(screen.getByRole('heading', { name: '异常订单处理' })).toBeInTheDocument();
+    expect(screen.getAllByText('即将超时')).toHaveLength(2);
+    expect(screen.getByText('HB202608010023')).toBeInTheDocument();
+    expect(screen.getByText('Mock 数据')).toBeInTheDocument();
+  });
 });
