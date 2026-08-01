@@ -2,6 +2,8 @@ import {
   BrowserWindow,
   session,
   WebContentsView,
+  type Event as ElectronEvent,
+  type Input,
   type Rectangle,
   type Session,
   type WebRequestFilter,
@@ -25,6 +27,17 @@ const CTRIP_API_REQUEST_FILTER: WebRequestFilter = {
   urls: ['https://m.ctrip.com/restapi/soa2/*'],
 };
 
+function isReloadShortcut(
+  input: Pick<Input, 'alt' | 'control' | 'key' | 'meta' | 'type'>,
+): boolean {
+  return (
+    input.type === 'keyDown' &&
+    input.key.toLowerCase() === 'r' &&
+    !input.alt &&
+    (input.meta || input.control)
+  );
+}
+
 function assertWebUrl(url: string): void {
   const parsed = new URL(url);
   if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
@@ -39,6 +52,13 @@ export class BrowserManager {
   private activeTabId: string | null = null;
   private bounds: Rectangle = { x: 0, y: 0, width: 0, height: 0 };
   private interceptionAlertOpen = false;
+  private readonly handleShellInput = (event: ElectronEvent, input: Input): void => {
+    if (!isReloadShortcut(input)) return;
+
+    event.preventDefault();
+    const active = this.activeTabId ? this.tabs.get(this.activeTabId) : undefined;
+    active?.view.webContents.reload();
+  };
 
   constructor(
     private readonly window: BrowserWindow,
@@ -46,6 +66,7 @@ export class BrowserManager {
   ) {
     this.browserSession = session.fromPartition('persist:hotel-butler-browser');
     denyEmbeddedPagePermissions(this.browserSession);
+    this.window.webContents.on('before-input-event', this.handleShellInput);
     this.installRequestInterceptor();
   }
 
@@ -169,6 +190,9 @@ export class BrowserManager {
     this.managedWebContentsIds.clear();
     this.activeTabId = null;
     this.interceptionAlertOpen = false;
+    if (!this.window.isDestroyed()) {
+      this.window.webContents.removeListener('before-input-event', this.handleShellInput);
+    }
     this.browserSession.webRequest.onBeforeRequest(CTRIP_API_REQUEST_FILTER, null);
     if (tabCount > 0) this.logger.info('Browser workspace closed', { tabCount });
   }
@@ -214,6 +238,12 @@ export class BrowserManager {
         event.preventDefault();
         this.logger.warn('Blocked invalid browser navigation', { channelId: tab.channelId });
       }
+    });
+    webContents.on('before-input-event', (event, input) => {
+      if (!isReloadShortcut(input)) return;
+
+      event.preventDefault();
+      if (this.activeTabId === tab.id) webContents.reload();
     });
     webContents.on('did-start-loading', () => {
       tab.loading = true;

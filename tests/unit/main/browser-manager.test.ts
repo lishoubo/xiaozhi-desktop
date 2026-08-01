@@ -88,14 +88,29 @@ function createLogger() {
   return { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
 }
 
+type WindowInputHandler = (
+  event: { preventDefault: () => void },
+  input: { alt: boolean; control: boolean; key: string; meta: boolean; type: string },
+) => void;
+
 function createWindow() {
+  const handlers = new Map<string, WindowInputHandler>();
   return {
     contentView: {
       addChildView: vi.fn(),
       removeChildView: vi.fn(),
     },
     isDestroyed: vi.fn(() => false),
-    webContents: { send: vi.fn() },
+    handlers,
+    webContents: {
+      send: vi.fn(),
+      on: vi.fn((event: string, listener: WindowInputHandler) => {
+        handlers.set(event, listener);
+      }),
+      removeListener: vi.fn((event: string, listener: WindowInputHandler) => {
+        if (handlers.get(event) === listener) handlers.delete(event);
+      }),
+    },
   };
 }
 
@@ -258,5 +273,45 @@ describe('BrowserManager', () => {
       { urls: ['https://m.ctrip.com/restapi/soa2/*'] },
       null,
     );
+  });
+
+  it('routes Cmd+R to the active embedded tab and blocks it outside the browser workspace', () => {
+    const window = createWindow();
+    const manager = new BrowserManager(window as never, createLogger());
+    manager.create('ctrip', 'https://ebooking.ctrip.com/');
+    const preventDefault = vi.fn();
+    const input = {
+      type: 'keyDown',
+      key: 'r',
+      meta: true,
+      control: false,
+      alt: false,
+    };
+
+    window.handlers.get('before-input-event')?.({ preventDefault }, input);
+
+    expect(preventDefault).toHaveBeenCalledOnce();
+    expect(electron.views[0].webContents.reload).toHaveBeenCalledOnce();
+
+    preventDefault.mockClear();
+    electron.views[0].webContents.reload.mockClear();
+    manager.hide();
+    window.handlers.get('before-input-event')?.({ preventDefault }, input);
+
+    expect(preventDefault).toHaveBeenCalledOnce();
+    expect(electron.views[0].webContents.reload).not.toHaveBeenCalled();
+  });
+
+  it('does not intercept unrelated main-window shortcuts', () => {
+    const window = createWindow();
+    new BrowserManager(window as never, createLogger());
+    const preventDefault = vi.fn();
+
+    window.handlers.get('before-input-event')?.(
+      { preventDefault },
+      { type: 'keyDown', key: 'f', meta: true, control: false, alt: false },
+    );
+
+    expect(preventDefault).not.toHaveBeenCalled();
   });
 });
