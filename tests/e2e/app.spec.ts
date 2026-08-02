@@ -107,6 +107,19 @@ test('opens the AI concierge from the icon sidebar', async () => {
 
 test('opens the localized calendar with the seeded holiday group', async () => {
   await login();
+  await page.evaluate(async () => {
+    for (let index = 0; index < 8; index += 1) {
+      await window.hotelButler.calendar.createEvent({
+        id: `e2e-overflow-${index}`,
+        calendarId: 'personal',
+        title: `满房日运营事项 ${index + 1}`,
+        startsAt: '2026-08-15T00:00:00.000',
+        endsAt: '2026-08-16T00:00:00.000',
+        allDay: true,
+        notes: '',
+      });
+    }
+  });
   await page.getByRole('link', { name: '日历' }).click();
 
   await expect(page).toHaveURL(/#\/calendar$/);
@@ -118,12 +131,6 @@ test('opens the localized calendar with the seeded holiday group', async () => {
   await expect(page.getByRole('button', { name: '今天' })).toBeVisible();
   await expect(page.getByRole('button', { name: '上一个时段' })).toBeVisible();
   await expect(page.getByRole('button', { name: '下一个时段' })).toBeVisible();
-
-  await page.getByRole('button', { name: '周视图' }).click();
-  await expect(page.getByRole('button', { name: '周视图' })).toHaveAttribute(
-    'aria-pressed',
-    'true',
-  );
 
   const panelFitsSidebar = await page.evaluate(() => {
     const sidebar = document.querySelector('.wx-calendar-sidebar');
@@ -139,20 +146,114 @@ test('opens the localized calendar with the seeded holiday group', async () => {
   expect(groupColors).toHaveLength(3);
   expect(new Set(groupColors).size).toBe(3);
 
-  await page.getByRole('button', { name: '新建日程' }).click();
-  await expect(page.getByRole('button', { name: '确认' })).toBeVisible();
-  await expect(page.getByRole('button', { name: '取消' })).toBeVisible();
-  await expect(page.getByRole('button', { name: '关闭' })).toHaveCount(0);
-  await page.getByRole('button', { name: '取消' }).click();
+  await page.locator('[data-date="2026-08-15"]').dblclick();
+  const allDayCheckbox = page.getByRole('checkbox', { name: '全天' });
+  const allDayLabel = page.getByText('全天', { exact: true });
+  const calendarGroupCheckboxes = page
+    .getByRole('group', { name: '日历筛选' })
+    .getByRole('checkbox');
+  await expect(allDayCheckbox).toBeChecked();
+  await expect(page.getByRole('button', { name: '删除' })).toBeVisible();
+  await expect(page.getByRole('button', { name: '完成' })).toBeVisible();
+  await expect(page.getByRole('button', { name: '确认' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: '取消' })).toHaveCount(0);
+  expect(
+    await page
+      .locator(
+        '.wx-editor-calendar input[type="checkbox"], [aria-label="日历筛选"] input[type="checkbox"]',
+      )
+      .evaluateAll((checkboxes) => new Set(checkboxes.map((checkbox) => checkbox.id)).size),
+  ).toBe(4);
+
+  await allDayLabel.click();
+  await expect(allDayCheckbox).not.toBeChecked();
+  await expect(page.locator('.wx-editor-calendar .wx-timepicker').first()).toBeVisible();
+  await expect(calendarGroupCheckboxes).toHaveCount(3);
+  for (const checkbox of await calendarGroupCheckboxes.all()) await expect(checkbox).toBeChecked();
+
+  await allDayLabel.click();
+  await expect(allDayCheckbox).toBeChecked();
+  await allDayLabel.click();
+  await expect(allDayCheckbox).not.toBeChecked();
+  await expect(page.locator('.wx-editor-calendar .wx-timepicker').first()).toBeVisible();
+  for (const checkbox of await calendarGroupCheckboxes.all()) await expect(checkbox).toBeChecked();
+
+  await page.locator('[data-date="2026-08-02"]').click();
   await expect(page.getByRole('textbox', { name: '备注' })).toHaveCount(0);
-  await expect(page.getByText('新日程')).toHaveCount(0);
+  await page.locator('[data-date="2026-08-02"]').click();
+  await expect(page.getByRole('textbox', { name: '备注' })).toHaveCount(0);
+  await page.locator('[data-date="2026-08-02"]').click();
+  await expect(page.getByRole('textbox', { name: '备注' })).toBeVisible();
+  await page.getByRole('button', { name: '完成' }).click();
+
+  const moreButton = page.locator('.wx-more-button').first();
+  await expect(moreButton).toBeVisible();
+  await moreButton.click();
+  await expect(page.getByRole('complementary', { name: '2026年8月15日日程' })).toBeVisible();
+  await expect(page.getByRole('button', { name: /^编辑满房日运营事项/ })).toHaveCount(8);
+  const stableGrid = await page.evaluate(() => {
+    const cells = Array.from(document.querySelectorAll('.wx-grid-section .wx-grid-cell'));
+    const rowsByTop = new Map<number, DOMRect[]>();
+    for (const cell of cells) {
+      const rect = cell.getBoundingClientRect();
+      const key = Math.round(rect.top);
+      const row = rowsByTop.get(key) ?? [];
+      row.push(rect);
+      rowsByTop.set(key, row);
+    }
+    const rows = [...rowsByTop.values()].sort((left, right) => left[0].top - right[0].top);
+    const alignedWithinRows = rows.every((row) => {
+      const tops = row.map((cell) => cell.top);
+      const heights = row.map((cell) => cell.height);
+      return (
+        row.length === 7 &&
+        Math.max(...tops) - Math.min(...tops) <= 1 &&
+        Math.max(...heights) - Math.min(...heights) <= 1
+      );
+    });
+    const continuousRows = rows.slice(0, -1).every((row, index) => {
+      const nextRow = rows[index + 1];
+      return Math.abs(row[0].bottom - nextRow[0].top) <= 1;
+    });
+    return {
+      alignedWithinRows,
+      continuousRows,
+      rowCount: rows.length,
+    };
+  });
+  expect(stableGrid).toEqual({
+    alignedWithinRows: true,
+    continuousRows: true,
+    rowCount: 6,
+  });
+  await page.getByRole('button', { name: '关闭当日日程' }).click();
+
+  await page.getByRole('button', { name: '周视图' }).click();
+  await expect(page.getByRole('button', { name: '周视图' })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  );
+
+  await page.getByRole('button', { name: '新建日程' }).click();
+  await expect(page.getByRole('button', { name: '完成' })).toBeVisible();
+  await expect(page.getByRole('button', { name: '确认' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: '取消' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: '删除' })).toBeVisible();
+  await expect(page.getByRole('button', { name: '关闭' })).toHaveCount(0);
+  await page.getByRole('button', { name: '完成' }).click();
+  await expect(page.getByRole('textbox', { name: '备注' })).toHaveCount(0);
+  await expect(page.getByText('新日程')).toHaveCount(2);
 
   await page.getByText('每日运营晨会').click();
   const existingTitle = page.getByRole('textbox', { name: '文本' });
-  await existingTitle.fill('不应保存的晨会标题');
-  await page.getByRole('button', { name: '取消' }).click();
-  await expect(page.getByText('每日运营晨会')).toBeVisible();
-  await expect(page.getByText('不应保存的晨会标题')).toHaveCount(0);
+  await existingTitle.fill('自动保存的晨会标题');
+  await page.getByRole('button', { name: '完成' }).click();
+  await expect(page.getByText('自动保存的晨会标题')).toBeVisible();
+
+  await page.getByText('自动保存的晨会标题').click();
+  await expect(page.getByRole('button', { name: '删除' })).toBeVisible();
+  await page.getByRole('button', { name: '删除' }).click();
+  await expect(page.getByText('自动保存的晨会标题')).toHaveCount(0);
 
   await page.getByRole('button', { name: '今天' }).click();
   for (let index = 0; index < 4; index += 1) {

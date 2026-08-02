@@ -49,11 +49,7 @@ describe('calendar renderer data source adapter', () => {
       deleteEvent: vi.fn().mockResolvedValue(undefined),
     };
     const onFailure = vi.fn();
-    const createId = vi
-      .fn()
-      .mockReturnValueOnce('draft-1')
-      .mockReturnValueOnce('event-2')
-      .mockReturnValueOnce('draft-cancel');
+    const createId = vi.fn().mockReturnValueOnce('event-1').mockReturnValueOnce('event-2');
     const unbind = bindCalendarPersistence(api, dataSource, onFailure, createId);
     const addAction = {
       event: {
@@ -69,27 +65,31 @@ describe('calendar renderer data source adapter', () => {
 
     interceptors.get('add-event')?.(addAction as never);
     await listeners.get('add-event')?.(addAction as never);
-    expect(dataSource.createEvent).not.toHaveBeenCalled();
-
-    await listeners.get('update-event')?.({
-      id: 'draft-1',
-      event: {
-        ...addAction.event,
-        id: 'draft-1',
-        text: '新日程',
-        calendarId: 'personal',
-        notes: '初始备注',
-      },
-    } as never);
 
     expect(dataSource.createEvent).toHaveBeenCalledWith({
-      id: 'draft-1',
+      id: 'event-1',
       calendarId: 'personal',
       title: '新日程',
       startsAt: '2026-08-03T09:00:00.000',
       endsAt: '2026-08-03T10:00:00.000',
       allDay: false,
       notes: '初始备注',
+    });
+
+    await listeners.get('update-event')?.({
+      id: 'event-1',
+      event: {
+        text: '夏季需求复盘',
+        notes: '确认九月价格策略',
+      },
+    } as never);
+
+    expect(dataSource.updateEvent).toHaveBeenCalledWith({
+      id: 'event-1',
+      event: {
+        title: '夏季需求复盘',
+        notes: '确认九月价格策略',
+      },
     });
 
     const existingAction = {
@@ -101,33 +101,6 @@ describe('calendar renderer data source adapter', () => {
     };
     interceptors.get('add-event')?.(existingAction as never);
     await listeners.get('add-event')?.(existingAction as never);
-    await listeners.get('update-event')?.({
-      id: 'event-2',
-      event: {
-        text: '夏季需求复盘',
-        start: new Date(2026, 7, 4, 10),
-        notes: '确认九月价格策略',
-      },
-    } as never);
-
-    expect(dataSource.updateEvent).toHaveBeenCalledWith({
-      id: 'event-2',
-      event: {
-        title: '夏季需求复盘',
-        startsAt: '2026-08-04T10:00:00.000',
-        notes: '确认九月价格策略',
-      },
-    });
-
-    const cancelledDraft = {
-      event: { start: new Date(2026, 7, 5, 9), end: new Date(2026, 7, 5, 10) },
-      edit: true,
-    };
-    interceptors.get('add-event')?.(cancelledDraft as never);
-    await listeners.get('add-event')?.(cancelledDraft as never);
-    await listeners.get('delete-event')?.({ id: 'draft-cancel' } as never);
-    expect(dataSource.deleteEvent).not.toHaveBeenCalled();
-
     await listeners.get('delete-event')?.({ id: 'event-2' } as never);
     expect(dataSource.deleteEvent).toHaveBeenCalledWith('event-2');
     expect(onFailure).not.toHaveBeenCalled();

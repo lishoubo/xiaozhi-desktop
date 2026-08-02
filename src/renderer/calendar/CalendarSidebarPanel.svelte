@@ -76,6 +76,7 @@
     {#each groups as group (group.id)}
       <div class={`wx-calendar-name ${group.css}`}>
         <Checkbox
+          id={`hotel-calendar-group-${group.id}`}
           value={active[group.id] ?? true}
           onchange={() => toggleGroup(group.id)}
           label={group.label}

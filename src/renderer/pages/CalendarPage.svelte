@@ -1,5 +1,4 @@
 <script lang="ts">
-  import CircleAlert from '@lucide/svelte/icons/circle-alert';
   import ChevronLeft from '@lucide/svelte/icons/chevron-left';
   import ChevronRight from '@lucide/svelte/icons/chevron-right';
   import Plus from '@lucide/svelte/icons/plus';
@@ -15,10 +14,10 @@
   import { cn as coreChinese } from '@svar-ui/core-locales';
   import { Locale } from '@svar-ui/svelte-core';
   import { onDestroy, onMount } from 'svelte';
-  import { Alert, AlertDescription, AlertTitle } from '$lib/components/ui/alert';
   import { Button } from '$lib/components/ui/button';
   import { Spinner } from '$lib/components/ui/spinner';
   import { enter } from '../motion';
+  import { dismissAppNotification, showAppNotification } from '../notifications';
   import type { CalendarSnapshot } from '../../shared/calendar';
   import CalendarSidebarPanel from '../calendar/CalendarSidebarPanel.svelte';
   import {
@@ -26,11 +25,63 @@
     desktopCalendarDataSource,
     toCalendarEvents,
   } from '../calendar/calendar-data-source';
+  import {
+    createAllDayCalendarDraft,
+    isValidCalendarDateRange,
+    parseCalendarCellDate,
+  } from '../calendar/calendar-editor';
   import { formatCalendarRangeLabel, type CalendarView } from '../calendar/calendar-navigation';
 
   const words = { ...coreChinese, ...calendarChinese };
+  type EditorActionEvent = {
+    item: { id?: string | number };
+  };
+  let snapshot = $state<CalendarSnapshot | null>(null);
+  let loading = $state(true);
+  let api = $state<CalendarInstanceApi>();
+  let currentView = $state<CalendarView>('month');
+  let rangeLabel = $state('');
+  let currentDate = $state(new Date());
+  let visibleDateRange = $state({ start: new Date(), end: new Date() });
+  let editorValues = $state<Record<string, unknown>>({});
+  let overflowDate = $state<Date | null>(null);
+  let lastDateClick = '';
+  let lastDateClickAt = 0;
+  let suppressOutsideInteraction = false;
+  let unbindPersistence: (() => void) | undefined;
+  let unbindNavigation: (() => void) | undefined;
+  let unbindEditorState: (() => void) | undefined;
+
+  function eventsForDate(date: Date): ReturnType<typeof toCalendarEvents> {
+    const start = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+    const end = new Date(start);
+    end.setDate(end.getDate() + 1);
+    return events.filter((event) => event.start < end && event.end > start);
+  }
+
+  function resetDateClickSequence(): void {
+    lastDateClick = '';
+    lastDateClickAt = 0;
+  }
+
   const editorItems = [
-    ...getEditorItems(),
+    ...getEditorItems().map((item) => {
+      if (item.key === 'start') {
+        return {
+          ...item,
+          validation: (value: unknown) => isValidCalendarDateRange(value, editorValues.end),
+          validationMessage: '开始日期必须早于结束日期',
+        };
+      }
+      if (item.key === 'end') {
+        return {
+          ...item,
+          validation: (value: unknown) => isValidCalendarDateRange(editorValues.start, value),
+          validationMessage: '结束日期必须晚于开始日期',
+        };
+      }
+      return item;
+    }),
     {
       comp: 'textarea',
       key: 'notes',
@@ -40,25 +91,17 @@
       config: { placeholder: '补充酒店运营相关信息' },
     },
   ];
+
   const editorBottomBar = {
     items: [
+      { comp: 'button', id: 'delete', text: '删除', type: 'danger' },
       { comp: 'spacer' },
-      { comp: 'button', id: 'cancel', text: '取消' },
-      { comp: 'button', id: 'save', text: '确认', type: 'primary' },
+      { comp: 'button', id: 'done', text: '完成', type: 'primary' },
     ],
   };
-  let snapshot = $state<CalendarSnapshot | null>(null);
-  let errorMessage = $state('');
-  let loading = $state(true);
-  let api = $state<CalendarInstanceApi>();
-  let currentView = $state<CalendarView>('month');
-  let rangeLabel = $state('');
-  let currentDate = $state(new Date());
-  let visibleDateRange = $state({ start: new Date(), end: new Date() });
-  let unbindPersistence: (() => void) | undefined;
-  let unbindNavigation: (() => void) | undefined;
 
   const events = $derived(snapshot ? toCalendarEvents(snapshot.events) : []);
+  const overflowEvents = $derived(overflowDate ? eventsForDate(overflowDate) : []);
   function calendarCss(calendarId: string): string {
     if (calendarId === 'china-mainland-holidays') return 'cal-holiday';
     if (calendarId === 'mock-hotel-operations') return 'cal-mock';
@@ -106,46 +149,207 @@
 
   async function navigateTime(direction: 'next' | 'previous' | 'now'): Promise<void> {
     if (!api) return;
+    resetDateClickSequence();
+    overflowDate = null;
     await api.exec('navigate-time', { direction });
     syncNavigationState(api);
   }
 
   async function changeView(view: CalendarView): Promise<void> {
     if (!api) return;
+    resetDateClickSequence();
+    overflowDate = null;
     await api.exec('navigate-to', { view });
     syncNavigationState(api);
   }
 
-  async function addEvent(): Promise<void> {
+  async function addEvent(event: Record<string, unknown> = {}): Promise<void> {
     if (!api) return;
-    await api.exec('add-event', { event: {}, edit: true });
+    resetDateClickSequence();
+    overflowDate = null;
+    await api.exec('add-event', { event, edit: true });
   }
 
-  function handleEditorAction(event: { item: { id?: string | number } }): void {
+  async function closeEditor(): Promise<void> {
     if (!api) return;
-    if (event.item.id === 'cancel') {
+    await api.exec('select-event', { id: null });
+    editorValues = {};
+    resetDateClickSequence();
+  }
+
+  function handleEditorChange(event: { update: Record<string, unknown> }): void {
+    editorValues = { ...event.update };
+  }
+
+  function handleEditorAction(event: EditorActionEvent): void {
+    if (!api) return;
+    if (event.item.id === 'done') {
+      void closeEditor();
+      return;
+    }
+    if (event.item.id === 'delete') {
       const selected = api.getState().editorData;
-      if (selected && selected.source === undefined) {
-        void api.exec('delete-event', { id: selected.id });
-      } else {
-        void api.exec('select-event', { id: null });
+      if (selected) {
+        void api.exec('delete-event', { id: selected.id }).then(() => {
+          editorValues = {};
+        });
       }
       return;
     }
-    if (event.item.id === 'save') {
-      window.setTimeout(() => {
-        if (api) void api.exec('select-event', { id: null });
-      }, 0);
+  }
+
+  function handleDocumentMouseDown(event: MouseEvent): void {
+    if (suppressOutsideInteraction) {
+      event.preventDefault();
+      event.stopPropagation();
+      return;
     }
+    if (!api?.getState().editorData) return;
+    const target = event.target;
+    if (target instanceof Element && target.closest('.wx-editor-calendar, .wx-popup')) return;
+    suppressOutsideInteraction = true;
+    resetDateClickSequence();
+    event.preventDefault();
+    event.stopPropagation();
+    void closeEditor();
+  }
+
+  function suppressClosingInteraction(event: MouseEvent): void {
+    if (!suppressOutsideInteraction) return;
+    event.preventDefault();
+    event.stopPropagation();
+    if (event.type === 'click') suppressOutsideInteraction = false;
+  }
+
+  function handleCalendarMouseUp(event: MouseEvent): void {
+    if (event.button !== 0 || currentView !== 'month') return;
+    const target = event.target;
+    if (!(target instanceof Element)) return;
+    const moreButton = target.closest('.wx-more-button');
+    if (moreButton) {
+      if (event.type !== 'click') return;
+      const buttonRect = moreButton.getBoundingClientRect();
+      const centerX = buttonRect.left + buttonRect.width / 2;
+      const centerY = buttonRect.top + buttonRect.height / 2;
+      const cells = Array.from(document.querySelectorAll<HTMLElement>('.wx-grid-cell'));
+      const cellFromViewport = cells.find((candidate) => {
+        const rect = candidate.getBoundingClientRect();
+        return (
+          centerX >= rect.left &&
+          centerX <= rect.right &&
+          centerY >= rect.top &&
+          centerY <= rect.bottom
+        );
+      });
+      const button = moreButton as HTMLElement;
+      const cell =
+        cellFromViewport ??
+        cells.find(
+          (candidate) =>
+            button.offsetLeft >= candidate.offsetLeft &&
+            button.offsetLeft < candidate.offsetLeft + candidate.offsetWidth &&
+            button.offsetTop >= candidate.offsetTop &&
+            button.offsetTop < candidate.offsetTop + candidate.offsetHeight,
+        );
+      const dateValue = cell?.querySelector<HTMLElement>('[data-date]')?.dataset.date;
+      const date = dateValue ? parseCalendarCellDate(dateValue) : null;
+      if (date) {
+        event.preventDefault();
+        event.stopPropagation();
+        const nextDate = new Date(date);
+        nextDate.setDate(nextDate.getDate() + 1);
+        overflowDate =
+          eventsForDate(date).length === 0 && eventsForDate(nextDate).length > 0 ? nextDate : date;
+      }
+      return;
+    }
+    if (target.closest('[data-id], .wx-calendar-sidebar')) return;
+    const cell = target.closest('.wx-grid-cell');
+    if (cell) {
+      event.preventDefault();
+      event.stopPropagation();
+    }
+  }
+
+  function handleCalendarMouseDown(event: MouseEvent): void {
+    if (event.button !== 0 || currentView !== 'month') return;
+    const target = event.target;
+    if (!(target instanceof Element)) return;
+    if (target.closest('.wx-more-button')) {
+      event.stopPropagation();
+      return;
+    }
+    if (target.closest('[data-id], .wx-calendar-sidebar')) return;
+    if (target.closest('.wx-grid-cell')) event.stopPropagation();
+  }
+
+  function handleCalendarClick(event: MouseEvent): void {
+    const target = event.target;
+    if (!(target instanceof Element)) return;
+    if (target.closest('.wx-more-button')) {
+      handleCalendarMouseUp(event);
+      return;
+    }
+    if (currentView !== 'month' || target.closest('[data-id], .wx-calendar-sidebar')) return;
+    const cell = target.closest('.wx-grid-cell');
+    const dateValue = cell?.querySelector<HTMLElement>('[data-date]')?.dataset.date;
+    if (!dateValue) return;
+    const date = parseCalendarCellDate(dateValue);
+    if (!date) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const now = performance.now();
+    if (lastDateClick === dateValue && now - lastDateClickAt <= 500) {
+      resetDateClickSequence();
+      void addEvent(createAllDayCalendarDraft(date));
+      return;
+    }
+    lastDateClick = dateValue;
+    lastDateClickAt = now;
+  }
+
+  function bindEditorState(calendarApi: CalendarInstanceApi): () => void {
+    const tag = Symbol('calendar-editor-state');
+    calendarApi.intercept(
+      'add-event',
+      (action) => {
+        resetDateClickSequence();
+        overflowDate = null;
+        if (typeof action === 'object' && action !== null && 'event' in action) {
+          editorValues = { ...(action.event as Record<string, unknown>) };
+        }
+      },
+      { tag },
+    );
+    calendarApi.on(
+      'select-event',
+      (action) => {
+        resetDateClickSequence();
+        const id =
+          typeof action === 'object' && action !== null && 'id' in action ? action.id : null;
+        if (id !== null) overflowDate = null;
+        const selected = calendarApi.getState().editorData;
+        editorValues = selected ? { ...selected } : {};
+        return true;
+      },
+      { tag },
+    );
+    return () => calendarApi.detach(tag);
   }
 
   async function loadCalendar(): Promise<void> {
     loading = true;
     try {
       snapshot = await desktopCalendarDataSource.load();
-      errorMessage = '';
+      dismissAppNotification('calendar-load-error');
     } catch {
-      errorMessage = '日历读取失败，请重试';
+      showAppNotification({
+        id: 'calendar-load-error',
+        title: '日历读取失败',
+        message: '未能读取日历数据，请重试。',
+        tone: 'error',
+        action: { label: '重试', run: loadCalendar },
+      });
     } finally {
       loading = false;
     }
@@ -155,9 +359,20 @@
     loading = true;
     try {
       snapshot = await desktopCalendarDataSource.load();
-      errorMessage = '日历保存失败，已恢复为上次保存的内容';
+      showAppNotification({
+        id: 'calendar-save-error',
+        title: '日历保存失败',
+        message: '已恢复为上次保存的内容。',
+        tone: 'error',
+      });
     } catch {
-      errorMessage = '日历保存失败，且未能重新读取已保存的内容';
+      showAppNotification({
+        id: 'calendar-save-error',
+        title: '日历保存失败',
+        message: '未能重新读取已保存的内容。',
+        tone: 'error',
+        action: { label: '重试读取', run: recoverCalendar },
+      });
     } finally {
       loading = false;
     }
@@ -167,20 +382,33 @@
     api = nextApi;
     unbindPersistence?.();
     unbindNavigation?.();
+    unbindEditorState?.();
     unbindPersistence = bindCalendarPersistence(
       nextApi,
       desktopCalendarDataSource,
       recoverCalendar,
     );
     unbindNavigation = bindCalendarNavigation(nextApi);
+    unbindEditorState = bindEditorState(nextApi);
   }
 
   onMount(() => {
     void loadCalendar();
+    document.addEventListener('pointerdown', handleDocumentMouseDown, true);
+    document.addEventListener('mousedown', handleDocumentMouseDown, true);
+    document.addEventListener('mouseup', suppressClosingInteraction, true);
+    document.addEventListener('click', suppressClosingInteraction, true);
   });
   onDestroy(() => {
+    document.removeEventListener('pointerdown', handleDocumentMouseDown, true);
+    document.removeEventListener('mousedown', handleDocumentMouseDown, true);
+    document.removeEventListener('mouseup', suppressClosingInteraction, true);
+    document.removeEventListener('click', suppressClosingInteraction, true);
     unbindPersistence?.();
     unbindNavigation?.();
+    unbindEditorState?.();
+    dismissAppNotification('calendar-load-error');
+    dismissAppNotification('calendar-save-error');
   });
 </script>
 
@@ -188,6 +416,8 @@
   class="hotel-calendar h-full min-h-0 bg-background p-4"
   aria-label="酒店运营日历"
   data-motion="page"
+  onpointerdowncapture={handleDocumentMouseDown}
+  onmousedowncapture={handleDocumentMouseDown}
   in:enter
 >
   {#if loading}
@@ -199,14 +429,6 @@
     </div>
   {:else if snapshot}
     <div class="flex h-full min-h-0 flex-col gap-3">
-      {#if errorMessage}
-        <Alert variant="destructive">
-          <CircleAlert />
-          <AlertTitle>日历未能保存</AlertTitle>
-          <AlertDescription>{errorMessage}</AlertDescription>
-        </Alert>
-      {/if}
-
       <div
         class="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border border-border bg-card"
       >
@@ -272,7 +494,13 @@
         <div class="min-h-0 flex-1">
           <Locale {words}>
             <Willow fonts={false}>
-              <div class="flex h-full min-h-0">
+              <div
+                class="flex h-full min-h-0"
+                class:overflow-panel-open={overflowDate !== null}
+                onclickcapture={handleCalendarClick}
+                onmousedowncapture={handleCalendarMouseDown}
+                onmouseupcapture={handleCalendarMouseUp}
+              >
                 <div class="min-w-0 flex-1">
                   <Calendar
                     {events}
@@ -292,13 +520,61 @@
                     {/if}
                   </Calendar>
                 </div>
+                {#if overflowDate}
+                  <aside
+                    class="flex w-80 shrink-0 flex-col border-l border-border bg-card"
+                    aria-label={`${overflowDate.getFullYear()}年${overflowDate.getMonth() + 1}月${overflowDate.getDate()}日日程`}
+                  >
+                    <div class="flex items-center justify-between border-b border-border px-4 py-3">
+                      <div>
+                        <div class="text-sm font-semibold">
+                          {overflowDate.getMonth() + 1}月{overflowDate.getDate()}日
+                        </div>
+                        <div class="text-xs text-muted-foreground">
+                          共 {overflowEvents.length} 项日程
+                        </div>
+                      </div>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        aria-label="关闭当日日程"
+                        onclick={() => (overflowDate = null)}>关闭</Button
+                      >
+                    </div>
+                    <div class="min-h-0 flex-1 space-y-2 overflow-y-auto p-3">
+                      {#each overflowEvents as overflowEvent (overflowEvent.id)}
+                        <button
+                          type="button"
+                          class="w-full rounded-md border border-border bg-background px-3 py-2 text-left hover:bg-muted"
+                          aria-label={`编辑${overflowEvent.text}`}
+                          onclick={() => {
+                            overflowDate = null;
+                            if (api) void api.exec('select-event', { id: overflowEvent.id });
+                          }}
+                        >
+                          <span class="block truncate text-sm font-medium">
+                            {overflowEvent.text}
+                          </span>
+                          <span class="block text-xs text-muted-foreground">
+                            {overflowEvent.allDay
+                              ? '全天'
+                              : overflowEvent.start.toLocaleTimeString('zh-CN', {
+                                  hour: '2-digit',
+                                  minute: '2-digit',
+                                })}
+                          </span>
+                        </button>
+                      {/each}
+                    </div>
+                  </aside>
+                {/if}
                 {#if api}
                   <Editor
                     {api}
                     items={editorItems}
                     topBar={false}
                     bottomBar={editorBottomBar}
-                    autoSave={false}
+                    onchange={handleEditorChange}
                     onaction={handleEditorAction}
                   />
                 {/if}
@@ -310,14 +586,7 @@
     </div>
   {:else}
     <div class="grid h-full place-items-center">
-      <Alert variant="destructive" class="max-w-md">
-        <CircleAlert />
-        <AlertTitle>日历读取失败</AlertTitle>
-        <AlertDescription class="flex items-center justify-between gap-4">
-          <span>{errorMessage}</span>
-          <Button variant="outline" size="sm" onclick={() => void loadCalendar()}>重试</Button>
-        </AlertDescription>
-      </Alert>
+      <Button variant="outline" onclick={() => void loadCalendar()}>重新加载日历</Button>
     </div>
   {/if}
 </section>
@@ -335,6 +604,10 @@
     min-width: 280px;
     max-width: 280px;
     overflow-x: hidden;
+  }
+
+  :global(.hotel-calendar .overflow-panel-open .wx-more-button) {
+    display: none;
   }
 
   :global(.hotel-calendar .cal-holiday.wx-bar-event),

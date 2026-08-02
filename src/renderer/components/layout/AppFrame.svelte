@@ -9,6 +9,7 @@
   import type { Snippet } from 'svelte';
   import { enter } from '../../motion';
   import AgentAvatar from '../agent/AgentAvatar.svelte';
+  import AppNotificationCenter from './AppNotificationCenter.svelte';
   import { Button } from '$lib/components/ui/button';
 
   let { children }: { children: Snippet } = $props();
@@ -24,6 +25,7 @@
     sidebarOpen ? 'grid-cols-[80px_minmax(0,1fr)]' : 'grid-cols-[52px_minmax(0,1fr)]',
   ]}
 >
+  <AppNotificationCenter />
   <aside
     class="flex min-w-0 flex-col items-center gap-5 overflow-hidden border-r border-sidebar-border bg-sidebar px-1.5 py-4"
     data-state={sidebarOpen ? 'open' : 'closed'}

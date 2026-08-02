@@ -31,7 +31,6 @@ export type CalendarViewEvent = CalendarEvent &
 type EventAction = {
   id?: string | number;
   event: Partial<CalendarEvent>;
-  edit?: boolean;
 };
 
 type IdentifiedAction = { id: string | number };
@@ -121,14 +120,11 @@ export function bindCalendarPersistence(
   createId: () => string = () => crypto.randomUUID(),
 ): () => void {
   const tag = Symbol('calendar-persistence');
-  const draftIds = new Set<string>();
-  const persist = async (operation: () => Promise<unknown>): Promise<boolean> => {
+  const persist = async (operation: () => Promise<unknown>): Promise<void> => {
     try {
       await operation();
-      return true;
     } catch (error) {
       await onFailure(error);
-      return false;
     }
   };
 
@@ -149,10 +145,6 @@ export function bindCalendarPersistence(
     'add-event',
     async (action) => {
       if (!isEventAction(action)) return true;
-      if (action.edit && action.event.id !== undefined) {
-        draftIds.add(String(action.event.id));
-        return true;
-      }
       await persist(() => dataSource.createEvent(createInputFromEvent(action.event)));
       return true;
     },
@@ -172,14 +164,6 @@ export function bindCalendarPersistence(
     'update-event',
     async (action) => {
       if (!isEventAction(action) || !isIdentifiedAction(action)) return true;
-      const id = String(action.id);
-      if (draftIds.has(id)) {
-        const created = await persist(() =>
-          dataSource.createEvent(createInputFromEvent(action.event)),
-        );
-        if (created) draftIds.delete(id);
-        return true;
-      }
       const input = updateInputFromEvent(action.id, action.event);
       if (input) await persist(() => dataSource.updateEvent(input));
       return true;
@@ -190,9 +174,7 @@ export function bindCalendarPersistence(
     'delete-event',
     async (action) => {
       if (!isIdentifiedAction(action)) return true;
-      const id = String(action.id);
-      if (draftIds.delete(id)) return true;
-      await persist(() => dataSource.deleteEvent(id));
+      await persist(() => dataSource.deleteEvent(String(action.id)));
       return true;
     },
     { tag },
