@@ -1,9 +1,8 @@
 {
   "extends": "./tsconfig.json",
   "compilerOptions": {
-    "module": "ESNext",
-    "moduleResolution": "Bundler",
-    "noEmit": true,
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "types": ["vite/client"],
     "paths": {
       "$lib": ["./src/renderer"],
       "$lib/*": ["./src/renderer/*"]
@@ -13,7 +12,6 @@
     "src/renderer.ts",
     "src/renderer/**/*.ts",
     "src/renderer/**/*.svelte",
-    "src/vite-env.d.ts",
-    "vite.renderer.config.mts"
+    "src/vite-env.d.ts"
   ]
 }

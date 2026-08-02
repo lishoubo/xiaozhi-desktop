@@ -1,32 +1,37 @@
 {
   "compilerOptions": {
-    "target": "ESNext",
+    "target": "ES2023",
     "module": "ESNext",
-    "allowJs": true,
-    "skipLibCheck": true,
+    "moduleResolution": "Bundler",
+    "moduleDetection": "force",
+    "noEmit": true,
+    "allowJs": false,
+    "allowImportingTsExtensions": true,
+    "isolatedModules": true,
+    "verbatimModuleSyntax": true,
+    "resolveJsonModule": true,
     "esModuleInterop": true,
     "strict": true,
+    "noImplicitOverride": true,
+    "noImplicitReturns": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUncheckedSideEffectImports": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
     "forceConsistentCasingInFileNames": true,
-    "sourceMap": true,
-    "baseUrl": ".",
-    "outDir": "dist",
-    "moduleResolution": "Bundler",
-    "resolveJsonModule": true,
-    "paths": {
-      "$lib": [
-        "./src/renderer"
-      ],
-      "$lib/*": [
-        "./src/renderer/*"
-      ]
-    }
+    "skipLibCheck": true
   },
   "exclude": [
     "node_modules",
     "dist",
     "build",
+    "out",
+    ".vite",
+    ".e2e",
     ".svelte-kit",
+    ".history",
     "coverage",
-    "test-results"
+    "test-results",
+    "playwright-report"
   ]
 }
