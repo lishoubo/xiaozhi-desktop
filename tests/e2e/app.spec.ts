@@ -153,7 +153,7 @@ test('opens the localized calendar with the seeded holiday group', async () => {
     .getByRole('group', { name: '日历筛选' })
     .getByRole('checkbox');
   await expect(allDayCheckbox).toBeChecked();
-  await expect(page.getByRole('button', { name: '删除' })).toBeVisible();
+  await expect(page.getByRole('button', { name: '删除' })).toHaveCount(0);
   await expect(page.getByRole('button', { name: '完成' })).toBeVisible();
   await expect(page.getByRole('button', { name: '确认' })).toHaveCount(0);
   await expect(page.getByRole('button', { name: '取消' })).toHaveCount(0);
@@ -238,7 +238,7 @@ test('opens the localized calendar with the seeded holiday group', async () => {
   await expect(page.getByRole('button', { name: '完成' })).toBeVisible();
   await expect(page.getByRole('button', { name: '确认' })).toHaveCount(0);
   await expect(page.getByRole('button', { name: '取消' })).toHaveCount(0);
-  await expect(page.getByRole('button', { name: '删除' })).toBeVisible();
+  await expect(page.getByRole('button', { name: '删除' })).toHaveCount(0);
   await expect(page.getByRole('button', { name: '关闭' })).toHaveCount(0);
   await page.getByRole('button', { name: '完成' }).click();
   await expect(page.getByRole('textbox', { name: '备注' })).toHaveCount(0);

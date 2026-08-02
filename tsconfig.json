@@ -13,8 +13,20 @@
     "moduleResolution": "Bundler",
     "resolveJsonModule": true,
     "paths": {
-      "$lib": ["./src/renderer"],
-      "$lib/*": ["./src/renderer/*"]
+      "$lib": [
+        "./src/renderer"
+      ],
+      "$lib/*": [
+        "./src/renderer/*"
+      ]
     }
-  }
+  },
+  "exclude": [
+    "node_modules",
+    "dist",
+    "build",
+    ".svelte-kit",
+    "coverage",
+    "test-results"
+  ]
 }

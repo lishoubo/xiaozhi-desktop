@@ -148,7 +148,7 @@ describe('CalendarPage', () => {
 
     expect(await screen.findByRole('textbox', { name: '备注' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '完成' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '删除' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '删除' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '确认' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '取消' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '关闭' })).not.toBeInTheDocument();
@@ -187,7 +187,7 @@ describe('CalendarPage', () => {
 
     expect(await screen.findByRole('textbox', { name: '备注' })).toBeInTheDocument();
     expect(screen.getByRole('checkbox', { name: '全天' })).toBeChecked();
-    expect(screen.getByRole('button', { name: '删除' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '删除' })).not.toBeInTheDocument();
     const dateInputs = container.querySelectorAll<HTMLInputElement>(
       '.wx-event-calendar-input_wrapper input',
     );

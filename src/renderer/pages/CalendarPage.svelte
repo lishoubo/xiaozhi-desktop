@@ -44,6 +44,7 @@
   let currentDate = $state(new Date());
   let visibleDateRange = $state({ start: new Date(), end: new Date() });
   let editorValues = $state<Record<string, unknown>>({});
+  let isCreatingEvent = $state(false);
   let overflowDate = $state<Date | null>(null);
   let lastDateClick = '';
   let lastDateClickAt = 0;
@@ -92,13 +93,13 @@
     },
   ];
 
-  const editorBottomBar = {
+  const editorBottomBar = $derived({
     items: [
-      { comp: 'button', id: 'delete', text: '删除', type: 'danger' },
+      ...(!isCreatingEvent ? [{ comp: 'button', id: 'delete', text: '删除', type: 'danger' }] : []),
       { comp: 'spacer' },
       { comp: 'button', id: 'done', text: '完成', type: 'primary' },
     ],
-  };
+  });
 
   const events = $derived(snapshot ? toCalendarEvents(snapshot.events) : []);
   const overflowEvents = $derived(overflowDate ? eventsForDate(overflowDate) : []);
@@ -173,6 +174,7 @@
   async function closeEditor(): Promise<void> {
     if (!api) return;
     await api.exec('select-event', { id: null });
+    isCreatingEvent = false;
     editorValues = {};
     resetDateClickSequence();
   }
@@ -315,6 +317,7 @@
       (action) => {
         resetDateClickSequence();
         overflowDate = null;
+        isCreatingEvent = true;
         if (typeof action === 'object' && action !== null && 'event' in action) {
           editorValues = { ...(action.event as Record<string, unknown>) };
         }
@@ -327,7 +330,10 @@
         resetDateClickSequence();
         const id =
           typeof action === 'object' && action !== null && 'id' in action ? action.id : null;
-        if (id !== null) overflowDate = null;
+        if (id !== null) {
+          overflowDate = null;
+          isCreatingEvent = false;
+        }
         const selected = calendarApi.getState().editorData;
         editorValues = selected ? { ...selected } : {};
         return true;
