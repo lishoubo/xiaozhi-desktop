@@ -1,5 +1,6 @@
 <script lang="ts">
   import CircleUserRound from '@lucide/svelte/icons/circle-user-round';
+  import CalendarDays from '@lucide/svelte/icons/calendar-days';
   import Globe2 from '@lucide/svelte/icons/globe-2';
   import Menu from '@lucide/svelte/icons/menu';
   import Settings from '@lucide/svelte/icons/settings';
@@ -71,6 +72,16 @@
           aria-label="小智AI 管家"
         >
           <AgentAvatar size="sm" online />
+        </a>
+
+        <a
+          class={navigationClass}
+          href="/calendar"
+          use:link
+          use:active={{ className: 'active' }}
+          aria-label="日历"
+        >
+          <CalendarDays size={22} strokeWidth={1.9} />
         </a>
 
         <a

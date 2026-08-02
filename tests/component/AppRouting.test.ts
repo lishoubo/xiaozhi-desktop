@@ -65,6 +65,23 @@ describe('App routing and query integration', () => {
           listSources: listCookieSources,
           import: importCookies,
         },
+        calendar: {
+          load: vi.fn().mockResolvedValue({
+            groups: [
+              {
+                id: 'china-mainland-holidays',
+                label: '中国大陆节假日',
+                color: '#dd5b00',
+                isSystem: true,
+              },
+              { id: 'personal', label: '我的日历', color: '#5645d4', isSystem: true },
+            ],
+            events: [],
+          }),
+          createEvent: vi.fn(),
+          updateEvent: vi.fn(),
+          deleteEvent: vi.fn(),
+        },
         system: {
           getPreferences: vi.fn().mockResolvedValue({ autoLaunch: false, version: '1.0.0' }),
           setAutoLaunch: vi.fn(),
@@ -110,6 +127,17 @@ describe('App routing and query integration', () => {
     expect(agentHeading.closest('[data-motion="page"]')).toBeInTheDocument();
     expect(screen.getByRole('textbox', { name: '给小智AI 管家发消息' })).toBeInTheDocument();
     expect(window.location.hash).toBe('#/agent');
+  });
+
+  it('opens the calendar workspace from the application sidebar', async () => {
+    const user = userEvent.setup();
+    render(App);
+
+    await user.click(screen.getByRole('link', { name: '日历' }));
+
+    const calendar = await screen.findByRole('region', { name: '酒店运营日历' });
+    expect(calendar.closest('[data-motion="page"]')).toBeInTheDocument();
+    expect(window.location.hash).toBe('#/calendar');
   });
 
   it('collapses and expands the wider icon sidebar without tooltip wrappers', async () => {

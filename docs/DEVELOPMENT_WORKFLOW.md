@@ -66,7 +66,13 @@ It runs unit tests, component tests, the E2E build, and Playwright. Use `npm run
 
 ## Database Validation
 
-The application currently has no application-owned persistence database; `better-sqlite3` is used only to read browser Cookie databases during an explicit import. If product persistence is introduced, add explicit npm scripts for schema generation and migration validation with the database implementation, then document and run them as part of the required workflow. Review every generated migration artifact and never edit an already-applied migration unless the project explicitly permits it.
+The application-owned SQLite database is opened and migrated in the Electron main process. Calendar persistence uses the canonical migration runner and repository under `src/main/database` and `src/main/calendar`; browser Cookie databases remain separate, read-only import sources. Run the migration and repository validation after any application database change:
+
+```bash
+npm run db:validate
+```
+
+The current migrations are explicit TypeScript migration units, so there is no generated schema artifact. Review every migration and never edit an already-applied migration; add a new version instead.
 
 ## Interactive and Packaged Validation
 
@@ -84,6 +90,7 @@ Normal code change:
 npm run check
 npm run lint
 npm run format:check
+npm run db:validate
 npm run test:all
 ```
 
@@ -93,6 +100,7 @@ Electron integration, dependency, native module, build, or release-sensitive cha
 npm run check
 npm run lint
 npm run format:check
+npm run db:validate
 npm run test:all
 npm run package
 ```

@@ -101,6 +101,64 @@ describe('createDesktopApi', () => {
     expect(listener).toHaveBeenCalledWith({ ruleId: 'ctrip-soa2' });
   });
 
+  it('exposes a typed calendar data source over fixed IPC channels', async () => {
+    const snapshot = {
+      groups: [
+        {
+          id: 'personal',
+          label: '我的日历',
+          color: '#5645d4',
+          isSystem: true,
+        },
+      ],
+      events: [],
+    };
+    const event = {
+      id: 'event-1',
+      calendarId: 'personal',
+      title: '需求复盘',
+      startsAt: '2026-08-03T09:00:00.000',
+      endsAt: '2026-08-03T10:00:00.000',
+      allDay: false,
+      notes: '',
+      source: 'user' as const,
+    };
+    const invoke = vi.fn(async (channel: string) => {
+      if (channel === IPC_CHANNELS.calendar.load) return snapshot;
+      if (channel === IPC_CHANNELS.calendar.deleteEvent) return undefined;
+      return event;
+    });
+    const api = createDesktopApi({ chrome: '1', electron: '2', node: '3' }, invoke);
+    const input = {
+      id: event.id,
+      calendarId: event.calendarId,
+      title: event.title,
+      startsAt: event.startsAt,
+      endsAt: event.endsAt,
+      allDay: event.allDay,
+      notes: event.notes,
+    };
+
+    await expect(api.calendar.load()).resolves.toEqual(snapshot);
+    await expect(api.calendar.createEvent(input)).resolves.toEqual(event);
+    await expect(
+      api.calendar.updateEvent({ id: event.id, event: { title: '夏季需求复盘' } }),
+    ).resolves.toEqual(event);
+    await expect(api.calendar.deleteEvent(event.id)).resolves.toBeUndefined();
+    expect(invoke.mock.calls).toEqual([
+      [IPC_CHANNELS.calendar.load],
+      [IPC_CHANNELS.calendar.createEvent, input],
+      [
+        IPC_CHANNELS.calendar.updateEvent,
+        {
+          id: event.id,
+          event: { title: '夏季需求复盘' },
+        },
+      ],
+      [IPC_CHANNELS.calendar.deleteEvent, event.id],
+    ]);
+  });
+
   it('drops malformed main-process events before they reach renderer listeners', () => {
     const subscribe = vi.fn();
     const interceptionListener = vi.fn();

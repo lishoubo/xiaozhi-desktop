@@ -15,6 +15,14 @@ import {
   type SystemPreferences,
 } from '../shared/browser';
 import { IPC_CHANNELS } from '../shared/ipc-channels';
+import {
+  calendarEventRecordSchema,
+  calendarSnapshotSchema,
+  type CalendarEventCreateInput,
+  type CalendarEventRecord,
+  type CalendarEventUpdateInput,
+  type CalendarSnapshot,
+} from '../shared/calendar';
 
 /*
  * IPC types protect compile-time callers; these schemas protect the renderer from
@@ -47,6 +55,12 @@ export type DesktopApi = Readonly<{
     setBounds: (bounds: BrowserBounds) => Promise<void>;
     onRequestIntercepted: (listener: (event: BrowserRequestInterception) => void) => () => void;
     onStateChanged: (listener: (tab: BrowserTab) => void) => () => void;
+  }>;
+  calendar: Readonly<{
+    load: () => Promise<CalendarSnapshot>;
+    createEvent: (input: CalendarEventCreateInput) => Promise<CalendarEventRecord>;
+    updateEvent: (input: CalendarEventUpdateInput) => Promise<CalendarEventRecord>;
+    deleteEvent: (id: string) => Promise<void>;
   }>;
   cookies: Readonly<{
     listSources: () => Promise<BrowserCookieSource[]>;
@@ -127,6 +141,14 @@ export function createDesktopApi(
     import: (sourceId: BrowserCookieSourceId) =>
       invokeValidated(cookieImportResultSchema, IPC_CHANNELS.cookies.import, sourceId),
   });
+  const calendar = Object.freeze({
+    load: () => invokeValidated(calendarSnapshotSchema, IPC_CHANNELS.calendar.load),
+    createEvent: (input: CalendarEventCreateInput) =>
+      invokeValidated(calendarEventRecordSchema, IPC_CHANNELS.calendar.createEvent, input),
+    updateEvent: (input: CalendarEventUpdateInput) =>
+      invokeValidated(calendarEventRecordSchema, IPC_CHANNELS.calendar.updateEvent, input),
+    deleteEvent: (id: string) => invokeValidated(voidSchema, IPC_CHANNELS.calendar.deleteEvent, id),
+  });
   const system = Object.freeze({
     getPreferences: () =>
       invokeValidated(systemPreferencesSchema, IPC_CHANNELS.system.getPreferences),
@@ -142,6 +164,7 @@ export function createDesktopApi(
       node: versions.node,
     }),
     browser,
+    calendar,
     cookies,
     system,
   });

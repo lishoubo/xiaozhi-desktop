@@ -16,6 +16,12 @@ export const IPC_CHANNELS = {
     setBounds: 'browser:set-bounds',
     stateChanged: 'browser:state-changed',
   },
+  calendar: {
+    load: 'calendar:load',
+    createEvent: 'calendar:create-event',
+    updateEvent: 'calendar:update-event',
+    deleteEvent: 'calendar:delete-event',
+  },
   cookies: {
     import: 'cookies:import',
     listSources: 'cookies:list-sources',

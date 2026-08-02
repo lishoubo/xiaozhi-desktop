@@ -105,6 +105,68 @@ test('opens the AI concierge from the icon sidebar', async () => {
   await expect(page.getByRole('textbox', { name: '给小智AI 管家发消息' })).toBeVisible();
 });
 
+test('opens the localized calendar with the seeded holiday group', async () => {
+  await login();
+  await page.getByRole('link', { name: '日历' }).click();
+
+  await expect(page).toHaveURL(/#\/calendar$/);
+  await expect(page.getByRole('region', { name: '酒店运营日历' })).toBeVisible();
+  await expect(page.getByText('中国大陆节假日')).toBeVisible();
+  await expect(page.getByText('我的日历')).toBeVisible();
+  await expect(page.getByText('酒店运营示例')).toBeVisible();
+  await expect(page.getByText('每日运营晨会')).toBeVisible();
+  await expect(page.getByRole('button', { name: '今天' })).toBeVisible();
+  await expect(page.getByRole('button', { name: '上一个时段' })).toBeVisible();
+  await expect(page.getByRole('button', { name: '下一个时段' })).toBeVisible();
+
+  await page.getByRole('button', { name: '周视图' }).click();
+  await expect(page.getByRole('button', { name: '周视图' })).toHaveAttribute(
+    'aria-pressed',
+    'true',
+  );
+
+  const panelFitsSidebar = await page.evaluate(() => {
+    const sidebar = document.querySelector('.wx-calendar-sidebar');
+    const panel = document.querySelector('[data-slot="calendar-panel"]');
+    if (!sidebar || !panel) return false;
+    return panel.getBoundingClientRect().right <= sidebar.getBoundingClientRect().right + 1;
+  });
+  expect(panelFitsSidebar).toBe(true);
+
+  const groupColors = await page
+    .locator('.wx-calendar-name')
+    .evaluateAll((groups) => groups.map((group) => getComputedStyle(group).backgroundColor));
+  expect(groupColors).toHaveLength(3);
+  expect(new Set(groupColors).size).toBe(3);
+
+  await page.getByRole('button', { name: '新建日程' }).click();
+  await expect(page.getByRole('button', { name: '确认' })).toBeVisible();
+  await expect(page.getByRole('button', { name: '取消' })).toBeVisible();
+  await expect(page.getByRole('button', { name: '关闭' })).toHaveCount(0);
+  await page.getByRole('button', { name: '取消' }).click();
+  await expect(page.getByRole('textbox', { name: '备注' })).toHaveCount(0);
+  await expect(page.getByText('新日程')).toHaveCount(0);
+
+  await page.getByText('每日运营晨会').click();
+  const existingTitle = page.getByRole('textbox', { name: '文本' });
+  await existingTitle.fill('不应保存的晨会标题');
+  await page.getByRole('button', { name: '取消' }).click();
+  await expect(page.getByText('每日运营晨会')).toBeVisible();
+  await expect(page.getByText('不应保存的晨会标题')).toHaveCount(0);
+
+  await page.getByRole('button', { name: '今天' }).click();
+  for (let index = 0; index < 4; index += 1) {
+    await page.getByRole('button', { name: '下一个时段' }).click();
+  }
+  await expect(page.getByRole('heading', { level: 2 })).toContainText('2026年8月30日–9月5日');
+  await expect(page.getByTestId('mini-calendar-month')).toHaveText('2026年8月');
+
+  await page.getByRole('button', { name: '迷你日历下一个月' }).click();
+  await expect(page.getByTestId('mini-calendar-month')).toHaveText('2026年9月');
+  await page.locator('.hotel-mini-calendar .wx-day:not(.wx-out)', { hasText: /^15$/ }).click();
+  await expect(page.getByRole('heading', { level: 2 })).toContainText('9月');
+});
+
 test('previews generated hotel UI with static data', async () => {
   await login();
   await page.getByRole('link', { name: '小智AI 管家' }).click();

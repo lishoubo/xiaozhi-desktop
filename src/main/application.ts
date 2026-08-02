@@ -1,4 +1,5 @@
 import { app, BrowserWindow } from 'electron';
+import path from 'node:path';
 import log from 'electron-log/main';
 import started from 'electron-squirrel-startup';
 import { registerBrowserHandlers } from './ipc/browser-handlers';
@@ -8,12 +9,18 @@ import { createMainWindow } from './windows/main-window';
 import { configureMainLogging } from './logging/configure-main-logging';
 import { CtripCheckInAutomation } from './automation/ctrip-check-in-automation';
 import { registerAutomationHandlers } from './ipc/automation-handlers';
+import { openApplicationDatabase, type ApplicationDatabase } from './database/application-database';
+import { SqliteCalendarRepository } from './calendar/calendar-repository';
+import { registerCalendarHandlers } from './ipc/calendar-handlers';
 
 let mainWindow: BrowserWindow | null = null;
 let browserManager: BrowserManager | null = null;
 let unregisterBrowserHandlers: (() => void) | null = null;
 let ctripAutomation: CtripCheckInAutomation | null = null;
 let unregisterAutomationHandlers: (() => void) | null = null;
+let applicationDatabase: ApplicationDatabase | null = null;
+let calendarRepository: SqliteCalendarRepository | null = null;
+let unregisterCalendarHandlers: (() => void) | null = null;
 
 configureNetworkPrivacy(app.commandLine);
 configureMainLogging(log, {
@@ -23,6 +30,7 @@ configureMainLogging(log, {
 });
 
 function openMainWindow(): void {
+  if (!calendarRepository) throw new Error('Calendar repository is not initialized');
   mainWindow = createMainWindow();
   log.info('Main window created');
   browserManager = new BrowserManager(mainWindow, log);
@@ -41,7 +49,14 @@ function openMainWindow(): void {
     result: ctripResult,
     logger: log,
   });
+  unregisterCalendarHandlers = registerCalendarHandlers({
+    window: mainWindow,
+    repository: calendarRepository,
+    logger: log,
+  });
   mainWindow.once('closed', () => {
+    unregisterCalendarHandlers?.();
+    unregisterCalendarHandlers = null;
     unregisterAutomationHandlers?.();
     unregisterAutomationHandlers = null;
     ctripAutomation?.destroy();
@@ -57,6 +72,12 @@ function openMainWindow(): void {
 
 function initializeApplication(): void {
   log.info('Application initialization started');
+  applicationDatabase = openApplicationDatabase(
+    path.join(app.getPath('userData'), 'hotel-butler.sqlite'),
+    log,
+    { includeMockData: !app.isPackaged },
+  );
+  calendarRepository = new SqliteCalendarRepository(applicationDatabase);
   openMainWindow();
   log.info('Application initialization completed');
 }
@@ -95,9 +116,14 @@ app.on('activate', () => {
 
 app.once('will-quit', () => {
   log.info('Application shutdown started');
+  unregisterCalendarHandlers?.();
   unregisterBrowserHandlers?.();
   unregisterAutomationHandlers?.();
   ctripAutomation?.destroy();
   browserManager?.destroy();
+  applicationDatabase?.close();
+  if (applicationDatabase) log.info('Application database closed');
+  applicationDatabase = null;
+  calendarRepository = null;
   log.info('Application shutdown completed');
 });
