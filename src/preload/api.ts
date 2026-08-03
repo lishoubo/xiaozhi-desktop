@@ -12,6 +12,7 @@ import {
   type BrowserRequestInterception,
   type BrowserTab,
   type CookieImportResult,
+  type StartLoginInput,
   type SystemPreferences,
 } from '../shared/browser';
 import { IPC_CHANNELS } from '../shared/ipc-channels';
@@ -65,6 +66,9 @@ export type DesktopApi = Readonly<{
   cookies: Readonly<{
     listSources: () => Promise<BrowserCookieSource[]>;
     import: (sourceId: BrowserCookieSourceId) => Promise<CookieImportResult>;
+  }>;
+  otaAccount: Readonly<{
+    startLogin: (input: StartLoginInput) => Promise<BrowserTab>;
   }>;
   system: Readonly<{
     getPreferences: () => Promise<SystemPreferences>;
@@ -141,6 +145,10 @@ export function createDesktopApi(
     import: (sourceId: BrowserCookieSourceId) =>
       invokeValidated(cookieImportResultSchema, IPC_CHANNELS.cookies.import, sourceId),
   });
+  const otaAccount = Object.freeze({
+    startLogin: (input: StartLoginInput) =>
+      invokeValidated(browserTabSchema, IPC_CHANNELS.otaAccount.startLogin, input),
+  });
   const calendar = Object.freeze({
     load: () => invokeValidated(calendarSnapshotSchema, IPC_CHANNELS.calendar.load),
     createEvent: (input: CalendarEventCreateInput) =>
@@ -166,6 +174,7 @@ export function createDesktopApi(
     browser,
     calendar,
     cookies,
+    otaAccount,
     system,
   });
 }

@@ -51,7 +51,6 @@ describe('App routing and query integration', () => {
         },
         browser: {
           acknowledgeInterception: vi.fn(),
-          create: createTab,
           activate: vi.fn(),
           close: vi.fn(),
           goBack: vi.fn(),
@@ -66,6 +65,9 @@ describe('App routing and query integration', () => {
         cookies: {
           listSources: listCookieSources,
           import: importCookies,
+        },
+        otaAccount: {
+          startLogin: createTab,
         },
         calendar: {
           load: vi.fn().mockResolvedValue({
@@ -101,7 +103,11 @@ describe('App routing and query integration', () => {
       'true',
     );
     expect(screen.queryByRole('textbox', { name: '网址' })).not.toBeInTheDocument();
-    expect(createTab).toHaveBeenCalledWith('ctrip', 'https://ebooking.ctrip.com/');
+    expect(createTab).toHaveBeenCalledWith({
+      channelId: 'ctrip',
+      environment: 'prod',
+      url: 'https://ebooking.ctrip.com/',
+    });
 
     await user.click(screen.getByRole('link', { name: '设置' }));
 

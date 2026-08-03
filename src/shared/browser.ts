@@ -74,6 +74,14 @@ export const cookieImportResultSchema = z.strictObject({
 
 export type CookieImportResult = Readonly<z.infer<typeof cookieImportResultSchema>>;
 
+export const startLoginInputSchema = z.strictObject({
+  channelId: nonEmptyStringSchema,
+  environment: z.enum(['prod', 'dev']),
+  url: browserWebUrlSchema,
+});
+
+export type StartLoginInput = Readonly<z.infer<typeof startLoginInputSchema>>;
+
 export const systemPreferencesSchema = z.strictObject({
   autoLaunch: z.boolean(),
   version: nonEmptyStringSchema,
