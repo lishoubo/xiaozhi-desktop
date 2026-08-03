@@ -1,7 +1,7 @@
 import {
   BrowserWindow,
-  session,
   WebContentsView,
+  type CookiesSetDetails,
   type Event as ElectronEvent,
   type Input,
   type Rectangle,
@@ -9,10 +9,12 @@ import {
   type WebRequestFilter,
 } from 'electron';
 import { randomUUID } from 'node:crypto';
+import type { ChannelId } from '../../domain/identity';
+import { LEGACY_SHARED_PARTITION } from '../../domain/policy/partition-policy';
 import { IPC_CHANNELS } from '../../shared/ipc-channels';
 import { browserWebUrlSchema, type BrowserTab } from '../../shared/browser';
 import type { AppLogger } from '../../shared/logging';
-import { denyEmbeddedPagePermissions } from '../security/session-permissions';
+import { SessionFactory } from './session-factory';
 
 type ManagedTab = {
   id: string;
@@ -21,6 +23,9 @@ type ManagedTab = {
   url: string;
   loading: boolean;
   view: WebContentsView;
+  partitionName: string;
+  /** 仅登录标签页设置；标签页关闭时调用，触发账号探测（Task 4）。 */
+  onClosed?: (partitionName: string) => void;
 };
 
 const CTRIP_API_REQUEST_FILTER: WebRequestFilter = {
@@ -45,7 +50,9 @@ function assertWebUrl(url: string): void {
 }
 
 export class BrowserManager {
+  /** @deprecated 旧的全局共享 session（D1 缺陷本身）。仅供未迁移的调用方过渡使用。 */
   readonly browserSession: Session;
+  private readonly sessionFactory: SessionFactory;
   private readonly tabs = new Map<string, ManagedTab>();
   private readonly managedWebContentsIds = new Set<number>();
   private activeTabId: string | null = null;
@@ -61,14 +68,58 @@ export class BrowserManager {
   constructor(
     private readonly window: BrowserWindow,
     private readonly logger: AppLogger,
+    sessionFactory: SessionFactory = new SessionFactory(logger),
   ) {
-    this.browserSession = session.fromPartition('persist:hotel-butler-browser');
-    denyEmbeddedPagePermissions(this.browserSession);
+    this.sessionFactory = sessionFactory;
+    this.browserSession = this.sessionFactory.sessionForAccount(LEGACY_SHARED_PARTITION);
     this.window.webContents.on('before-input-event', this.handleShellInput);
     this.installRequestInterceptor();
   }
 
+  /** @deprecated 用 `createWithAlreadyPartition` 替代，指定明确的 partition。 */
   create(channelId: string, url: string): BrowserTab {
+    return this.createWithAlreadyPartition(LEGACY_SHARED_PARTITION, channelId, url);
+  }
+
+  /** 已有账号：直接用它的 `OtaAccount.partitionName` 开标签页。 */
+  createWithAlreadyPartition(partitionName: string, channelId: string, url: string): BrowserTab {
+    const tabSession = this.sessionFactory.sessionForAccount(partitionName);
+    const tab = this.createTab(channelId, url, partitionName, tabSession);
+    return this.snapshot(tab);
+  }
+
+  /**
+   * 走登录流程：新建一份 partition，若该渠道已导入过 cookie 则先注入，
+   * 再加载渠道后台页面。标签页关闭时通过 `onTabClosed` 触发账号探测
+   * （Task 4 落地探测层前，调用方可不传）。
+   */
+  async createAndNewPartition(
+    environment: 'prod' | 'dev',
+    channelId: ChannelId,
+    url: string,
+    options: Readonly<{
+      importedCookies?: readonly CookiesSetDetails[];
+      onTabClosed?: (partitionName: string) => void;
+    }> = {},
+  ): Promise<Readonly<{ tab: BrowserTab; partitionName: string }>> {
+    const { session: tabSession, partitionName } = this.sessionFactory.sessionForLogin(
+      environment,
+      channelId,
+    );
+    if (options.importedCookies) {
+      await Promise.all(options.importedCookies.map((cookie) => tabSession.cookies.set(cookie)));
+    }
+    const tab = this.createTab(channelId, url, partitionName, tabSession, options.onTabClosed);
+    return { tab: this.snapshot(tab), partitionName };
+  }
+
+  private createTab(
+    channelId: string,
+    url: string,
+    partitionName: string,
+    tabSession: Session,
+    onClosed?: (partitionName: string) => void,
+  ): ManagedTab {
     assertWebUrl(url);
     if (!channelId.trim()) throw new Error('渠道标识不能为空');
 
@@ -78,7 +129,7 @@ export class BrowserManager {
         contextIsolation: true,
         nodeIntegration: false,
         sandbox: true,
-        session: this.browserSession,
+        session: tabSession,
       },
     });
     this.managedWebContentsIds.add(view.webContents.id);
@@ -89,6 +140,8 @@ export class BrowserManager {
       url,
       loading: true,
       view,
+      partitionName,
+      onClosed,
     };
     this.tabs.set(id, tab);
     this.bindTabEvents(tab);
@@ -103,7 +156,7 @@ export class BrowserManager {
       });
       this.emit(tab);
     });
-    return this.snapshot(tab);
+    return tab;
   }
 
   activate(tabId: string): BrowserTab {
@@ -128,6 +181,7 @@ export class BrowserManager {
     this.managedWebContentsIds.delete(tab.view.webContents.id);
     tab.view.webContents.close();
     this.logger.info('Browser tab closed', { channelId: tab.channelId });
+    tab.onClosed?.(tab.partitionName);
   }
 
   acknowledgeInterception(): void {
