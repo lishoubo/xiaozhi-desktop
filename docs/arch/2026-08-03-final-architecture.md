@@ -349,7 +349,44 @@ export interface ObservationRepository {
 }]
 ```
 
-> ⚠ 两条规则的 zones/overrides 语法**均未在本仓库实测**。`eslint-plugin-import` 已安装，规则可用，但配置需实测调整。这是第 1 步要验证的第一件事。
+> ✅ **已实测（2026-08-03，Node 24.18.1）**。domain 三道墙 + 五个 npm 包禁令全部生效，已落进 `.eslintrc.json`。
+>
+> 三条实测结论：
+>
+> 1. **`import type` 同样被拦截。** `import type { Session } from 'electron'` 会报错。type-only import 不产生运行时依赖，但仍是类型层面的框架污染，同类配置常在此漏网。
+> 2. **eslint 对不存在的路径完全静默** —— 不报错、不警告，规则只是悄悄失效。所以每条 zone 都必须用探针文件实测，"配置写了"不等于"规则生效"。
+> 3. **composition root 那条规则暂时立不了**，原因见下。
+
+#### composition root 规则：为什么现在还不能立
+
+文档原本给了这条：
+
+```jsonc
+{ "target": "./src/main", "from": "./src/main/gateways/local",
+  "except": ["./core/composition.ts"] }
+```
+
+障碍不是路径没对齐（`main/core/`、`main/gateways/` 目前都不存在，composition root 实际是 `main/application.ts`），而是**接口与实现同处一个文件**：
+
+```ts
+// src/main/calendar/calendar-repository.ts
+export interface CalendarRepository { … }        // :40  ← 接口
+export class SqliteCalendarRepository … { … }    // :47  ← 实现
+```
+
+`import/no-restricted-paths` 按**文件路径**拦截，区分不了"引的是接口还是实现类"。对这个文件设墙，会误伤 `calendar-handlers.ts` 里那行合法的 `import type { CalendarRepository }`。
+
+而现有代码其实**已经自发遵守了这条规则**：
+
+| 实现 | 被谁 import | 状态 |
+|---|---|---|
+| `BrowserManager` | 仅 `application.ts` | 合规 |
+| `SqliteCalendarRepository`（值） | 仅 `application.ts` | 合规 |
+| `openApplicationDatabase`（值） | 仅 `application.ts` | 合规 |
+| `CalendarRepository`（类型） | `calendar-handlers.ts` | 合规 —— 引的是接口 |
+| `ApplicationDatabase`（类型） | `calendar-repository.ts` | 合规 —— 引的是类型 |
+
+**所以这条规则的真正前置条件是接口先拆出去**（`domain/ports/repositories.ts` + `main/data/repositories/`），拆完规则自然可立，且立的是"锁住既有的好状态"，不是纠正错误。在那之前照抄配置只会得到一条静默失效的规则 —— 比没有规则更糟，因为它给人虚假的安全感。
 
 ### 3.6 一个反例，说明边界在哪
 
@@ -729,7 +766,7 @@ BrowserTab 加 otaAccountId
 
 **未验证（动手前需实测）**：
 - 本文所有代码片段为设计示意，**未编译**
-- `import/no-restricted-paths` 的 zones 语法与 `no-restricted-imports` 的 overrides 配置**未在本仓库实测** —— 这是第 1 步要验证的第一件事，因为整个 domain 剥离依赖它
+- ~~`import/no-restricted-paths` 的 zones 语法与 `no-restricted-imports` 的 overrides 配置未在本仓库实测~~ → **已于 2026-08-03 实测通过**，见 3.5 节。composition root 那条因接口与实现同文件而暂缓，同节已说明
 - 第 5 部分对 `tsc` 报错位置的预测是推断
 - `RunAsNode` fuse 与独立进程 MCP 的冲突未实测（D2）
 - `domain/ports/browser-port.ts` 的接口形状**尚无实现经验支撑**，落地时可能调整
