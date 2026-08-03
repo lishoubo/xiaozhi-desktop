@@ -19,7 +19,6 @@ type Brand<T, B> = T & { readonly [brand]: B };
 export type ChannelId     = Brand<string, 'ChannelId'>;
 export type OtaAccountId  = Brand<string, 'OtaAccountId'>;
 export type OtaHotelId    = Brand<string, 'OtaHotelId'>;
-export type CredentialId  = Brand<string, 'CredentialId'>;
 export type AppUserId     = Brand<string, 'AppUserId'>;
 export type TabId         = Brand<string, 'TabId'>;
 ```
@@ -63,21 +62,20 @@ toChannelId('ctrip.com') // ❌ 那是 cookieDomains 里的条目
 
 > 现状：`shared/browser.ts` 的 `browserCreateInputSchema.channelId` 目前是无约束的 `nonEmptyStringSchema`，任意字符串都能传进来。收敛成 `ChannelId` 是第 2 步的内容。
 
-### 1.2 `BrowserContextKey`
+### 1.2 定位一个浏览器上下文：查 `OtaAccount.partitionName`，不再有组合键
 
-```ts
-export type BrowserContextKey = Readonly<{
-  environment: 'prod' | 'dev';
-  channel: ChannelId;
-  otaAccountId: OtaAccountId;
-}>;
-```
+**已废弃 `BrowserContextKey`**（曾定义为 `{ environment, channel, otaAccountId }`，用于拼出 partition 名字）。废弃原因见 cookie 导入登录建号方案（`openspec/changes/cookie-login-account-discovery/design.md` 决策 3）：
 
-**业务层定位一个浏览器上下文，一律用它，不用 partition 字符串。**
+> partition 名字改为 `environment:channel:<短id>`，短id 在**创建登录标签页那一刻**随机生成——此时账号还不存在（探测尚未发生），无法用 `(environment, channel, otaAccountId)` 三元组反推出 partition 名字。这条路径从"拼公式"变成了"查记录"。
 
-**partition 是业务隔离单位，所以按业务身份切。** cookie 从哪来、怎么授权的，那是 `OtaCredential` 的事（§2.0），不参与这里 —— 登录方式不该影响业务如何隔离。
+新规则：
 
-与订单来了实测一致：它的 15 个 partition 全部是 `ddlldesk:prod:<渠道>:<账号>` 结构。
+- **已有账号，要用它的登录态** → 查 `OtaAccountRepository`，读出这条记录的 `partitionName`（§2.0），直接 `session.fromPartition(partitionName)`
+- **还没有账号，要开一个新的登录标签页** → `environment` + `channel` + 本地随机生成的短id 现拼现用，不经过任何"业务身份 → partition"的转换函数，因为业务身份还不存在
+
+**partition 是业务隔离单位**这条原则不变，只是"隔离单位怎么命名"和"怎么找到它"分成了两条路：命名只在创建时刻发生一次、永不改变（决策 3）；查找永远经过 `OtaAccount.partitionName` 这个指针，不再有可以从三元组算出来的公式。
+
+与订单来了实测的差异也随之出现：它的 15 个 partition 是 `ddlldesk:prod:<渠道>:<账号>` 这种"可反推"结构；我们改成不可反推的短id，是因为订单来了创建 partition 时账号已知，我们不是。
 
 ### 1.3 转换函数必须校验
 
@@ -97,37 +95,28 @@ export function toOtaAccountId(raw: string): OtaAccountId;
 
 ## 2. 八个核心模型
 
-### 2.0 `OtaCredential` 与 `OtaAccount` —— 凭证与业务身份分离
+### 2.0 `OtaAccount` —— partition 名字本身就是权威指针
 
 这是理解整个模型的入口，其余模型都挂在它上面。
 
 ```ts
-/** 一份渠道登录态。cookie 存在它对应的 partition 里。 */
-export type OtaCredential = Readonly<{
-  id:         CredentialId;      // 如 douyin-chrome
-  channel:    ChannelId;
-  importedAt: string;
-  sourceLabel: string;           // 「Chrome」—— 给人看的来源
-  loginState: LoginState;
-}>;
-
 /** 一个可操作的渠道门店账号。 */
 export type OtaAccount = Readonly<{
-  id:           OtaAccountId;
-  channel:      ChannelId;
-  otaHotelId:   OtaHotelId;      // ★ 单个。渠道侧门店 ID
-  credentialId: CredentialId;    // 用哪份登录态去操作
-  displayName:  string | null;   // 渠道侧门店名，探测到再填
+  id:            OtaAccountId;
+  channel:       ChannelId;
+  otaHotelId:    OtaHotelId;      // ★ 单个。渠道侧门店 ID
+  displayName:   string | null;   // 渠道侧门店名，探测到再填
+  partitionName: string;          // 用哪份登录态去操作——直接指向 partition
 }>;
 ```
 
 **一个账号只对应一家渠道门店。** 这不是简化，是刻意的建模选择：
 
 ```text
-抖音一份登录态（后台管三家店）
+抖音一份登录态（后台管三家店，一个 partition）
   ├→ OtaAccount#1  otaHotelId = dy-111
   ├→ OtaAccount#2  otaHotelId = dy-222
-  └→ OtaAccount#3  otaHotelId = dy-333       ← 三个账号，共享一个 credentialId
+  └→ OtaAccount#3  otaHotelId = dy-333       ← 三个账号，共享一个 partitionName
 
 携程一份登录态（只管一家店）
   └→ OtaAccount#4  otaHotelId = ctrip-88123  ← 一个账号
@@ -139,7 +128,9 @@ export type OtaAccount = Readonly<{
 2. 每个账号的登录态、操作记录、审计都有独立主体
 3. 携程（一店）与抖音（多店）用同一套模型表达，无需分支
 
-**`OtaAccount` 不承载凭证**，只持 `credentialId` 引用。所以「重新导入 cookie」刷新的是 `OtaCredential`，账号及其历史记录不受影响。
+**`OtaAccount` 不承载凭证内容**，只持 `partitionName` 这个指针。要使用这个账号的登录态，永远是 `session.fromPartition(partitionName)`；cookie 的值、刷新、过期完全交给 Electron 的 session 机制，数据库不存储、不同步任何 cookie 内容。所以「重新导入 cookie」或「重新登录」实质是把 `partitionName` 指向一个新 partition，旧 partition 目录随之清理，账号本身（`id`/`otaHotelId`/`displayName`）不受影响。
+
+> **不设 `OtaCredential` 间接层**：曾考虑让 `OtaAccount` 持有 `credentialId`、经一层 `OtaCredential` 记录再指向 partition，这样理论上能容纳"登录来源""登录健康状态"等元数据。但当前登录状态本身就是"partition 是否能正常发请求"这一个事实，没有需要独立持久化的登录态历史；多一层间接只会让"改哪个字段才是真的换了登录态"变得不直观。等真的出现"同一账号需要追踪多份历史登录记录"这类需求时再引入，属于"确定会有第二种需要"才值得抽象的场景，现在不满足。
 
 ### 2.1 `ChannelManifest` —— 渠道的能力与策略声明
 
@@ -262,17 +253,7 @@ export type HotelExecutionScope = Readonly<{
 
 **`otaHotelId` 为何冗余**：它可由 `otaAccountId` 查出，但审计要求自包含 —— 出事故时不该为了回答"改的哪家店"去访问数据库。同理 `channel` 也显式存在，不靠 `otaAccountId` 反查。
 
-`BrowserContextKey` 是它的投影：
-
-```ts
-export function toBrowserContextKey(scope: HotelExecutionScope): BrowserContextKey {
-  return {
-    environment: scope.environment,
-    channel: scope.channel,
-    otaAccountId: scope.otaAccountId,
-  };
-}
-```
+要拿到这次执行该用哪个浏览器 session，从 `scope.otaAccountId` 查 `OtaAccountRepository` 取出 `partitionName`（§1.2 已废弃从 scope 字段直接拼出 partition 名字的投影函数）。
 
 命名上刻意不叫 `ExecutionContext`：该词在 TS 生态里被 AsyncLocalStorage、各类中间件用滥，搜代码噪音大；且 `Context` 可以装任意东西，而 `Scope` 天然读作"边界"，往里塞数组会别扭。也不叫 `OtaContext` —— 它有字段（`appUserId`、`environment`）与渠道无关，且 `Ota*` 前缀在本项目已固定表示"属于渠道侧"。
 
@@ -438,6 +419,12 @@ this.browserSession = session.fromPartition('persist:hotel-butler-browser');
 ### 🟡 D3：登录态只存在 renderer
 
 `src/renderer/auth.ts` 是 mock（写死手机号验证码），session 存 `localStorage`。mock 本身是刻意的占位（rms 未接），不算缺陷；**但 session 只在 renderer 意味着 main 侧不知道谁登录了**，将来接审计时 `approved_by` / `appUserId` 拿不到。
+
+### 🟡 D4：migration 基础设施未按 §5 落地
+
+§5 规定 `main/data/migration/{app,facts}/` 拆文件、独立 `runner.ts` 做降级检测 + 备份 + 回滚、双库分离。现状（含本次 cookie 导入建号方案新增的 `ota_account` 表）仍是所有 migration 堆在 `application-database.ts` 一个数组里，只有唯一的 `app.sqlite`，没有降级检测、没有备份回滚。
+
+本次新增 `ota_account` 表（migration version 3）时**刻意维持现状**，未顺带重构——这块是纯基础设施改动，和 cookie 导入建号这个功能分支无直接关系，混在一起会让 diff 难审查（见 CLAUDE.md"保持既有行为，不顺手重构"）。重构本身待排期，触发时机建议是 observation 类数据即将上线（届时 facts.sqlite 分库、降级检测都会成为真实需求，而不是预防性工程）。
 
 ---
 

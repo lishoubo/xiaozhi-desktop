@@ -7,15 +7,17 @@ import AppNotificationCenter from '../../src/renderer/components/layout/AppNotif
 import { clearAppNotifications } from '../../src/renderer/notifications';
 
 describe('BrowserWorkspace', () => {
-  const create = vi.fn(async (channelId: string, url: string) => ({
-    id: `${channelId}-tab`,
-    channelId,
-    title: channelId === 'ctrip' ? '携程后台' : '飞猪后台',
-    url,
-    canGoBack: false,
-    canGoForward: false,
-    loading: false,
-  }));
+  const startLogin = vi.fn(
+    async ({ channelId, url }: { channelId: string; environment: string; url: string }) => ({
+      id: `${channelId}-tab`,
+      channelId,
+      title: channelId === 'ctrip' ? '携程后台' : '飞猪后台',
+      url,
+      canGoBack: false,
+      canGoForward: false,
+      loading: false,
+    }),
+  );
   const activate = vi.fn();
   const acknowledgeInterception = vi.fn();
   const listCookieSources = vi.fn();
@@ -32,7 +34,7 @@ describe('BrowserWorkspace', () => {
     localStorage.clear();
     clearAppNotifications();
     localStorage.setItem('hotel-butler.cookie-import-prompted', 'true');
-    create.mockClear();
+    startLogin.mockClear();
     activate.mockClear();
     acknowledgeInterception.mockReset();
     requestInterceptedListener = null;
@@ -53,7 +55,6 @@ describe('BrowserWorkspace', () => {
       configurable: true,
       value: {
         browser: {
-          create,
           activate,
           acknowledgeInterception,
           close: vi.fn(),
@@ -73,6 +74,7 @@ describe('BrowserWorkspace', () => {
           }),
         },
         cookies: { import: importCookies, listSources: listCookieSources },
+        otaAccount: { startLogin },
       },
     });
   });
@@ -95,7 +97,7 @@ describe('BrowserWorkspace', () => {
 
     await user.click(screen.getByRole('button', { name: '携程酒店 eBooking' }));
     expect(await screen.findByRole('tab', { name: '携程后台' })).toBeInTheDocument();
-    expect(create).toHaveBeenCalledTimes(2);
+    expect(startLogin).toHaveBeenCalledTimes(2);
     await waitFor(() => expect(activate).toHaveBeenCalledWith('ctrip-tab'));
   });
 
@@ -146,12 +148,16 @@ describe('BrowserWorkspace', () => {
       ),
     );
     expect(localStorage.getItem('hotel-butler.cookie-import-prompted')).toBe('true');
-    expect(create).toHaveBeenCalledWith('ctrip', expect.any(String));
+    expect(startLogin).toHaveBeenCalledWith({
+      channelId: 'ctrip',
+      environment: 'prod',
+      url: expect.any(String),
+    });
   });
 
   it('shows safe, accessible recovery feedback when a browser tab cannot be opened', async () => {
-    create.mockRejectedValueOnce(
-      new Error("Error invoking remote method 'browser:create': /Users/private/app-data"),
+    startLogin.mockRejectedValueOnce(
+      new Error("Error invoking remote method 'ota-account:start-login': /Users/private/app-data"),
     );
     renderWorkspace();
 
@@ -159,7 +165,7 @@ describe('BrowserWorkspace', () => {
     expect(alert).toHaveTextContent('页面打开失败，请重试');
     expect(alert?.querySelector('svg')).toBeInTheDocument();
     expect(
-      screen.queryByText(/remote method|Users\/private|browser:create/i),
+      screen.queryByText(/remote method|Users\/private|ota-account:start-login/i),
     ).not.toBeInTheDocument();
   });
 

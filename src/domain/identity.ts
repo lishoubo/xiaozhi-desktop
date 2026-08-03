@@ -12,8 +12,6 @@ export type ChannelId = Brand<string, 'ChannelId'>;
 export type OtaAccountId = Brand<string, 'OtaAccountId'>;
 /** 渠道侧的门店 ID（携程/美团/抖音各不相同）。我们侧的统一 HotelId 待 rms 接通后引入。 */
 export type OtaHotelId = Brand<string, 'OtaHotelId'>;
-/** 一份渠道登录态 = 一个 partition。多个 OtaAccount 可共享同一份凭证。 */
-export type CredentialId = Brand<string, 'CredentialId'>;
 export type AppUserId = Brand<string, 'AppUserId'>;
 export type TabId = Brand<string, 'TabId'>;
 
@@ -67,11 +65,6 @@ export function toOtaHotelId(raw: string): OtaHotelId {
   return raw as OtaHotelId;
 }
 
-export function toCredentialId(raw: string): CredentialId {
-  assertValidIdentifier('CredentialId', raw);
-  return raw as CredentialId;
-}
-
 export function toAppUserId(raw: string): AppUserId {
   assertValidIdentifier('AppUserId', raw);
   return raw as AppUserId;
@@ -92,14 +85,3 @@ export function parseChannelId(raw: unknown): ChannelId | null {
   }
 }
 
-/**
- * 一个浏览器上下文的定位键 —— 业务层一律用它，不用 partition 字符串。
- *
- * 按 **业务身份** 切：一个渠道账号一份独立存储。`OtaCredential`（登录态的来源
- * 与有效性）是另一个维度，不参与这里 —— cookie 怎么拿到的不该影响业务如何隔离。
- */
-export type BrowserContextKey = Readonly<{
-  environment: 'prod' | 'dev';
-  channel: ChannelId;
-  otaAccountId: OtaAccountId;
-}>;

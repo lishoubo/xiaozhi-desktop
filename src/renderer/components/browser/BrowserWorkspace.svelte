@@ -54,7 +54,11 @@
   async function createTab(channel: OtaChannel, url = channel.url): Promise<boolean> {
     try {
       dismissAppNotification('browser-operation-error');
-      const tab = await window.hotelButler.browser.create(channel.id, url);
+      const tab = await window.hotelButler.otaAccount.startLogin({
+        channelId: channel.id,
+        environment: 'prod',
+        url,
+      });
       updateTab(tab);
       activeTabIds[channel.id] = tab.id;
       await syncBounds();

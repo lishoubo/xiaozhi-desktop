@@ -43,6 +43,7 @@ function openMainWindow(): void {
     window: mainWindow,
     manager: browserManager,
     logger: log,
+    userDataDir: app.getPath('userData'),
   });
   unregisterAutomationHandlers = registerAutomationHandlers({
     window: mainWindow,

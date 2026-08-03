@@ -6,9 +6,10 @@ import path from 'node:path';
 import Database from 'better-sqlite3';
 import type { CookiesSetDetails } from 'electron';
 import { z, type ZodType } from 'zod';
+import type { ChannelId } from '../../domain/identity';
 import type { BrowserCookieSource, BrowserCookieSourceId } from '../../shared/browser';
 import type { AppLogger } from '../../shared/logging';
-import { chromiumTimestampToUnix, isSupportedCookieDomain } from './cookie-import';
+import { channelForCookieDomain, chromiumTimestampToUnix, isSupportedCookieDomain } from './cookie-import';
 
 type SupportedPlatform = NodeJS.Platform;
 
@@ -591,18 +592,31 @@ export class BrowserCookieImporter {
     return available;
   }
 
+  /**
+   * 一次性读取该来源里所有受支持渠道的 cookie，按渠道拆分返回——调用方
+   * 不需要（也不能）预先指定渠道，见 design.md 决策 1。
+   */
   async readCookies(
     sourceId: BrowserCookieSourceId,
-  ): Promise<{ cookies: CookiesSetDetails[]; failed: number }> {
+  ): Promise<{ cookiesByChannel: Map<ChannelId, CookiesSetDetails[]>; failed: number }> {
     this.logger.info('Cookie extraction started', { source: sourceId });
     try {
-      const result = await this.readCookiesFromSource(sourceId);
+      const { cookies, failed } = await this.readCookiesFromSource(sourceId);
+      const cookiesByChannel = new Map<ChannelId, CookiesSetDetails[]>();
+      for (const cookie of cookies) {
+        const channel = cookie.domain ? channelForCookieDomain(cookie.domain) : null;
+        if (!channel) continue;
+        const bucket = cookiesByChannel.get(channel);
+        if (bucket) bucket.push(cookie);
+        else cookiesByChannel.set(channel, [cookie]);
+      }
       this.logger.info('Cookie extraction completed', {
         source: sourceId,
-        extracted: result.cookies.length,
-        failed: result.failed,
+        channels: cookiesByChannel.size,
+        extracted: cookies.length,
+        failed,
       });
-      return result;
+      return { cookiesByChannel, failed };
     } catch (error: unknown) {
       this.logger.error('Cookie extraction failed', {
         source: sourceId,

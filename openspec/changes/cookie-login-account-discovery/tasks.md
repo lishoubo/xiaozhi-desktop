@@ -25,8 +25,8 @@
 - [ ] 4.1 新增 `main/account-discovery/discovery-probe.ts`：channel → `DiscoveryProbe` 实现的 registry，查不到时返回明确的"不支持"结果
 - [ ] 4.2 新增 `main/account-discovery/douyin-discovery.ts`：复用已验证方式——在给定 partition 上创建 `WebContentsView`，加载 `life.douyin.com` 后台页面，`executeJavaScript` 调用 `groupAccountList` 接口并分页拉取全部门店，返回 `DiscoveryOutcome`
 - [ ] 4.3 新增 `main/account-discovery/ctrip-discovery.ts`、`meituan-discovery.ts` 占位：返回"暂不支持"，不实现真实探测逻辑
-- [ ] 4.4 **先解决 design.md Open Questions 里的查重命中处理方式**（是否更新 `partitionName` 到最新登录、旧 partition 如何处理），再新增 `main/account-discovery/discover-and-create.ts`：探测层的主流程——按 `(channel, otaHotelId)` 查重，不存在则创建 `OtaAccount`；已存在则按确定的处理方式执行，不能沿用"只写日志"的简化
-- [ ] 4.5 为 4.1-4.4 编写单测：mock `WebContentsView`/session 边界，验证分页拉取逻辑、单店/多店的 `DiscoveryOutcome` 判定、查重命中时按 4.4 确定的处理方式的行为
+- [ ] 4.4 新增 `main/account-discovery/discover-and-create.ts`：探测层的主流程——按 `(channel, otaHotelId)` 查重；不存在则创建 `OtaAccount`；已存在则更新该账号的 `partitionName` 为本次新 partition，并删除旧 partition 的 session 目录（见 design.md 决策 7，标签页已关闭故可安全删除）
+- [ ] 4.5 为 4.1-4.4 编写单测：mock `WebContentsView`/session 边界，验证分页拉取逻辑、单店/多店的 `DiscoveryOutcome` 判定、查重命中时"更新 partitionName + 删除旧 partition"的行为（含删除失败时不应阻断账号更新本身）
 
 ## 5. main/database：持久化
 

@@ -90,6 +90,25 @@ const migrations: readonly Migration[] = [
       `);
     },
   },
+  {
+    version: 3,
+    name: 'create-ota-account',
+    apply(database) {
+      database.exec(`
+        CREATE TABLE ota_account (
+          id TEXT PRIMARY KEY,
+          channel TEXT NOT NULL,
+          ota_hotel_id TEXT NOT NULL,
+          display_name TEXT,
+          partition_name TEXT NOT NULL,
+          created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE UNIQUE INDEX ota_account_channel_hotel_idx ON ota_account(channel, ota_hotel_id);
+      `);
+    },
+  },
 ];
 
 function migrate(database: ApplicationDatabase): number {

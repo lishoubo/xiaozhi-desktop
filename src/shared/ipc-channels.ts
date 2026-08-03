@@ -22,6 +22,9 @@ export const IPC_CHANNELS = {
     updateEvent: 'calendar:update-event',
     deleteEvent: 'calendar:delete-event',
   },
+  otaAccount: {
+    startLogin: 'ota-account:start-login',
+  },
   cookies: {
     import: 'cookies:import',
     listSources: 'cookies:list-sources',

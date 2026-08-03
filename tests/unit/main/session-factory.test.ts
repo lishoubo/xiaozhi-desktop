@@ -1,0 +1,66 @@
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+const electron = vi.hoisted(() => {
+  const sessions = new Map<string, unknown>();
+  function createMockSession(partition: string) {
+    return {
+      partition,
+      setPermissionCheckHandler: vi.fn(),
+      setPermissionRequestHandler: vi.fn(),
+    };
+  }
+  return {
+    session: {
+      fromPartition: vi.fn((partition: string) => {
+        const existing = sessions.get(partition);
+        if (existing) return existing;
+        const created = createMockSession(partition);
+        sessions.set(partition, created);
+        return created;
+      }),
+    },
+    sessions,
+  };
+});
+
+vi.mock('electron', () => ({ session: electron.session }));
+
+import { toChannelId } from '../../../src/domain/identity';
+import { SessionFactory } from '../../../src/main/browser/session-factory';
+
+function createLogger() {
+  return { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
+}
+
+beforeEach(() => {
+  electron.sessions.clear();
+  electron.session.fromPartition.mockClear();
+});
+
+describe('SessionFactory', () => {
+  it('sessionForAccount 直接用传入的 partitionName，不重新拼接', () => {
+    const factory = new SessionFactory(createLogger());
+    factory.sessionForAccount('persist:xiaozhi:prod:douyin:abcd1234');
+    expect(electron.session.fromPartition).toHaveBeenCalledWith(
+      'persist:xiaozhi:prod:douyin:abcd1234',
+    );
+  });
+
+  it('sessionForLogin 每次生成不同的 partitionName，并原样返回给调用方', () => {
+    const factory = new SessionFactory(createLogger());
+    const first = factory.sessionForLogin('prod', toChannelId('douyin'));
+    const second = factory.sessionForLogin('prod', toChannelId('douyin'));
+
+    expect(first.partitionName).not.toBe(second.partitionName);
+    expect(first.partitionName).toMatch(/^persist:xiaozhi:prod:douyin:/);
+    expect(electron.session.fromPartition).toHaveBeenCalledWith(first.partitionName);
+  });
+
+  it('相同 partition 名字复用同一个 session（缓存命中）', () => {
+    const factory = new SessionFactory(createLogger());
+    const a = factory.sessionForAccount('persist:xiaozhi:prod:douyin:abcd1234');
+    const b = factory.sessionForAccount('persist:xiaozhi:prod:douyin:abcd1234');
+    expect(a).toBe(b);
+    expect(electron.session.fromPartition).toHaveBeenCalledOnce();
+  });
+});

@@ -1,30 +1,34 @@
-import { app, ipcMain, type CookiesSetDetails, type IpcMainInvokeEvent } from 'electron';
+import { app, ipcMain, type IpcMainInvokeEvent } from 'electron';
 import { z, type ZodType } from 'zod';
 import {
   browserBoundsSchema,
   browserCookieSourceIdSchema,
   browserCreateInputSchema,
   browserTabIdSchema,
+  startLoginInputSchema,
   type BrowserBounds,
   type SystemPreferences,
 } from '../../shared/browser';
+import { toChannelId } from '../../domain/identity';
 import { IPC_CHANNELS } from '../../shared/ipc-channels';
 import type { AppLogger } from '../../shared/logging';
-import { BrowserCookieImporter } from '../browser/browser-cookie-importer';
-import { friendlyCookieImportMessage } from '../browser/cookie-import';
+import { BrowserCookieImporter } from '../cookie-import/browser-cookie-importer';
+import { friendlyCookieImportMessage } from '../cookie-import/cookie-import';
+import { writeImportedCookies } from '../cookie-import/store';
+import { LoginTabOpener } from '../features/ota-account/login-tab-opener';
 
 const noArgumentsSchema = z.tuple([]);
 
 type RegisterBrowserHandlersOptions = Readonly<{
   window: Readonly<{ webContents: unknown }>;
   manager: Readonly<{
-    browserSession: Readonly<{
-      cookies: Readonly<{ set: (cookie: CookiesSetDetails) => Promise<void> }>;
-    }>;
     acknowledgeInterception: () => void;
     activate: (tabId: string) => unknown;
     close: (tabId: string) => void;
     create: (channelId: string, url: string) => unknown;
+    createAndNewPartition: InstanceType<
+      typeof import('../browser/browser-manager').BrowserManager
+    >['createAndNewPartition'];
     goBack: (tabId: string) => void;
     goForward: (tabId: string) => void;
     hide: () => void;
@@ -34,6 +38,7 @@ type RegisterBrowserHandlersOptions = Readonly<{
   }>;
   logger: AppLogger;
   cookieImporter?: Pick<BrowserCookieImporter, 'listSources' | 'readCookies'>;
+  userDataDir: string;
 }>;
 
 function systemPreferences(): SystemPreferences {
@@ -48,7 +53,9 @@ export function registerBrowserHandlers({
   manager,
   logger,
   cookieImporter = new BrowserCookieImporter(logger),
+  userDataDir,
 }: RegisterBrowserHandlersOptions): () => void {
+  const loginTabOpener = new LoginTabOpener({ userDataDir, browser: manager });
   const assertTrusted = (event: IpcMainInvokeEvent, channel: string): void => {
     if (event.sender !== window.webContents) {
       logger.warn('Rejected untrusted IPC request', { channel });
@@ -123,23 +130,40 @@ export function registerBrowserHandlers({
     cookieImporter.listSources(),
   );
   handle(
+    IPC_CHANNELS.otaAccount.startLogin,
+    z.tuple([startLoginInputSchema]),
+    '登录参数无效',
+    (_event, { channelId, environment, url }) =>
+      loginTabOpener.open(environment, toChannelId(channelId), url),
+  );
+  handle(
     IPC_CHANNELS.cookies.import,
     z.tuple([browserCookieSourceIdSchema]),
     '浏览器类型无效',
     async (_event, sourceId) => {
       try {
-        const { cookies, failed: readFailures } = await cookieImporter.readCookies(sourceId);
-        if (cookies.length === 0 && readFailures === 0) {
+        const { cookiesByChannel, failed: readFailures } = await cookieImporter.readCookies(sourceId);
+        if (cookiesByChannel.size === 0 && readFailures === 0) {
           throw new Error('所选浏览器中没有找到可导入的 Cookie');
         }
-        const results = await Promise.allSettled(
-          cookies.map((cookie) => manager.browserSession.cookies.set(cookie)),
+        const importedAt = new Date().toISOString();
+        await Promise.all(
+          Array.from(cookiesByChannel.entries()).map(([channel, cookies]) =>
+            writeImportedCookies(userDataDir, channel, cookies, { importedAt, sourceId }),
+          ),
         );
-        const imported = results.filter((result) => result.status === 'fulfilled').length;
+        const imported = Array.from(cookiesByChannel.values()).reduce(
+          (total, cookies) => total + cookies.length,
+          0,
+        );
         if (imported === 0) throw new Error('未能导入 Cookie，请确认浏览器已登录并允许系统访问');
-        const failed = readFailures + results.length - imported;
-        logger.info('Cookies applied to browser session', { source: sourceId, imported, failed });
-        return { imported, failed };
+        logger.info('Cookies imported to disk', {
+          source: sourceId,
+          channels: cookiesByChannel.size,
+          imported,
+          failed: readFailures,
+        });
+        return { imported, failed: readFailures };
       } catch (error) {
         logger.warn('Cookie import could not be completed', {
           source: typeof sourceId === 'string' ? sourceId : 'unknown',
@@ -170,6 +194,7 @@ export function registerBrowserHandlers({
         channel !== IPC_CHANNELS.browser.requestIntercepted,
     ),
     ...Object.values(IPC_CHANNELS.cookies),
+    ...Object.values(IPC_CHANNELS.otaAccount),
     ...Object.values(IPC_CHANNELS.system),
   ];
   return () => {

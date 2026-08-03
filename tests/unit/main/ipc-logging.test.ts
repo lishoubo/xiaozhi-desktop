@@ -1,5 +1,23 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { toChannelId } from '../../../src/domain/identity';
 import { IPC_CHANNELS } from '../../../src/shared/ipc-channels';
+
+const temporaryDirectories: string[] = [];
+
+function temporaryUserDataDir(): string {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'hotel-butler-ipc-logging-test-'));
+  temporaryDirectories.push(directory);
+  return directory;
+}
+
+afterEach(() => {
+  for (const directory of temporaryDirectories.splice(0)) {
+    fs.rmSync(directory, { force: true, recursive: true });
+  }
+});
 
 const electron = vi.hoisted(() => {
   const handlers = new Map<string, (event: { sender: unknown }, ...args: unknown[]) => unknown>();
@@ -56,11 +74,11 @@ describe('IPC operational logging', () => {
     registerBrowserHandlers({
       window: { webContents: trustedSender },
       manager: {
-        browserSession: { cookies: { set: vi.fn() } },
         acknowledgeInterception,
         activate: vi.fn(),
         close: vi.fn(),
         create: vi.fn(),
+        createAndNewPartition: vi.fn(),
         goBack: vi.fn(),
         goForward: vi.fn(),
         hide: vi.fn(),
@@ -70,6 +88,7 @@ describe('IPC operational logging', () => {
       },
       cookieImporter: { listSources: vi.fn(), readCookies: vi.fn() },
       logger,
+      userDataDir: temporaryUserDataDir(),
     });
 
     expect(() =>
@@ -87,15 +106,14 @@ describe('IPC operational logging', () => {
   it('records Cookie application counts and auto-launch changes', async () => {
     const logger = createLogger();
     const sender = {};
-    const setCookie = vi.fn().mockResolvedValue(undefined);
     registerBrowserHandlers({
       window: { webContents: sender },
       manager: {
-        browserSession: { cookies: { set: setCookie } },
         acknowledgeInterception: vi.fn(),
         activate: vi.fn(),
         close: vi.fn(),
         create: vi.fn(),
+        createAndNewPartition: vi.fn(),
         goBack: vi.fn(),
         goForward: vi.fn(),
         hide: vi.fn(),
@@ -106,18 +124,21 @@ describe('IPC operational logging', () => {
       cookieImporter: {
         listSources: vi.fn(),
         readCookies: vi.fn().mockResolvedValue({
-          cookies: [{ name: 'session', value: 'secret-cookie' }],
+          cookiesByChannel: new Map([
+            [toChannelId('douyin'), [{ name: 'session', value: 'secret-cookie' }]],
+          ]),
           failed: 2,
         }),
       },
       logger,
+      userDataDir: temporaryUserDataDir(),
     });
 
     await invoke(IPC_CHANNELS.cookies.import, sender, 'firefox');
     invoke(IPC_CHANNELS.system.setAutoLaunch, sender, true);
 
     expect(logger.info.mock.calls).toEqual([
-      ['Cookies applied to browser session', { source: 'firefox', imported: 1, failed: 2 }],
+      ['Cookies imported to disk', { source: 'firefox', channels: 1, imported: 1, failed: 2 }],
       ['Auto-launch preference changed', { enabled: true }],
     ]);
     expect(JSON.stringify(logger.info.mock.calls)).not.toContain('secret-cookie');
@@ -132,11 +153,11 @@ describe('IPC operational logging', () => {
     registerBrowserHandlers({
       window: { webContents: sender },
       manager: {
-        browserSession: { cookies: { set: vi.fn() } },
         acknowledgeInterception: vi.fn(),
         activate: vi.fn(),
         close: vi.fn(),
         create,
+        createAndNewPartition: vi.fn(),
         goBack: vi.fn(),
         goForward: vi.fn(),
         hide: vi.fn(),
@@ -146,6 +167,7 @@ describe('IPC operational logging', () => {
       },
       cookieImporter: { listSources: vi.fn(), readCookies },
       logger,
+      userDataDir: temporaryUserDataDir(),
     });
 
     expect(() =>
