@@ -18,7 +18,6 @@
 export type ChannelId    = string & { readonly __brand: 'ChannelId' };
 export type OtaAccountId = string & { readonly __brand: 'OtaAccountId' };
 export type OtaHotelId   = string & { readonly __brand: 'OtaHotelId' };
-export type CredentialId = string & { readonly __brand: 'CredentialId' };
 export type AppUserId    = string & { readonly __brand: 'AppUserId' };
 ```
 
@@ -27,8 +26,9 @@ export type AppUserId    = string & { readonly __brand: 'AppUserId' };
 | `ChannelId` | 渠道（**不是账号，不是域名**） | `ctrip` / `meituan` / `fliggy` / `douyin` | 我们（channel manifest） |
 | `OtaAccountId` | 一个渠道门店账号 | `ctrip-account-1` | 我们（本地生成） |
 | `OtaHotelId` | **渠道侧**的门店 ID | `ctrip-88123` / `dy-99001` | 渠道 |
-| `CredentialId` | 一份渠道登录态（导入或人工登录的产物） | `douyin-chrome` | 我们（本地生成） |
 | `AppUserId` | 我们自己的 app 账号 | — | rms 后端 |
+
+> **不设 `CredentialId` / `OtaCredential`**：一份渠道登录态直接由 `OtaAccount.partitionName` 指向对应 partition，不再经过一层"凭证记录"间接引用。详见领域模型 §2.0。
 
 **`HotelId`（我们/rms 侧的统一门店实体）暂不引入** —— rms 未接、本地无门店数据源，现在建等于凭空造概念。届时它的作用是把同一家酒店在各渠道的多个 `OtaHotelId` 归并起来：银际酒店 = 1 个 `HotelId` + 3 个 `OtaHotelId`（携程/美团/抖音各一）。
 
@@ -38,19 +38,14 @@ export type AppUserId    = string & { readonly __brand: 'AppUserId' };
 
 **为什么 `OtaAccountId` 和 `AppUserId` 必须是两个类型**：这是「两套账号体系不绑定」这条设计决策在类型层面的落实。命名分开是给人看的，branded type 是给编译器看的——两者都要有，才防得住。
 
-### 1.2 组合类型
+### 1.2 定位浏览器上下文：不再有组合键
 
-```ts
-export type BrowserContextKey = {
-  environment: 'prod' | 'dev';
-  channel: ChannelId;
-  otaAccountId: OtaAccountId;
-};
-```
+**`BrowserContextKey` 已废弃**（曾是 `{ environment, channel, otaAccountId }`，用于拼出 partition 名字）。因为 partition 名字现在是登录时随机生成的短id，创建那一刻账号还不存在，无法从三元组反推。定位规则改为：
 
-**业务层定位一个浏览器上下文，一律用 `BrowserContextKey`，不用 partition 字符串。**
+- 已有账号 → 查 `OtaAccount.partitionName`（数据库读出来的指针，不是算出来的）
+- 还没账号、正在走登录 → `environment` + `channel` + 当场生成的短id 现拼现用
 
-**partition 是业务隔离单位，按业务身份切。** cookie 怎么来的（导入 / 人工登录）是 `OtaCredential` 的事，不参与隔离结构 —— 登录方式不该影响业务如何切分。与订单来了实测一致。
+详见领域模型 §1.2、§2.0。
 
 ```ts
 export type HotelExecutionScope = {
@@ -83,10 +78,11 @@ export type HotelExecutionScope = {
 
 ```ts
 class SessionFactory {
-  private toPartition(key: BrowserContextKey): string {
-    return `persist:xiaozhi:${key.environment}:${key.channel}:${key.otaAccountId}`;
-  }
-  sessionFor(key: BrowserContextKey): Session { /* 业务层只调这个 */ }
+  // 已有账号：查记录，不拼公式
+  sessionForAccount(partitionName: string): Session { /* ... */ }
+
+  // 登录流程：environment + channel + 当场生成的短id，创建后即固化
+  sessionForLogin(environment: 'prod' | 'dev', channel: ChannelId): Session { /* ... */ }
 }
 ```
 
@@ -94,7 +90,7 @@ class SessionFactory {
 
 **理由**：改叫自造词会和 Electron 文档对不上（净损失）；但让它满代码飞又会把底层细节泄漏到业务层。封装是两全解。
 
-文档和 UI 文案里可以说「浏览器身份」或「登录上下文」，代码里一律 `BrowserContextKey`。
+文档和 UI 文案里可以说「浏览器身份」或「登录上下文」；代码里不再有 `BrowserContextKey` 这个组合键类型（已废弃，见 §1.2）。
 
 ### 1.4 留白不用的词
 
@@ -175,7 +171,7 @@ class SessionFactory {
 - [ ] 登录态一律三元组，不用裸 bool
 - [ ] 执行作用域用 `HotelExecutionScope`，不用 `ExecutionContext` / `OtaContext`
 - [ ] `HotelExecutionScope.otaAccountId` 保持单数（改成数组 = 拆掉跨店 fan-out 防线）
-- [ ] partition 按 `otaAccountId` 切；`CredentialId` 不进 partition（登录方式不影响业务隔离）
+- [ ] partition 名字创建时固化，不由 `otaAccountId` 反推；定位已有账号的登录态一律查 `OtaAccount.partitionName`
 - [ ] `ChannelId` 取值小写、是渠道不是账号/域名（`ctrip` 而非 `CTRIP` / `ctrip-1` / `ctrip.com`）
 
 ---

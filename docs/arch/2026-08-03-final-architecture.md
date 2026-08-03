@@ -238,7 +238,8 @@ session.fromPartition('persist:hotel-butler-browser')
 ```ts
 // domain/ports/browser-port.ts —— 零 Electron
 export interface BrowserPort {
-  open(key: BrowserContextKey, entryPoint: EntryPointId): Promise<TabId>;
+  openForAccount(otaAccountId: OtaAccountId, entryPoint: EntryPointId): Promise<TabId>;
+  openForLogin(environment: 'prod' | 'dev', channel: ChannelId, entryPoint: EntryPointId): Promise<TabId>;
   snapshot(tab: TabId, opts: SnapshotOptions): Promise<PageSnapshot>;
   act(tab: TabId, action: PageAction): Promise<ActResult>;
   close(tab: TabId): Promise<void>;
@@ -253,7 +254,7 @@ export type SnapshotOptions = {
 };
 ```
 
-注意 `open()` 的签名 —— 它收 `BrowserContextKey + EntryPointId`，**不收 URL**。URL 由 main 侧从 channel manifest 解析。这样 P0-2（renderer 说打开哪就打开哪）在类型层面就写不出来了。
+`open` 拆成两个方法，而不是保留旧的单一 `open(key: BrowserContextKey, ...)`：**账号已存在**时（`openForAccount`）partition 名字要查 `OtaAccount.partitionName`；**账号还不存在、正在走登录流程**时（`openForLogin`）partition 名字是当场生成的短id，两条路径拼 partition 的方式完全不同，硬塞进一个组合键参数会掩盖这个区别（详见 `2026-08-03-domain-model.md` §1.2 "已废弃 `BrowserContextKey`"）。两个方法都不收 URL —— URL 仍由 main 侧从 channel manifest 解析，P0-2（renderer 说打开哪就打开哪）在类型层面依然写不出来。
 
 `WebContentsView`、`Session`、`partition` 这些词一个都不出现在 domain 里。
 
@@ -404,7 +405,8 @@ export function evaluateLoginState(
 
 // ✅ main/features/ota-account/login-health-checker.ts —— 编排
 class LoginHealthChecker {
-  async check(key: BrowserContextKey): Promise<LoginState> {
+  async check(otaAccountId: OtaAccountId): Promise<LoginState> {
+    const tab = await this.browser.openForAccount(otaAccountId, entryPoint);
     const probe = await this.browser.snapshot(tab, { mode: 'diff', maxDepth: 3 });
     return evaluateLoginState(toProbeResult(probe), previous, this.clock.now());
   }
