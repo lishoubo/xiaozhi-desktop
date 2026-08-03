@@ -23,10 +23,12 @@ export type AppUserId    = string & { readonly __brand: 'AppUserId' };
 
 | 术语 | 含义 | 例值 | 权威方 |
 |---|---|---|---|
-| `ChannelId` | 渠道 | `ctrip` / `meituan` / `fliggy` | 我们（channel manifest） |
+| `ChannelId` | 渠道（**不是账号，不是域名**） | `ctrip` / `meituan` / `fliggy` / `douyin` | 我们（channel manifest） |
 | `OtaAccountId` | OTA 渠道账号 | `ctrip-account-1` | 我们（本地生成） |
 | `HotelId` | 门店 | — | rms 后端 |
 | `AppUserId` | 我们自己的 app 账号 | — | rms 后端 |
+
+**`ChannelId` 的三条约定**：① 一律小写、字符集 `[a-z0-9-]`（要拼进 partition 字符串和磁盘路径，大小写混用会在 macOS 通过、Linux 失败）；② 取值是渠道而非账号或域名 —— `ctrip` ✅、`ctrip-1` ❌（那是 `OtaAccountId`）、`ctrip.com` ❌（那是 `cookieDomains` 条目）；③ 权威在 manifest 文件名，不在代码里硬编码枚举（渠道高频新增，写成 TS 枚举意味着加渠道要发版）。
 
 **为什么 `OtaAccountId` 和 `AppUserId` 必须是两个类型**：这是「两套账号体系不绑定」这条设计决策在类型层面的落实。命名分开是给人看的，branded type 是给编译器看的——两者都要有，才防得住。
 
@@ -46,12 +48,15 @@ export type BrowserContextKey = {
 export type HotelExecutionScope = {
   appUserId:    AppUserId;
   hotelId:      HotelId;        // ⚠ 单数，不是数组
-  otaAccountId: OtaAccountId;
+  channel:      ChannelId;      // 哪个渠道
+  otaAccountId: OtaAccountId;   // 该渠道下的哪个账号
   environment:  'prod' | 'dev';
 };
 ```
 
-**一次 agent 执行的作用域。** `hotelId` 是单数这件事本身是一条架构约束——「不做跨店 fan-out」就落在这个字段上（详见最终架构方案 4.2 ⑥）。
+**一次 agent 执行的作用域。** `hotelId` 是单数这件事本身是一条架构约束——「不做跨店 fan-out」就落在这个字段上（详见领域模型 §2.6）。
+
+`channel` 必须显式存在，不能靠 `otaAccountId` 反查：反查要访问数据库，而审计要求自包含。加上它之后 **`BrowserContextKey` 正好是 `HotelExecutionScope` 的子集**。
 
 刻意不叫 `ExecutionContext`（该词在 TS 生态被用滥，且 `Context` 暗示"可以装任意东西"），也不叫 `OtaContext`（它有一半字段与渠道无关，而 `Ota*` 前缀在本项目固定表示"属于渠道侧"）。
 
@@ -162,6 +167,7 @@ class SessionFactory {
 - [ ] 登录态一律三元组，不用裸 bool
 - [ ] 执行作用域用 `HotelExecutionScope`，不用 `ExecutionContext` / `OtaContext`
 - [ ] `HotelExecutionScope.hotelId` 保持单数（改成数组 = 拆掉跨店 fan-out 防线）
+- [ ] `ChannelId` 取值小写、是渠道不是账号/域名（`ctrip` 而非 `CTRIP` / `ctrip-1` / `ctrip.com`）
 
 ---
 

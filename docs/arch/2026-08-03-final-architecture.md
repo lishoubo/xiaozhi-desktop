@@ -8,7 +8,7 @@
 
 1. **顶层与 `src/` 的最终目录**（合并两文，`src/` 保持在根目录）
 2. **核心业务代码如何剥离框架影响** —— Electron、Codex、SQLite 都换得掉
-3. **核心领域模型** —— 需要固化的类型
+3. **核心领域模型** —— 已拆出：[`2026-08-03-domain-model.md`](./2026-08-03-domain-model.md)
 
 ---
 
@@ -419,227 +419,20 @@ class LoginHealthChecker {
 
 ## 第四部分：核心领域模型
 
-以下是需要**第一天就固化**的类型。判断标准：**将来补不回来的**。
+**已拆出独立文档：[`2026-08-03-domain-model.md`](./2026-08-03-domain-model.md)**
 
-### 4.1 标识：branded type
+本文原第四部分（224 行）随模型细化持续增长，与「目录结构 / 框架剥离 / 执行顺序」是两种变更节奏，故独立维护。那份文档包含：
 
-```ts
-// domain/identity.ts
-declare const brand: unique symbol;
-type Brand<T, B> = T & { readonly [brand]: B };
+| 节 | 内容 |
+|---|---|
+| §1 | branded type、`ChannelId` 的取值约定、转换函数的校验要求 |
+| §2 | 七个核心模型（含 `HotelExecutionScope`、`AgentEvent`） |
+| §3 | 五个 Gateway 与 token 硬约束 |
+| §4 | 版本号（domain 与 storage 分置）、四条升级规则 |
+| §5 | 三类数据分库、migration 的组织 |
+| §6 | 审计表 |
+| §7 | **现存缺陷 D1–D3**（代码实读结论，待修） |
 
-export type ChannelId    = Brand<string, 'ChannelId'>;
-export type OtaAccountId = Brand<string, 'OtaAccountId'>;
-export type HotelId      = Brand<string, 'HotelId'>;
-export type AppUserId    = Brand<string, 'AppUserId'>;
-export type TabId        = Brand<string, 'TabId'>;
-
-// 唯一允许 as 的地方
-export function toChannelId(raw: string): ChannelId;
-export function toOtaAccountId(raw: string): OtaAccountId;
-// …
-
-export type BrowserContextKey = Readonly<{
-  environment: 'prod' | 'dev';
-  channel: ChannelId;
-  otaAccountId: OtaAccountId;
-}>;
-```
-
-用 `unique symbol` 而非字符串字面量做 brand —— 别处写不出 `{ __brand: 'ChannelId' }` 来伪造。
-
-**`AppUserId` 和 `OtaAccountId` 必须是两个类型**：这是「两套账号体系不绑定」在类型层面的落实。命名分开给人看，branded type 给编译器看，两者都要有。
-
-### 4.2 六个核心模型
-
-#### ① `ChannelManifest` —— 渠道的能力与策略声明
-
-```ts
-export type ChannelManifest = {
-  id: ChannelId;
-  displayName: string;
-  entryPoints: readonly { id: EntryPointId; url: string; label: string }[];
-  allowedOrigins: readonly string[];        // 导航白名单
-  cookieDomains: readonly string[];         // cookie 导入的作用域
-  loginDetection: LoginDetectionStrategy;
-  schemaVersion: number;
-};
-```
-
-**权威在 main，不在 renderer。** renderer 只拿到 `{ id, displayName, entryPoints: [{id, label}] }` —— **拿不到 URL**。这是 P0-2 的根治：renderer 没有能力指定任意 URL。
-
-存 `resources/channels/*.json`（不进 asar），因为渠道后台改版是高频事件，将来要能从 rms 下发。
-
-#### ② `LoginState` —— 三元组，不用裸 bool
-
-```ts
-export type LoginState = Readonly<{
-  state: 'logged_in' | 'logged_out' | 'unknown' | 'expired';
-  source: 'cookie-probe' | 'page-marker' | 'api-probe' | 'user-declared';
-  updatedAt: string;
-}>;
-```
-
-照抄订单来了（它这里做对了）。**没有 `source` 和 `updatedAt` 的登录态是无法运营的** —— 你不知道这个 `false` 是"刚探测过确实掉线"还是"三天前探测的，现在不知道"。
-
-#### ③ `ChannelObservation` —— 采集与权威的分界线
-
-```ts
-export type ChannelObservation = {
-  id: ObservationId;
-  observedAt: string;
-  channel: ChannelId;
-  otaAccountId: OtaAccountId;
-  hotelId: HotelId | null;              // 可能抓不到，允许 null
-  kind: 'order' | 'inventory' | 'rate' | 'review' | 'message';
-  payload: unknown;                     // 渠道原始形状，不强行归一
-  evidence: readonly EvidenceRef[];     // 截图/HTML/网络日志
-  quality: DataQuality;
-};
-
-export type DataQuality = 'complete' | 'partial' | 'suspect';
-```
-
-**桌面端抓到的东西叫 `Observation`（观察），不叫 `Order`（订单）。** 归一和去重是 rms 的职责。
-
-`quality` 是这个模型里最重要的字段：**允许上报"我抓得不完整"，比强行编造一个完整结果安全得多。** 抓取天然会失败、会抓一半，没有这个字段的话，`partial` 的数据会被当成 `complete` 用在库存计算里。
-
-#### ④ `InventoryImpact` —— 库存占用是显式字段，不是推导结果
-
-```ts
-export type InventoryImpact =
-  | 'holds'        // 占用房量
-  | 'released'     // 已释放
-  | 'suspended';   // 挂起（订单盒子）—— 不占用，但订单仍存在
-```
-
-**这是最容易漏、且将来补不回来的一个。**
-
-订单状态 × 库存占用 × 营收统计是**三个正交维度**：
-
-```text
-正常单     → holds     → 计营收
-订单盒子   → suspended → 不计营收 → 但要同步房态给渠道
-已取消     → released  → 不计营收 → 释放房量
-```
-
-关键在"订单盒子"：把一个订单挪进盒子，会让房间在 OTA 上重新可售 —— 这不是"标记一下待人工看"，**这是一次真实的库存写操作**。如果用"从订单状态推导库存"的写法，一个抓取冲突的订单进了 review queue 之后，房态到底算占还是不占？这个问题答不了，后面所有库存计算都是错的。
-
-即使第一版不做同步回渠道，这个字段也必须存在。
-
-#### ⑤ `ProposedAction` —— 三段式写在类型里
-
-```ts
-export interface OtaActionGateway {
-  proposeAction(action: ProposedAction): Promise<ActionProposal>;
-  confirmAction(proposalId: ProposalId, idempotencyKey: string): Promise<ActionExecution>;
-  verifyAction(executionId: ExecutionId): Promise<ActionVerification>;
-}
-```
-
-**接口上没有"直接执行"这个方法** —— 想绕过三段式都写不出来。
-
-三条硬约束：
-
-1. `confirmAction` 的 `idempotencyKey` **不是可选参数**。调用方必须显式想清楚"这次执行的唯一标识是什么"，而不是让传输层偷偷重试。
-2. **实现里禁止任何自动重试。** 网络失败 → 状态置 `unknown` → 走 `verifyAction` 查真实结果 → 由人决定要不要重做。**永远不要因为"没收到响应"就重发一次改价。**
-3. **`OtaActionGateway` 与 `OtaBizDataGateway` 必须是两个接口。** 推事实可重试，推指令重试会改价两遍。塞进一个 Gateway，后来的人很容易顺手给改价也加上"失败自动重试" —— 这是能造成真实经济损失的错误。分成两个接口，让这个错误在类型层面就写不出来。
-
-#### ⑥ `HotelExecutionScope` —— 一次执行的作用域，也是跨店 fan-out 的防线
-
-```ts
-// domain/execution-scope.ts
-export type HotelExecutionScope = Readonly<{
-  appUserId:    AppUserId;      // 审计链条起点：approved_by 要能追到人
-  hotelId:      HotelId;        // ⚠ 单数。改成数组 = 拆掉跨店 fan-out 防线，见第七部分
-  otaAccountId: OtaAccountId;
-  environment:  'prod' | 'dev';
-}>;
-```
-
-**这个类型是"不做跨店 fan-out"这条产品决策的唯一载体。** 第七部分说的"架构上让它做不到"，具体就是指 `hotelId` 这个字段是单数。半年后有人为了做"批量巡检"把它改成 `readonly HotelId[]`，改的那一刻防线就没了——**而他很可能不知道自己在拆什么**，所以注释必须留在字段旁边，不能只写在文档里。
-
-命名上刻意不叫 `ExecutionContext`：一是这个词在 TS 生态里被 AsyncLocalStorage、各类中间件用滥了，搜代码噪音大；二是 `Context` 可以装任意东西，而 `Scope` 天然读作"边界"，往里塞数组会别扭。也不叫 `OtaContext`——它有一半字段（`appUserId`、`environment`）跟渠道无关，且 `Ota*` 前缀在本项目已固定表示"属于渠道侧"。
-
-两条配套约束：
-
-1. **scope 在 session 级固定，不可变。** `startSession(scope)` 之后不允许中途换店换账号。要换 = 开新 session。这样审计时"这次会话动的是哪个店"有唯一答案。
-2. **`agent_tool_call` 的审计要能回答"对哪个店做的"。** 4.6 的表结构里没有 `hotel_id`，因此 `agent_session` 表**必须**存下完整 scope（`app_user_id` / `hotel_id` / `ota_account_id` / `environment`），由 `session_id` 关联回去。否则出了事故只知道"改了价"，不知道"改的谁家的价"。
-
-### 4.3 五个 Gateway（ports）
-
-```text
-AppAccountGateway       app 账号、token、门店权限
-OtaAccountSyncGateway   渠道登录态 → rms  ★最先能接（无副作用，验证通路成本最低）
-OtaBizDataGateway       抓到的事实 → rms（推事实，可重试）
-OtaActionGateway        改价/改库存 → rms（推指令，恰好一次，禁自动重试）
-ModelGateway            模型端点、计费、审计、脱敏
-```
-
-**Gateway 不是"分组"，是"可替换的实现点"。** 判断一个 Gateway 该不该独立，问题永远是"它和隔壁那个会不会同进同退"，不是"它们概念上是不是一类"。②③④ 分家的理由是落地节奏不同（② 今天就能接，④ 最晚），以及 ③④ 的失败语义相反。
-
-三条 token 硬约束（现在就要立）：
-
-- `SecretToken` 是 opaque 类型，`toString()` 返回 `'[REDACTED]'`
-- token **只在 main 持有**，preload 不暴露，renderer 拿不到
-- 给 AI 用时通过**环境变量注入 MCP 进程**，不进 prompt、不落 rollout
-
-`ModelGateway` 配一条发布门禁：**`LocalModelGateway` 在 `app.isPackaged === true` 时直接抛错**，让它不可能被打包进正式版。否则用户 OTA 订单数据直接出境到模型厂商，无审计无脱敏。
-
-### 4.4 五个独立版本号
-
-```ts
-// domain/versioning.ts
-export const SCHEMA_VERSIONS = {
-  appDatabase:     2,   // 已有
-  browserState:    1,   // 要建
-  channelManifest: 1,
-  partitionLayout: 1,   // ★ 一旦发出去就固化在用户磁盘上
-  agentSession:    1,
-} as const;
-```
-
-`partitionLayout` 是其中最特殊的一个：partition 命名发布后就固化在用户磁盘上了。将来要改名（比如加 mapping 层），必须知道当前用户是哪个布局版本才能决定要不要迁移。**这就是那层"实在不行后面可以加 mapping"所需要的触发器。**
-
-配套三条升级规则：
-
-1. **挡住降级** —— `dbVersion > SCHEMA_VERSIONS.appDatabase` 直接抛错。老版本打开新版本的库会产生**静默的错误行为**，比崩溃更糟。
-2. **迁移前备份，失败回滚** —— 现有 `migrate()` 是事务包裹的，单条迁移原子；但**多条迁移之间不是**，迁移 3 成功、4 失败就停在中间态。
-3. **partition 永远不删，只标记 legacy** —— 磁盘空间最便宜，OTA 登录态最贵。
-
-### 4.5 存储：三类数据分开
-
-```text
-<userData>/
-  app.sqlite      ← ①配置 ②状态：小、迁移频繁、每次迁移前备份
-  facts.sqlite    ← ③事实与审计：大、只增、按时间清理
-  artifacts/      ← 截图/HTML/trace：文件系统，不进数据库
-    <yyyy-mm>/<observationId>/{screenshot.png, snapshot.html, network.jsonl}
-```
-
-现在混一个库没关系（数据少），但 observation 一上来（每天几千条），③ 会淹没 ①②，备份和迁移都会变慢。**分库的成本现在几乎为零**（一个 `openDatabase` 变两个），以后再分要动所有 repository。
-
-artifacts 配套：保留期默认 30 天、脱敏后才能导出、总容量上限（超了删最旧）。桌面 app 把用户磁盘塞满是真实会发生的事故。
-
-### 4.6 审计表
-
-```sql
-CREATE TABLE agent_tool_call (
-  session_id     TEXT NOT NULL REFERENCES agent_session(id),
-  call_id        TEXT NOT NULL,
-  tool_name      TEXT NOT NULL,
-  risk_level     TEXT NOT NULL,
-  args_redacted  TEXT NOT NULL,   -- 脱敏后
-  approved_by    TEXT,            -- null = 自动执行
-  result_summary TEXT,
-  at             TEXT NOT NULL,
-  PRIMARY KEY (session_id, call_id)
-);
-```
-
-`agent_tool_call` 比 `agent_message` 更重要 —— **它是审计的载体**。出了问题要能回答"谁在什么时候用什么参数改了什么"，光有对话内容答不了。
-
----
 
 ## 第五部分：执行顺序
 
@@ -748,7 +541,7 @@ BrowserTab 加 otaAccountId
 | 现在就接 Codex | 工具层和上下文模型没建好，接了 agent 只能猜 DOM |
 | ORM / 事件总线 / 渠道 adapter 抽象 | 只有"确定会有第二种实现"的地方才值得抽象，这三个不满足 |
 | 为多租户预留字段 | 已确认不做，需要时加 mapping 层 |
-| 跨店 fan-out | **架构上让它做不到**（`HotelExecutionScope` 只持有单个 `HotelId`，见 4.2 ⑥）。订单来了做了又关掉了，是强负面信号 |
+| 跨店 fan-out | **架构上让它做不到**（`HotelExecutionScope` 只持有单个 `HotelId`，见领域模型 §2.6）。订单来了做了又关掉了，是强负面信号 |
 | `browser_evaluate` 靠 prompt 约束 | prompt 约束对 prompt injection 无效。要么不提供，要么用代码限制 |
 
 ---
