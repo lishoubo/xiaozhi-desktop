@@ -28,29 +28,29 @@ describe('toPartitionName', () => {
   });
 
   it('prod 与 dev 隔离', () => {
-    expect(toPartitionName(key('ctrip', 'a1', 'prod'))).not.toBe(
-      toPartitionName(key('ctrip', 'a1', 'dev')),
+    expect(toPartitionName(key('ctrip', 'account-1', 'prod'))).not.toBe(
+      toPartitionName(key('ctrip', 'account-1', 'dev')),
     );
   });
 
   it('相同的 key 永远得到相同的 partition（幂等）', () => {
-    expect(toPartitionName(key('ctrip', 'a1', 'prod'))).toBe(
-      toPartitionName(key('ctrip', 'a1', 'prod')),
+    expect(toPartitionName(key('ctrip', 'account-1', 'prod'))).toBe(
+      toPartitionName(key('ctrip', 'account-1', 'prod')),
     );
   });
 
   it('生成 Electron 要求的 persist: 前缀，否则不会落盘', () => {
-    expect(toPartitionName(key('ctrip', 'a1', 'prod'))).toMatch(/^persist:/);
+    expect(toPartitionName(key('ctrip', 'account-1', 'prod'))).toMatch(/^persist:/);
   });
 
   it('绝不等于旧的全局共享 partition', () => {
-    expect(toPartitionName(key('ctrip', 'a1', 'prod'))).not.toBe(LEGACY_SHARED_PARTITION);
+    expect(toPartitionName(key('ctrip', 'account-1', 'prod'))).not.toBe(LEGACY_SHARED_PARTITION);
   });
 });
 
 describe('isCurrentLayoutPartition', () => {
   it('识别当前布局生成的 partition', () => {
-    expect(isCurrentLayoutPartition(toPartitionName(key('ctrip', 'a1', 'prod')))).toBe(true);
+    expect(isCurrentLayoutPartition(toPartitionName(key('ctrip', 'account-1', 'prod')))).toBe(true);
   });
 
   it('把旧的共享 partition 判为非当前布局（legacy）', () => {

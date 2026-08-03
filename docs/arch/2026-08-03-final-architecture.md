@@ -426,7 +426,7 @@ class LoginHealthChecker {
 | 节 | 内容 |
 |---|---|
 | §1 | branded type、`ChannelId` 的取值约定、转换函数的校验要求 |
-| §2 | 七个核心模型（含 `HotelExecutionScope`、`AgentEvent`） |
+| §2 | 八个核心模型（含 `OtaCredential`/`OtaAccount`、`HotelExecutionScope`） |
 | §3 | 五个 Gateway 与 token 硬约束 |
 | §4 | 版本号（domain 与 storage 分置）、四条升级规则 |
 | §5 | 三类数据分库、migration 的组织 |

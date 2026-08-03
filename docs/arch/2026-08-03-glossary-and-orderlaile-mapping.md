@@ -17,16 +17,22 @@
 // src/shared/identity.ts
 export type ChannelId    = string & { readonly __brand: 'ChannelId' };
 export type OtaAccountId = string & { readonly __brand: 'OtaAccountId' };
-export type HotelId      = string & { readonly __brand: 'HotelId' };
+export type OtaHotelId   = string & { readonly __brand: 'OtaHotelId' };
+export type CredentialId = string & { readonly __brand: 'CredentialId' };
 export type AppUserId    = string & { readonly __brand: 'AppUserId' };
 ```
 
 | 术语 | 含义 | 例值 | 权威方 |
 |---|---|---|---|
 | `ChannelId` | 渠道（**不是账号，不是域名**） | `ctrip` / `meituan` / `fliggy` / `douyin` | 我们（channel manifest） |
-| `OtaAccountId` | OTA 渠道账号 | `ctrip-account-1` | 我们（本地生成） |
-| `HotelId` | 门店 | — | rms 后端 |
+| `OtaAccountId` | 一个渠道门店账号 | `ctrip-account-1` | 我们（本地生成） |
+| `OtaHotelId` | **渠道侧**的门店 ID | `ctrip-88123` / `dy-99001` | 渠道 |
+| `CredentialId` | 一份渠道登录态（导入或人工登录的产物） | `douyin-chrome` | 我们（本地生成） |
 | `AppUserId` | 我们自己的 app 账号 | — | rms 后端 |
+
+**`HotelId`（我们/rms 侧的统一门店实体）暂不引入** —— rms 未接、本地无门店数据源，现在建等于凭空造概念。届时它的作用是把同一家酒店在各渠道的多个 `OtaHotelId` 归并起来：银际酒店 = 1 个 `HotelId` + 3 个 `OtaHotelId`（携程/美团/抖音各一）。
+
+**`OtaHotelId` 与 `OtaAccountId` 的关系是一对一**：抖音一份登录态管三家店，我们就生成三个 `OtaAccount`，各持一个 `OtaHotelId`。多对多因此被拆成多个一对一，不需要关联实体。
 
 **`ChannelId` 的三条约定**：① 一律小写、字符集 `[a-z0-9-]`（要拼进 partition 字符串和磁盘路径，大小写混用会在 macOS 通过、Linux 失败）；② 取值是渠道而非账号或域名 —— `ctrip` ✅、`ctrip-1` ❌（那是 `OtaAccountId`）、`ctrip.com` ❌（那是 `cookieDomains` 条目）；③ 权威在 manifest 文件名，不在代码里硬编码枚举（渠道高频新增，写成 TS 枚举意味着加渠道要发版）。
 
@@ -44,19 +50,21 @@ export type BrowserContextKey = {
 
 **业务层定位一个浏览器上下文，一律用 `BrowserContextKey`，不用 partition 字符串。**
 
+**partition 是业务隔离单位，按业务身份切。** cookie 怎么来的（导入 / 人工登录）是 `OtaCredential` 的事，不参与隔离结构 —— 登录方式不该影响业务如何切分。与订单来了实测一致。
+
 ```ts
 export type HotelExecutionScope = {
   appUserId:    AppUserId;
-  hotelId:      HotelId;        // ⚠ 单数，不是数组
   channel:      ChannelId;      // 哪个渠道
-  otaAccountId: OtaAccountId;   // 该渠道下的哪个账号
+  otaAccountId: OtaAccountId;   // ⚠ 单数 = 单家渠道门店
+  otaHotelId:   OtaHotelId;     // 冗余，让审计自包含
   environment:  'prod' | 'dev';
 };
 ```
 
-**一次 agent 执行的作用域。** `hotelId` 是单数这件事本身是一条架构约束——「不做跨店 fan-out」就落在这个字段上（详见领域模型 §2.6）。
+**一次 agent 执行的作用域。** 「不做跨店 fan-out」由结构保证：`OtaAccount` 与渠道门店一对一，持有单个 `otaAccountId` 即锁定单店（详见领域模型 §2.6）。
 
-`channel` 必须显式存在，不能靠 `otaAccountId` 反查：反查要访问数据库，而审计要求自包含。加上它之后 **`BrowserContextKey` 正好是 `HotelExecutionScope` 的子集**。
+`channel` / `otaHotelId` 冗余存在，不靠 `otaAccountId` 反查：反查要访问数据库，而审计要求自包含。
 
 刻意不叫 `ExecutionContext`（该词在 TS 生态被用滥，且 `Context` 暗示"可以装任意东西"），也不叫 `OtaContext`（它有一半字段与渠道无关，而 `Ota*` 前缀在本项目固定表示"属于渠道侧"）。
 
@@ -94,7 +102,7 @@ class SessionFactory {
 |---|---|
 | `workspace` | 将来可能用作**业务作用域**（知识库 + skill + 可操作账号的容器）。但那三样现在都不存在，提前定容器大概率定错形状。**不借用它指代渠道或浏览器状态。** |
 | `tenant` / 多租户 | 已确认不做。需要分组时加 mapping 层，不在标识符里预留字段 |
-| `property` | 酒店行业英文术语，但我们是中文团队做中文产品，多一层翻译。统一用 `HotelId` |
+| `property` | 酒店行业英文术语，但我们是中文团队做中文产品，多一层翻译。渠道侧统一用 `OtaHotelId` |
 
 ---
 
@@ -108,8 +116,8 @@ class SessionFactory {
 |---|---|---|
 | `workspaceId` | `ChannelId` | ⚠️ **最容易踩的坑**。它的 `workspaceId` 就是渠道 ID（实测 `lastActiveChannelWorkspaceId: "ctrip"`），不是工作空间。我们直接叫 `channel`，把 `workspace` 留给真正的业务作用域 |
 | `accountId` | `OtaAccountId` | 它的 `accountId` 只指 OTA 账号（app 账号在另一个文件里，见下）。我们加 `Ota` 前缀明确归属 |
-| `ntwIdNew` | `HotelId` | 它的 PMS 门店 ID，"网点 ID"缩写。语义相同，命名不知所云，不采用 |
-| `campName` | （暂无） | 它 `pms_get_context` 里的字段，推测是门店名。我们用 `HotelId` + 单独的显示名字段 |
+| `ntwIdNew` | `OtaHotelId` | 它的 PMS 门店 ID，"网点 ID"缩写。语义相近，命名不知所云，不采用 |
+| `campName` | （暂无） | 它 `pms_get_context` 里的字段，推测是门店名。我们用 `OtaHotelId` + `OtaAccount.displayName` |
 | `workspace-state.prod.json` | `browserState`（存 SQLite） | 概念对应，但**我们用 SQLite 不用 JSON**（见 2.3） |
 | `channelHotelName` / `channelUserLogin` | 渠道身份回显字段 | 概念保留（让用户肉眼确认操作对象），命名待定 |
 
@@ -135,7 +143,7 @@ class SessionFactory {
 |---|---|---|---|
 | app 账号 ↔ OTA 账号 | 无绑定（OTA 账号全局） | 同样无绑定 | 判断一致：生命周期不同步，硬绑处处是特例 |
 | browserState 存储 | JSON 文件（有 `.bak`） | SQLite | JSON 全量重写易写坏（它自己有 `.bak` 就是在防这个）；我们已有迁移框架 |
-| 门店归属 | `channelHotelName` 事后回显 | 待定（见下方未决） | 它实测 15 个账号全为空 |
+| 门店归属 | `channelHotelName` 事后回显 | `OtaAccount.otaHotelId` 显式建模 | 它实测 15 个账号全为空；我们把门店做成账号的固有属性，一账号一门店 |
 | 审批粒度 | 按 MCP server（整个 browser 一律 approve） | 按工具 `RiskLevel` 分级 | 它的粒度导致只读 snapshot 也要人点确认 |
 | 并发锁 | `execute_skill` 串行锁（全局） | 账号级读写锁 | 全局锁限制吞吐；账号级允许跨账号并行 |
 | 工具超时 | `tool_timeout_sec = 3600`（browser） | 按工具分别设 | 1 小时超时会让卡住的页面挂死 agent |
@@ -147,7 +155,7 @@ class SessionFactory {
 
 | 订单来了 | 我们的处置 |
 |---|---|
-| 跨店 fan-out | **架构上让它做不到**（`HotelExecutionScope` 只持有单个 `HotelId`）。它自己也关掉了这个功能 |
+| 跨店 fan-out | **架构上让它做不到**（`OtaAccount` 与渠道门店一对一，scope 持单个 `otaAccountId` 即锁定单店）。它自己也关掉了这个功能 |
 | skill marketplace | 等有 skill 再说 |
 | `browser_evaluate` | 要么不提供，要么用代码限制（不能只靠 prompt 约束） |
 | 云 PMS / Channel Manager | 我们的权威在 rms 后端，产品定位不同 |
@@ -160,13 +168,14 @@ class SessionFactory {
 
 - [ ] 用 `ChannelId` 不用 `workspaceId`
 - [ ] 用 `OtaAccountId` 不用裸 `accountId`
-- [ ] 用 `HotelId` 不用 `propertyId` / `ntwId`
+- [ ] 渠道侧门店用 `OtaHotelId`，不用 `propertyId` / `ntwId` / 裸 `hotelId`
 - [ ] app 账号用 `AppUserId`，不和 `OtaAccountId` 混用
 - [ ] `partition` 字样只出现在 `SessionFactory`
 - [ ] 不使用 `workspace` 指代渠道或浏览器状态
 - [ ] 登录态一律三元组，不用裸 bool
 - [ ] 执行作用域用 `HotelExecutionScope`，不用 `ExecutionContext` / `OtaContext`
-- [ ] `HotelExecutionScope.hotelId` 保持单数（改成数组 = 拆掉跨店 fan-out 防线）
+- [ ] `HotelExecutionScope.otaAccountId` 保持单数（改成数组 = 拆掉跨店 fan-out 防线）
+- [ ] partition 按 `otaAccountId` 切；`CredentialId` 不进 partition（登录方式不影响业务隔离）
 - [ ] `ChannelId` 取值小写、是渠道不是账号/域名（`ctrip` 而非 `CTRIP` / `ctrip-1` / `ctrip.com`）
 
 ---
@@ -175,9 +184,9 @@ class SessionFactory {
 
 以下需要产品判断，定了再回来补本表：
 
-1. **一个 OTA 账号挂多家店时怎么定位当前门店**（订单来了用 `channelHotelName` 事后回显，实测为空）。取决于目标客户是单体还是连锁
-2. **`workspace` 将来的确切含义**（知识库 + skill + 可操作账号的容器？和 HotelId 什么关系？）
-3. **rms 后端现有术语**——本表定稿时未读 `/Users/lishoubo/p/projects/xiaozhi-rms-workspace`。若 rms 已有 `HotelId` 之外的叫法，以 rms 为准并回来更新本表
+1. ~~一个 OTA 账号挂多家店时怎么定位当前门店~~ → **已决**：一份登录态管多店时拆成多个 `OtaAccount`，各持一个 `OtaHotelId`、各有独立 partition。剩余未决是 `OtaHotelId` 从哪来（探测 / 用户指认 / rms 下发），属登录流程的问题
+2. **`workspace` 将来的确切含义**（知识库 + skill + 可操作账号的容器？和门店什么关系？）
+3. **rms 后端现有术语**——本表定稿时未读 `/Users/lishoubo/p/projects/xiaozhi-rms-workspace`。`HotelId`（统一门店实体）待 rms 接通后引入，命名以 rms 为准并回来更新本表
 
 ---
 

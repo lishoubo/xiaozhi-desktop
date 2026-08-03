@@ -1,6 +1,9 @@
 /**
  * partition 命名策略 —— 每个 (environment, channel, otaAccountId) 一份独立存储。
  *
+ * **partition 是业务隔离单位**，所以按业务身份（账号）切。cookie 从哪来、
+ * 怎么授权的，是 `OtaCredential` 的事，不影响这里的结构。
+ *
  * 这是 D1 的修复核心：此前所有 OTA 账号共用 `persist:hotel-butler-browser`
  * 一个 session，导致同渠道两个账号的 cookie 互相覆盖，导入携程还会顺带
  * 覆盖已登录的美团 —— 用户会真实丢失登录态。

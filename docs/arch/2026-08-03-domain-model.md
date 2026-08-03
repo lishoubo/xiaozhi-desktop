@@ -16,16 +16,34 @@
 declare const brand: unique symbol;
 type Brand<T, B> = T & { readonly [brand]: B };
 
-export type ChannelId    = Brand<string, 'ChannelId'>;
-export type OtaAccountId = Brand<string, 'OtaAccountId'>;
-export type HotelId      = Brand<string, 'HotelId'>;
-export type AppUserId    = Brand<string, 'AppUserId'>;
-export type TabId        = Brand<string, 'TabId'>;
+export type ChannelId     = Brand<string, 'ChannelId'>;
+export type OtaAccountId  = Brand<string, 'OtaAccountId'>;
+export type OtaHotelId    = Brand<string, 'OtaHotelId'>;
+export type CredentialId  = Brand<string, 'CredentialId'>;
+export type AppUserId     = Brand<string, 'AppUserId'>;
+export type TabId         = Brand<string, 'TabId'>;
 ```
 
 用 `unique symbol` 而非字符串字面量做 brand —— 别处写不出 `{ __brand: 'ChannelId' }` 来伪造。
 
 **`AppUserId` 和 `OtaAccountId` 必须是两个类型**：这是「两套账号体系不绑定」在类型层面的落实。命名分开给人看，branded type 给编译器看，两者都要有。
+
+### 1.0 `OtaHotelId`：渠道侧的门店 ID（`HotelId` 暂不引入）
+
+一家酒店在不同渠道各有一个门店 ID，它们互不相同：
+
+```text
+银际酒店
+  ├─ 携程侧门店 ID  ctrip-88123     ← OtaHotelId
+  ├─ 美团侧门店 ID  mt-45678        ← OtaHotelId
+  └─ 抖音侧门店 ID  dy-99001        ← OtaHotelId
+```
+
+**`HotelId`（我们/rms 侧统一的门店实体）现在不引入。** rms 接口未接、本地无门店数据源，现在建这个字段是凭空造概念 —— 等 rms 通了、真有门店权威了再加，那时它的作用是"把三个 `OtaHotelId` 归并成同一家酒店"。
+
+在那之前，`OtaHotelId` 就是我们能拿到的最细门店粒度，**它足以支撑单店的改价/改库存操作**（因为渠道接口要的本来就是渠道自己的 ID）。
+
+> 术语纪律：凡是渠道侧的东西一律 `Ota*` 前缀。`OtaHotelId` 与 `OtaAccountId` 成对，一眼看出是渠道侧标识，不会和将来的 `HotelId` 混。
 
 ### 1.1 `ChannelId` 到底是什么
 
@@ -55,7 +73,11 @@ export type BrowserContextKey = Readonly<{
 }>;
 ```
 
-**业务层定位一个浏览器上下文，一律用它，不用 partition 字符串。** 它是 `HotelExecutionScope` 的子集 —— 见 §2.6。
+**业务层定位一个浏览器上下文，一律用它，不用 partition 字符串。**
+
+**partition 是业务隔离单位，所以按业务身份切。** cookie 从哪来、怎么授权的，那是 `OtaCredential` 的事（§2.0），不参与这里 —— 登录方式不该影响业务如何隔离。
+
+与订单来了实测一致：它的 15 个 partition 全部是 `ddlldesk:prod:<渠道>:<账号>` 结构。
 
 ### 1.3 转换函数必须校验
 
@@ -73,7 +95,51 @@ export function toOtaAccountId(raw: string): OtaAccountId;
 
 ---
 
-## 2. 七个核心模型
+## 2. 八个核心模型
+
+### 2.0 `OtaCredential` 与 `OtaAccount` —— 凭证与业务身份分离
+
+这是理解整个模型的入口，其余模型都挂在它上面。
+
+```ts
+/** 一份渠道登录态。cookie 存在它对应的 partition 里。 */
+export type OtaCredential = Readonly<{
+  id:         CredentialId;      // 如 douyin-chrome
+  channel:    ChannelId;
+  importedAt: string;
+  sourceLabel: string;           // 「Chrome」—— 给人看的来源
+  loginState: LoginState;
+}>;
+
+/** 一个可操作的渠道门店账号。 */
+export type OtaAccount = Readonly<{
+  id:           OtaAccountId;
+  channel:      ChannelId;
+  otaHotelId:   OtaHotelId;      // ★ 单个。渠道侧门店 ID
+  credentialId: CredentialId;    // 用哪份登录态去操作
+  displayName:  string | null;   // 渠道侧门店名，探测到再填
+}>;
+```
+
+**一个账号只对应一家渠道门店。** 这不是简化，是刻意的建模选择：
+
+```text
+抖音一份登录态（后台管三家店）
+  ├→ OtaAccount#1  otaHotelId = dy-111
+  ├→ OtaAccount#2  otaHotelId = dy-222
+  └→ OtaAccount#3  otaHotelId = dy-333       ← 三个账号，共享一个 credentialId
+
+携程一份登录态（只管一家店）
+  └→ OtaAccount#4  otaHotelId = ctrip-88123  ← 一个账号
+```
+
+**多对多被拆成了多个一对一**，因此不需要 `AccountHotelBinding` 这类关联实体。收益有三个：
+
+1. `HotelExecutionScope` 天然是单店的 —— 不需要"从账号的门店列表里选一个"这个额外动作，跨店 fan-out 由模型结构直接堵死，而非靠约定
+2. 每个账号的登录态、操作记录、审计都有独立主体
+3. 携程（一店）与抖音（多店）用同一套模型表达，无需分支
+
+**`OtaAccount` 不承载凭证**，只持 `credentialId` 引用。所以「重新导入 cookie」刷新的是 `OtaCredential`，账号及其历史记录不受影响。
 
 ### 2.1 `ChannelManifest` —— 渠道的能力与策略声明
 
@@ -119,7 +185,7 @@ export type ChannelObservation = {
   observedAt: string;
   channel: ChannelId;
   otaAccountId: OtaAccountId;
-  hotelId: HotelId | null;              // 可能抓不到，允许 null
+  otaHotelId: OtaHotelId | null;        // 可能抓不到，允许 null
   kind: 'order' | 'inventory' | 'rate' | 'review' | 'message';
   payload: unknown;                     // 渠道原始形状，不强行归一
   extractorVersion: string;             // ★ 哪一版抓取逻辑抓的
@@ -183,26 +249,28 @@ export interface OtaActionGateway {
 // domain/execution-scope.ts
 export type HotelExecutionScope = Readonly<{
   appUserId:    AppUserId;      // 审计链条起点：approved_by 要能追到人
-  hotelId:      HotelId;        // ⚠ 单数。改成数组 = 拆掉跨店 fan-out 防线
   channel:      ChannelId;      // 哪个渠道（美团 / 抖音 / 携程）
-  otaAccountId: OtaAccountId;   // 该渠道下的哪个账号
+  otaAccountId: OtaAccountId;   // ⚠ 单数。一个账号 = 一家渠道门店（§2.0）
+  otaHotelId:   OtaHotelId;     // 冗余自账号，让审计自包含
   environment:  'prod' | 'dev';
 }>;
 ```
 
-**这个类型是「不做跨店 fan-out」这条产品决策的唯一载体。** "架构上让它做不到"具体就是指 `hotelId` 是单数。半年后有人为了做"批量巡检"把它改成 `readonly HotelId[]`，改的那一刻防线就没了 —— **而他很可能不知道自己在拆什么**，所以注释必须留在字段旁边，不能只写在文档里。
+**这个类型是「不做跨店 fan-out」这条产品决策的载体。** 防线现在由**模型结构**保证，而非单靠字段注释：`OtaAccount` 与渠道门店是一对一（§2.0），所以 scope 持有单个 `otaAccountId` 就等于锁定了单家门店 —— 想 fan-out 到三家店，必须显式开三个 scope、三个 session，每个都留痕。
 
-**为什么 `channel` 必须显式存在**（早期版本漏了它）：
+> 这比早期版本（scope 里放 `hotelId: HotelId`，靠注释提醒"别改成数组"）更牢固：那时账号可能管多店，"单店"是约定；现在账号本身就是单店的，"单店"是结构。
 
-- 靠 `otaAccountId` 反查 channel 需要查表，意味着**审计时拿不到 channel 就得访问数据库**，而审计恰恰要求自包含
-- `OtaAccountId` 由我们本地生成，它与 channel 的绑定关系是可变的，不该被当成隐含事实
-- `BrowserContextKey` 明确带了 `channel`，两个上下文类型对同一件事的表达必须一致
+**`otaHotelId` 为何冗余**：它可由 `otaAccountId` 查出，但审计要求自包含 —— 出事故时不该为了回答"改的哪家店"去访问数据库。同理 `channel` 也显式存在，不靠 `otaAccountId` 反查。
 
-加上 `channel` 后关系变清晰了 —— **`BrowserContextKey` 是 `HotelExecutionScope` 的子集**：
+`BrowserContextKey` 是它的投影：
 
 ```ts
 export function toBrowserContextKey(scope: HotelExecutionScope): BrowserContextKey {
-  return { environment: scope.environment, channel: scope.channel, otaAccountId: scope.otaAccountId };
+  return {
+    environment: scope.environment,
+    channel: scope.channel,
+    otaAccountId: scope.otaAccountId,
+  };
 }
 ```
 
@@ -211,7 +279,7 @@ export function toBrowserContextKey(scope: HotelExecutionScope): BrowserContextK
 两条配套约束：
 
 1. **scope 在 session 级固定，不可变。** `startSession(scope)` 之后不允许中途换店换账号。要换 = 开新 session。这样审计时"这次会话动的是哪个店"有唯一答案。
-2. **`agent_session` 表必须存下完整 scope**（`app_user_id` / `hotel_id` / `channel` / `ota_account_id` / `environment`），由 `session_id` 关联。§6 的 `agent_tool_call` 表里没有这些字段，否则出了事故只知道"改了价"，不知道"改的谁家的价"。
+2. **`agent_session` 表必须存下完整 scope**（`app_user_id` / `channel` / `ota_account_id` / `ota_hotel_id` / `environment`），由 `session_id` 关联。§6 的 `agent_tool_call` 表里没有这些字段，否则出了事故只知道"改了价"，不知道"改的谁家的价"。
 
 ### 2.7 `AgentEvent` —— renderer 只认归一化事件
 
@@ -357,7 +425,7 @@ this.browserSession = session.fromPartition('persist:hotel-butler-browser');
 - 导入某浏览器的携程 cookie 时，会连带覆盖已登录的美团 cookie
 - 用户没有"当前是哪个账号"的概念
 
-**这不是未来的隐患，是现在就会丢登录态的 bug。** 修法即 `BrowserContextKey` + `SessionFactory`（每个 `(environment, channel, otaAccountId)` 一个 partition）。
+**这不是未来的隐患，是现在就会丢登录态的 bug。** 修法即 `BrowserContextKey` + `SessionFactory`（每个 `(environment, channel, otaAccountId)` 一个 partition，与订单来了实测结构一致）。
 
 迁移策略：旧 partition 保留并标记 legacy，**不自动复制** —— 你不知道那里面是谁的登录态。代价是现有登录态需要重新导入一次。
 
