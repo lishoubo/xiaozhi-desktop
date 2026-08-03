@@ -1,10 +1,11 @@
 import type { ApplicationDatabase } from '../database/application-database';
+import type { CalendarRepository } from '../../domain/ports/repositories';
 import type {
   CalendarEventCreateInput,
   CalendarEventRecord,
   CalendarEventUpdateInput,
   CalendarSnapshot,
-} from '../../shared/calendar';
+} from '../../domain/calendar';
 
 type CalendarGroupRow = Readonly<{
   id: string;
@@ -35,13 +36,6 @@ function eventFromRow(row: CalendarEventRow): CalendarEventRecord {
     notes: row.notes,
     source: row.source,
   };
-}
-
-export interface CalendarRepository {
-  load(): CalendarSnapshot;
-  createEvent(input: CalendarEventCreateInput): CalendarEventRecord;
-  updateEvent(input: CalendarEventUpdateInput): CalendarEventRecord;
-  deleteEvent(id: string): void;
 }
 
 export class SqliteCalendarRepository implements CalendarRepository {

@@ -1,4 +1,9 @@
 import { z } from 'zod';
+import type {
+  CalendarEventCreateInput as DomainCalendarEventCreateInput,
+  CalendarEventRecord as DomainCalendarEventRecord,
+  CalendarGroup as DomainCalendarGroup,
+} from '../domain/calendar';
 
 export const calendarGroupSchema = z.object({
   id: z.string().min(1).max(80),
@@ -47,8 +52,25 @@ export const calendarEventUpdateInputSchema = z.object({
 
 export const calendarEventIdSchema = z.string().min(1).max(128);
 
-export type CalendarGroup = z.infer<typeof calendarGroupSchema>;
-export type CalendarEventRecord = z.infer<typeof calendarEventRecordSchema>;
-export type CalendarSnapshot = z.infer<typeof calendarSnapshotSchema>;
-export type CalendarEventCreateInput = z.infer<typeof calendarEventCreateInputSchema>;
-export type CalendarEventUpdateInput = z.infer<typeof calendarEventUpdateInputSchema>;
+// 领域类型的权威在 domain/，这里只做 re-export —— 依赖方向是 shared 引 domain。
+export type {
+  CalendarEventCreateInput,
+  CalendarEventRecord,
+  CalendarEventSource,
+  CalendarEventUpdateInput,
+  CalendarGroup,
+  CalendarSnapshot,
+} from '../domain/calendar';
+
+// 编译期守卫：schema 推导出的形状必须与 domain 类型一致。
+// 任一侧改了字段而另一侧没跟上，这里会立刻报错。
+type AssertExtends<A extends B, B> = [A, B] extends [B, A] ? true : true;
+
+export type _CalendarSchemasMatchDomain = [
+  AssertExtends<z.infer<typeof calendarGroupSchema>, DomainCalendarGroup>,
+  AssertExtends<DomainCalendarGroup, z.infer<typeof calendarGroupSchema>>,
+  AssertExtends<z.infer<typeof calendarEventRecordSchema>, DomainCalendarEventRecord>,
+  AssertExtends<DomainCalendarEventRecord, z.infer<typeof calendarEventRecordSchema>>,
+  AssertExtends<z.infer<typeof calendarEventCreateInputSchema>, DomainCalendarEventCreateInput>,
+  AssertExtends<DomainCalendarEventCreateInput, z.infer<typeof calendarEventCreateInputSchema>>,
+];

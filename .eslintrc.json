@@ -36,6 +36,16 @@
             "target": "./src/domain",
             "from": "./src/shared",
             "message": "domain 不能依赖 shared（方向反了：应由 shared 引 domain）"
+          },
+          {
+            "target": "./src/renderer",
+            "from": "./src/main",
+            "message": "renderer 只能通过 preload 访问 main"
+          },
+          {
+            "target": "./src/renderer",
+            "from": "./src/domain/ports",
+            "message": "renderer 不该认识 ports（那是 main 侧的装配契约）"
           }
         ]
       }
@@ -54,6 +64,23 @@
               { "name": "svelte", "message": "domain 不认 UI" },
               { "name": "node:fs", "message": "domain 不做 I/O" },
               { "name": "node:child_process", "message": "domain 不起进程" }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "files": ["src/main/**/*.ts"],
+      "excludedFiles": ["src/main/application.ts"],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "patterns": [
+              {
+                "group": ["**/calendar/calendar-repository", "**/browser/browser-manager"],
+                "message": "实现类只能在 composition root（application.ts）装配；这里请引 domain/ports 的接口"
+              }
             ]
           }
         ]

@@ -67,7 +67,7 @@ function toLocalDateTime(value: Date): string {
   return `${value.getFullYear()}-${twoDigits(value.getMonth() + 1)}-${twoDigits(value.getDate())}T${twoDigits(value.getHours())}:${twoDigits(value.getMinutes())}:${twoDigits(value.getSeconds())}.${String(value.getMilliseconds()).padStart(3, '0')}`;
 }
 
-export function toCalendarEvents(events: CalendarEventRecord[]): CalendarViewEvent[] {
+export function toCalendarEvents(events: readonly CalendarEventRecord[]): CalendarViewEvent[] {
   return events.map((event) => ({
     id: event.id,
     text: event.title,
@@ -103,7 +103,9 @@ function updateInputFromEvent(
   id: string | number,
   event: Partial<CalendarEvent>,
 ): CalendarEventUpdateInput | null {
-  const update: CalendarEventUpdateInput['event'] = {};
+  // 局部逐字段构建，故用可变类型；返回时收敛回只读的 CalendarEventUpdateInput
+  const update: { -readonly [K in keyof CalendarEventUpdateInput['event']]: CalendarEventUpdateInput['event'][K] } =
+    {};
   if (typeof event.text === 'string') update.title = event.text.trim() || '新日程';
   if (event.start instanceof Date) update.startsAt = toLocalDateTime(event.start);
   if (event.end instanceof Date) update.endsAt = toLocalDateTime(event.end);

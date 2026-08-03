@@ -1,6 +1,6 @@
 import { ipcMain, type IpcMainInvokeEvent } from 'electron';
 import { z, type ZodType } from 'zod';
-import type { CalendarRepository } from '../calendar/calendar-repository';
+import type { CalendarRepository } from '../../domain/ports/repositories';
 import type { AppLogger } from '../../shared/logging';
 import {
   calendarEventCreateInputSchema,
