@@ -1,0 +1,34 @@
+/**
+ * partition 命名策略 —— 每个 (environment, channel, otaAccountId) 一份独立存储。
+ *
+ * 这是 D1 的修复核心：此前所有 OTA 账号共用 `persist:hotel-butler-browser`
+ * 一个 session，导致同渠道两个账号的 cookie 互相覆盖，导入携程还会顺带
+ * 覆盖已登录的美团 —— 用户会真实丢失登录态。
+ *
+ * 放在 domain 而非 SessionFactory 里，是因为「怎么命名」是一条可穷举测试的
+ * 纯规则，而「拿到 Session 对象」才需要 Electron。
+ *
+ * ⚠ **partition 名称一旦发布就固化在用户磁盘上**，改动等于让所有用户重新登录。
+ * 因此改这里必须同时升 `partitionLayout` 版本号，并想清楚迁移策略。
+ */
+import type { BrowserContextKey } from '../identity';
+
+/** 与 STORAGE_VERSIONS.partitionLayout 对应；改命名规则必须同步升版本。 */
+export const PARTITION_LAYOUT_VERSION = 1;
+
+const PARTITION_PREFIX = 'persist:xiaozhi';
+
+/**
+ * 旧版全局共享 partition。**保留但不再写入** —— 里面混着多个账号的登录态，
+ * 无法判断哪条 cookie 属于谁，自动迁移会把 A 的登录态错配给 B。
+ */
+export const LEGACY_SHARED_PARTITION = 'persist:hotel-butler-browser';
+
+export function toPartitionName(key: BrowserContextKey): string {
+  return `${PARTITION_PREFIX}:${key.environment}:${key.channel}:${key.otaAccountId}`;
+}
+
+/** 判断一个 partition 名是否由当前布局生成（用于识别 legacy）。 */
+export function isCurrentLayoutPartition(name: string): boolean {
+  return name.startsWith(`${PARTITION_PREFIX}:`);
+}
