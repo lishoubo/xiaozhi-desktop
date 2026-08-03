@@ -1,22 +1,34 @@
 # 研发工作流规范
 
-> 本文件供 Codex 使用（Codex 固定读取项目根目录的 AGENTS.md，文件名不可改）。
-> 同一套规则同时维护在 CLAUDE.md（供 Claude Code 使用）和 GEMINI.md（供 Gemini CLI 使用），三者内容存在重叠，手工维护，改动一条规则时请逐一同步三处。
+> 本文件供 Codex 使用（Codex 固定读取项目根目录的 `AGENTS.md`，文件名不可改）。
+> 同一套规则同时维护在 `CLAUDE.md`（供 Claude Code 使用）。两份文件规则相同、措辞对齐，只在工具入口一节有差异（本文用工具无关的说法，`CLAUDE.md` 写 Claude Code 的 skill 与 slash command）。**改动任何一条规则时请同步两处。**
 
-## 三层框架
+## 依赖
 
-| 层级 | 工具 | 职责 |
+| 依赖 | 层级 | 提供什么 |
+|------|------|---------|
+| OpenSpec（或等效规范流程） | 规范层 | proposal.md + design.md + tasks.md |
+| superpowers（或等效流程） | 流程层 | brainstorm / plan / TDD / debug / review / verify |
+
+安装方式不在此维护。依赖缺失时**明确告知用户，不要静默降级到自己编的流程**。
+
+## 两层框架
+
+| 层级 | 职责 | 产物 |
 |------|------|------|
-| 规范层（蓝图） | OpenSpec | 需求分析 → proposal.md + design.md + tasks.md |
-| 流程层（大脑） | superpowers / 等效流程 | brainstorm → plan → TDD → debug → review → verify |
-| 执行层（手脚） | gstack / 等效工具 | 浏览器 / QA / ship / deploy / canary / 护栏 |
+| 规范层（蓝图） | 需求分析、方案确认 | `proposal.md` + `design.md` + `tasks.md` |
+| 流程层（大脑） | brainstorm → plan → TDD → debug → review → verify | 代码 + 验证证据 |
+
+两层通过**文件**传递信息（`tasks.md` 是规范层交给流程层的唯一输入），不通过共享内存或隐式状态。
+
+浏览器验证、QA、发布、部署没有专用工具，用通用能力完成，并遵守下面的安全护栏。
 
 ## 核心原则
 
-1. **规范先行**：任何新需求或较大改动，必须先产出 proposal.md + design.md + tasks.md，再动手写代码。
-2. **职责分离**：规范层只产文档；流程层只按 tasks.md 执行编码流程；执行层只做验证和交付。三者通过文件传递信息。
+1. **规范先行**：中/大任务先产出 `proposal.md` + `design.md` + `tasks.md`，再动手写代码。小任务和只读任务不走（见任务分流）。
+2. **职责分离**：规范层只产文档；流程层只按 `tasks.md` 执行编码流程。
 3. **独立 reviewer 通道**：verification 和 code-review 分两个独立 pass，不能在同一上下文里合并。
-4. **证据优先**：没有测试 / 截图 / QA 报告不算完成；没有验证证据不得声称"通过"或"完成"；禁止虚构命令输出。
+4. **证据优先**：没有测试/截图/QA 报告不算完成，没有验证证据不得声称"通过"/"完成"，**禁止虚构命令输出**。
 5. **歧义先 brainstorm**：任何创造性工作前，先探索用户意图、澄清需求，再动手。
 6. **最短路径优先**：能简单解决的，不升级为完整闭环流程。
 
@@ -28,16 +40,16 @@
 
 ### 小任务
 单文件或小范围修改、明确 bug 修复、配置/文案调整、小测试补充。
-跳过完整 brainstorm / 计划 / 重 review 链。
-直接实现 → 定向验证 → 必要时在浏览器确认效果。
+跳过规范流程 / brainstorm / 计划 / 重 review 链。
+直接实现 → 定向验证。
 
 ### 中任务
 多文件但边界清晰，新功能或明确的重构。
-先走 OpenSpec 产出规范文档 → 简短 brainstorm → 实现 → 浏览器或 QA 验证 → verification。
+先产出规范三件套（必须首先）→ 简短 brainstorm → 实现 → 验证 → verification。
 
 ### 大任务
 跨模块、共享逻辑、新架构、公共 API 变更。
-OpenSpec 规范 → brainstorm → 制定计划 → 执行（含 TDD）→ QA → verification → code-review → 发布 → 部署 → 灰度。
+规范三件套（必须首先）→ brainstorm → 制定计划 → 执行（含 TDD）→ verification → code-review → 交付（发布/部署需用户确认）。
 
 ## 测试粒度控制
 
@@ -46,50 +58,92 @@ OpenSpec 规范 → brainstorm → 制定计划 → 执行（含 TDD）→ QA �
 3. **TDD 用例克制**：每个行为默认 1 个 happy path + 至多 2 个高价值边界，不生成穷举参数矩阵/mock 组合；需要更全覆盖由用户明确提出。
 4. **失败重试熔断**：同一测试连续失败约 3 次仍未解决，停下来做系统性根因分析，不再空转重跑。
 
-## OpenSpec 规范结构
+## 输出目录
+
+**所有 AI 产出的文档一律落在 `docs/` 下，不在仓库根目录新建文档目录。**
 
 ```
-openspec/
-  specs/     # 当前系统事实来源（已稳定的规范）
-  changes/   # 每次变更提案（进行中）
-    <change-name>/
-      proposal.md   # 为什么做（背景、目标、成功标准）
-      design.md     # 怎么做（架构决策、接口、数据流）
-      tasks.md      # 具体任务清单（流程层的输入）
+openspec/                        规范事实来源（OpenSpec 管理，必须在仓库根目录）
+├── config.yaml
+├── specs/                       已稳定的规范，按能力拆分
+│   └── <capability>/spec.md
+└── changes/                     进行中的提案
+    ├── <change-name>/
+    │   ├── proposal.md          为什么做（背景、目标、成功标准）
+    │   ├── design.md            怎么做（架构决策、接口、数据流）
+    │   ├── tasks.md             任务清单（流程层的唯一输入）
+    │   ├── specs/               本次变更的 delta（验收后合并进顶层 specs/）
+    │   └── verification.md      验证证据
+    └── archive/YYYY-MM-DD-<name>/   已完成并归档
+
+docs/                            规范之外的文档
+├── arch/                        架构设计文档
+├── research/                    调研材料
+└── *.md                         工程规范、README、外部指南
 ```
 
-**规范与执行的衔接：**
-1. 需求输入 → OpenSpec 产出 tasks.md
-2. tasks.md 作为流程层的输入，启动 brainstorm
-3. 执行中发现规范遗漏或错误 → 回退更新 design.md / tasks.md，再继续执行
+**`openspec/` 必须在仓库根目录**，OpenSpec 工具硬编码此路径，不能挪进 `docs/`。
 
-**全局架构/接口/部署治理：**
-- `specs/` 按 capability 拆分独立 spec.md，不建 architecture.md / api.md / deployment.md 这类跨切面大文件；单文件建议 ≤ 200 行，超出按子能力拆分
-- 格式/大小约束写进 `openspec/config.yaml` 的 `rules:` 字段（OpenSpec 原生支持），不在本文件里另造规则
-- **完成门禁触发标准**：改动是否新增/修改/删除了 ① 跨模块接口 ② 架构（新服务、数据流变化、模块边界变化）③ 部署方式（环境变量、基础设施、发布流程）？任一"是" → 必须同步 `specs/` 对应 capability 文件（验证通过后 archive 或手动合并 delta，只写差量），不因任务分级小而免检
+`specs/` 与 `changes/` 的区别只有一条：**`specs/` 是已稳定的事实，`changes/` 是进行中的提案。** 提案先在 `changes/<name>/specs/` 里写差量，验收后才合并进顶层 `specs/`，然后归档。
 
-## 文档路由规则
+### 路由规则
 
-用户说"放到 docs 下"时，若判断内容属于研发类文档，自动改放规范目录，完成后告知一句原因；非研发类文档尊重原意留在 `docs/`。
+用户说"放到 docs 下"时，若内容属于研发类文档，按下表放进对应目录，完成后告知一句原因；非研发类文档尊重原意留在 `docs/` 顶层。
 
 | 文档类型 | 目标位置 |
 |---|---|
-| 架构/接口/部署等全局事实 | `openspec/specs/<capability>/spec.md` |
+| 架构/接口/部署等全局事实（已稳定） | `openspec/specs/<capability>/spec.md` |
 | 单次需求的 proposal/design/tasks | `openspec/changes/<name>/` |
-| 未关联 openspec change 的技术方案 | `docs/superpowers/specs/YYYY-MM-DD-<topic>-design.md` |
-| 测试计划/QA报告/验证证据 | 中/大任务：`openspec/changes/<name>/verification.md`；小任务：内联汇报，不建文件 |
-| 面向外部消费者的 API 文档、README、用户指南等 | 留在 `docs/`，不路由 |
+| 测试计划/QA 报告/验证证据 | 中/大任务：`openspec/changes/<name>/verification.md`；小任务：内联汇报，**不建文件** |
+| 架构设计文档、技术方案 | `docs/arch/YYYY-MM-DD-<topic>.md` |
+| 调研、竞品分析、选型对比 | `docs/research/<topic>.md` |
+| 面向外部消费者的 API 文档、README、用户指南 | `docs/` 顶层，不路由 |
+| 临时脚本、中间产物、调试输出 | 临时目录或 `output/`（gitignore），**不进 `docs/`** |
 
-## 安全原则
+### 收敛规则
 
-- 破坏性操作（删除文件/数据库/分支、强制推送、重置）必须用户明确确认，执行前说明影响范围
-- **分支合并到 master / main 绝对禁止自动执行**：无论流程处于哪个阶段，`git merge`、`git rebase` 合并到 master/main，或合并 PR 到主干，都必须暂停并等待用户明确授权，不得在任何自动化步骤中静默执行
-- **远端部署绝对禁止自动执行**：deploy / release / publish / 推送镜像 / 更新生产配置等任何影响远端环境的操作，必须暂停并等待用户明确授权，描述操作内容和影响范围后方可执行
+同一主题多轮讨论产出多份过程稿时，**最终必须整合成一份定稿**，过程稿删除或明确标注被取代。不留并列的多个"最终方案"。
+
+### 规范治理
+
+- `openspec/specs/` 按 capability 拆分独立目录，不建 `architecture.md` / `api.md` / `deployment.md` 这类跨切面大文件；单个 `spec.md` 建议 ≤ 200 行，超出按子能力拆分
+- 格式/大小约束写进 `openspec/config.yaml` 的 `rules:` 字段（OpenSpec 原生支持），不在本文件里另造规则
+- **完成门禁触发标准**：改动是否新增/修改/删除了 ① 跨模块接口 ② 架构（新服务、数据流变化、模块边界变化）③ 部署方式（环境变量、基础设施、发布流程）？任一"是" → 必须同步 `openspec/specs/` 对应 capability（验证通过后 archive 或手动合并 delta，只写差量），**不因任务分级小而免检**
+
+## 编程约束
+
+详见 `docs/ENGINEERING_PRINCIPLES.md`（工程原则）、`docs/TESTING_STANDARDS.md`（测试）、`docs/ELECTRON_SECURITY.md`（Electron 安全）。以下是必须遵守的硬约束：
+
+- **核心业务逻辑与框架解耦**：`src/domain/` 零框架依赖，不 import `electron` / `better-sqlite3` / `svelte` / harness SDK / `node:fs`。判定标准 = 验收标准：domain 的测试用裸 vitest 跑，不需要 mock 任何东西
+- 依赖方向：`renderer` 只通过 `preload` 访问 `main`；`domain` 不依赖任何一端；只有 composition root 能 import Gateway 实现
+- 保持既有行为，不顺手重构、重命名、升级无关代码
+- 优先简单显式的写法，不做投机抽象；只有"确定会有第二种实现"才值得抽象
+- 错误在有足够上下文的层处理，或保留 cause 向上抛，**不静默吞掉**
+- 严格 TypeScript，避免 `any`、非空断言、类型断言；不可避免时说明原因
+- 删除废弃代码，不留注释掉的实现
+
+架构定稿见 `docs/arch/2026-08-03-final-architecture.md`。
+
+## 安全护栏
+
+- `rm -rf` / `DROP TABLE` / `force-push` / `git reset --hard` / `kubectl delete` 等破坏性命令，**执行前说明影响范围并取得确认**
 - 调试敏感模块时，明确告知哪些文件在修改范围内
-- 密钥 / 凭证 / API Key 不得硬编码
+- 密钥/凭证/API Key **不得硬编码**
 - 数据库访问用参数化查询，不用不可信输入拼接 shell 命令或 SQL
 
-## Subagent / 并行策略
+### 高风险操作：绝对禁止自动执行
+
+以下两类操作无论处于何种自动化流程中（子代理、执行计划、CI 脚本均不例外），**必须中断、向用户说明、等待明确授权后才能执行**：
+
+1. **合并到 master / main**
+   - 包括：`git merge <branch> master`、`git rebase` 变基到主干、`gh pr merge` 合并 PR 到主干
+   - 执行前必须：列出将合并的提交摘要 → 等待用户回复"确认"
+
+2. **远端部署 / 发布**
+   - 包括：`kubectl apply`、`docker push`、`helm upgrade`、云平台 deploy 命令、推送生产配置、release / publish
+   - 执行前必须：描述目标环境、操作内容、影响范围 → 等待用户回复"确认"
+
+## 并行策略
 
 **适合并行：**
 - 用户明说"并行"
@@ -106,20 +160,18 @@ openspec/
 ## 完成门禁
 
 声明完成 / commit / push / PR 之前必须满足：
-1. 相关验证已完成并如实报告结果
+
+1. 相关验证已完成并**如实报告结果**
 2. 通过对应质量门禁（review / verification）
-3. 关键验证无法执行时明确说明原因
-4. 禁止虚构命令输出
+3. 关键验证无法执行时**明确说明原因**
+4. **禁止虚构命令输出**
 5. 没有验证证据，不得声称"通过"/"完成"
 6. 改动触及跨模块接口/架构/部署时，已同步更新 `openspec/specs/` 对应文件
 
-## 职责边界速查
+## 职责边界
 
-**只走规范层（OpenSpec）：**
-需求分析、proposal / design / tasks 文档编写、规范评审、技术方案确认。tasks.md 是流程层的唯一输入。
+**只走规范层：**
+需求分析、proposal / design / tasks 文档编写、规范评审、技术方案确认。`tasks.md` 是流程层的唯一输入。
 
 **只走流程层：**
-brainstorm、制定计划、执行计划、TDD、debugging、verification、code-review、分支收尾。
-
-**只走执行层：**
-浏览器操作、QA 测试、发布、部署、灰度、复盘、安全审计、危险操作确认。
+brainstorm、制定计划、执行计划、TDD、debugging、verification、code-review、子代理、分支收尾。
