@@ -12,6 +12,7 @@ import { registerAutomationHandlers } from './ipc/automation-handlers';
 import { openApplicationDatabase, type ApplicationDatabase } from './database/application-database';
 import { SqliteCalendarRepository } from './calendar/calendar-repository';
 import { registerCalendarHandlers } from './ipc/calendar-handlers';
+import { isStartupAutomationEnabled } from '../domain/policy/startup-automation-policy';
 
 let mainWindow: BrowserWindow | null = null;
 let browserManager: BrowserManager | null = null;
@@ -34,10 +35,9 @@ function openMainWindow(): void {
   mainWindow = createMainWindow();
   log.info('Main window created');
   browserManager = new BrowserManager(mainWindow, log);
-  const automationDisabled = process.env.HOTEL_BUTLER_DISABLE_STARTUP_AUTOMATION === '1';
-  ctripAutomation = automationDisabled
-    ? null
-    : new CtripCheckInAutomation(browserManager.browserSession, log);
+  ctripAutomation = isStartupAutomationEnabled(process.env)
+    ? new CtripCheckInAutomation(browserManager.browserSession, log)
+    : null;
   const ctripResult = ctripAutomation?.start() ?? null;
   unregisterBrowserHandlers = registerBrowserHandlers({
     window: mainWindow,

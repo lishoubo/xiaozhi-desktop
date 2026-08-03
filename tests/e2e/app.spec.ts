@@ -28,7 +28,7 @@ test.beforeEach(async () => {
     env: {
       ...launchEnvironment,
       ELECTRON_DISABLE_SECURITY_WARNINGS: 'true',
-      HOTEL_BUTLER_DISABLE_STARTUP_AUTOMATION: '1',
+      // 开机自动化默认关闭（opt-in），e2e 不设 HOTEL_BUTLER_ENABLE_STARTUP_AUTOMATION 即不会运行
     },
   });
   page = await electronApp.firstWindow();

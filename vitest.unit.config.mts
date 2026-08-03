@@ -10,7 +10,12 @@ export default defineConfig({
       provider: 'v8',
       reportsDirectory: 'coverage/unit',
       reporter: ['text', 'html', 'lcov'],
-      include: ['src/main/**/*.ts', 'src/preload/**/*.ts', 'src/shared/**/*.ts'],
+      include: [
+        'src/domain/**/*.ts',
+        'src/main/**/*.ts',
+        'src/preload/**/*.ts',
+        'src/shared/**/*.ts',
+      ],
       exclude: [
         'src/main/application.ts',
         'src/main/windows/main-window.ts',
