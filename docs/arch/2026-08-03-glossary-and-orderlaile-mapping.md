@@ -42,6 +42,19 @@ export type BrowserContextKey = {
 
 **业务层定位一个浏览器上下文，一律用 `BrowserContextKey`，不用 partition 字符串。**
 
+```ts
+export type HotelExecutionScope = {
+  appUserId:    AppUserId;
+  hotelId:      HotelId;        // ⚠ 单数，不是数组
+  otaAccountId: OtaAccountId;
+  environment:  'prod' | 'dev';
+};
+```
+
+**一次 agent 执行的作用域。** `hotelId` 是单数这件事本身是一条架构约束——「不做跨店 fan-out」就落在这个字段上（详见最终架构方案 4.2 ⑥）。
+
+刻意不叫 `ExecutionContext`（该词在 TS 生态被用滥，且 `Context` 暗示"可以装任意东西"），也不叫 `OtaContext`（它有一半字段与渠道无关，而 `Ota*` 前缀在本项目固定表示"属于渠道侧"）。
+
 ### 1.3 状态与设施
 
 | 术语 | 含义 | 说明 |
@@ -129,7 +142,7 @@ class SessionFactory {
 
 | 订单来了 | 我们的处置 |
 |---|---|
-| 跨店 fan-out | **架构上让它做不到**（ExecutionContext 只持有单个 HotelId）。它自己也关掉了这个功能 |
+| 跨店 fan-out | **架构上让它做不到**（`HotelExecutionScope` 只持有单个 `HotelId`）。它自己也关掉了这个功能 |
 | skill marketplace | 等有 skill 再说 |
 | `browser_evaluate` | 要么不提供，要么用代码限制（不能只靠 prompt 约束） |
 | 云 PMS / Channel Manager | 我们的权威在 rms 后端，产品定位不同 |
@@ -147,6 +160,8 @@ class SessionFactory {
 - [ ] `partition` 字样只出现在 `SessionFactory`
 - [ ] 不使用 `workspace` 指代渠道或浏览器状态
 - [ ] 登录态一律三元组，不用裸 bool
+- [ ] 执行作用域用 `HotelExecutionScope`，不用 `ExecutionContext` / `OtaContext`
+- [ ] `HotelExecutionScope.hotelId` 保持单数（改成数组 = 拆掉跨店 fan-out 防线）
 
 ---
 

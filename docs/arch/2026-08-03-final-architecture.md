@@ -93,6 +93,7 @@ src/
 │
 ├── domain/                          ★★ 核心业务：零框架依赖
 │   ├── identity.ts                  #  branded ID + 转换函数
+│   ├── execution-scope.ts           #  ★HotelExecutionScope（跨店 fan-out 防线）
 │   ├── channel.ts                   #  ChannelManifest、导航策略（纯函数）
 │   ├── ota-account.ts               #  OtaAccount、LoginState 三元组
 │   ├── hotel.ts                     #  Hotel、AccountBinding
@@ -265,7 +266,7 @@ export type SnapshotOptions = {
 ```ts
 // domain/ports/agent-runtime.ts —— 不 import 任何 codex 相关模块
 export interface AgentRuntime {
-  startSession(ctx: ExecutionContext): Promise<AgentSessionHandle>;
+  startSession(scope: HotelExecutionScope): Promise<AgentSessionHandle>;
   send(session: AgentSessionHandle, input: UserInput): AsyncIterable<AgentEvent>;
   interrupt(session: AgentSessionHandle): Promise<void>;
   dispose(session: AgentSessionHandle): Promise<void>;
@@ -412,7 +413,7 @@ export type BrowserContextKey = Readonly<{
 
 **`AppUserId` 和 `OtaAccountId` 必须是两个类型**：这是「两套账号体系不绑定」在类型层面的落实。命名分开给人看，branded type 给编译器看，两者都要有。
 
-### 4.2 五个核心模型
+### 4.2 六个核心模型
 
 #### ① `ChannelManifest` —— 渠道的能力与策略声明
 
@@ -506,6 +507,27 @@ export interface OtaActionGateway {
 1. `confirmAction` 的 `idempotencyKey` **不是可选参数**。调用方必须显式想清楚"这次执行的唯一标识是什么"，而不是让传输层偷偷重试。
 2. **实现里禁止任何自动重试。** 网络失败 → 状态置 `unknown` → 走 `verifyAction` 查真实结果 → 由人决定要不要重做。**永远不要因为"没收到响应"就重发一次改价。**
 3. **`OtaActionGateway` 与 `OtaBizDataGateway` 必须是两个接口。** 推事实可重试，推指令重试会改价两遍。塞进一个 Gateway，后来的人很容易顺手给改价也加上"失败自动重试" —— 这是能造成真实经济损失的错误。分成两个接口，让这个错误在类型层面就写不出来。
+
+#### ⑥ `HotelExecutionScope` —— 一次执行的作用域，也是跨店 fan-out 的防线
+
+```ts
+// domain/execution-scope.ts
+export type HotelExecutionScope = Readonly<{
+  appUserId:    AppUserId;      // 审计链条起点：approved_by 要能追到人
+  hotelId:      HotelId;        // ⚠ 单数。改成数组 = 拆掉跨店 fan-out 防线，见第七部分
+  otaAccountId: OtaAccountId;
+  environment:  'prod' | 'dev';
+}>;
+```
+
+**这个类型是"不做跨店 fan-out"这条产品决策的唯一载体。** 第七部分说的"架构上让它做不到"，具体就是指 `hotelId` 这个字段是单数。半年后有人为了做"批量巡检"把它改成 `readonly HotelId[]`，改的那一刻防线就没了——**而他很可能不知道自己在拆什么**，所以注释必须留在字段旁边，不能只写在文档里。
+
+命名上刻意不叫 `ExecutionContext`：一是这个词在 TS 生态里被 AsyncLocalStorage、各类中间件用滥了，搜代码噪音大；二是 `Context` 可以装任意东西，而 `Scope` 天然读作"边界"，往里塞数组会别扭。也不叫 `OtaContext`——它有一半字段（`appUserId`、`environment`）跟渠道无关，且 `Ota*` 前缀在本项目已固定表示"属于渠道侧"。
+
+两条配套约束：
+
+1. **scope 在 session 级固定，不可变。** `startSession(scope)` 之后不允许中途换店换账号。要换 = 开新 session。这样审计时"这次会话动的是哪个店"有唯一答案。
+2. **`agent_tool_call` 的审计要能回答"对哪个店做的"。** 4.6 的表结构里没有 `hotel_id`，因此 `agent_session` 表**必须**存下完整 scope（`app_user_id` / `hotel_id` / `ota_account_id` / `environment`），由 `session_id` 关联回去。否则出了事故只知道"改了价"，不知道"改的谁家的价"。
 
 ### 4.3 五个 Gateway（ports）
 
@@ -689,7 +711,7 @@ BrowserTab 加 otaAccountId
 | 现在就接 Codex | 工具层和上下文模型没建好，接了 agent 只能猜 DOM |
 | ORM / 事件总线 / 渠道 adapter 抽象 | 只有"确定会有第二种实现"的地方才值得抽象，这三个不满足 |
 | 为多租户预留字段 | 已确认不做，需要时加 mapping 层 |
-| 跨店 fan-out | **架构上让它做不到**（ExecutionContext 只持有单个 HotelId）。订单来了做了又关掉了，是强负面信号 |
+| 跨店 fan-out | **架构上让它做不到**（`HotelExecutionScope` 只持有单个 `HotelId`，见 4.2 ⑥）。订单来了做了又关掉了，是强负面信号 |
 | `browser_evaluate` 靠 prompt 约束 | prompt 约束对 prompt injection 无效。要么不提供，要么用代码限制 |
 
 ---
