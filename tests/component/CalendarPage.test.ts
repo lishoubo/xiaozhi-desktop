@@ -32,14 +32,22 @@ const snapshot = {
       id: 'existing-hotel-operation',
       calendarId: 'personal',
       title: '渠道库存与房态核对',
-      startsAt: '2026-08-02T09:00:00.000',
-      endsAt: '2026-08-02T10:00:00.000',
+      startsAt: `${localDate(new Date())}T09:00:00.000`,
+      endsAt: `${localDate(new Date())}T10:00:00.000`,
       allDay: false,
       notes: '核对各 OTA 库存',
       source: 'user' as const,
     },
   ],
 };
+
+function localDate(date: Date): string {
+  return [
+    date.getFullYear(),
+    String(date.getMonth() + 1).padStart(2, '0'),
+    String(date.getDate()).padStart(2, '0'),
+  ].join('-');
+}
 
 const load = vi.fn();
 const createEvent = vi.fn();
@@ -348,10 +356,11 @@ describe('CalendarPage', () => {
     expect(dateInputs).toHaveLength(2);
 
     await user.click(dateInputs[1]);
+    const previousDay = new Date();
+    previousDay.setHours(0, 0, 0, 0);
+    previousDay.setDate(previousDay.getDate() - 1);
     const invalidEnd = Array.from(
-      document.querySelectorAll<HTMLElement>(
-        `.wx-day[data-id="${new Date(2026, 7, 1).getTime()}"]`,
-      ),
+      document.querySelectorAll<HTMLElement>(`.wx-day[data-id="${previousDay.getTime()}"]`),
     ).find((day) => !day.closest('[data-slot="calendar-panel"]'));
     expect(invalidEnd).not.toBeNull();
     await user.click(invalidEnd as HTMLElement);

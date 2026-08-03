@@ -1,19 +1,16 @@
 <script lang="ts">
-  import { autoAnimate } from '@formkit/auto-animate';
   import { onDestroy } from 'svelte';
-  import CircleAlert from '@lucide/svelte/icons/circle-alert';
-  import { ALERT_ANIMATION_OPTIONS, enter, PAGE_ENTER_OPTIONS } from '../motion';
+  import { enter, PAGE_ENTER_OPTIONS } from '../motion';
   import { CODE_DURATION_MS, MOCK_CODE, MOCK_PHONE } from '../auth';
   import AgentAvatar from '../components/agent/AgentAvatar.svelte';
   import * as Dialog from '$lib/components/ui/dialog';
-  import * as Alert from '$lib/components/ui/alert';
+  import { dismissAppNotification, showAppNotification } from '../notifications';
 
   let { onLogin }: { onLogin: (phone: string) => void } = $props();
 
   let phone = $state('');
   let code = $state('');
   let agreed = $state(false);
-  let error = $state('');
   let codeExpiresAt = $state(0);
   let now = $state(Date.now());
   let policy = $state<'agreement' | 'privacy' | null>(null);
@@ -32,37 +29,46 @@
 
   function requestCode(): void {
     if (!/^1\d{10}$/.test(phone)) {
-      error = '请输入正确的 11 位手机号';
+      showLoginError('请输入正确的 11 位手机号');
       return;
     }
-    error = '';
+    dismissAppNotification('login-error');
     codeExpiresAt = Date.now() + CODE_DURATION_MS;
     now = Date.now();
   }
 
   function submit(): void {
     if (!/^1\d{10}$/.test(phone)) {
-      error = '请输入正确的 11 位手机号';
+      showLoginError('请输入正确的 11 位手机号');
       return;
     }
     if (!/^\d{6}$/.test(code)) {
-      error = '验证码应为 6 位数字';
+      showLoginError('验证码应为 6 位数字');
       return;
     }
     if (codeExpiresAt === 0 || codeExpiresAt <= Date.now()) {
-      error = '验证码已过期，请重新获取';
+      showLoginError('验证码已过期，请重新获取');
       return;
     }
     if (phone !== MOCK_PHONE || code !== MOCK_CODE) {
-      error = '手机号或验证码不正确';
+      showLoginError('手机号或验证码不正确');
       return;
     }
     if (!agreed) {
-      error = '请先阅读并同意用户协议与隐私政策';
+      showLoginError('请先阅读并同意用户协议与隐私政策');
       return;
     }
-    error = '';
+    dismissAppNotification('login-error');
     onLogin(phone);
+  }
+
+  function showLoginError(message: string): void {
+    showAppNotification({
+      id: 'login-error',
+      title: '无法登录',
+      message,
+      tone: 'error',
+    });
   }
 </script>
 
@@ -186,16 +192,6 @@
           >
         </span>
       </label>
-
-      <div use:autoAnimate={ALERT_ANIMATION_OPTIONS}>
-        {#if error}
-          <Alert.Root class="mt-4" variant="destructive">
-            <CircleAlert />
-            <Alert.Title>无法登录</Alert.Title>
-            <Alert.Description>{error}</Alert.Description>
-          </Alert.Root>
-        {/if}
-      </div>
 
       <button
         class="mt-6 h-11 w-full rounded-md bg-primary text-sm font-medium text-primary-foreground transition-colors duration-150 ease-out hover:bg-[#4534b3] motion-reduce:transition-none"

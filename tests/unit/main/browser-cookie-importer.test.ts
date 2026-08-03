@@ -94,6 +94,26 @@ describe('BrowserCookieImporter', () => {
     ).resolves.toEqual([{ id: 'edge', name: 'Microsoft Edge' }]);
   });
 
+  it('detects QQ, 360, and Sogou Chromium profiles on Windows', async () => {
+    const root = temporaryDirectory();
+    const localAppData = path.join(root, 'AppData', 'Local');
+    const appData = path.join(root, 'AppData', 'Roaming');
+    touch(path.join(localAppData, 'Tencent', 'QQBrowser', 'User Data', 'Default', 'Cookies'));
+    touch(path.join(appData, '360se6', 'User Data', 'Default', 'Network', 'Cookies'));
+    touch(path.join(localAppData, 'SogouExplorer', 'User Data', 'Default', 'Network', 'Cookies'));
+
+    await expect(
+      new BrowserCookieImporter(createLogger(), root, 'win32', {
+        APPDATA: appData,
+        LOCALAPPDATA: localAppData,
+      }).listSources(),
+    ).resolves.toEqual([
+      { id: 'qq', name: 'QQ 浏览器' },
+      { id: '360', name: '360 安全浏览器' },
+      { id: 'sogou', name: '搜狗高速浏览器' },
+    ]);
+  });
+
   it('reads only supported domains from a Firefox profile', async () => {
     const home = temporaryDirectory();
     const databasePath = path.join(home, '.mozilla', 'firefox', 'default', 'cookies.sqlite');

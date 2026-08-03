@@ -178,7 +178,7 @@ describe('BrowserManager', () => {
     });
   });
 
-  it('blocks matching Ctrip API requests and opens a renderer Alert Dialog', () => {
+  it('blocks matching Ctrip API requests and sends a non-blocking notification event', () => {
     const logger = createLogger();
     const window = createWindow();
     const manager = new BrowserManager(window as never, logger);
@@ -199,7 +199,7 @@ describe('BrowserManager', () => {
     );
 
     expect(callback).toHaveBeenCalledWith({ cancel: true });
-    expect(window.contentView.removeChildView).toHaveBeenCalledWith(electron.views[0]);
+    expect(window.contentView.removeChildView).not.toHaveBeenCalled();
     expect(window.webContents.send).toHaveBeenCalledWith('browser:request-intercepted', {
       ruleId: 'ctrip-soa2',
     });
@@ -209,7 +209,7 @@ describe('BrowserManager', () => {
     expect(JSON.stringify(logger.info.mock.calls)).not.toContain('token=private');
   });
 
-  it('cancels concurrent matching requests without stacking interception alerts', () => {
+  it('lets the renderer coalesce concurrent interception events by notification ID', () => {
     const window = createWindow();
     const manager = new BrowserManager(window as never, createLogger());
     manager.create('ctrip', 'https://ebooking.ctrip.com/');
@@ -228,10 +228,10 @@ describe('BrowserManager', () => {
 
     expect(firstCallback).toHaveBeenCalledWith({ cancel: true });
     expect(secondCallback).toHaveBeenCalledWith({ cancel: true });
-    expect(window.webContents.send).toHaveBeenCalledOnce();
+    expect(window.webContents.send).toHaveBeenCalledTimes(2);
   });
 
-  it('restores the active embedded page after the interception alert is acknowledged', () => {
+  it('keeps the active embedded page mounted after request interception', () => {
     const window = createWindow();
     const manager = new BrowserManager(window as never, createLogger());
     manager.create('ctrip', 'https://ebooking.ctrip.com/');
@@ -241,7 +241,17 @@ describe('BrowserManager', () => {
       { url: 'https://m.ctrip.com/restapi/soa2/request', webContentsId },
       vi.fn(),
     );
-    manager.acknowledgeInterception();
+    expect(window.contentView.addChildView).toHaveBeenCalledOnce();
+    expect(window.contentView.removeChildView).not.toHaveBeenCalled();
+  });
+
+  it('reattaches an active tab when the workspace activates it after being hidden', () => {
+    const window = createWindow();
+    const manager = new BrowserManager(window as never, createLogger());
+    const tab = manager.create('ctrip', 'https://ebooking.ctrip.com/');
+
+    manager.hide();
+    manager.activate(tab.id);
 
     expect(window.contentView.addChildView).toHaveBeenCalledTimes(2);
     expect(window.contentView.addChildView).toHaveBeenLastCalledWith(electron.views[0]);

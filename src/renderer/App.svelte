@@ -3,6 +3,7 @@
   import Router, { replace } from 'svelte-spa-router';
   import { onDestroy } from 'svelte';
   import AppFrame from './components/layout/AppFrame.svelte';
+  import AppNotificationCenter from './components/layout/AppNotificationCenter.svelte';
   import StartupAutomationDialog from './components/automation/StartupAutomationDialog.svelte';
   import LoginPage from './pages/LoginPage.svelte';
   import { clearAuthSession, createAuthSession, readAuthSession, type AuthSession } from './auth';
@@ -35,5 +36,6 @@
     <Router {routes} />
   </AppFrame>
 {:else}
+  <AppNotificationCenter />
   <LoginPage onLogin={login} />
 {/if}

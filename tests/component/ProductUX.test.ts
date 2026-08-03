@@ -2,9 +2,12 @@ import { render, screen } from '@testing-library/svelte';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import ProfilePage from '../../src/renderer/pages/ProfilePage.svelte';
 import SettingsPage from '../../src/renderer/pages/SettingsPage.svelte';
+import AppNotificationCenter from '../../src/renderer/components/layout/AppNotificationCenter.svelte';
+import { clearAppNotifications } from '../../src/renderer/notifications';
 
 beforeEach(() => {
   localStorage.clear();
+  clearAppNotifications();
   localStorage.setItem(
     'hotel-butler.auth-session',
     JSON.stringify({ phone: '13800138000', expiresAt: Date.now() + 60_000 }),
@@ -36,6 +39,7 @@ describe('product UX restraint', () => {
   });
 
   it('does not expose a desktop notification setting without notification behavior', async () => {
+    render(AppNotificationCenter);
     render(SettingsPage);
 
     expect(screen.queryByText('桌面通知')).not.toBeInTheDocument();
@@ -49,6 +53,7 @@ describe('product UX restraint', () => {
       value: vi.fn().mockRejectedValue(new Error('settings unavailable')),
     });
 
+    render(AppNotificationCenter);
     render(SettingsPage);
 
     const alert = await screen.findByRole('alert');

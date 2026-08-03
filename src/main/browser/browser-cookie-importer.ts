@@ -46,9 +46,9 @@ function parseBrowserData<T>(schema: ZodType<T>, input: unknown): T {
 }
 
 type ChromiumDefinition = Readonly<{
-  id: 'chrome' | 'edge';
+  id: 'chrome' | 'edge' | 'qq' | '360' | 'sogou';
   name: string;
-  root: string;
+  roots: readonly string[];
   keychainAccount: string;
   keychainService: string;
 }>;
@@ -58,6 +58,9 @@ const SOURCE_NAMES: Readonly<Record<BrowserCookieSourceId, string>> = {
   edge: 'Microsoft Edge',
   firefox: 'Mozilla Firefox',
   safari: 'Safari',
+  qq: 'QQ 浏览器',
+  '360': '360 安全浏览器',
+  sogou: '搜狗高速浏览器',
 };
 
 function source(id: BrowserCookieSourceId): BrowserCookieSource {
@@ -70,19 +73,47 @@ function chromiumDefinitions(
   environment: NodeJS.ProcessEnv,
 ): ChromiumDefinition[] {
   const localAppData = environment.LOCALAPPDATA;
+  const appData = environment.APPDATA;
   if (platform === 'win32' && localAppData) {
     return [
       {
+        id: 'qq',
+        name: SOURCE_NAMES.qq,
+        roots: [path.join(localAppData, 'Tencent', 'QQBrowser', 'User Data')],
+        keychainAccount: '',
+        keychainService: '',
+      },
+      {
+        id: '360',
+        name: SOURCE_NAMES['360'],
+        roots: [
+          ...(appData ? [path.join(appData, '360se6', 'User Data')] : []),
+          path.join(localAppData, '360Chrome', 'Chrome', 'User Data'),
+        ],
+        keychainAccount: '',
+        keychainService: '',
+      },
+      {
+        id: 'sogou',
+        name: SOURCE_NAMES.sogou,
+        roots: [
+          path.join(localAppData, 'SogouExplorer', 'User Data'),
+          ...(appData ? [path.join(appData, 'SogouExplorer', 'Webkit')] : []),
+        ],
+        keychainAccount: '',
+        keychainService: '',
+      },
+      {
         id: 'edge',
         name: SOURCE_NAMES.edge,
-        root: path.join(localAppData, 'Microsoft', 'Edge', 'User Data'),
+        roots: [path.join(localAppData, 'Microsoft', 'Edge', 'User Data')],
         keychainAccount: '',
         keychainService: '',
       },
       {
         id: 'chrome',
         name: SOURCE_NAMES.chrome,
-        root: path.join(localAppData, 'Google', 'Chrome', 'User Data'),
+        roots: [path.join(localAppData, 'Google', 'Chrome', 'User Data')],
         keychainAccount: '',
         keychainService: '',
       },
@@ -91,16 +122,30 @@ function chromiumDefinitions(
   if (platform === 'darwin') {
     return [
       {
+        id: 'qq',
+        name: SOURCE_NAMES.qq,
+        roots: [path.join(homeDirectory, 'Library', 'Application Support', 'QQBrowser')],
+        keychainAccount: 'QQBrowser',
+        keychainService: 'QQBrowser Safe Storage',
+      },
+      {
+        id: '360',
+        name: SOURCE_NAMES['360'],
+        roots: [path.join(homeDirectory, 'Library', 'Application Support', '360Chrome')],
+        keychainAccount: '360Chrome',
+        keychainService: '360Chrome Safe Storage',
+      },
+      {
         id: 'chrome',
         name: SOURCE_NAMES.chrome,
-        root: path.join(homeDirectory, 'Library', 'Application Support', 'Google', 'Chrome'),
+        roots: [path.join(homeDirectory, 'Library', 'Application Support', 'Google', 'Chrome')],
         keychainAccount: 'Chrome',
         keychainService: 'Chrome Safe Storage',
       },
       {
         id: 'edge',
         name: SOURCE_NAMES.edge,
-        root: path.join(homeDirectory, 'Library', 'Application Support', 'Microsoft Edge'),
+        roots: [path.join(homeDirectory, 'Library', 'Application Support', 'Microsoft Edge')],
         keychainAccount: 'Microsoft Edge',
         keychainService: 'Microsoft Edge Safe Storage',
       },
@@ -108,16 +153,26 @@ function chromiumDefinitions(
   }
   return [
     {
+      id: '360',
+      name: SOURCE_NAMES['360'],
+      roots: [
+        path.join(homeDirectory, '.config', '360browser'),
+        path.join(homeDirectory, '.config', '360chrome'),
+      ],
+      keychainAccount: '',
+      keychainService: '',
+    },
+    {
       id: 'chrome',
       name: SOURCE_NAMES.chrome,
-      root: path.join(homeDirectory, '.config', 'google-chrome'),
+      roots: [path.join(homeDirectory, '.config', 'google-chrome')],
       keychainAccount: '',
       keychainService: '',
     },
     {
       id: 'edge',
       name: SOURCE_NAMES.edge,
-      root: path.join(homeDirectory, '.config', 'microsoft-edge'),
+      roots: [path.join(homeDirectory, '.config', 'microsoft-edge')],
       keychainAccount: '',
       keychainService: '',
     },
@@ -204,6 +259,16 @@ async function findChromiumDatabase(root: string): Promise<string | null> {
   );
 }
 
+async function findChromiumDefinitionDatabase(
+  definition: ChromiumDefinition,
+): Promise<string | null> {
+  return newestFile(
+    (await Promise.all(definition.roots.map((root) => findChromiumDatabase(root)))).filter(
+      (databasePath): databasePath is string => databasePath !== null,
+    ),
+  );
+}
+
 async function findFirefoxDatabase(root: string | null): Promise<string | null> {
   if (!root) return null;
   return newestFile(
@@ -248,6 +313,7 @@ function runFile(command: string, args: string[]): Promise<string> {
 async function chromiumPassword(
   definition: ChromiumDefinition,
   platform: SupportedPlatform,
+  databasePath: string,
 ): Promise<Buffer> {
   if (platform === 'darwin') {
     const password = await runFile('/usr/bin/security', [
@@ -266,7 +332,18 @@ async function chromiumPassword(
 
   const localState = parseBrowserData(
     chromiumLocalStateSchema,
-    JSON.parse(await fs.readFile(path.join(definition.root, 'Local State'), 'utf8')),
+    JSON.parse(
+      await fs.readFile(
+        path.join(
+          definition.roots.find((root) => {
+            const relative = path.relative(root, databasePath);
+            return relative !== '' && !relative.startsWith('..') && !path.isAbsolute(relative);
+          }) ?? definition.roots[0],
+          'Local State',
+        ),
+        'utf8',
+      ),
+    ),
   );
   const encodedKey = localState.os_crypt.encrypted_key;
   const encryptedKey = Buffer.from(encodedKey, 'base64');
@@ -373,7 +450,7 @@ async function readChromiumCookies(
     );
   }
   const needsDecryption = relevantRows.some((row) => !row.value && row.encrypted_value.length > 0);
-  const key = needsDecryption ? await chromiumPassword(definition, platform) : null;
+  const key = needsDecryption ? await chromiumPassword(definition, platform, databasePath) : null;
   const cookies: CookiesSetDetails[] = [];
   let failed = 0;
   for (const row of relevantRows) {
@@ -504,7 +581,7 @@ export class BrowserCookieImporter {
       this.platform,
       this.environment,
     )) {
-      if (await findChromiumDatabase(definition.root)) available.push(source(definition.id));
+      if (await findChromiumDefinitionDatabase(definition)) available.push(source(definition.id));
     }
     if (
       await findFirefoxDatabase(firefoxRoot(this.homeDirectory, this.platform, this.environment))
@@ -557,7 +634,7 @@ export class BrowserCookieImporter {
       this.environment,
     ).find((item) => item.id === sourceId);
     if (!definition) throw new Error('当前系统不支持所选浏览器');
-    const databasePath = await findChromiumDatabase(definition.root);
+    const databasePath = await findChromiumDefinitionDatabase(definition);
     if (!databasePath) throw new Error(`未找到 ${definition.name} Cookie 数据`);
     return readChromiumCookies(databasePath, definition, this.platform);
   }

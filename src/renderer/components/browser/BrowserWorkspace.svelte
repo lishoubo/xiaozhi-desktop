@@ -4,33 +4,28 @@
   import log from 'electron-log/renderer';
   import ArrowLeft from '@lucide/svelte/icons/arrow-left';
   import ArrowRight from '@lucide/svelte/icons/arrow-right';
-  import CircleAlert from '@lucide/svelte/icons/circle-alert';
   import Import from '@lucide/svelte/icons/import';
   import RotateCw from '@lucide/svelte/icons/rotate-cw';
   import X from '@lucide/svelte/icons/x';
   import type { BrowserTab } from '../../../shared/browser';
   import {
-    ALERT_ANIMATION_OPTIONS,
     enter,
     LAYOUT_ANIMATION_OPTIONS,
     PAGE_ENTER_OPTIONS,
     SURFACE_TRANSITION_OPTIONS,
   } from '../../motion';
   import { OTA_CHANNELS, type OtaChannel } from '../../data/ota-channels';
+  import { dismissAppNotification, showAppNotification } from '../../notifications';
   import { Button } from '$lib/components/ui/button';
   import { Spinner } from '$lib/components/ui/spinner';
-  import * as Alert from '$lib/components/ui/alert';
-  import * as AlertDialog from '$lib/components/ui/alert-dialog';
   import CookieImportDialog from './CookieImportDialog.svelte';
 
   const COOKIE_PROMPT_KEY = 'hotel-butler.cookie-import-prompted';
   let activeChannelId = $state(OTA_CHANNELS[0].id);
   let activeTabIds = $state<Record<string, string>>({});
   let tabsByChannel = $state<Record<string, BrowserTab[]>>({});
-  let viewport: HTMLElement;
+  let viewport: HTMLElement | undefined;
   let cookiePrompt = $state(false);
-  let browserError = $state('');
-  let interceptionAlertOpen = $state(false);
   let activeTabs = $derived(tabsByChannel[activeChannelId] ?? []);
   let activeTab = $derived(
     activeTabs.find((tab) => tab.id === activeTabIds[activeChannelId]) ?? activeTabs[0],
@@ -40,7 +35,12 @@
     log.warn(event, {
       errorName: reason instanceof Error ? reason.name : 'UnknownError',
     });
-    browserError = message;
+    showAppNotification({
+      id: 'browser-operation-error',
+      title: '页面操作失败',
+      message,
+      tone: 'error',
+    });
   }
 
   function updateTab(next: BrowserTab): void {
@@ -53,7 +53,7 @@
 
   async function createTab(channel: OtaChannel, url = channel.url): Promise<boolean> {
     try {
-      browserError = '';
+      dismissAppNotification('browser-operation-error');
       const tab = await window.hotelButler.browser.create(channel.id, url);
       updateTab(tab);
       activeTabIds[channel.id] = tab.id;
@@ -66,7 +66,7 @@
   }
 
   async function selectChannel(channel: OtaChannel): Promise<void> {
-    browserError = '';
+    dismissAppNotification('browser-operation-error');
     activeChannelId = channel.id;
     const tabId = activeTabIds[channel.id];
     try {
@@ -82,7 +82,7 @@
   }
 
   async function selectTab(tab: BrowserTab): Promise<void> {
-    browserError = '';
+    dismissAppNotification('browser-operation-error');
     try {
       await window.hotelButler.browser.activate(tab.id);
       activeTabIds[tab.channelId] = tab.id;
@@ -93,7 +93,7 @@
   }
 
   async function closeTab(tab: BrowserTab): Promise<void> {
-    browserError = '';
+    dismissAppNotification('browser-operation-error');
     try {
       const tabs = tabsByChannel[tab.channelId] ?? [];
       const index = tabs.findIndex((item) => item.id === tab.id);
@@ -133,6 +133,13 @@
     }
   }
 
+  function browserViewport(node: HTMLElement): () => void {
+    viewport = node;
+    return () => {
+      if (viewport === node) viewport = undefined;
+    };
+  }
+
   async function finishCookiePrompt(): Promise<void> {
     cookiePrompt = false;
     if (await createTab(OTA_CHANNELS[0])) {
@@ -141,25 +148,11 @@
   }
 
   async function runNavigationAction(event: string, action: () => Promise<void>): Promise<void> {
-    browserError = '';
+    dismissAppNotification('browser-operation-error');
     try {
       await action();
     } catch (error) {
       reportBrowserFailure(event, '页面操作失败，请重试', error);
-    }
-  }
-
-  async function acknowledgeInterception(event: MouseEvent): Promise<void> {
-    event.preventDefault();
-    try {
-      await window.hotelButler.browser.acknowledgeInterception();
-      interceptionAlertOpen = false;
-    } catch (error) {
-      reportBrowserFailure(
-        'Browser interception could not be acknowledged',
-        '页面恢复失败，请重新打开渠道',
-        error,
-      );
     }
   }
 
@@ -169,10 +162,15 @@
       updateTab(tab);
     });
     const unsubscribeInterception = window.hotelButler.browser.onRequestIntercepted(() => {
-      interceptionAlertOpen = true;
+      showAppNotification({
+        id: 'browser-request-intercepted',
+        title: '请求拦截成功',
+        message: '已拦截携程接口请求：/restapi/soa2/**',
+        tone: 'default',
+      });
     });
     const observer = new ResizeObserver(() => void syncBounds());
-    observer.observe(viewport);
+    if (viewport) observer.observe(viewport);
     window.addEventListener('resize', syncBounds);
     cookiePrompt = localStorage.getItem(COOKIE_PROMPT_KEY) !== 'true';
     if (!cookiePrompt) {
@@ -228,17 +226,18 @@
     {#each OTA_CHANNELS as channel (channel.id)}
       <button
         class={[
-          'flex h-9 shrink-0 items-center gap-2 rounded-md px-3 text-[13px] font-medium transition-colors duration-150 ease-out motion-reduce:transition-none',
+          'grid size-9 shrink-0 place-items-center rounded-md transition-colors duration-150 ease-out motion-reduce:transition-none',
           activeChannelId === channel.id
             ? 'bg-accent text-accent-foreground'
             : 'text-muted-foreground hover:bg-muted hover:text-foreground',
         ]}
         type="button"
+        aria-label={channel.name}
         aria-pressed={activeChannelId === channel.id}
+        title={channel.name}
         onclick={() => void selectChannel(channel)}
       >
-        <img class="size-4 rounded-sm object-contain" src={channel.iconUrl} alt="" />
-        {channel.name}
+        <img class="size-5 rounded-sm object-contain" src={channel.iconUrl} alt="" />
       </button>
     {/each}
   </nav>
@@ -330,7 +329,7 @@
     </div>
   </div>
 
-  <section class="relative min-h-0 bg-secondary" bind:this={viewport} data-browser-viewport>
+  <section class="relative min-h-0 bg-secondary" {@attach browserViewport} data-browser-viewport>
     {#if !activeTab}
       <div
         class="grid h-full place-items-center text-sm text-muted-foreground"
@@ -339,18 +338,6 @@
         {cookiePrompt ? '导入 Cookie 后开始使用' : '点击上方快捷入口打开平台'}
       </div>
     {/if}
-    <div
-      class="pointer-events-none absolute top-4 right-4 z-40 w-[calc(100%-2rem)] max-w-[22rem]"
-      use:autoAnimate={ALERT_ANIMATION_OPTIONS}
-    >
-      {#if browserError}
-        <Alert.Root class="shadow-lg" variant="destructive">
-          <CircleAlert />
-          <Alert.Title>页面操作失败</Alert.Title>
-          <Alert.Description>{browserError}</Alert.Description>
-        </Alert.Root>
-      {/if}
-    </div>
   </section>
 </main>
 
@@ -379,17 +366,3 @@
     </div>
   </aside>
 {/if}
-
-<AlertDialog.Root bind:open={interceptionAlertOpen}>
-  <AlertDialog.Content>
-    <AlertDialog.Header>
-      <AlertDialog.Title>请求拦截成功</AlertDialog.Title>
-      <AlertDialog.Description>已拦截携程接口请求：/restapi/soa2/**</AlertDialog.Description>
-    </AlertDialog.Header>
-    <AlertDialog.Footer>
-      <AlertDialog.Action onclick={(event) => void acknowledgeInterception(event)}
-        >知道了</AlertDialog.Action
-      >
-    </AlertDialog.Footer>
-  </AlertDialog.Content>
-</AlertDialog.Root>

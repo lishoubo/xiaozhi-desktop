@@ -47,7 +47,15 @@ export const browserRequestInterceptionSchema = z.strictObject({
 
 export type BrowserRequestInterception = Readonly<z.infer<typeof browserRequestInterceptionSchema>>;
 
-export const browserCookieSourceIdSchema = z.enum(['chrome', 'edge', 'firefox', 'safari']);
+export const browserCookieSourceIdSchema = z.enum([
+  'chrome',
+  'edge',
+  'firefox',
+  'safari',
+  'qq',
+  '360',
+  'sogou',
+]);
 
 export type BrowserCookieSourceId = z.infer<typeof browserCookieSourceIdSchema>;
 

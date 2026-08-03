@@ -1,18 +1,15 @@
 <script lang="ts">
-  import { autoAnimate } from '@formkit/auto-animate';
   import { onMount } from 'svelte';
   import log from 'electron-log/renderer';
-  import CircleAlert from '@lucide/svelte/icons/circle-alert';
   import Cookie from '@lucide/svelte/icons/cookie';
   import MonitorUp from '@lucide/svelte/icons/monitor-up';
   import Settings2 from '@lucide/svelte/icons/settings-2';
-  import { ALERT_ANIMATION_OPTIONS, enter, PAGE_ENTER_OPTIONS } from '../motion';
+  import { enter, PAGE_ENTER_OPTIONS } from '../motion';
   import type { SystemPreferences } from '../../shared/browser';
   import CookieImportDialog from '../components/browser/CookieImportDialog.svelte';
-  import * as Alert from '$lib/components/ui/alert';
+  import { dismissAppNotification, showAppNotification } from '../notifications';
 
   let preferences = $state<SystemPreferences | null>(null);
-  let error = $state('');
   let savingAutoLaunch = $state(false);
 
   onMount(() => {
@@ -20,30 +17,39 @@
       .getPreferences()
       .then((value) => {
         preferences = value;
-        error = '';
+        dismissAppNotification('settings-error');
       })
       .catch((reason: unknown) => {
         log.warn('System preferences could not be loaded', {
           errorName: reason instanceof Error ? reason.name : 'UnknownError',
         });
-        error = '设置读取失败，请重试';
+        showSettingsError('设置读取失败，请重试。');
       });
   });
 
   async function toggleAutoLaunch(enabled: boolean): Promise<void> {
     if (savingAutoLaunch) return;
     savingAutoLaunch = true;
-    error = '';
     try {
       preferences = await window.hotelButler.system.setAutoLaunch(enabled);
+      dismissAppNotification('settings-error');
     } catch (reason) {
       log.warn('Auto-launch preference could not be changed', {
         errorName: reason instanceof Error ? reason.name : 'UnknownError',
       });
-      error = '设置保存失败，请重试';
+      showSettingsError('设置保存失败，请重试。');
     } finally {
       savingAutoLaunch = false;
     }
+  }
+
+  function showSettingsError(message: string): void {
+    showAppNotification({
+      id: 'settings-error',
+      title: '设置操作失败',
+      message,
+      tone: 'error',
+    });
   }
 </script>
 
@@ -56,16 +62,6 @@
     <header>
       <h1 class="m-0 text-[28px] font-semibold tracking-[-0.02em]">设置</h1>
     </header>
-
-    <div use:autoAnimate={ALERT_ANIMATION_OPTIONS}>
-      {#if error}
-        <Alert.Root class="mt-4" variant="destructive">
-          <CircleAlert />
-          <Alert.Title>设置操作失败</Alert.Title>
-          <Alert.Description>{error}</Alert.Description>
-        </Alert.Root>
-      {/if}
-    </div>
 
     <section class="mt-6 overflow-hidden rounded-lg border border-border bg-card">
       <div class="flex items-center gap-3 border-b border-border px-6 py-4">

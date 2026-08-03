@@ -1,12 +1,17 @@
 import { render, screen } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import LoginPage from '../../src/renderer/pages/LoginPage.svelte';
+import AppNotificationCenter from '../../src/renderer/components/layout/AppNotificationCenter.svelte';
+import { clearAppNotifications } from '../../src/renderer/notifications';
+
+beforeEach(() => clearAppNotifications());
 
 describe('LoginPage', () => {
   it('validates the phone, six-digit code and agreement before logging in', async () => {
     const user = userEvent.setup();
     const onLogin = vi.fn();
+    render(AppNotificationCenter);
     render(LoginPage, { onLogin });
 
     await user.click(screen.getByRole('button', { name: '登录' }));

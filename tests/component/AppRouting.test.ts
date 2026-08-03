@@ -1,7 +1,8 @@
-import { render, screen } from '@testing-library/svelte';
+import { render, screen, waitFor } from '@testing-library/svelte';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import App from '../../src/renderer/App.svelte';
+import { clearAppNotifications } from '../../src/renderer/notifications';
 
 const createTab = vi.fn().mockResolvedValue({
   id: 'tab-1',
@@ -18,6 +19,7 @@ const importCookies = vi.fn();
 describe('App routing and query integration', () => {
   beforeEach(() => {
     window.location.hash = '';
+    clearAppNotifications();
     localStorage.clear();
     localStorage.setItem(
       'hotel-butler.auth-session',
@@ -135,6 +137,8 @@ describe('App routing and query integration', () => {
 
     await user.click(screen.getByRole('link', { name: '日历' }));
 
+    await waitFor(() => expect(window.location.hash).toBe('#/calendar'));
+
     const calendar = await screen.findByRole('region', { name: '酒店运营日历' });
     expect(calendar.closest('[data-motion="page"]')).toBeInTheDocument();
     expect(window.location.hash).toBe('#/calendar');
@@ -201,11 +205,15 @@ describe('App routing and query integration', () => {
     await user.click(await screen.findByRole('button', { name: '导入 Cookie' }));
 
     expect(await screen.findByRole('dialog', { name: '从浏览器导入 Cookie' })).toBeVisible();
+    expect(screen.getByRole('radio', { name: /QQ 浏览器/ })).toBeDisabled();
+    expect(screen.getByRole('radio', { name: /360 安全浏览器/ })).toBeDisabled();
+    expect(screen.getByRole('radio', { name: /搜狗高速浏览器/ })).toBeDisabled();
     await user.click(screen.getByRole('button', { name: '开始导入' }));
 
     expect(importCookies).toHaveBeenCalledWith('firefox');
     expect(await screen.findByText('已从 Mozilla Firefox 导入 8 个 Cookie')).toBeVisible();
-    await user.click(screen.getByRole('button', { name: '完成' }));
-    expect(screen.queryByRole('dialog', { name: '从浏览器导入 Cookie' })).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('dialog', { name: '从浏览器导入 Cookie' })?.getAttribute('data-state'),
+    ).not.toBe('open');
   });
 });

@@ -3,6 +3,8 @@ import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { BrowserTab } from '../../src/shared/browser';
 import BrowserWorkspace from '../../src/renderer/components/browser/BrowserWorkspace.svelte';
+import AppNotificationCenter from '../../src/renderer/components/layout/AppNotificationCenter.svelte';
+import { clearAppNotifications } from '../../src/renderer/notifications';
 
 describe('BrowserWorkspace', () => {
   const create = vi.fn(async (channelId: string, url: string) => ({
@@ -21,8 +23,14 @@ describe('BrowserWorkspace', () => {
   let requestInterceptedListener: (() => void) | null = null;
   let stateChangedListener: ((tab: BrowserTab) => void) | null = null;
 
+  function renderWorkspace() {
+    render(AppNotificationCenter);
+    return render(BrowserWorkspace);
+  }
+
   beforeEach(() => {
     localStorage.clear();
+    clearAppNotifications();
     localStorage.setItem('hotel-butler.cookie-import-prompted', 'true');
     create.mockClear();
     activate.mockClear();
@@ -34,6 +42,11 @@ describe('BrowserWorkspace', () => {
     listCookieSources.mockResolvedValue([
       { id: 'edge', name: 'Microsoft Edge' },
       { id: 'chrome', name: 'Google Chrome' },
+      { id: 'firefox', name: 'Mozilla Firefox' },
+      { id: 'safari', name: 'Safari' },
+      { id: 'qq', name: 'QQ 浏览器' },
+      { id: '360', name: '360 安全浏览器' },
+      { id: 'sogou', name: '搜狗高速浏览器' },
     ]);
     importCookies.mockResolvedValue({ imported: 12, failed: 0 });
     Object.defineProperty(window, 'hotelButler', {
@@ -66,7 +79,7 @@ describe('BrowserWorkspace', () => {
 
   it('keeps a separate tab set for each OTA shortcut', async () => {
     const user = userEvent.setup();
-    const { container } = render(BrowserWorkspace);
+    const { container } = renderWorkspace();
 
     expect(await screen.findByRole('tab', { name: '携程后台' })).toBeInTheDocument();
     const animate = vi.mocked(Element.prototype.animate);
@@ -99,7 +112,7 @@ describe('BrowserWorkspace', () => {
       })
       .mockResolvedValueOnce({ imported: 12, failed: 0 });
     const user = userEvent.setup();
-    render(BrowserWorkspace);
+    renderWorkspace();
 
     await user.click(await screen.findByRole('button', { name: '导入 Cookie' }));
 
@@ -108,28 +121,30 @@ describe('BrowserWorkspace', () => {
     await user.click(screen.getByRole('radio', { name: 'Microsoft Edge' }));
     await user.click(screen.getByRole('button', { name: '开始导入' }));
 
-    const importAlert = await screen.findByRole('alert');
-    expect(importAlert).toHaveTextContent('Cookie 导入失败，请稍后重试');
-    expect(importAlert).toHaveAttribute('data-slot', 'alert');
-    expect(importAlert.querySelector('svg')).toBeInTheDocument();
+    const importAlert = await screen.findByText('Cookie 导入失败，请稍后重试。');
+    expect(importAlert.closest('[data-slot="alert"]')).toBeInTheDocument();
     expect(
       screen.queryByText(/Error invoking|remote method|cookies:import/i),
     ).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole('button', { name: '开始导入' })).toBeEnabled());
     await user.click(screen.getByRole('button', { name: '开始导入' }));
 
-    expect(await screen.findByRole('alert')).toHaveTextContent(
-      '无法读取浏览器 Cookie，请允许访问后重试',
-    );
+    expect(await screen.findByText('无法读取浏览器 Cookie，请允许访问后重试')).toBeInTheDocument();
     expect(
       screen.queryByText(/Error invoking|remote method|cookies:import/i),
     ).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole('button', { name: '开始导入' })).toBeEnabled());
     await user.click(screen.getByRole('button', { name: '开始导入' }));
 
     expect(importCookies).toHaveBeenCalledWith('edge');
     expect(await screen.findByText('已从 Microsoft Edge 导入 12 个 Cookie')).toBeVisible();
-    await user.click(screen.getByRole('button', { name: '完成' }));
 
-    expect(screen.queryByRole('dialog', { name: '从浏览器导入 Cookie' })).not.toBeInTheDocument();
+    await waitFor(() =>
+      expect(screen.getByRole('dialog', { name: '从浏览器导入 Cookie' })).toHaveAttribute(
+        'data-state',
+        'closed',
+      ),
+    );
     expect(localStorage.getItem('hotel-butler.cookie-import-prompted')).toBe('true');
     expect(create).toHaveBeenCalledWith('ctrip', expect.any(String));
   });
@@ -138,18 +153,18 @@ describe('BrowserWorkspace', () => {
     create.mockRejectedValueOnce(
       new Error("Error invoking remote method 'browser:create': /Users/private/app-data"),
     );
-    render(BrowserWorkspace);
+    renderWorkspace();
 
-    const alert = await screen.findByRole('alert');
+    const alert = (await screen.findByText('页面打开失败，请重试')).closest('[data-slot="alert"]');
     expect(alert).toHaveTextContent('页面打开失败，请重试');
-    expect(alert.querySelector('svg')).toBeInTheDocument();
+    expect(alert?.querySelector('svg')).toBeInTheDocument();
     expect(
       screen.queryByText(/remote method|Users\/private|browser:create/i),
     ).not.toBeInTheDocument();
   });
 
   it('uses the shared Spinner while the active page is refreshing', async () => {
-    render(BrowserWorkspace);
+    renderWorkspace();
     await screen.findByRole('tab', { name: '携程后台' });
 
     stateChangedListener?.({
@@ -167,19 +182,15 @@ describe('BrowserWorkspace', () => {
     expect(refreshButton.querySelector('[data-slot="spinner"]')).toBeInTheDocument();
   });
 
-  it('confirms an intercepted embedded-browser request with an Alert Dialog', async () => {
-    const user = userEvent.setup();
-    render(BrowserWorkspace);
+  it('reports an intercepted embedded-browser request as a non-blocking notification', async () => {
+    renderWorkspace();
     await screen.findByRole('tab', { name: '携程后台' });
 
     requestInterceptedListener?.();
 
-    const alertDialog = await screen.findByRole('alertdialog', { name: '请求拦截成功' });
-    expect(alertDialog).toHaveTextContent('已拦截携程接口请求：/restapi/soa2/**');
-    expect(alertDialog.querySelector('svg')).not.toBeInTheDocument();
-    await user.click(screen.getByRole('button', { name: '知道了' }));
-
-    expect(acknowledgeInterception).toHaveBeenCalledOnce();
+    const notice = await screen.findByText('已拦截携程接口请求：/restapi/soa2/**');
+    expect(notice.closest('[data-slot="alert"]')).toHaveTextContent('请求拦截成功');
+    expect(acknowledgeInterception).not.toHaveBeenCalled();
     expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
   });
 
@@ -189,9 +200,9 @@ describe('BrowserWorkspace', () => {
       value: vi.fn().mockRejectedValue(new Error('IPC list failure')),
     });
 
-    render(BrowserWorkspace);
+    renderWorkspace();
 
-    expect(await screen.findByRole('alert')).toHaveTextContent('浏览器工作区加载失败，请重试');
+    expect(await screen.findByText('浏览器工作区加载失败，请重试')).toBeInTheDocument();
     expect(screen.queryByText(/IPC list failure/)).not.toBeInTheDocument();
   });
 });

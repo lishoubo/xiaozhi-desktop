@@ -50,7 +50,6 @@ export class BrowserManager {
   private readonly managedWebContentsIds = new Set<number>();
   private activeTabId: string | null = null;
   private bounds: Rectangle = { x: 0, y: 0, width: 0, height: 0 };
-  private interceptionAlertOpen = false;
   private readonly handleShellInput = (event: ElectronEvent, input: Input): void => {
     if (!isReloadShortcut(input)) return;
 
@@ -112,7 +111,7 @@ export class BrowserManager {
     if (this.activeTabId !== tabId) {
       const previous = this.activeTabId ? this.tabs.get(this.activeTabId) : undefined;
       if (previous) this.window.contentView.removeChildView(previous.view);
-      if (!this.interceptionAlertOpen) this.window.contentView.addChildView(tab.view);
+      this.window.contentView.addChildView(tab.view);
       this.activeTabId = tabId;
     }
     tab.view.setBounds(this.bounds);
@@ -132,13 +131,8 @@ export class BrowserManager {
   }
 
   acknowledgeInterception(): void {
-    if (!this.interceptionAlertOpen) return;
-    this.interceptionAlertOpen = false;
-    const active = this.activeTabId ? this.tabs.get(this.activeTabId) : undefined;
-    if (active && !this.window.isDestroyed()) {
-      this.window.contentView.addChildView(active.view);
-      active.view.setBounds(this.bounds);
-    }
+    // Kept for preload compatibility with older renderer bundles. Interception feedback is
+    // non-blocking now, so there is no browser view to restore.
   }
 
   goBack(tabId: string): void {
@@ -159,7 +153,6 @@ export class BrowserManager {
     const active = this.activeTabId ? this.tabs.get(this.activeTabId) : undefined;
     if (active) this.window.contentView.removeChildView(active.view);
     this.activeTabId = null;
-    this.interceptionAlertOpen = false;
   }
 
   list(): BrowserTab[] {
@@ -188,7 +181,6 @@ export class BrowserManager {
     this.tabs.clear();
     this.managedWebContentsIds.clear();
     this.activeTabId = null;
-    this.interceptionAlertOpen = false;
     if (!this.window.isDestroyed()) {
       this.window.webContents.removeListener('before-input-event', this.handleShellInput);
     }
@@ -206,11 +198,7 @@ export class BrowserManager {
         }
 
         callback({ cancel: true });
-        if (this.interceptionAlertOpen || this.window.isDestroyed()) return;
-
-        this.interceptionAlertOpen = true;
-        const active = this.activeTabId ? this.tabs.get(this.activeTabId) : undefined;
-        if (active) this.window.contentView.removeChildView(active.view);
+        if (this.window.isDestroyed()) return;
         this.logger.info('Embedded browser request intercepted', { ruleId: 'ctrip-soa2' });
         this.window.webContents.send(IPC_CHANNELS.browser.requestIntercepted, {
           ruleId: 'ctrip-soa2',
