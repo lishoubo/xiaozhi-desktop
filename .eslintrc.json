@@ -16,5 +16,48 @@
   "parser": "@typescript-eslint/parser",
   "parserOptions": {
     "sourceType": "module"
-  }
+  },
+  "rules": {
+    "import/no-restricted-paths": [
+      "error",
+      {
+        "zones": [
+          {
+            "target": "./src/domain",
+            "from": "./src/main",
+            "message": "domain 不能依赖 main（依赖方向反了）"
+          },
+          {
+            "target": "./src/domain",
+            "from": "./src/renderer",
+            "message": "domain 不能依赖 renderer（依赖方向反了）"
+          },
+          {
+            "target": "./src/domain",
+            "from": "./src/shared",
+            "message": "domain 不能依赖 shared（方向反了：应由 shared 引 domain）"
+          }
+        ]
+      }
+    ]
+  },
+  "overrides": [
+    {
+      "files": ["src/domain/**/*.ts"],
+      "rules": {
+        "no-restricted-imports": [
+          "error",
+          {
+            "paths": [
+              { "name": "electron", "message": "domain 必须零框架依赖" },
+              { "name": "better-sqlite3", "message": "domain 不做 I/O" },
+              { "name": "svelte", "message": "domain 不认 UI" },
+              { "name": "node:fs", "message": "domain 不做 I/O" },
+              { "name": "node:child_process", "message": "domain 不起进程" }
+            ]
+          }
+        ]
+      }
+    }
+  ]
 }
