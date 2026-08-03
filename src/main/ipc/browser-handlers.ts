@@ -10,8 +10,8 @@ import {
 } from '../../shared/browser';
 import { IPC_CHANNELS } from '../../shared/ipc-channels';
 import type { AppLogger } from '../../shared/logging';
-import { BrowserCookieImporter } from '../browser/browser-cookie-importer';
-import { friendlyCookieImportMessage } from '../browser/cookie-import';
+import { BrowserCookieImporter } from '../cookie-import/browser-cookie-importer';
+import { friendlyCookieImportMessage } from '../cookie-import/cookie-import';
 
 const noArgumentsSchema = z.tuple([]);
 
@@ -122,13 +122,16 @@ export function registerBrowserHandlers({
   handle(IPC_CHANNELS.cookies.listSources, noArgumentsSchema, '请求参数无效', () =>
     cookieImporter.listSources(),
   );
+  // ⚠ 过渡态：cookie 现在按渠道分组返回，但这里仍沿用旧行为——直接 set 进
+  // 全局共享 session。按渠道存文件、登录标签页按需注入是 Task 6 的范围。
   handle(
     IPC_CHANNELS.cookies.import,
     z.tuple([browserCookieSourceIdSchema]),
     '浏览器类型无效',
     async (_event, sourceId) => {
       try {
-        const { cookies, failed: readFailures } = await cookieImporter.readCookies(sourceId);
+        const { cookiesByChannel, failed: readFailures } = await cookieImporter.readCookies(sourceId);
+        const cookies = Array.from(cookiesByChannel.values()).flat();
         if (cookies.length === 0 && readFailures === 0) {
           throw new Error('所选浏览器中没有找到可导入的 Cookie');
         }

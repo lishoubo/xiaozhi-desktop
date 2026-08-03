@@ -1,26 +1,31 @@
-const SUPPORTED_COOKIE_DOMAINS = [
-  'agoda.com',
-  'alibaba.com',
-  'booking.com',
-  'bytedance.com',
-  'ctrip.com',
-  'douyin.com',
-  'expedia.com',
-  'fliggy.com',
-  'meituan.com',
-  'taobao.com',
-  'trip.com',
-  'tujia.com',
-  'xiaohongshu.com',
-] as const;
+import { toChannelId, type ChannelId } from '../../domain/identity';
+
+/**
+ * 渠道 → cookie 域名的最小映射。**不是完整的 `ChannelManifest`**（design.md
+ * 明确排除，见 Non-Goals）——只覆盖本次要落地的渠道：抖音（真实探测）、
+ * 携程/美团（占位，探测未实现）。其余渠道的 cookie 本次不导入。
+ */
+const CHANNEL_COOKIE_DOMAINS: Readonly<Record<string, readonly string[]>> = {
+  douyin: ['douyin.com'],
+  ctrip: ['ctrip.com'],
+  meituan: ['meituan.com'],
+};
 
 const CHROMIUM_TO_UNIX_SECONDS = 11_644_473_600;
 
-export function isSupportedCookieDomain(domain: string): boolean {
+/** 给定 cookie 的域名，判断它属于哪个受支持渠道；不属于任何渠道则返回 null。 */
+export function channelForCookieDomain(domain: string): ChannelId | null {
   const normalized = domain.trim().toLowerCase().replace(/^\./, '');
-  return SUPPORTED_COOKIE_DOMAINS.some(
-    (supported) => normalized === supported || normalized.endsWith(`.${supported}`),
-  );
+  for (const [channel, domains] of Object.entries(CHANNEL_COOKIE_DOMAINS)) {
+    if (domains.some((supported) => normalized === supported || normalized.endsWith(`.${supported}`))) {
+      return toChannelId(channel);
+    }
+  }
+  return null;
+}
+
+export function isSupportedCookieDomain(domain: string): boolean {
+  return channelForCookieDomain(domain) !== null;
 }
 
 export function chromiumTimestampToUnix(value: number): number | undefined {

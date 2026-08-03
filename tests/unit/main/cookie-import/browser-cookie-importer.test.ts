@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   BrowserCookieImporter,
   parseSafariCookieStore,
-} from '../../../src/main/browser/browser-cookie-importer';
+} from '../../../../src/main/cookie-import/browser-cookie-importer';
 
 const temporaryDirectories: string[] = [];
 
@@ -130,24 +130,31 @@ describe('BrowserCookieImporter', () => {
     `);
     database.close();
 
-    await expect(
-      new BrowserCookieImporter(createLogger(), home, 'linux', {}).readCookies('firefox'),
-    ).resolves.toEqual({
-      failed: 0,
-      cookies: [
-        {
-          domain: '.meituan.com',
-          expirationDate: 1_900_000_000,
-          httpOnly: true,
-          name: 'session',
-          path: '/',
-          sameSite: 'lax',
-          secure: true,
-          url: 'https://meituan.com/',
-          value: 'token',
-        },
-      ],
-    });
+    const result = await new BrowserCookieImporter(createLogger(), home, 'linux', {}).readCookies(
+      'firefox',
+    );
+
+    expect(result.failed).toBe(0);
+    expect(result.cookiesByChannel).toEqual(
+      new Map([
+        [
+          'meituan',
+          [
+            {
+              domain: '.meituan.com',
+              expirationDate: 1_900_000_000,
+              httpOnly: true,
+              name: 'session',
+              path: '/',
+              sameSite: 'lax',
+              secure: true,
+              url: 'https://meituan.com/',
+              value: 'token',
+            },
+          ],
+        ],
+      ]),
+    );
   });
 
   it('rejects malformed rows from an external browser Cookie database', async () => {
@@ -225,7 +232,7 @@ describe('BrowserCookieImporter', () => {
 
     expect(logger.info.mock.calls).toEqual([
       ['Cookie extraction started', { source: 'firefox' }],
-      ['Cookie extraction completed', { source: 'firefox', extracted: 1, failed: 0 }],
+      ['Cookie extraction completed', { source: 'firefox', channels: 1, extracted: 1, failed: 0 }],
     ]);
     expect(JSON.stringify(logger.info.mock.calls)).not.toContain('private-cookie-value');
     expect(JSON.stringify(logger.info.mock.calls)).not.toContain(home);

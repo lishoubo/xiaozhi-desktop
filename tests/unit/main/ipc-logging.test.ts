@@ -106,7 +106,9 @@ describe('IPC operational logging', () => {
       cookieImporter: {
         listSources: vi.fn(),
         readCookies: vi.fn().mockResolvedValue({
-          cookies: [{ name: 'session', value: 'secret-cookie' }],
+          cookiesByChannel: new Map([
+            ['douyin', [{ name: 'session', value: 'secret-cookie' }]],
+          ]),
           failed: 2,
         }),
       },
