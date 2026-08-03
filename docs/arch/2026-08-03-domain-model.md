@@ -420,6 +420,12 @@ this.browserSession = session.fromPartition('persist:hotel-butler-browser');
 
 `src/renderer/auth.ts` 是 mock（写死手机号验证码），session 存 `localStorage`。mock 本身是刻意的占位（rms 未接），不算缺陷；**但 session 只在 renderer 意味着 main 侧不知道谁登录了**，将来接审计时 `approved_by` / `appUserId` 拿不到。
 
+### 🟡 D4：migration 基础设施未按 §5 落地
+
+§5 规定 `main/data/migration/{app,facts}/` 拆文件、独立 `runner.ts` 做降级检测 + 备份 + 回滚、双库分离。现状（含本次 cookie 导入建号方案新增的 `ota_account` 表）仍是所有 migration 堆在 `application-database.ts` 一个数组里，只有唯一的 `app.sqlite`，没有降级检测、没有备份回滚。
+
+本次新增 `ota_account` 表（migration version 3）时**刻意维持现状**，未顺带重构——这块是纯基础设施改动，和 cookie 导入建号这个功能分支无直接关系，混在一起会让 diff 难审查（见 CLAUDE.md"保持既有行为，不顺手重构"）。重构本身待排期，触发时机建议是 observation 类数据即将上线（届时 facts.sqlite 分库、降级检测都会成为真实需求，而不是预防性工程）。
+
 ---
 
 ## 8. 验证说明
