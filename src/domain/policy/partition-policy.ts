@@ -1,8 +1,10 @@
 /**
- * partition 命名策略 —— 每个 (environment, channel, otaAccountId) 一份独立存储。
+ * partition 命名策略 —— 每个 (environment, channel, 短id) 一份独立存储。
  *
- * **partition 是业务隔离单位**，所以按业务身份（账号）切。cookie 从哪来、
- * 怎么授权的，是 `OtaCredential` 的事，不影响这里的结构。
+ * **partition 是业务隔离单位**，短id 在创建登录标签页那一刻随机生成，不代表
+ * 业务身份——此时账号还不存在（探测尚未发生），无法从账号反推 partition 名字。
+ * 探测成功后，`OtaAccount.partitionName` 原样存下这个名字，此后定位这份登录态
+ * 一律查这个字段，不再用任何公式重新计算。
  *
  * 这是 D1 的修复核心：此前所有 OTA 账号共用 `persist:hotel-butler-browser`
  * 一个 session，导致同渠道两个账号的 cookie 互相覆盖，导入携程还会顺带
@@ -14,7 +16,7 @@
  * ⚠ **partition 名称一旦发布就固化在用户磁盘上**，改动等于让所有用户重新登录。
  * 因此改这里必须同时升 `partitionLayout` 版本号，并想清楚迁移策略。
  */
-import type { BrowserContextKey } from '../identity';
+import type { ChannelId } from '../identity';
 
 /** 与 STORAGE_VERSIONS.partitionLayout 对应；改命名规则必须同步升版本。 */
 export const PARTITION_LAYOUT_VERSION = 1;
@@ -27,8 +29,12 @@ const PARTITION_PREFIX = 'persist:xiaozhi';
  */
 export const LEGACY_SHARED_PARTITION = 'persist:hotel-butler-browser';
 
-export function toPartitionName(key: BrowserContextKey): string {
-  return `${PARTITION_PREFIX}:${key.environment}:${key.channel}:${key.otaAccountId}`;
+export function toPartitionName(
+  environment: 'prod' | 'dev',
+  channel: ChannelId,
+  shortId: string,
+): string {
+  return `${PARTITION_PREFIX}:${environment}:${channel}:${shortId}`;
 }
 
 /** 判断一个 partition 名是否由当前布局生成（用于识别 legacy）。 */

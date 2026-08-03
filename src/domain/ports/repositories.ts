@@ -11,10 +11,19 @@ import type {
   CalendarEventUpdateInput,
   CalendarSnapshot,
 } from '../calendar';
+import type { ChannelId, OtaHotelId } from '../identity';
+import type { OtaAccount, OtaAccountCreateInput } from '../ota-account';
 
 export interface CalendarRepository {
   load(): CalendarSnapshot;
   createEvent(input: CalendarEventCreateInput): CalendarEventRecord;
   updateEvent(input: CalendarEventUpdateInput): CalendarEventRecord;
   deleteEvent(id: string): void;
+}
+
+export interface OtaAccountRepository {
+  create(input: OtaAccountCreateInput): OtaAccount;
+  findByChannelAndHotelId(channel: ChannelId, otaHotelId: OtaHotelId): OtaAccount | null;
+  /** 查重命中时把 partitionName 更新为最新登录，见 design.md 决策 7。 */
+  updatePartitionName(id: OtaAccount['id'], partitionName: string): OtaAccount;
 }
