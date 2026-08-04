@@ -14,7 +14,12 @@ import type { ChannelId, OtaHotelId } from '../../domain/identity';
 export type DiscoveredOtaHotel = Readonly<{
   otaHotelId: OtaHotelId;
   otaHotelName: string;
-  /** 渠道特定的免登录跳转上下文，抖音存 groupid；携程恒为 null。见 douyin-multi-account-nav/design.md §2.1。 */
+  /**
+   * 渠道特定的附加信息，含义按渠道各自解释：抖音存裸 groupid 字符串（免登录跳转用，
+   * 见 douyin-multi-account-nav/design.md §2.1）；美团存 JSON 字符串
+   * `{ partnerId, partnerName }`（见 cookie-login-account-discovery/design-meituan.md 决策 10）；
+   * 携程恒为 null。
+   */
   channelContext: string | null;
 }>;
 

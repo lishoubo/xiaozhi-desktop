@@ -15,9 +15,12 @@ export const OTA_CHANNELS: readonly OtaChannel[] = [
     iconUrl: OTA_ICONS.ctrip,
   },
   {
-    id: 'meituan-hotel',
+    id: 'meituan',
     name: '美团酒店',
-    url: 'https://ebooking.meituan.com/ebk/login/login.html',
+    url:
+      'https://me.meituan.com/login/index.html' +
+      '?redirect=https%3A%2F%2Fme.meituan.com%2Febooking%2Fmerchant%2FebIframe%3FiUrl%3D' +
+      '%252Febooking%252Fnew-workbench%252Findex.html%2523%252F',
     iconUrl: OTA_ICONS.meituan,
   },
   {

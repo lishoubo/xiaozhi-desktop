@@ -8,10 +8,14 @@ import type { OtaAccount } from '../ota-account';
 
 const CTRIP_MANAGEMENT_URL = 'https://ebooking.ctrip.com/home/mainland';
 const DOUYIN_HOME_URL = 'https://life.douyin.com/p/home';
+const MEITUAN_HOME_URL =
+  'https://me.meituan.com/ebooking/merchant/ebIframe' +
+  '?iUrl=%2Febooking%2Fnew-workbench%2Findex.html%23%2F';
 
 const CHANNEL_DEFAULT_URLS: ReadonlyMap<string, string> = new Map([
   ['ctrip', CTRIP_MANAGEMENT_URL],
   ['douyin', DOUYIN_HOME_URL],
+  ['meituan', MEITUAN_HOME_URL],
 ]);
 
 export class UnsupportedChannelForLandingUrlError extends Error {
