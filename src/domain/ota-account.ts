@@ -10,7 +10,7 @@ export type OtaAccount = Readonly<{
   id: OtaAccountId;
   channel: ChannelId;
   otaHotelId: OtaHotelId;
-  displayName: string | null;
+  otaHotelName: string | null;
   partitionName: string;
 }>;
 
@@ -18,7 +18,7 @@ export type OtaAccountCreateInput = Readonly<{
   id: OtaAccountId;
   channel: ChannelId;
   otaHotelId: OtaHotelId;
-  displayName: string | null;
+  otaHotelName: string | null;
   partitionName: string;
 }>;
 
@@ -37,7 +37,7 @@ export function createOtaAccount(input: OtaAccountCreateInput): OtaAccount {
     id: input.id,
     channel: input.channel,
     otaHotelId: input.otaHotelId,
-    displayName: input.displayName,
+    otaHotelName: input.otaHotelName,
     partitionName: input.partitionName,
   };
 }

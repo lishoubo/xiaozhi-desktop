@@ -13,7 +13,7 @@ import type { ChannelId, OtaHotelId } from '../../domain/identity';
 
 export type DiscoveredOtaHotel = Readonly<{
   otaHotelId: OtaHotelId;
-  displayName: string;
+  otaHotelName: string;
 }>;
 
 export type DiscoveryOutcome =

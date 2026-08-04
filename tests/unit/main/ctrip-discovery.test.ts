@@ -51,7 +51,7 @@ describe('CtripDiscoveryProbe', () => {
     expect(sessionForPartition).toHaveBeenCalledWith('persist:xiaozhi:prod:ctrip:aaa');
     expect(outcome).toEqual({
       kind: 'single',
-      hotel: { otaHotelId: '12345', displayName: '测试酒店' },
+      hotel: { otaHotelId: '12345', otaHotelName: '测试酒店' },
     });
     expect(view.webContents.close).toHaveBeenCalledOnce();
   });

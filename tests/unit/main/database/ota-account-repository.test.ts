@@ -15,7 +15,7 @@ function input(overrides: Partial<Parameters<SqliteOtaAccountRepository['create'
     id: toOtaAccountId('account-1'),
     channel: toChannelId('douyin'),
     otaHotelId: toOtaHotelId('dy-111'),
-    displayName: null,
+    otaHotelName: null,
     partitionName: 'persist:xiaozhi:prod:douyin:short-1',
     ...overrides,
   };

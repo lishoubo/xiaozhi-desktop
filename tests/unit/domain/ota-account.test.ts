@@ -7,7 +7,7 @@ function input(overrides: Partial<Parameters<typeof createOtaAccount>[0]> = {}) 
     id: toOtaAccountId('account-1'),
     channel: toChannelId('douyin'),
     otaHotelId: toOtaHotelId('dy-111'),
-    displayName: null,
+    otaHotelName: null,
     partitionName: 'persist:xiaozhi:prod:douyin:short-id',
     ...overrides,
   };
@@ -24,8 +24,8 @@ describe('createOtaAccount', () => {
     expect(() => createOtaAccount(input({ partitionName: '' }))).toThrow(InvalidOtaAccountError);
   });
 
-  it('displayName 允许为 null——探测到门店名之前的状态', () => {
-    const account = createOtaAccount(input({ displayName: null }));
-    expect(account.displayName).toBeNull();
+  it('otaHotelName 允许为 null——探测到门店名之前的状态', () => {
+    const account = createOtaAccount(input({ otaHotelName: null }));
+    expect(account.otaHotelName).toBeNull();
   });
 });

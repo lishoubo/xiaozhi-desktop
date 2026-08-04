@@ -32,7 +32,7 @@ describe('DiscoverAndCreate', () => {
       channel,
       discover: vi.fn().mockResolvedValue({
         kind: 'single',
-        hotel: { otaHotelId: toOtaHotelId('12345'), displayName: '测试酒店' },
+        hotel: { otaHotelId: toOtaHotelId('12345'), otaHotelName: '测试酒店' },
       }),
     };
     const deps = createDeps({ probes: new Map([[channel, probe]]) });
@@ -44,7 +44,7 @@ describe('DiscoverAndCreate', () => {
       id: toOtaAccountId('generated-id'),
       channel,
       otaHotelId: toOtaHotelId('12345'),
-      displayName: '测试酒店',
+      otaHotelName: '测试酒店',
       partitionName,
     });
     expect(deps.repository.updatePartitionName).not.toHaveBeenCalled();
@@ -56,14 +56,14 @@ describe('DiscoverAndCreate', () => {
       id: toOtaAccountId('existing-id'),
       channel,
       otaHotelId: toOtaHotelId('12345'),
-      displayName: '旧酒店名',
+      otaHotelName: '旧酒店名',
       partitionName: 'persist:xiaozhi:prod:ctrip:old',
     };
     const probe = {
       channel,
       discover: vi.fn().mockResolvedValue({
         kind: 'single',
-        hotel: { otaHotelId: toOtaHotelId('12345'), displayName: '测试酒店' },
+        hotel: { otaHotelId: toOtaHotelId('12345'), otaHotelName: '测试酒店' },
       }),
     };
     const deps = createDeps({
@@ -88,14 +88,14 @@ describe('DiscoverAndCreate', () => {
       id: toOtaAccountId('existing-id'),
       channel,
       otaHotelId: toOtaHotelId('12345'),
-      displayName: '旧酒店名',
+      otaHotelName: '旧酒店名',
       partitionName: 'persist:xiaozhi:prod:ctrip:old',
     };
     const probe = {
       channel,
       discover: vi.fn().mockResolvedValue({
         kind: 'single',
-        hotel: { otaHotelId: toOtaHotelId('12345'), displayName: '测试酒店' },
+        hotel: { otaHotelId: toOtaHotelId('12345'), otaHotelName: '测试酒店' },
       }),
     };
     const deps = createDeps({
@@ -141,7 +141,7 @@ describe('DiscoverAndCreate', () => {
       channel,
       discover: vi.fn().mockResolvedValue({
         kind: 'single',
-        hotel: { otaHotelId: toOtaHotelId('12345'), displayName: '测试酒店' },
+        hotel: { otaHotelId: toOtaHotelId('12345'), otaHotelName: '测试酒店' },
       }),
     };
     const deps = createDeps({ probes: new Map([[channel, probe]]) });
@@ -167,8 +167,8 @@ describe('DiscoverAndCreate', () => {
       discover: vi.fn().mockResolvedValue({
         kind: 'multiple',
         hotels: [
-          { otaHotelId: toOtaHotelId('1'), displayName: '门店A' },
-          { otaHotelId: toOtaHotelId('2'), displayName: '门店B' },
+          { otaHotelId: toOtaHotelId('1'), otaHotelName: '门店A' },
+          { otaHotelId: toOtaHotelId('2'), otaHotelName: '门店B' },
         ],
       }),
     };

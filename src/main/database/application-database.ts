@@ -109,6 +109,13 @@ const migrations: readonly Migration[] = [
       `);
     },
   },
+  {
+    version: 4,
+    name: 'rename-ota-account-display-name',
+    apply(database) {
+      database.exec(`ALTER TABLE ota_account RENAME COLUMN display_name TO ota_hotel_name;`);
+    },
+  },
 ];
 
 function migrate(database: ApplicationDatabase): number {

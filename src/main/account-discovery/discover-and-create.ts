@@ -110,7 +110,7 @@ export class DiscoverAndCreate {
         id: toOtaAccountId(this.deps.generateAccountId()),
         channel,
         otaHotelId: hotel.otaHotelId,
-        displayName: hotel.displayName,
+        otaHotelName: hotel.otaHotelName,
         partitionName,
       });
     }

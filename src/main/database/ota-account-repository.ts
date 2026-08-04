@@ -7,7 +7,7 @@ type OtaAccountRow = Readonly<{
   id: string;
   channel: string;
   otaHotelId: string;
-  displayName: string | null;
+  otaHotelName: string | null;
   partitionName: string;
 }>;
 
@@ -16,7 +16,7 @@ function accountFromRow(row: OtaAccountRow): OtaAccount {
     id: toOtaAccountId(row.id),
     channel: toChannelId(row.channel),
     otaHotelId: toOtaHotelId(row.otaHotelId),
-    displayName: row.displayName,
+    otaHotelName: row.otaHotelName,
     partitionName: row.partitionName,
   };
 }
@@ -25,7 +25,7 @@ const SELECT_COLUMNS = `
   id,
   channel,
   ota_hotel_id AS otaHotelId,
-  display_name AS displayName,
+  ota_hotel_name AS otaHotelName,
   partition_name AS partitionName
 `;
 
@@ -37,8 +37,8 @@ export class SqliteOtaAccountRepository implements OtaAccountRepository {
     this.database
       .prepare(
         `
-        INSERT INTO ota_account (id, channel, ota_hotel_id, display_name, partition_name)
-        VALUES (@id, @channel, @otaHotelId, @displayName, @partitionName)
+        INSERT INTO ota_account (id, channel, ota_hotel_id, ota_hotel_name, partition_name)
+        VALUES (@id, @channel, @otaHotelId, @otaHotelName, @partitionName)
       `,
       )
       .run(account);
