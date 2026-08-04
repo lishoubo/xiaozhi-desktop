@@ -54,7 +54,7 @@
 | 字段 | 类型 | 用途 |
 |---|---|---|
 | `channelContext` | `string \| null` | 渠道特定的"免登录跳转上下文"，抖音存 `groupid`；携程当前用 URL 里的门店 ID 就能直接跳转，不需要这个字段，存 `null` |
-| `discoveredAt` | `number`（epoch ms） | 这条账号记录最近一次建号/更新的时间；同一 `partitionName` 下若有多条账号记录，取其中最大的 `discoveredAt` 作为这个 partition 的"最近登录时间"用于排序/展示（决策见 §2.3） |
+| `discoveredAt` | `number`（epoch ms） | 这条账号记录最近一次建号/更新的时间；`listByChannel` 按此字段降序排序展示（见 §6.1） |
 
 **`channelContext` 为什么不做成通用 `extra` JSON 字段**：Java 那套 RMS 系统遇到类似问题时用了通用 `extra` 字段存任意渠道特定数据，但那是历史包袱下"加字段有迁移成本"的权宜选择。本项目本地 SQLite、迁移成本几乎为零，直接加语义明确的具名字段更符合"避免投机抽象"的项目约束——`channelContext` 现在只有抖音在用，字段名不叫 `groupid` 是因为如果以后美团/其他渠道也需要类似的"重新进入门店后台需要的非 URL 参数上下文"，这个字段可以直接复用，不需要为每个渠道各开一个字段；但也不因此提前设计成结构化的多渠道 schema——用得上再加，YAGNI。
 
@@ -82,31 +82,17 @@ createOrUpdate({
 - Electron 没有官方 API 能枚举"磁盘上已存在的 partition"，项目自己在 `pending-partitions-store.ts` 里已经明确否定"读磁盘目录"这条路（Chromium 内部目录布局不是公开契约）
 - 浏览器登录成功后，无法从 cookie/DOM/接口反查出"这份登录态对应哪个手机号"——`rms-rpa-worker` 的 RPA 脚本里手机号只在用户主动走验证码登录时（`payload.username`）才存在，cookie 导入场景下应用层从一开始就不知道手机号
 
-**结论**：不引入手机号或任何形式的"登录态唯一标识"字段去自动判断"这份 cookie 是不是同一个人"——判断权交还给用户，应用层只负责把"已知的 partition 极其最近使用时间"如实列出来，用户自己认。
+**结论**：不引入手机号或任何形式的"登录态唯一标识"字段去自动判断"这份 cookie 是不是同一个人"。新增账号统一走独立登录（§3.1），不提供"复用已登录 cookie 去发现新门店"的入口——`partitionName` 相同只是两次独立登录巧合落在同一份登录态上的自然结果，不是应用层刻意设计的复用路径。
 
 ---
 
 ## 3. 交互
 
-### 3.1 新增账号入口（依赖上面的 partition 复用模型）
+### 3.1 新增账号入口
 
-二级导航最后固定一个"+ 添加账号"按钮，点击后弹出选择：
+二级导航最后固定一个"+ 添加账号"按钮，点击后直接走现有的"去登录"流程（流程A，`createAndNewPartition`），新建一个全新 partition——不弹窗选择，不提供"复用已登录 cookie"的入口。
 
-```
-新增门店账号
-┌────────────────────────────────┐
-│ ○ 使用已登录的 Cookie             │
-│   银际酒店(包头) · 2 小时前登录    │  ← 按 partitionName 去重后列出，
-│   璞禾咖啡酒店 · 3 天前登录        │     每行取该 partition 下账号的
-│                                  │     最新 discoveredAt 展示"多久前"
-│ ○ 重新登录（新的 Cookie）          │
-│                                  │
-│              [取消]  [下一步]     │
-└────────────────────────────────┘
-```
-
-- 选"使用已登录的 Cookie" + 某一行 → 复用该行的 `partitionName`，走 `BrowserManager.createWithAlreadyPartition`（流程B）打开标签页——**不重新注入 cookie**（partition 本身就是登录态的持久化存储，不需要），直接落地到抖音后台首页 `/p/home`，用户在这个已登录的标签页里手动切到还没建号的另一个公司，选完门店后走**同一套** URL 判定 + 探测链路（决策 8/9 不变，探测层本身是幂等的，`(channel, otaHotelId)` 查重）——由于是**同一个 partitionName**，建号时 `discover-and-create.ts` 的 `createOrUpdate` 会查到"这个 hotelId 不存在"从而新建一条记录，`partitionName` 字段填的就是这个复用的值，不会走"删除旧 partition"那条查重命中分支（决策 7 只在 `(channel, otaHotelId)` 命中已存在账号时触发，新门店天然不会命中）
-- 选"重新登录" → 走现有的"去登录"流程（流程A，`createAndNewPartition`），新建一个全新 partition
+**为什么不做"复用已登录的 Cookie"选项**：探测（`discover-and-create.ts` 的 `trigger()`）这个动作本来就只服务于"这次登录到达首页"这一时刻，不服务于"同一份已登录 partition 下继续发现更多门店"——`DiscoverAndCreate` 内部按 `partitionName` 记录 `bound` 状态，一个 partition 探测成功一次后不再重复触发（性能考量，见 `cookie-login-account-discovery/design.md` 决策 8），如果要支持"复用已登录 cookie 再探测出一个新门店"，需要改变这个去重语义，超出本次改动范围。§2.3 提到的"`partitionName` 相同"是两次独立登录巧合落在同一份登录态上的自然结果，不是这里刻意设计的交互路径。
 
 ### 3.2 已绑定账号登录失效后的重新登录
 
@@ -140,7 +126,7 @@ createOrUpdate({
 | 渠道下没有任何绑定账号 | 二级导航只显示"+ 添加账号"，不展示空态占位文案（区别于表格类页面的空态，这里只是一条更短的操作栏） |
 | 同一渠道下账号数量很多（如 10+ 门店） | 二级导航横向滚动（复用既有 tablist 的 `overflow-x-auto`），本期不做搜索/筛选 |
 | 点击账号但该账号的 partition 已被清理（极端情况：磁盘目录被外部工具删除） | `createWithAlreadyPartition` 打开标签页后落地到登录页，等同于"登录失效"场景，用户重新登录覆盖同一 partition |
-| 携程账号列表 | 展示逻辑与抖音完全一致（`channelContext` 为 `null`，不影响展示），但**没有"使用已登录的 Cookie"这个选项的意义**——携程一个 partition 只对应一个账号，"复用已有 cookie"約等于"重新走一遍这个账号的登录"，UI 上不需要为携程隐藏这个入口（保持渠道无关的通用交互），只是携程场景下这个列表实际上很少有超过 1 行 |
+| 携程账号列表 | 展示逻辑与抖音完全一致（`channelContext` 为 `null`，不影响展示），实际上这个列表很少有超过 1 行 |
 | 探测到 `multiple`（携程多店、决策2 提到但 Task 6/7 未实现的分支） | 与本次改动无关，`multiple` 结果目前仍不落库，账号列表看不到这些"待认领"的探测结果——这是既有的已知缺口（`verification.md` §3.2），不在本方案范围内 |
 
 ---
@@ -174,10 +160,6 @@ otaAccount: {
 
 `openExisting(accountId)` handler 内部：查 `OtaAccountRepository` 拿到 `partitionName`/`channel`/`channelContext` → 拼 URL（抖音场景 `channelContext` 非空时拼 `https://life.douyin.com/p/home?groupid=${channelContext}`，携程场景直接用渠道默认 URL）→ 调 `BrowserManager.createWithAlreadyPartition`。
 
-### 6.3 "使用已登录的 Cookie"列表的查询
-
-复用 `listByChannel`，前端按 `partitionName` 去重、取每组最大 `discoveredAt` 即可，不需要新增后端接口。
-
 ---
 
 ## 7. 前端（renderer）实现
@@ -188,8 +170,7 @@ otaAccount: {
 src/renderer/
 ├── components/browser/
 │   ├── BrowserWorkspace.svelte        # 修改：grid 行数从 3 行变 4 行，插入 AccountsNav
-│   ├── AccountsNav.svelte             # 新增：账号二级导航（列表 + 添加账号按钮）
-│   └── AddAccountDialog.svelte        # 新增：新增账号选择弹窗（复用已有 cookie / 重新登录）
+│   └── AccountsNav.svelte             # 新增：账号二级导航（列表 + 添加账号按钮，点击直接触发登录流程）
 ```
 
 ### 7.2 `AccountsNav.svelte` 关键状态（示意，非最终实现）
@@ -231,8 +212,8 @@ async function openAccount(account: OtaAccount): Promise<void> {
 | # | 决定 |
 |---|---|
 | 1 | 二级导航位置：`BrowserWorkspace.svelte` 渠道图标条正下方，独立一行，不与已打开标签页 tablist 合并 |
-| 2 | `OtaAccount` 新增 `channelContext`（渠道特定跳转上下文，抖音存 groupid）+ `discoveredAt`（用于同 partition 多账号取最近时间） |
-| 3 | 不引入手机号或任何登录态唯一标识；"同一份 cookie 是否同一个人"这个判断权交给用户，应用层只展示 partition + 最近登录时间 |
-| 4 | 新增账号走"使用已登录的 Cookie（列出已知 partition）"或"重新登录（新建 partition）"两选一，复用已有 cookie 时不重新注入、直接打开落地页走同一套探测链路 |
+| 2 | `OtaAccount` 新增 `channelContext`（渠道特定跳转上下文，抖音存 groupid）+ `discoveredAt`（`listByChannel` 排序用） |
+| 3 | 不引入手机号或任何登录态唯一标识；不提供"复用已登录 cookie 去发现新门店"的入口，`partitionName` 相同只是两次独立登录巧合落在同一份登录态上的自然结果 |
+| 4 | 新增账号统一走"重新登录"（`createAndNewPartition`，新建 partition），不提供复用已登录 cookie 的入口——探测本来就只服务于"这次登录到达首页"这一时刻（见 §3.1） |
 | 5 | 已绑定账号登录失效后走"重新登录覆盖同一 partition"，不新建 partition，同 partition 下所有账号一起恢复 |
 | 6 | 本次只写方案设计 schema，不动 `domain/ota-account.ts`、不写 migration、不实现 IPC/UI 代码 |
