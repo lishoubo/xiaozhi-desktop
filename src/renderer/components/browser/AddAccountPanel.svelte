@@ -39,8 +39,14 @@
    * HTML 弹窗之上，不受 Dialog 的 z-index/Portal 影响——打开面板前必须
    * 让当前激活的标签页先让路（`browser.hide()`），关闭时再挂回去，否则
    * 弹窗内容会被浏览器标签页遮挡、点不到任何按钮。
+   *
+   * `restorePreviousTab`：面板内创建了新标签页后关闭（`createFromCookie`
+   * /`createFromExistingSession`/`newLogin` 成功后）不能恢复到打开面板前
+   * 的旧标签页——那样会把刚创建、已经被主进程 activate 的新标签页盖掉，
+   * 是本次真机验证发现的问题。只有用户主动取消/点关闭（没有创建成功）
+   * 才需要恢复旧标签页。
    */
-  async function handleOpenChange(next: boolean): Promise<void> {
+  async function handleOpenChange(next: boolean, restorePreviousTab = true): Promise<void> {
     if (next) {
       dismissAppNotification('add-account-error');
       pickingExistingAccount = false;
@@ -58,7 +64,7 @@
     }
 
     open = false;
-    if (tabToRestore) {
+    if (restorePreviousTab && tabToRestore) {
       try {
         await window.hotelButler.browser.activate(tabToRestore);
       } catch (reason) {
@@ -100,7 +106,7 @@
         environment: 'prod',
         url: channel.url,
       });
-      await handleOpenChange(false);
+      await handleOpenChange(false, false);
       onAccountCreated(tab);
     } catch (reason) {
       reportFailure('从 Cookie 创建账号失败，请重试或改用新建账号。', reason);
@@ -114,7 +120,7 @@
     busy = true;
     try {
       const tab = await window.hotelButler.otaAccount.createFromExistingSession(account.id);
-      await handleOpenChange(false);
+      await handleOpenChange(false, false);
       onAccountCreated(tab);
     } catch (reason) {
       reportFailure('从其他登录态创建账号失败，请重试。', reason);
@@ -128,7 +134,7 @@
     busy = true;
     try {
       const ok = await onNewLogin();
-      if (ok) await handleOpenChange(false);
+      if (ok) await handleOpenChange(false, false);
     } finally {
       busy = false;
     }
