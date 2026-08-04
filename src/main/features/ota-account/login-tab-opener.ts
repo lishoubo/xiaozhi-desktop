@@ -1,22 +1,32 @@
 /**
- * "去登录"编排（流程A）：读该渠道已导入的 cookie → 新建 partition 打开
- * 登录标签页（挂上该渠道的 LoginUrlMatcher，URL 判定登录成功时触发探测，
- * 见 design.md 决策 8）→ 记一条待认领 partition。三步顺序固定、互相依赖
- * 前一步的输出（partitionName 生成前不存在），因此不拆分给不同调用方，
- * 也不写进 IPC handler 本体——参照 docs/arch/2026-08-03-final-architecture.md
- * §3.6 LoginHealthChecker 的先例：编排放 main/features/，判定/纯逻辑放 domain/。
+ * "去登录"编排：新建 partition 打开登录标签页（挂上该渠道的
+ * LoginUrlMatcher，URL 判定登录成功时触发探测，见 design.md 决策 8）→
+ * 记一条待认领 partition。参照 docs/arch/2026-08-03-final-architecture.md
+ * §3.6 LoginHealthChecker 的先例：编排放 main/features/，判定/纯逻辑放
+ * domain/。
  *
  * 流程B（打开已有账号）不走这里，见 docs/arch/2026-08-03-login-tab-flows.md。
+ *
+ * 两个入口对应"添加账号"面板的操作④与操作②
+ * （add-account-flow-per-channel/design.md §3、§4）：
+ * - `open()`：操作④"新建账号"，不注入 cookie，等待用户手动登录
+ * - `createFromCookie()`：操作②"从cookie创建"，注入已导入的 cookie；
+ *   携程静默判定落地结果，抖音打开页面等待用户选公司
  */
 import type { WebContents } from 'electron';
-import type { ChannelId } from '../../../domain/identity';
+import { toChannelId, type ChannelId } from '../../../domain/identity';
 import type { LoginUrlMatcher } from '../../../domain/ports/discovery';
 import type { BrowserTab } from '../../../shared/browser';
-import { readImportedCookies } from '../../cookie-import/store';
+import {
+  deleteImportedCookies,
+  readImportedCookies,
+} from '../../cookie-import/store';
 import {
   addPendingPartition,
   type PendingPartition,
 } from '../../file-store/pending-partitions-store';
+
+const CTRIP_CHANNEL_ID = toChannelId('ctrip');
 
 export type LoginTabOpenerDependencies = Readonly<{
   userDataDir: string;
@@ -25,12 +35,13 @@ export type LoginTabOpenerDependencies = Readonly<{
     'createAndNewPartition'
   >;
   loginUrlMatchers: ReadonlyMap<ChannelId, LoginUrlMatcher>;
+  /** 返回值：这次触发是否让某个 OtaAccount 完成了建号（携程静默判定需要）。 */
   triggerDiscovery: (
     partitionName: string,
     channel: ChannelId,
     landingUrl: string,
     webContents: WebContents,
-  ) => void;
+  ) => Promise<boolean>;
 }>;
 
 export class LoginTabOpener {
@@ -42,12 +53,64 @@ export class LoginTabOpener {
     url: string,
   ): Promise<BrowserTab> {
     const { userDataDir, browser, loginUrlMatchers, triggerDiscovery } = this.deps;
-    const imported = await readImportedCookies(userDataDir, channel);
     const { tab, partitionName } = await browser.createAndNewPartition(environment, channel, url, {
-      importedCookies: imported?.cookies,
       loginUrlMatcher: loginUrlMatchers.get(channel),
-      onUrlPastLogin: (boundPartitionName, landingUrl, webContents) =>
-        triggerDiscovery(boundPartitionName, channel, landingUrl, webContents),
+      onUrlPastLogin: (boundPartitionName, landingUrl, webContents) => {
+        void triggerDiscovery(boundPartitionName, channel, landingUrl, webContents);
+      },
+    });
+    await addPendingPartition(userDataDir, {
+      partitionName,
+      channel,
+      environment,
+      createdAt: new Date().toISOString(),
+    });
+    return tab;
+  }
+
+  /**
+   * "从cookie创建"：要求该渠道已有导入好的 cookie（调用方负责在 UI 层
+   * 用 `hasImportedCookies` 判断可用性，这里没有 cookie 时直接报错，不
+   * 静默退化为无 cookie 的新建登录）。
+   */
+  async createFromCookie(
+    environment: PendingPartition['environment'],
+    channel: ChannelId,
+    url: string,
+  ): Promise<BrowserTab> {
+    const { userDataDir, browser, loginUrlMatchers, triggerDiscovery } = this.deps;
+    const imported = await readImportedCookies(userDataDir, channel);
+    if (!imported) throw new Error('该渠道尚未导入 Cookie');
+
+    if (channel === CTRIP_CHANNEL_ID) {
+      // 携程：一份 cookie 对应一个账号，不等待用户交互，页面加载完成即
+      // 静默判定（design.md 决策3）。
+      const { tab, partitionName } = await browser.createAndNewPartition(environment, channel, url, {
+        importedCookies: imported.cookies,
+        onLoadFinished: (boundPartitionName, landingUrl, webContents) => {
+          void (async () => {
+            const bound = await triggerDiscovery(boundPartitionName, channel, landingUrl, webContents);
+            if (bound) await deleteImportedCookies(userDataDir, channel);
+          })();
+        },
+      });
+      await addPendingPartition(userDataDir, {
+        partitionName,
+        channel,
+        environment,
+        createdAt: new Date().toISOString(),
+      });
+      return tab;
+    }
+
+    // 抖音等其他渠道：注入 cookie 后打开可见页面，用户在页面内选择/切换
+    // 公司，行为与 `open()` 一致，只是预注入了 cookie（design.md 决策4）。
+    const { tab, partitionName } = await browser.createAndNewPartition(environment, channel, url, {
+      importedCookies: imported.cookies,
+      loginUrlMatcher: loginUrlMatchers.get(channel),
+      onUrlPastLogin: (boundPartitionName, landingUrl, webContents) => {
+        void triggerDiscovery(boundPartitionName, channel, landingUrl, webContents);
+      },
     });
     await addPendingPartition(userDataDir, {
       partitionName,

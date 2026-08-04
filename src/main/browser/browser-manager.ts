@@ -92,18 +92,46 @@ export class BrowserManager {
     return this.createWithAlreadyPartition(LEGACY_SHARED_PARTITION, channelId, url);
   }
 
-  /** 已有账号：直接用它的 `OtaAccount.partitionName` 开标签页。 */
-  createWithAlreadyPartition(partitionName: string, channelId: string, url: string): BrowserTab {
+  /**
+   * 已有账号：直接用它的 `OtaAccount.partitionName` 开标签页。
+   * `options` 默认不传，行为与流程B（打开已有账号）现状完全一致；传入
+   * `onUrlPastLogin`/`loginUrlMatcher` 时用于"从其他登录态创建账号"——
+   * 复用已有 partition 打开页面后，用户在页面内切换到另一个门店/公司，
+   * 仍能触发一次账号探测（add-account-flow-per-channel/design.md §4）。
+   */
+  createWithAlreadyPartition(
+    partitionName: string,
+    channelId: string,
+    url: string,
+    options: Readonly<{
+      onUrlPastLogin?: (partitionName: string, landingUrl: string, webContents: WebContents) => void;
+      loginUrlMatcher?: LoginUrlMatcher;
+    }> = {},
+  ): BrowserTab {
     const tabSession = this.sessionFactory.sessionForAccount(partitionName);
-    const tab = this.createTab(channelId, url, partitionName, tabSession);
+    const tab = this.createTab(
+      channelId,
+      url,
+      partitionName,
+      tabSession,
+      options.onUrlPastLogin,
+      options.loginUrlMatcher,
+    );
     return this.snapshot(tab);
   }
 
   /**
-   * 走登录流程：新建一份 partition，若该渠道已导入过 cookie 则先注入，
-   * 再加载渠道后台页面。URL 判定登录成功时通过 `onUrlPastLogin` 触发账号
-   * 探测（design.md 决策 8；探测层落地前调用方可不传 `onUrlPastLogin`/
-   * `loginUrlMatcher`）。
+   * 走登录流程：新建一份 partition，若调用方注入了 cookie 则先写入，
+   * 再加载渠道后台页面。
+   *
+   * 两种探测触发方式二选一（互斥，不同时传）：
+   * - `onUrlPastLogin`/`loginUrlMatcher`：等待用户手动登录交互，URL 判定
+   *   命中登录成功时触发（design.md 决策 8）——"新建账号"与抖音"从cookie
+   *   创建"/"从其他登录态创建"用这条
+   * - `onLoadFinished`：不等待用户交互，页面首次加载完成（无论是否登录
+   *   成功）即触发一次，由调用方自行判断落地结果——携程"从cookie创建"
+   *   静默判定用这条（add-account-flow-per-channel/design.md §3，携程
+   *   cookie 有效直接落地，无效会被重定向回登录页，交给探测层区分）
    */
   async createAndNewPartition(
     environment: 'prod' | 'dev',
@@ -113,6 +141,7 @@ export class BrowserManager {
       importedCookies?: readonly CookiesSetDetails[];
       onUrlPastLogin?: (partitionName: string, landingUrl: string, webContents: WebContents) => void;
       loginUrlMatcher?: LoginUrlMatcher;
+      onLoadFinished?: (partitionName: string, landingUrl: string, webContents: WebContents) => void;
     }> = {},
   ): Promise<Readonly<{ tab: BrowserTab; partitionName: string }>> {
     const { session: tabSession, partitionName } = this.sessionFactory.sessionForLogin(
@@ -129,6 +158,7 @@ export class BrowserManager {
       tabSession,
       options.onUrlPastLogin,
       options.loginUrlMatcher,
+      options.onLoadFinished,
     );
     return { tab: this.snapshot(tab), partitionName };
   }
@@ -140,6 +170,7 @@ export class BrowserManager {
     tabSession: Session,
     onUrlPastLogin?: (partitionName: string, landingUrl: string, webContents: WebContents) => void,
     loginUrlMatcher?: LoginUrlMatcher,
+    onLoadFinished?: (partitionName: string, landingUrl: string, webContents: WebContents) => void,
   ): ManagedTab {
     assertWebUrl(url);
     if (!channelId.trim()) throw new Error('渠道标识不能为空');
@@ -170,15 +201,18 @@ export class BrowserManager {
     this.bindTabEvents(tab);
     this.activate(id);
     this.logger.info('Browser tab created', { channelId, partitionName });
-    void view.webContents.loadURL(url).catch((error: unknown) => {
-      tab.loading = false;
-      tab.title = '页面加载失败';
-      this.logger.error('Browser page load failed', {
-        channelId,
-        errorName: error instanceof Error ? error.name : 'UnknownError',
+    void view.webContents
+      .loadURL(url)
+      .then(() => onLoadFinished?.(partitionName, view.webContents.getURL(), view.webContents))
+      .catch((error: unknown) => {
+        tab.loading = false;
+        tab.title = '页面加载失败';
+        this.logger.error('Browser page load failed', {
+          channelId,
+          errorName: error instanceof Error ? error.name : 'UnknownError',
+        });
+        this.emit(tab);
       });
-      this.emit(tab);
-    });
     return tab;
   }
 

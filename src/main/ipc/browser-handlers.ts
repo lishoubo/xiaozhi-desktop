@@ -5,6 +5,7 @@ import {
   browserCookieSourceIdSchema,
   browserCreateInputSchema,
   browserTabIdSchema,
+  createFromExistingSessionInputSchema,
   otaAccountChannelSchema,
   otaAccountIdSchema,
   startLoginInputSchema,
@@ -19,8 +20,10 @@ import { IPC_CHANNELS } from '../../shared/ipc-channels';
 import type { AppLogger } from '../../shared/logging';
 import { BrowserCookieImporter } from '../cookie-import/browser-cookie-importer';
 import { friendlyCookieImportMessage } from '../cookie-import/cookie-import';
-import { writeImportedCookies } from '../cookie-import/store';
+import { hasImportedCookies, writeImportedCookies } from '../cookie-import/store';
 import { LoginTabOpener } from '../features/ota-account/login-tab-opener';
+
+const DOUYIN_CHANNEL_ID = toChannelId('douyin');
 
 const noArgumentsSchema = z.tuple([]);
 
@@ -53,7 +56,7 @@ type RegisterBrowserHandlersOptions = Readonly<{
     channel: ChannelId,
     landingUrl: string,
     webContents: WebContents,
-  ) => void;
+  ) => Promise<boolean>;
   otaAccountRepository: Pick<OtaAccountRepository, 'listByChannel' | 'findById'>;
 }>;
 
@@ -165,6 +168,43 @@ export function registerBrowserHandlers({
     z.tuple([otaAccountChannelSchema]),
     '渠道标识无效',
     (_event, channelId) => otaAccountRepository.listByChannel(toChannelId(channelId)),
+  );
+  handle(
+    IPC_CHANNELS.otaAccount.hasImportedCookies,
+    z.tuple([otaAccountChannelSchema]),
+    '渠道标识无效',
+    (_event, channelId) => hasImportedCookies(userDataDir, toChannelId(channelId)),
+  );
+  handle(
+    IPC_CHANNELS.otaAccount.createFromCookie,
+    z.tuple([startLoginInputSchema]),
+    '登录参数无效',
+    (_event, { channelId, environment, url }) =>
+      loginTabOpener.createFromCookie(environment, toChannelId(channelId), url),
+  );
+  handle(
+    IPC_CHANNELS.otaAccount.createFromExistingSession,
+    z.tuple([createFromExistingSessionInputSchema]),
+    '账号标识无效',
+    (_event, { accountId }) => {
+      const account = otaAccountRepository.findById(toOtaAccountId(accountId));
+      if (!account) throw new Error('未找到该账号');
+      if (account.channel !== DOUYIN_CHANNEL_ID) {
+        throw new Error('该渠道不支持从其他登录态创建账号');
+      }
+      const url = otaAccountLandingUrl({ channel: account.channel, channelContext: null });
+      logger.info('Creating account from existing session', {
+        accountId,
+        channel: account.channel,
+        partitionName: account.partitionName,
+      });
+      return manager.createWithAlreadyPartition(account.partitionName, account.channel, url, {
+        loginUrlMatcher: loginUrlMatchers.get(account.channel),
+        onUrlPastLogin: (boundPartitionName, landingUrl, webContents) => {
+          void triggerDiscovery(boundPartitionName, account.channel, landingUrl, webContents);
+        },
+      });
+    },
   );
   handle(
     IPC_CHANNELS.otaAccount.openExisting,

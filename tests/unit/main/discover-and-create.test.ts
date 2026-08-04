@@ -166,7 +166,7 @@ describe('DiscoverAndCreate', () => {
     });
     const discoverAndCreate = new DiscoverAndCreate(deps);
 
-    await expect(discoverAndCreate.trigger(partitionName, channel, 'https://example.com/landing', {} as never)).resolves.toBeUndefined();
+    await expect(discoverAndCreate.trigger(partitionName, channel, 'https://example.com/landing', {} as never)).resolves.toBe(true);
     expect(deps.repository.updatePartitionName).toHaveBeenCalled();
     expect(deps.removePendingPartition).toHaveBeenCalledWith(partitionName);
   });
@@ -214,7 +214,7 @@ describe('DiscoverAndCreate', () => {
     const deps = createDeps();
     const discoverAndCreate = new DiscoverAndCreate(deps);
 
-    await expect(discoverAndCreate.trigger(partitionName, channel, 'https://example.com/landing', {} as never)).resolves.toBeUndefined();
+    await expect(discoverAndCreate.trigger(partitionName, channel, 'https://example.com/landing', {} as never)).resolves.toBe(false);
     expect(deps.repository.create).not.toHaveBeenCalled();
   });
 

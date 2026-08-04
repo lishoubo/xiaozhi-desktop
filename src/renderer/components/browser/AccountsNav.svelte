@@ -1,16 +1,27 @@
 <script lang="ts">
-  import Plus from '@lucide/svelte/icons/plus';
-  import type { OtaAccountDto } from '../../../shared/browser';
-  import { Button } from '$lib/components/ui/button';
+  import type { BrowserTab, OtaAccountDto } from '../../../shared/browser';
+  import type { OtaChannel } from '../../data/ota-channels';
+  import AddAccountPanel from './AddAccountPanel.svelte';
 
   type Props = Readonly<{
+    channel: OtaChannel;
+    activeTabId: string | undefined;
     accounts: readonly OtaAccountDto[];
     activeTabPartitionNames: ReadonlySet<string>;
     onSelectAccount: (account: OtaAccountDto) => void;
-    onAddAccount: () => void;
+    onAccountCreated: (tab: BrowserTab) => void;
+    onNewLogin: () => Promise<boolean>;
   }>;
 
-  let { accounts, activeTabPartitionNames, onSelectAccount, onAddAccount }: Props = $props();
+  let {
+    channel,
+    activeTabId,
+    accounts,
+    activeTabPartitionNames,
+    onSelectAccount,
+    onAccountCreated,
+    onNewLogin,
+  }: Props = $props();
 </script>
 
 <nav
@@ -38,8 +49,5 @@
       <span class="max-w-40 truncate">{account.otaHotelName ?? account.otaHotelId}</span>
     </button>
   {/each}
-  <Button variant="ghost" size="sm" class="h-7 shrink-0 gap-1 px-2 text-xs" onclick={onAddAccount}>
-    <Plus size={13} strokeWidth={1.8} />
-    添加账号
-  </Button>
+  <AddAccountPanel {channel} {activeTabId} existingAccounts={accounts} {onAccountCreated} {onNewLogin} />
 </nav>

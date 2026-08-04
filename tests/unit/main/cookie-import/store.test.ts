@@ -3,7 +3,12 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { toChannelId } from '../../../../src/domain/identity';
-import { readImportedCookies, writeImportedCookies } from '../../../../src/main/cookie-import/store';
+import {
+  deleteImportedCookies,
+  hasImportedCookies,
+  readImportedCookies,
+  writeImportedCookies,
+} from '../../../../src/main/cookie-import/store';
 
 const temporaryDirectories: string[] = [];
 
@@ -66,5 +71,25 @@ describe('writeImportedCookies / readImportedCookies', () => {
   it('读取未导入过的渠道返回 null，不抛错', async () => {
     const userDataDir = temporaryUserDataDir();
     await expect(readImportedCookies(userDataDir, toChannelId('meituan'))).resolves.toBeNull();
+  });
+});
+
+describe('hasImportedCookies / deleteImportedCookies', () => {
+  it('导入后 hasImportedCookies 返回 true，删除后返回 false', async () => {
+    const userDataDir = temporaryUserDataDir();
+    const channel = toChannelId('ctrip');
+    await expect(hasImportedCookies(userDataDir, channel)).resolves.toBe(false);
+
+    await writeImportedCookies(userDataDir, channel, [{ name: 'a', value: '1' } as never], manifest);
+    await expect(hasImportedCookies(userDataDir, channel)).resolves.toBe(true);
+
+    await deleteImportedCookies(userDataDir, channel);
+    await expect(hasImportedCookies(userDataDir, channel)).resolves.toBe(false);
+    await expect(readImportedCookies(userDataDir, channel)).resolves.toBeNull();
+  });
+
+  it('删除从未导入过的渠道不抛错', async () => {
+    const userDataDir = temporaryUserDataDir();
+    await expect(deleteImportedCookies(userDataDir, toChannelId('meituan'))).resolves.toBeUndefined();
   });
 });

@@ -260,4 +260,56 @@ describe('BrowserManager — partition-aware tab creation', () => {
 
     expect(() => manager.close(tab.id)).not.toThrow();
   });
+
+  it('createWithAlreadyPartition 传入 onUrlPastLogin/loginUrlMatcher 时，URL 判定命中也能触发探测（"从其他登录态创建"用）', () => {
+    const sessionFactory = createSessionFactoryStub();
+    const manager = new BrowserManager(
+      createWindow() as never,
+      createLogger(),
+      sessionFactory as never,
+    );
+    const onUrlPastLogin = vi.fn();
+    const loginUrlMatcher = {
+      channel: toChannelId('douyin'),
+      isPastLogin: (url: string) => url.includes('groupid='),
+    };
+
+    manager.createWithAlreadyPartition(
+      'persist:xiaozhi:prod:douyin:aaa',
+      'douyin',
+      'https://life.douyin.com/p/home',
+      { onUrlPastLogin, loginUrlMatcher },
+    );
+    const view = electron.views[0];
+    view.handlers.get('did-navigate')?.({}, 'https://life.douyin.com/p/home?groupid=123');
+
+    expect(onUrlPastLogin).toHaveBeenCalledExactlyOnceWith(
+      'persist:xiaozhi:prod:douyin:aaa',
+      'https://life.douyin.com/p/home?groupid=123',
+      expect.anything(),
+    );
+  });
+
+  it('createAndNewPartition 传入 onLoadFinished 时，页面加载完成后触发（携程"从cookie创建"静默判定用），不依赖 loginUrlMatcher', async () => {
+    const sessionFactory = createSessionFactoryStub();
+    const manager = new BrowserManager(
+      createWindow() as never,
+      createLogger(),
+      sessionFactory as never,
+    );
+    const onLoadFinished = vi.fn();
+
+    const { partitionName } = await manager.createAndNewPartition(
+      'prod',
+      toChannelId('ctrip'),
+      'https://ebooking.ctrip.com/home/mainland',
+      { onLoadFinished },
+    );
+
+    expect(onLoadFinished).toHaveBeenCalledExactlyOnceWith(
+      partitionName,
+      'https://example.com/',
+      expect.anything(),
+    );
+  });
 });

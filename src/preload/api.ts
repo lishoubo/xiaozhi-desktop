@@ -19,6 +19,7 @@ import {
   type StartLoginInput,
   type SystemPreferences,
 } from '../shared/browser';
+const booleanSchema = z.boolean();
 import { IPC_CHANNELS } from '../shared/ipc-channels';
 import {
   calendarEventRecordSchema,
@@ -76,6 +77,9 @@ export type DesktopApi = Readonly<{
     startLogin: (input: StartLoginInput) => Promise<BrowserTab>;
     listByChannel: (channelId: string) => Promise<OtaAccountDto[]>;
     openExisting: (accountId: string) => Promise<BrowserTab>;
+    hasImportedCookies: (channelId: string) => Promise<boolean>;
+    createFromCookie: (input: StartLoginInput) => Promise<BrowserTab>;
+    createFromExistingSession: (accountId: string) => Promise<BrowserTab>;
     onAccountBound: (listener: (event: OtaAccountBoundEvent) => void) => () => void;
   }>;
   system: Readonly<{
@@ -160,6 +164,16 @@ export function createDesktopApi(
       invokeValidated(otaAccountListSchema, IPC_CHANNELS.otaAccount.listByChannel, channelId),
     openExisting: (accountId: string) =>
       invokeValidated(browserTabSchema, IPC_CHANNELS.otaAccount.openExisting, accountId),
+    hasImportedCookies: (channelId: string) =>
+      invokeValidated(booleanSchema, IPC_CHANNELS.otaAccount.hasImportedCookies, channelId),
+    createFromCookie: (input: StartLoginInput) =>
+      invokeValidated(browserTabSchema, IPC_CHANNELS.otaAccount.createFromCookie, input),
+    createFromExistingSession: (accountId: string) =>
+      invokeValidated(
+        browserTabSchema,
+        IPC_CHANNELS.otaAccount.createFromExistingSession,
+        accountId,
+      ),
     onAccountBound: (listener: (event: OtaAccountBoundEvent) => void) =>
       subscribeValidated(otaAccountBoundEventSchema, IPC_CHANNELS.otaAccount.accountBound, listener),
   });

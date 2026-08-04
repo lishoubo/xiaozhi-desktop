@@ -33,6 +33,7 @@
     activeTabs.find((tab) => tab.id === activeTabIds[activeChannelId]) ?? activeTabs[0],
   );
   let activeAccounts = $derived(accountsByChannel[activeChannelId] ?? []);
+  let activeChannel = $derived(OTA_CHANNELS.find((item) => item.id === activeChannelId));
   let activeTabPartitionNames = $derived(new Set(activeTabs.map((tab) => tab.partitionName)));
 
   function reportBrowserFailure(event: string, message: string, reason: unknown): void {
@@ -86,9 +87,14 @@
     activeChannelId = channel.id;
     void loadAccounts(channel.id);
     const tabId = activeTabIds[channel.id];
-    if (!tabId) return;
     try {
-      await window.hotelButler.browser.activate(tabId);
+      if (tabId) {
+        await window.hotelButler.browser.activate(tabId);
+      } else {
+        // 新渠道没有已打开的标签页——`activate` 不会被调用，若不显式 `hide`，
+        // 上一个渠道的 WebContentsView 会一直挂在 contentView 上不被移除。
+        await window.hotelButler.browser.hide();
+      }
       await syncBounds();
     } catch (error) {
       reportBrowserFailure('Browser channel could not be selected', '渠道切换失败，请重试', error);
@@ -117,9 +123,17 @@
     }
   }
 
-  async function addAccount(): Promise<void> {
+  async function newLoginForActiveChannel(): Promise<boolean> {
     const channel = OTA_CHANNELS.find((item) => item.id === activeChannelId);
-    if (channel) await createTab(channel);
+    if (!channel) return false;
+    return createTab(channel);
+  }
+
+  function accountCreated(tab: BrowserTab): void {
+    updateTab(tab);
+    activeTabIds[tab.channelId] = tab.id;
+    void loadAccounts(tab.channelId);
+    void syncBounds();
   }
 
   async function selectTab(tab: BrowserTab): Promise<void> {
@@ -284,12 +298,17 @@
     {/each}
   </nav>
 
-  <AccountsNav
-    accounts={activeAccounts}
-    {activeTabPartitionNames}
-    onSelectAccount={(account) => void openAccount(account)}
-    onAddAccount={() => void addAccount()}
-  />
+  {#if activeChannel}
+    <AccountsNav
+      channel={activeChannel}
+      activeTabId={activeTab?.id}
+      accounts={activeAccounts}
+      {activeTabPartitionNames}
+      onSelectAccount={(account) => void openAccount(account)}
+      onAccountCreated={accountCreated}
+      onNewLogin={newLoginForActiveChannel}
+    />
+  {/if}
 
   <div class="flex min-w-0 items-center gap-2 border-b border-border bg-secondary/55 px-3">
     <nav class="flex shrink-0 gap-0.5" aria-label="页面控制">

@@ -56,9 +56,8 @@ function openMainWindow(): void {
     logger: log,
     userDataDir: app.getPath('userData'),
     loginUrlMatchers: LOGIN_URL_MATCHERS,
-    triggerDiscovery: (partitionName, channel, landingUrl, webContents) => {
-      void discoverAndCreate?.trigger(partitionName, channel, landingUrl, webContents);
-    },
+    triggerDiscovery: (partitionName, channel, landingUrl, webContents) =>
+      discoverAndCreate?.trigger(partitionName, channel, landingUrl, webContents) ?? Promise.resolve(false),
     otaAccountRepository,
   });
   unregisterAutomationHandlers = registerAutomationHandlers({

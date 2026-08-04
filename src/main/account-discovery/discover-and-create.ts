@@ -42,19 +42,24 @@ export class DiscoverAndCreate {
    * 落在正确页面的这个真实标签页上直接读数据/模拟点击，而不是新开一个
    * 隐藏页面重新走一遍登录态（探测过必需的数据只在这个已渲染好的页面里
    * 才存在，新开页面拿不到）。
+   *
+   * 返回值表示"这次调用是否让某个 OtaAccount 完成了建号/更新"——供携程
+   * "从cookie创建"（`LoginTabOpener.createFromCookie`）静默判定这次注入的
+   * cookie 是否有效，`onAccountBound` 通知渠道无法回答"这一次调用"的结果
+   * （详见 add-account-flow-per-channel/design.md 决策5）。
    */
   async trigger(
     partitionName: string,
     channel: ChannelId,
     landingUrl: string,
     webContents: WebContents,
-  ): Promise<void> {
-    if (this.bound.has(partitionName) || this.inflight.has(partitionName)) return;
+  ): Promise<boolean> {
+    if (this.bound.has(partitionName) || this.inflight.has(partitionName)) return false;
 
     const probe = this.deps.probes.get(channel);
     if (!probe) {
       this.deps.logger.info('Discovery skipped: no probe registered for channel', { channel });
-      return;
+      return false;
     }
 
     this.deps.logger.info('Discovery triggered', { channel, partitionName });
@@ -65,7 +70,7 @@ export class DiscoverAndCreate {
       switch (outcome.kind) {
         case 'unsupported':
         case 'none':
-          return;
+          return false;
         case 'single':
           await this.createOrUpdate(partitionName, channel, outcome.hotel);
           this.bound.add(partitionName);
@@ -73,7 +78,7 @@ export class DiscoverAndCreate {
             channel,
             otaHotelId: outcome.hotel.otaHotelId,
           });
-          return;
+          return true;
         case 'multiple':
           // design.md 决策 2：多门店需要用户选择，交由 renderer 侧确认后
           // 走独立入口创建账号（Task 6/7）。这里先不落库，也不标记 bound，
@@ -82,13 +87,14 @@ export class DiscoverAndCreate {
             channel,
             count: outcome.hotels.length,
           });
-          return;
+          return false;
       }
     } catch (error) {
       this.deps.logger.warn('Discovery failed', {
         channel,
         errorName: error instanceof Error ? error.name : 'UnknownError',
       });
+      return false;
     } finally {
       this.inflight.delete(partitionName);
     }

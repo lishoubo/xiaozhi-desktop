@@ -217,3 +217,95 @@ describe('otaAccount.listByChannel / openExisting handlers', () => {
     );
   });
 });
+
+describe('otaAccount.createFromExistingSession handler', () => {
+  it('对抖音账号复用其 partition，挂载 loginUrlMatcher/onUrlPastLogin，落地到不带 groupid 的首页', () => {
+    const sender = {};
+    const account = {
+      id: toOtaAccountId('a1'),
+      channel: toChannelId('douyin'),
+      otaHotelId: toOtaHotelId('dy-1'),
+      otaHotelName: '门店A',
+      partitionName: 'persist:xiaozhi:prod:douyin:short',
+      channelContext: 'group-1',
+      discoveredAt: 1000,
+    };
+    const manager = baseManager();
+    const matcher = { channel: toChannelId('douyin'), isPastLogin: () => true };
+    const otaAccountRepository = {
+      listByChannel: vi.fn(() => []),
+      findById: vi.fn(() => account),
+    };
+    registerBrowserHandlers({
+      window: { webContents: sender },
+      manager,
+      logger: createLogger(),
+      userDataDir: '/tmp/does-not-matter',
+      loginUrlMatchers: new Map([[toChannelId('douyin'), matcher]]),
+      triggerDiscovery: vi.fn(),
+      otaAccountRepository,
+    });
+
+    invoke(IPC_CHANNELS.otaAccount.createFromExistingSession, sender, { accountId: 'a1' });
+
+    expect(manager.createWithAlreadyPartition).toHaveBeenCalledWith(
+      'persist:xiaozhi:prod:douyin:short',
+      'douyin',
+      'https://life.douyin.com/p/home',
+      expect.objectContaining({ loginUrlMatcher: matcher, onUrlPastLogin: expect.any(Function) }),
+    );
+  });
+
+  it('对携程账号拒绝：该渠道不支持从其他登录态创建账号', () => {
+    const sender = {};
+    const account = {
+      id: toOtaAccountId('a2'),
+      channel: toChannelId('ctrip'),
+      otaHotelId: toOtaHotelId('12345'),
+      otaHotelName: '测试酒店',
+      partitionName: 'persist:xiaozhi:prod:ctrip:short',
+      channelContext: null,
+      discoveredAt: 2000,
+    };
+    const manager = baseManager();
+    const otaAccountRepository = {
+      listByChannel: vi.fn(() => []),
+      findById: vi.fn(() => account),
+    };
+    registerBrowserHandlers({
+      window: { webContents: sender },
+      manager,
+      logger: createLogger(),
+      userDataDir: '/tmp/does-not-matter',
+      loginUrlMatchers: new Map(),
+      triggerDiscovery: vi.fn(),
+      otaAccountRepository,
+    });
+
+    expect(() =>
+      invoke(IPC_CHANNELS.otaAccount.createFromExistingSession, sender, { accountId: 'a2' }),
+    ).toThrow('该渠道不支持从其他登录态创建账号');
+    expect(manager.createWithAlreadyPartition).not.toHaveBeenCalled();
+  });
+
+  it('对不存在的账号 id 抛错', () => {
+    const sender = {};
+    const otaAccountRepository = {
+      listByChannel: vi.fn(() => []),
+      findById: vi.fn(() => null),
+    };
+    registerBrowserHandlers({
+      window: { webContents: sender },
+      manager: baseManager(),
+      logger: createLogger(),
+      userDataDir: '/tmp/does-not-matter',
+      loginUrlMatchers: new Map(),
+      triggerDiscovery: vi.fn(),
+      otaAccountRepository,
+    });
+
+    expect(() =>
+      invoke(IPC_CHANNELS.otaAccount.createFromExistingSession, sender, { accountId: 'missing' }),
+    ).toThrow('未找到该账号');
+  });
+});

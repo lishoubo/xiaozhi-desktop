@@ -87,6 +87,14 @@ export const otaAccountChannelSchema = nonEmptyStringSchema;
 
 export const otaAccountIdSchema = nonEmptyStringSchema;
 
+export const createFromExistingSessionInputSchema = z.strictObject({
+  accountId: nonEmptyStringSchema,
+});
+
+export type CreateFromExistingSessionInput = Readonly<
+  z.infer<typeof createFromExistingSessionInputSchema>
+>;
+
 export const otaAccountSchema = z.strictObject({
   id: nonEmptyStringSchema,
   channel: nonEmptyStringSchema,
