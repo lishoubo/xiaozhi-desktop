@@ -89,6 +89,8 @@ describe('IPC operational logging', () => {
       cookieImporter: { listSources: vi.fn(), readCookies: vi.fn() },
       logger,
       userDataDir: temporaryUserDataDir(),
+      loginUrlMatchers: new Map(),
+      triggerDiscovery: vi.fn(),
     });
 
     expect(() =>
@@ -132,6 +134,8 @@ describe('IPC operational logging', () => {
       },
       logger,
       userDataDir: temporaryUserDataDir(),
+      loginUrlMatchers: new Map(),
+      triggerDiscovery: vi.fn(),
     });
 
     await invoke(IPC_CHANNELS.cookies.import, sender, 'firefox');
@@ -168,6 +172,8 @@ describe('IPC operational logging', () => {
       cookieImporter: { listSources: vi.fn(), readCookies },
       logger,
       userDataDir: temporaryUserDataDir(),
+      loginUrlMatchers: new Map(),
+      triggerDiscovery: vi.fn(),
     });
 
     expect(() =>

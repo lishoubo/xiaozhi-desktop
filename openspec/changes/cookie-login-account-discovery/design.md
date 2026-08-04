@@ -60,13 +60,16 @@
 
 ```
 1. 探测触发 —— 判断依据：这份登录态（partition）还没有关联任何 OtaAccount
-   当前唯一触发时机：登录标签页关闭时
+   触发时机：登录标签页的 URL 导航到达"已登录"特征时（见决策 8）
    （时机只是"什么时候去检查触发条件"，不是触发逻辑本身；以后加新时机（如定时轮询）不改这层判断）
 
-2. 探测执行 —— 复用已验证方式：
-   在该 partition 上创建一个 WebContentsView，加载渠道后台页面，
-   用 executeJavaScript 在页面上下文里发起 fetch 调用门店列表接口，
-   按渠道各自实现（DiscoveryProbe 接口，channel → 实现 的 registry）
+2. 探测执行 —— 按渠道各自实现（DiscoveryProbe 接口，channel → 实现 的 registry）：
+   - 抖音：已验证方式——在该 partition 上创建一个 WebContentsView，加载渠道后台页面，
+     用 executeJavaScript 在页面上下文里发起 fetch 调用门店列表接口（groupAccountList），拿结构化数据
+   - 携程：接口未踩点，先用 DOM 解析落地——在该 partition 上创建 WebContentsView，
+     加载登录后落地页，解析 `a.he-ctrip-hotel-title-link` 元素的文本与 href 拿门店名和 otaHotelId
+     （与 rms-rpa-worker 的 ctrip/init_hotel_info.py 已验证的选择器一致）；后续若接口踩点成功，
+     可换成接口调用，不改 DiscoveryProbe 接口本身
 
 3. 探测成功后创建 —— 按 (channel, otaHotelId) 查重：
    - 不存在 → 创建 OtaAccount { channel, otaHotelId, displayName, partitionName }
@@ -110,9 +113,64 @@
 
 **代价**：如果用户是误操作重新登录了一个早已正常工作的账号，旧登录态会被直接丢弃，没有回退手段——本次不做"确认覆盖"之类的用户提示（Non-Goals 已声明不做探测相关的用户提示），这是明确接受的简化。
 
+### 8. 探测触发时机改为"URL 判定登录成功"，取代"标签页关闭"
+
+**决策**：登录标签页的 `did-navigate` / `did-navigate-in-page` 事件里，按渠道注册一个 `LoginUrlMatcher.isPastLogin(url)` 判定函数——URL 命中"已离开登录页"特征即视为登录成功，直接触发探测（决策2 步骤1）。**不再以"标签页关闭"作为触发时机**，原因见下。渠道未注册 matcher 时，这个渠道暂不支持 URL 触发（现状：仅携程注册，判据抄自已验证过的 RPA 实现——`!url.includes('/login/')`，见 `rms-rpa-worker/.../ctrip/login.py:30`；抖音未注册，等以后需要再补）。
+
+**触发去重（防止重复探测/性能问题）**：判断依据不是"事件发生过没有"，而是"这个 partition 是否已经关联了 OtaAccount"——一个二态状态，不是三态状态机：
+- 未绑定：允许触发探测
+- 已绑定：任何后续导航都直接跳过，不创建 `WebContentsView`、不发请求
+
+用户登录成功后长时间停留在后台页面里点导航（SPA 路由跳转会不断触发 `did-navigate-in-page`），只有第一次成功探测会真正执行；探测成功、账号创建/更新完成的那一刻，这个 partition 的状态就翻转为"已绑定"，后续所有导航事件在状态判断这一步就短路返回，不会重复创建 view 或重复请求渠道接口。探测执行期间（尚未有结果）用一个内存 `Set<partitionName>` 做防重入锁，避免探测未完成时同一 partition 被并发触发第二次；探测失败或返回 `none`（页面还没完全跳转、接口/DOM 还没就绪）时不加入这个 Set 之外的任何标记，允许下一次导航事件重新尝试。
+
+**为什么不再用"标签页关闭"兜底**：如果 URL 判定这条路径本身就能可靠捕捉"登录态已经生效"这个状态转移，"标签页关闭"作为并列的第二个触发入口就是冗余的——同一件事有两个入口，会让"这次账号到底是哪次触发建的"难以排查。改为 URL 触发后，`onClosed` 不再调用探测层；`BrowserManager.createAndNewPartition`（Task 3.2）新增的回调改名为 `onUrlPastLogin`，语义从"标签页关闭时"改为"URL 判定登录成功时"。
+
+**对决策 7 的影响**：决策 7 原本的前提"探测发生在标签页关闭之后，新旧 partition 都不再被占用"不再成立——URL 触发时标签页仍然开着，查重命中要删除的"旧 partition"有可能仍被另一个还开着的标签页占用。决策 7 的"删除失败不阻断账号更新"这条容错本身已经覆盖这种情况，不需要新增逻辑，只是这里明确一下：删除失败（含"目录被占用"）在 URL 触发场景下会更常见，不是异常路径。
+
+**完整链路**：
+
+```
+用户点携程"去登录"
+        ↓
+LoginTabOpener.open()：读该渠道已导入的 cookie
+  → BrowserManager.createAndNewPartition(environment, channel, url,
+      { importedCookies, loginUrlMatcher, onUrlPastLogin })
+        ↓
+BrowserManager.bindTabEvents 监听 did-navigate / did-navigate-in-page
+  每次导航 → checkUrlPastLogin(tab, url)：
+    tab.urlPastLoginTriggered 已置位 → 短路返回（同一标签页只触发一次）
+    否则 loginUrlMatcher.isPastLogin(url)
+      false → 什么都不做，等下一次导航再判定
+      true  → 置位 urlPastLoginTriggered，调 onUrlPastLogin(partitionName)
+        ↓
+DiscoverAndCreate.trigger(partitionName, channel)
+  bound（已绑定）/ inflight（探测中）内存 Set 短路 → 未命中则执行探测
+        ↓
+  CtripDiscoveryProbe.discover(partitionName)（决策 8.1，见下）
+        ↓
+  single  → 查重创建/更新 OtaAccount，partition 标记 bound（永久不再探测）
+  multiple → 只记日志，不落库、不标记 bound（等 Task 6/7 的用户选择 UI）
+  none    → 不标记 bound，允许用户下次重新走"去登录"时再次触发整条链路
+```
+
+#### 8.1 探测执行内部的重试：只在同一次已加载页面上多轮询几轮，不重新导航
+
+**背景（2026-08-04 真机验证暴露）**：真实携程账号验证时，同一账号不同次登录，页面有时先落到移动端布局再跳桌面版，移动布局下 `a.he-ctrip-hotel-title-link` 不存在。原实现是"`loadURL` 一次 → 轮询 15 秒（200ms 间隔）→ 超时就用当前已有结果 resolve"，命中移动布局这一轮必然拿到 `none`；第一次真机验证正是如此，耗时约 52 秒（页面慢 + 15s 轮询超时）后返回 `none`，用户必须手动重新走一遍"去登录"整条链路才能重试，第二次命中桌面布局，1.7 秒内探测成功。
+
+**决策**：`discover()` 内部把"轮询等待元素出现"从 1 轮 15 秒改为**最多 3 轮，每轮 15 秒**，轮次之间**不重新 `loadURL`、不改 UA、不做任何导航动作**——只是在同一个已经加载好的页面上，继续用 `querySelectorAll('a.he-ctrip-hotel-title-link')` 反复找元素。理由：
+
+- 移动/桌面布局是两套不同的 DOM，重新导航同一个 URL 不会让页面从移动布局变成桌面布局（同一 session、同一账号、同一入口 URL，服务端判定逻辑不会因为刷新一次而改变），所以"刷新页面重试"对这个具体故障没有帮助，只会重复消耗一次页面加载时间
+- 真机验证观察到的现象是"重新走一遍登录标签页后能拿到桌面布局"，但触发桌面布局的确切条件未知（可能是页面自身有延迟的客户端跳转、也可能是别的因素）——**在没有查明确切原因前，不应该在方案里假设"强制某个 UA 就能命中桌面布局"这类未经验证的因果关系**；真正确定成立的只有"多等一会、多查几次 DOM，如果页面本身会自己从移动跳桌面，重试就能等到"
+- 3 轮是"给页面自己完成潜在跳转的时间"，不是"反复触发新的网络请求"
+
+单轮内部机制不变：`querySelectorAll` 立即查一次，查到就直接 resolve；查不到则 `setInterval(200ms)` 轮询，最长 15 秒。3 轮轮询之间**无间隔**，因为间隔不能解决任何已知问题——第一轮的 15 秒本身已经给了页面足够的等待时间，轮次之间加间隔只是单纯拉长总耗时，不改变第二轮拿到 DOM 的概率。3 轮全部落空则返回 `none`（成本：最坏情况下探测总耗时从 15 秒变为 45 秒，仍在一次用户操作可接受的等待范围内；`WebContentsView` 全程只创建一次，不是每轮重新创建，内存/进程开销不随轮数增加）。
+
+**仍然不做的**：跨越"标签页整个生命周期"的重试（即 `none` 之后不在探测层内部安排下一次登录标签页级别的重试），这仍然依赖用户手动重新触发"去登录"——因为 `none` 也可能是页面结构真的变了（选择器过期），无限重试没有意义，交还给用户判断要不要重试是本次明确接受的简化（Non-Goals：不做探测失败的用户提示，本次也不做失败后的自动化外层重试）。
+
 ## Risks / Trade-offs
 
-- **[风险] 探测触发依赖"标签页关闭"这一个时机，用户长期不关闭标签页会导致账号一直不被创建** → 这是本次明确接受的简化（Non-Goals 已声明不做定时轮询），后续可加
+- **[风险] 携程门店信息靠 DOM 解析（`a.he-ctrip-hotel-title-link`），接口未踩点** → 页面改版会导致选择器失效；本次明确接受，后续接口踩点成功可直接替换 `CtripDiscoveryProbe` 内部实现，不影响 `DiscoveryProbe` 接口和调用方。**真机验证已实测到的具体表现（2026-08-04）**：同一账号不同次登录，携程有时会先经过移动端布局再跳回桌面版，移动布局下 `a.he-ctrip-hotel-title-link` 不存在，导致该次探测返回 `none`（实测耗时约 52 秒才触发 15 秒轮询超时兜底）；重试一次（同一账号重新走登录标签页）后命中桌面布局，选择器正常解析出门店并成功建号。当前无重试机制——`none` 结果会保留 `bound` 状态为未绑定，允许用户下次重新触发登录标签页时自然重试，但单次探测内部不会自动重试或等待布局切换，这是本次明确接受的简化
+- **[风险] URL 触发依赖每个渠道的登录页 URL 特征保持稳定** → 渠道改版登录页路径会导致 `LoginUrlMatcher` 失效，需要人工更新判据；未注册 matcher 的渠道目前没有兜底触发时机（已不再保留"标签页关闭"），本次明确接受
 - **[风险] 查重命中后旧 partition 直接删除，没有用户确认或回退手段** → 见决策 7，本次明确接受；用户若误操作会静默丢失旧登录态，只能重新登录找回
 - **[风险] Partition 名字里的短id 不携带业务语义，纯粹靠 `OtaAccount.partitionName` 做关联；如果这条数据库记录丢失，找回对应 cookie 需要遍历磁盘上的 partition 目录** → 可接受，因为 `OtaAccount` 本身就是这份登录态唯一的"账本"，与"cookie 是易变数据、数据库不重复存储"的决策一致
 - **[风险] 携程/美团探测本次占位不实现** → 明确的范围排除，不是遗漏

@@ -1,4 +1,5 @@
-import { app, BrowserWindow } from 'electron';
+import { app, BrowserWindow, session } from 'electron';
+import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import log from 'electron-log/main';
 import started from 'electron-squirrel-startup';
@@ -13,6 +14,11 @@ import { openApplicationDatabase, type ApplicationDatabase } from './database/ap
 import { SqliteCalendarRepository } from './calendar/calendar-repository';
 import { registerCalendarHandlers } from './ipc/calendar-handlers';
 import { isStartupAutomationEnabled } from '../domain/policy/startup-automation-policy';
+import { SqliteOtaAccountRepository } from './database/ota-account-repository';
+import { DiscoverAndCreate } from './account-discovery/discover-and-create';
+import { createDiscoveryProbes } from './account-discovery/discovery-probe';
+import { LOGIN_URL_MATCHERS } from './account-discovery/login-url-matcher';
+import { removePendingPartition } from './file-store/pending-partitions-store';
 
 let mainWindow: BrowserWindow | null = null;
 let browserManager: BrowserManager | null = null;
@@ -22,6 +28,7 @@ let unregisterAutomationHandlers: (() => void) | null = null;
 let applicationDatabase: ApplicationDatabase | null = null;
 let calendarRepository: SqliteCalendarRepository | null = null;
 let unregisterCalendarHandlers: (() => void) | null = null;
+let discoverAndCreate: DiscoverAndCreate | null = null;
 
 configureNetworkPrivacy(app.commandLine);
 configureMainLogging(log, {
@@ -39,11 +46,16 @@ function openMainWindow(): void {
     ? new CtripCheckInAutomation(browserManager.browserSession, log)
     : null;
   const ctripResult = ctripAutomation?.start() ?? null;
+  if (!discoverAndCreate) throw new Error('Discovery pipeline is not initialized');
   unregisterBrowserHandlers = registerBrowserHandlers({
     window: mainWindow,
     manager: browserManager,
     logger: log,
     userDataDir: app.getPath('userData'),
+    loginUrlMatchers: LOGIN_URL_MATCHERS,
+    triggerDiscovery: (partitionName, channel) => {
+      void discoverAndCreate?.trigger(partitionName, channel);
+    },
   });
   unregisterAutomationHandlers = registerAutomationHandlers({
     window: mainWindow,
@@ -79,6 +91,17 @@ function initializeApplication(): void {
     { includeMockData: !app.isPackaged },
   );
   calendarRepository = new SqliteCalendarRepository(applicationDatabase);
+  const userDataDir = app.getPath('userData');
+  discoverAndCreate = new DiscoverAndCreate({
+    probes: createDiscoveryProbes(log),
+    repository: new SqliteOtaAccountRepository(applicationDatabase),
+    generateAccountId: () => randomUUID(),
+    deleteSessionData: async (partitionName) => {
+      await session.fromPartition(partitionName).clearStorageData();
+    },
+    removePendingPartition: (partitionName) => removePendingPartition(userDataDir, partitionName),
+    logger: log,
+  });
   openMainWindow();
   log.info('Application initialization completed');
 }
@@ -126,5 +149,6 @@ app.once('will-quit', () => {
   if (applicationDatabase) log.info('Application database closed');
   applicationDatabase = null;
   calendarRepository = null;
+  discoverAndCreate = null;
   log.info('Application shutdown completed');
 });

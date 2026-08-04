@@ -1,13 +1,15 @@
 /**
  * "去登录"编排（流程A）：读该渠道已导入的 cookie → 新建 partition 打开
- * 登录标签页 → 记一条待认领 partition。三步顺序固定、互相依赖前一步的
- * 输出（partitionName 生成前不存在），因此不拆分给不同调用方，也不写进
- * IPC handler 本体——参照 docs/arch/2026-08-03-final-architecture.md §3.6
- * LoginHealthChecker 的先例：编排放 main/features/，判定/纯逻辑放 domain/。
+ * 登录标签页（挂上该渠道的 LoginUrlMatcher，URL 判定登录成功时触发探测，
+ * 见 design.md 决策 8）→ 记一条待认领 partition。三步顺序固定、互相依赖
+ * 前一步的输出（partitionName 生成前不存在），因此不拆分给不同调用方，
+ * 也不写进 IPC handler 本体——参照 docs/arch/2026-08-03-final-architecture.md
+ * §3.6 LoginHealthChecker 的先例：编排放 main/features/，判定/纯逻辑放 domain/。
  *
  * 流程B（打开已有账号）不走这里，见 docs/arch/2026-08-03-login-tab-flows.md。
  */
 import type { ChannelId } from '../../../domain/identity';
+import type { LoginUrlMatcher } from '../../../domain/ports/discovery';
 import type { BrowserTab } from '../../../shared/browser';
 import { readImportedCookies } from '../../cookie-import/store';
 import {
@@ -21,6 +23,8 @@ export type LoginTabOpenerDependencies = Readonly<{
     import('../../browser/browser-manager').BrowserManager,
     'createAndNewPartition'
   >;
+  loginUrlMatchers: ReadonlyMap<ChannelId, LoginUrlMatcher>;
+  triggerDiscovery: (partitionName: string, channel: ChannelId) => void;
 }>;
 
 export class LoginTabOpener {
@@ -31,10 +35,12 @@ export class LoginTabOpener {
     channel: ChannelId,
     url: string,
   ): Promise<BrowserTab> {
-    const { userDataDir, browser } = this.deps;
+    const { userDataDir, browser, loginUrlMatchers, triggerDiscovery } = this.deps;
     const imported = await readImportedCookies(userDataDir, channel);
     const { tab, partitionName } = await browser.createAndNewPartition(environment, channel, url, {
       importedCookies: imported?.cookies,
+      loginUrlMatcher: loginUrlMatchers.get(channel),
+      onUrlPastLogin: (boundPartitionName) => triggerDiscovery(boundPartitionName, channel),
     });
     await addPendingPartition(userDataDir, {
       partitionName,

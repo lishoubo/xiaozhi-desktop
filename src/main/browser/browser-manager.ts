@@ -11,6 +11,7 @@ import {
 import { randomUUID } from 'node:crypto';
 import type { ChannelId } from '../../domain/identity';
 import { LEGACY_SHARED_PARTITION } from '../../domain/policy/partition-policy';
+import type { LoginUrlMatcher } from '../../domain/ports/discovery';
 import { IPC_CHANNELS } from '../../shared/ipc-channels';
 import { browserWebUrlSchema, type BrowserTab } from '../../shared/browser';
 import type { AppLogger } from '../../shared/logging';
@@ -24,8 +25,15 @@ type ManagedTab = {
   loading: boolean;
   view: WebContentsView;
   partitionName: string;
-  /** 仅登录标签页设置；标签页关闭时调用，触发账号探测（Task 4）。 */
-  onClosed?: (partitionName: string) => void;
+  /**
+   * 仅登录标签页设置；URL 判定已登录（见 design.md 决策 8）时调用一次，
+   * 触发账号探测。不再有"标签页关闭时触发"的兜底路径。
+   */
+  onUrlPastLogin?: (partitionName: string) => void;
+  /** 该渠道的登录页 URL 判据；未注册时不参与 URL 触发。 */
+  loginUrlMatcher?: LoginUrlMatcher;
+  /** 本次登录标签页是否已经触发过探测——命中一次后不再重复调用。 */
+  urlPastLoginTriggered: boolean;
 };
 
 const CTRIP_API_REQUEST_FILTER: WebRequestFilter = {
@@ -90,8 +98,9 @@ export class BrowserManager {
 
   /**
    * 走登录流程：新建一份 partition，若该渠道已导入过 cookie 则先注入，
-   * 再加载渠道后台页面。标签页关闭时通过 `onTabClosed` 触发账号探测
-   * （Task 4 落地探测层前，调用方可不传）。
+   * 再加载渠道后台页面。URL 判定登录成功时通过 `onUrlPastLogin` 触发账号
+   * 探测（design.md 决策 8；探测层落地前调用方可不传 `onUrlPastLogin`/
+   * `loginUrlMatcher`）。
    */
   async createAndNewPartition(
     environment: 'prod' | 'dev',
@@ -99,7 +108,8 @@ export class BrowserManager {
     url: string,
     options: Readonly<{
       importedCookies?: readonly CookiesSetDetails[];
-      onTabClosed?: (partitionName: string) => void;
+      onUrlPastLogin?: (partitionName: string) => void;
+      loginUrlMatcher?: LoginUrlMatcher;
     }> = {},
   ): Promise<Readonly<{ tab: BrowserTab; partitionName: string }>> {
     const { session: tabSession, partitionName } = this.sessionFactory.sessionForLogin(
@@ -109,7 +119,14 @@ export class BrowserManager {
     if (options.importedCookies) {
       await Promise.all(options.importedCookies.map((cookie) => tabSession.cookies.set(cookie)));
     }
-    const tab = this.createTab(channelId, url, partitionName, tabSession, options.onTabClosed);
+    const tab = this.createTab(
+      channelId,
+      url,
+      partitionName,
+      tabSession,
+      options.onUrlPastLogin,
+      options.loginUrlMatcher,
+    );
     return { tab: this.snapshot(tab), partitionName };
   }
 
@@ -118,7 +135,8 @@ export class BrowserManager {
     url: string,
     partitionName: string,
     tabSession: Session,
-    onClosed?: (partitionName: string) => void,
+    onUrlPastLogin?: (partitionName: string) => void,
+    loginUrlMatcher?: LoginUrlMatcher,
   ): ManagedTab {
     assertWebUrl(url);
     if (!channelId.trim()) throw new Error('渠道标识不能为空');
@@ -141,7 +159,9 @@ export class BrowserManager {
       loading: true,
       view,
       partitionName,
-      onClosed,
+      onUrlPastLogin,
+      loginUrlMatcher,
+      urlPastLoginTriggered: false,
     };
     this.tabs.set(id, tab);
     this.bindTabEvents(tab);
@@ -181,7 +201,6 @@ export class BrowserManager {
     this.managedWebContentsIds.delete(tab.view.webContents.id);
     tab.view.webContents.close();
     this.logger.info('Browser tab closed', { channelId: tab.channelId });
-    tab.onClosed?.(tab.partitionName);
   }
 
   acknowledgeInterception(): void {
@@ -298,16 +317,39 @@ export class BrowserManager {
     });
     webContents.on('did-navigate', (_event, url) => {
       tab.url = url;
+      this.checkUrlPastLogin(tab, url);
       this.emit(tab);
     });
     webContents.on('did-navigate-in-page', (_event, url) => {
       tab.url = url;
+      this.checkUrlPastLogin(tab, url);
       this.emit(tab);
     });
     webContents.on('page-title-updated', (_event, title) => {
       tab.title = title || tab.title;
       this.emit(tab);
     });
+  }
+
+  /**
+   * URL 触发探测（design.md 决策 8）：命中一次即把 `urlPastLoginTriggered`
+   * 置位，此后同一标签页的任何后续导航都在这里短路返回——不会重复创建
+   * 探测用的 `WebContentsView`、不会重复请求渠道接口。防重入/查重创建
+   * 属于探测层自己的职责（见 `main/account-discovery/discover-and-create.ts`），
+   * 这里只保证"每个标签页最多调用一次 `onUrlPastLogin`"。
+   */
+  private checkUrlPastLogin(tab: ManagedTab, url: string): void {
+    if (tab.urlPastLoginTriggered) return;
+    if (!tab.loginUrlMatcher || !tab.onUrlPastLogin) return;
+    const isPastLogin = tab.loginUrlMatcher.isPastLogin(url);
+    this.logger.info('Login URL matcher checked', {
+      channelId: tab.channelId,
+      isPastLogin,
+    });
+    if (!isPastLogin) return;
+
+    tab.urlPastLoginTriggered = true;
+    tab.onUrlPastLogin(tab.partitionName);
   }
 
   private emit(tab: ManagedTab): void {

@@ -9,7 +9,8 @@ import {
   type BrowserBounds,
   type SystemPreferences,
 } from '../../shared/browser';
-import { toChannelId } from '../../domain/identity';
+import { toChannelId, type ChannelId } from '../../domain/identity';
+import type { LoginUrlMatcher } from '../../domain/ports/discovery';
 import { IPC_CHANNELS } from '../../shared/ipc-channels';
 import type { AppLogger } from '../../shared/logging';
 import { BrowserCookieImporter } from '../cookie-import/browser-cookie-importer';
@@ -39,6 +40,8 @@ type RegisterBrowserHandlersOptions = Readonly<{
   logger: AppLogger;
   cookieImporter?: Pick<BrowserCookieImporter, 'listSources' | 'readCookies'>;
   userDataDir: string;
+  loginUrlMatchers: ReadonlyMap<ChannelId, LoginUrlMatcher>;
+  triggerDiscovery: (partitionName: string, channel: ChannelId) => void;
 }>;
 
 function systemPreferences(): SystemPreferences {
@@ -54,8 +57,15 @@ export function registerBrowserHandlers({
   logger,
   cookieImporter = new BrowserCookieImporter(logger),
   userDataDir,
+  loginUrlMatchers,
+  triggerDiscovery,
 }: RegisterBrowserHandlersOptions): () => void {
-  const loginTabOpener = new LoginTabOpener({ userDataDir, browser: manager });
+  const loginTabOpener = new LoginTabOpener({
+    userDataDir,
+    browser: manager,
+    loginUrlMatchers,
+    triggerDiscovery,
+  });
   const assertTrusted = (event: IpcMainInvokeEvent, channel: string): void => {
     if (event.sender !== window.webContents) {
       logger.warn('Rejected untrusted IPC request', { channel });
