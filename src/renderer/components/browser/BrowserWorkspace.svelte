@@ -213,6 +213,9 @@
         tone: 'default',
       });
     });
+    const unsubscribeAccountBound = window.hotelButler.otaAccount.onAccountBound(({ channel }) => {
+      if (channel === activeChannelId) void loadAccounts(channel);
+    });
     const observer = new ResizeObserver(() => void syncBounds());
     if (viewport) observer.observe(viewport);
     window.addEventListener('resize', syncBounds);
@@ -253,6 +256,7 @@
       });
       unsubscribe();
       unsubscribeInterception();
+      unsubscribeAccountBound();
       observer.disconnect();
       window.removeEventListener('resize', syncBounds);
     };

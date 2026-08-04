@@ -220,4 +220,17 @@ describe('createDesktopApi', () => {
       [IPC_CHANNELS.otaAccount.openExisting, 'a1'],
     ]);
   });
+
+  it('subscribes to sanitized ota-account bound events', () => {
+    const subscribe = vi.fn();
+    const listener = vi.fn();
+    const api = createDesktopApi({ chrome: '1', electron: '2', node: '3' }, vi.fn(), subscribe);
+
+    api.otaAccount.onAccountBound(listener);
+    const subscription = subscribe.mock.calls[0][1] as (value: unknown) => void;
+    subscription({ channel: 'douyin' });
+
+    expect(subscribe).toHaveBeenCalledWith(IPC_CHANNELS.otaAccount.accountBound, expect.any(Function));
+    expect(listener).toHaveBeenCalledWith({ channel: 'douyin' });
+  });
 });

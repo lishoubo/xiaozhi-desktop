@@ -161,6 +161,41 @@ describe('otaAccount.listByChannel / openExisting handlers', () => {
     );
   });
 
+  it('openExisting 对 channelContext 缺失的抖音账号退化到不带 groupid 的落地 URL，而不是报错', () => {
+    const sender = {};
+    const account = {
+      id: toOtaAccountId('a3'),
+      channel: toChannelId('douyin'),
+      otaHotelId: toOtaHotelId('dy-2'),
+      otaHotelName: '门店B',
+      partitionName: 'persist:xiaozhi:prod:douyin:short2',
+      channelContext: null,
+      discoveredAt: 3000,
+    };
+    const manager = baseManager();
+    const otaAccountRepository = {
+      listByChannel: vi.fn(() => []),
+      findById: vi.fn(() => account),
+    };
+    registerBrowserHandlers({
+      window: { webContents: sender },
+      manager,
+      logger: createLogger(),
+      userDataDir: '/tmp/does-not-matter',
+      loginUrlMatchers: new Map(),
+      triggerDiscovery: vi.fn(),
+      otaAccountRepository,
+    });
+
+    invoke(IPC_CHANNELS.otaAccount.openExisting, sender, 'a3');
+
+    expect(manager.createWithAlreadyPartition).toHaveBeenCalledWith(
+      'persist:xiaozhi:prod:douyin:short2',
+      'douyin',
+      'https://life.douyin.com/p/home',
+    );
+  });
+
   it('openExisting 对不存在的账号 id 抛错', () => {
     const sender = {};
     const otaAccountRepository = {

@@ -27,6 +27,7 @@ describe('BrowserWorkspace', () => {
   const openExisting = vi.fn();
   let requestInterceptedListener: (() => void) | null = null;
   let stateChangedListener: ((tab: BrowserTab) => void) | null = null;
+  let accountBoundListener: ((event: { channel: string }) => void) | null = null;
 
   function renderWorkspace() {
     render(AppNotificationCenter);
@@ -42,6 +43,7 @@ describe('BrowserWorkspace', () => {
     acknowledgeInterception.mockReset();
     requestInterceptedListener = null;
     stateChangedListener = null;
+    accountBoundListener = null;
     listCookieSources.mockReset();
     importCookies.mockReset();
     listByChannel.mockReset();
@@ -80,7 +82,15 @@ describe('BrowserWorkspace', () => {
           }),
         },
         cookies: { import: importCookies, listSources: listCookieSources },
-        otaAccount: { startLogin, listByChannel, openExisting },
+        otaAccount: {
+          startLogin,
+          listByChannel,
+          openExisting,
+          onAccountBound: vi.fn((listener: (event: { channel: string }) => void) => {
+            accountBoundListener = listener;
+            return vi.fn();
+          }),
+        },
       },
     });
   });
@@ -323,5 +333,38 @@ describe('BrowserWorkspace', () => {
 
     expect(await screen.findByRole('button', { name: '添加账号' })).toBeInTheDocument();
     expect(screen.getByLabelText('账号列表').querySelectorAll('button')).toHaveLength(1);
+  });
+
+  it('refreshes the accounts nav automatically when the main process reports a newly bound account', async () => {
+    renderWorkspace();
+    await screen.findByRole('tab', { name: '携程后台' });
+    listByChannel.mockClear();
+    listByChannel.mockResolvedValue([
+      {
+        id: 'a1',
+        channel: 'ctrip',
+        otaHotelId: 'ctrip-1',
+        otaHotelName: '新绑定门店',
+        partitionName: 'persist:xiaozhi:dev:ctrip:stub',
+        channelContext: null,
+        discoveredAt: 1000,
+      },
+    ]);
+
+    accountBoundListener?.({ channel: 'ctrip' });
+
+    expect(await screen.findByTitle('新绑定门店')).toBeInTheDocument();
+    expect(listByChannel).toHaveBeenCalledWith('ctrip');
+  });
+
+  it('does not refresh the accounts nav for a bound event on a different channel', async () => {
+    renderWorkspace();
+    await screen.findByRole('tab', { name: '携程后台' });
+    listByChannel.mockClear();
+
+    accountBoundListener?.({ channel: 'douyin' });
+    await Promise.resolve();
+
+    expect(listByChannel).not.toHaveBeenCalled();
   });
 });

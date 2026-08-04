@@ -26,6 +26,7 @@ export const IPC_CHANNELS = {
     startLogin: 'ota-account:start-login',
     listByChannel: 'ota-account:list-by-channel',
     openExisting: 'ota-account:open-existing',
+    accountBound: 'ota-account:account-bound',
   },
   cookies: {
     import: 'cookies:import',

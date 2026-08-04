@@ -68,6 +68,9 @@ describe('App routing and query integration', () => {
         },
         otaAccount: {
           startLogin: createTab,
+          listByChannel: vi.fn().mockResolvedValue([]),
+          openExisting: vi.fn(),
+          onAccountBound: vi.fn(() => vi.fn()),
         },
         calendar: {
           load: vi.fn().mockResolvedValue({

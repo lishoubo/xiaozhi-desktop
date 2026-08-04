@@ -99,6 +99,12 @@ export const otaAccountSchema = z.strictObject({
 
 export type OtaAccountDto = Readonly<z.infer<typeof otaAccountSchema>>;
 
+export const otaAccountBoundEventSchema = z.strictObject({
+  channel: nonEmptyStringSchema,
+});
+
+export type OtaAccountBoundEvent = Readonly<z.infer<typeof otaAccountBoundEventSchema>>;
+
 export const systemPreferencesSchema = z.strictObject({
   autoLaunch: z.boolean(),
   version: nonEmptyStringSchema,

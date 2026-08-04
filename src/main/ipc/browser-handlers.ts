@@ -235,7 +235,9 @@ export function registerBrowserHandlers({
         channel !== IPC_CHANNELS.browser.requestIntercepted,
     ),
     ...Object.values(IPC_CHANNELS.cookies),
-    ...Object.values(IPC_CHANNELS.otaAccount),
+    ...Object.values(IPC_CHANNELS.otaAccount).filter(
+      (channel) => channel !== IPC_CHANNELS.otaAccount.accountBound,
+    ),
     ...Object.values(IPC_CHANNELS.system),
   ];
   return () => {

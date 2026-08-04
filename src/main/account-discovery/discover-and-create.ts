@@ -22,6 +22,8 @@ export type DiscoverAndCreateDependencies = Readonly<{
   deleteSessionData: (partitionName: string) => Promise<void>;
   removePendingPartition: (partitionName: string) => Promise<void>;
   logger: AppLogger;
+  /** 建号/更新成功后调用——renderer 侧账号二级导航靠它知道该重新拉取列表了。 */
+  onAccountBound?: (channel: ChannelId) => void;
 }>;
 
 export class DiscoverAndCreate {
@@ -117,6 +119,7 @@ export class DiscoverAndCreate {
       });
     }
     await this.deps.removePendingPartition(partitionName);
+    this.deps.onAccountBound?.(channel);
   }
 
   /**

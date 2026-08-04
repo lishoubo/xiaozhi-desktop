@@ -53,6 +53,34 @@ describe('DiscoverAndCreate', () => {
     expect(deps.removePendingPartition).toHaveBeenCalledWith(partitionName);
   });
 
+  it('建号成功后调用 onAccountBound，renderer 侧账号导航靠它重新拉取列表', async () => {
+    const probe = {
+      channel,
+      discover: vi.fn().mockResolvedValue({
+        kind: 'single',
+        hotel: { otaHotelId: toOtaHotelId('12345'), otaHotelName: '测试酒店', channelContext: null },
+      }),
+    };
+    const onAccountBound = vi.fn();
+    const deps = createDeps({ probes: new Map([[channel, probe]]), onAccountBound });
+    const discoverAndCreate = new DiscoverAndCreate(deps);
+
+    await discoverAndCreate.trigger(partitionName, channel, 'https://example.com/landing', {} as never);
+
+    expect(onAccountBound).toHaveBeenCalledWith(channel);
+  });
+
+  it('探测结果为 none 时不调用 onAccountBound', async () => {
+    const probe = { channel, discover: vi.fn().mockResolvedValue({ kind: 'none' }) };
+    const onAccountBound = vi.fn();
+    const deps = createDeps({ probes: new Map([[channel, probe]]), onAccountBound });
+    const discoverAndCreate = new DiscoverAndCreate(deps);
+
+    await discoverAndCreate.trigger(partitionName, channel, 'https://example.com/landing', {} as never);
+
+    expect(onAccountBound).not.toHaveBeenCalled();
+  });
+
   it('抖音场景 channelContext 透传 groupid', async () => {
     const douyinChannel = toChannelId('douyin');
     const probe = {

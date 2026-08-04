@@ -19,6 +19,7 @@ import { DiscoverAndCreate } from './account-discovery/discover-and-create';
 import { createDiscoveryProbes } from './account-discovery/discovery-probe';
 import { LOGIN_URL_MATCHERS } from './account-discovery/login-url-matcher';
 import { removePendingPartition } from './file-store/pending-partitions-store';
+import { IPC_CHANNELS } from '../shared/ipc-channels';
 
 let mainWindow: BrowserWindow | null = null;
 let browserManager: BrowserManager | null = null;
@@ -105,6 +106,11 @@ function initializeApplication(): void {
     },
     removePendingPartition: (partitionName) => removePendingPartition(userDataDir, partitionName),
     logger: log,
+    onAccountBound: (channel) => {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send(IPC_CHANNELS.otaAccount.accountBound, { channel });
+      }
+    },
   });
   openMainWindow();
   log.info('Application initialization completed');
