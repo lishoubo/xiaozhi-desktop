@@ -5,12 +5,16 @@ import {
   browserCookieSourceIdSchema,
   browserCreateInputSchema,
   browserTabIdSchema,
+  otaAccountChannelSchema,
+  otaAccountIdSchema,
   startLoginInputSchema,
   type BrowserBounds,
   type SystemPreferences,
 } from '../../shared/browser';
-import { toChannelId, type ChannelId } from '../../domain/identity';
+import { toChannelId, toOtaAccountId, type ChannelId } from '../../domain/identity';
 import type { LoginUrlMatcher } from '../../domain/ports/discovery';
+import type { OtaAccountRepository } from '../../domain/ports/repositories';
+import { otaAccountLandingUrl } from '../../domain/policy/ota-account-landing-url-policy';
 import { IPC_CHANNELS } from '../../shared/ipc-channels';
 import type { AppLogger } from '../../shared/logging';
 import { BrowserCookieImporter } from '../cookie-import/browser-cookie-importer';
@@ -30,6 +34,9 @@ type RegisterBrowserHandlersOptions = Readonly<{
     createAndNewPartition: InstanceType<
       typeof import('../browser/browser-manager').BrowserManager
     >['createAndNewPartition'];
+    createWithAlreadyPartition: InstanceType<
+      typeof import('../browser/browser-manager').BrowserManager
+    >['createWithAlreadyPartition'];
     goBack: (tabId: string) => void;
     goForward: (tabId: string) => void;
     hide: () => void;
@@ -47,6 +54,7 @@ type RegisterBrowserHandlersOptions = Readonly<{
     landingUrl: string,
     webContents: WebContents,
   ) => void;
+  otaAccountRepository: Pick<OtaAccountRepository, 'listByChannel' | 'findById'>;
 }>;
 
 function systemPreferences(): SystemPreferences {
@@ -64,6 +72,7 @@ export function registerBrowserHandlers({
   userDataDir,
   loginUrlMatchers,
   triggerDiscovery,
+  otaAccountRepository,
 }: RegisterBrowserHandlersOptions): () => void {
   const loginTabOpener = new LoginTabOpener({
     userDataDir,
@@ -150,6 +159,23 @@ export function registerBrowserHandlers({
     '登录参数无效',
     (_event, { channelId, environment, url }) =>
       loginTabOpener.open(environment, toChannelId(channelId), url),
+  );
+  handle(
+    IPC_CHANNELS.otaAccount.listByChannel,
+    z.tuple([otaAccountChannelSchema]),
+    '渠道标识无效',
+    (_event, channelId) => otaAccountRepository.listByChannel(toChannelId(channelId)),
+  );
+  handle(
+    IPC_CHANNELS.otaAccount.openExisting,
+    z.tuple([otaAccountIdSchema]),
+    '账号标识无效',
+    (_event, accountId) => {
+      const account = otaAccountRepository.findById(toOtaAccountId(accountId));
+      if (!account) throw new Error('未找到该账号');
+      const url = otaAccountLandingUrl(account);
+      return manager.createWithAlreadyPartition(account.partitionName, account.channel, url);
+    },
   );
   handle(
     IPC_CHANNELS.cookies.import,

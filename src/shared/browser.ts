@@ -37,6 +37,7 @@ export const browserTabSchema = z.strictObject({
   canGoBack: z.boolean(),
   canGoForward: z.boolean(),
   loading: z.boolean(),
+  partitionName: nonEmptyStringSchema,
 });
 
 export type BrowserTab = Readonly<z.infer<typeof browserTabSchema>>;
@@ -81,6 +82,22 @@ export const startLoginInputSchema = z.strictObject({
 });
 
 export type StartLoginInput = Readonly<z.infer<typeof startLoginInputSchema>>;
+
+export const otaAccountChannelSchema = nonEmptyStringSchema;
+
+export const otaAccountIdSchema = nonEmptyStringSchema;
+
+export const otaAccountSchema = z.strictObject({
+  id: nonEmptyStringSchema,
+  channel: nonEmptyStringSchema,
+  otaHotelId: nonEmptyStringSchema,
+  otaHotelName: z.string().nullable(),
+  partitionName: nonEmptyStringSchema,
+  channelContext: z.string().nullable(),
+  discoveredAt: z.number(),
+});
+
+export type OtaAccountDto = Readonly<z.infer<typeof otaAccountSchema>>;
 
 export const systemPreferencesSchema = z.strictObject({
   autoLaunch: z.boolean(),

@@ -14,6 +14,8 @@ import type { ChannelId, OtaHotelId } from '../../domain/identity';
 export type DiscoveredOtaHotel = Readonly<{
   otaHotelId: OtaHotelId;
   otaHotelName: string;
+  /** 渠道特定的免登录跳转上下文，抖音存 groupid；携程恒为 null。见 douyin-multi-account-nav/design.md §2.1。 */
+  channelContext: string | null;
 }>;
 
 export type DiscoveryOutcome =

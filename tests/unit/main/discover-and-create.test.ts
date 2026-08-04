@@ -32,7 +32,7 @@ describe('DiscoverAndCreate', () => {
       channel,
       discover: vi.fn().mockResolvedValue({
         kind: 'single',
-        hotel: { otaHotelId: toOtaHotelId('12345'), otaHotelName: '测试酒店' },
+        hotel: { otaHotelId: toOtaHotelId('12345'), otaHotelName: '测试酒店', channelContext: null },
       }),
     };
     const deps = createDeps({ probes: new Map([[channel, probe]]) });
@@ -46,9 +46,30 @@ describe('DiscoverAndCreate', () => {
       otaHotelId: toOtaHotelId('12345'),
       otaHotelName: '测试酒店',
       partitionName,
+      channelContext: null,
+      discoveredAt: expect.any(Number),
     });
     expect(deps.repository.updatePartitionName).not.toHaveBeenCalled();
     expect(deps.removePendingPartition).toHaveBeenCalledWith(partitionName);
+  });
+
+  it('抖音场景 channelContext 透传 groupid', async () => {
+    const douyinChannel = toChannelId('douyin');
+    const probe = {
+      channel: douyinChannel,
+      discover: vi.fn().mockResolvedValue({
+        kind: 'single',
+        hotel: { otaHotelId: toOtaHotelId('dy-1'), otaHotelName: '抖音门店', channelContext: 'group-1' },
+      }),
+    };
+    const deps = createDeps({ probes: new Map([[douyinChannel, probe]]) });
+    const discoverAndCreate = new DiscoverAndCreate(deps);
+
+    await discoverAndCreate.trigger(partitionName, douyinChannel, 'https://example.com/landing', {} as never);
+
+    expect(deps.repository.create).toHaveBeenCalledWith(
+      expect.objectContaining({ channelContext: 'group-1' }),
+    );
   });
 
   it('查重命中已有账号时更新 partitionName 并删除旧 partition 的 session', async () => {
@@ -58,6 +79,8 @@ describe('DiscoverAndCreate', () => {
       otaHotelId: toOtaHotelId('12345'),
       otaHotelName: '旧酒店名',
       partitionName: 'persist:xiaozhi:prod:ctrip:old',
+      channelContext: null,
+      discoveredAt: 1_700_000_000_000,
     };
     const probe = {
       channel,
@@ -72,6 +95,8 @@ describe('DiscoverAndCreate', () => {
         create: vi.fn(),
         findByChannelAndHotelId: vi.fn(() => existing),
         updatePartitionName: vi.fn(),
+        listByChannel: vi.fn(() => []),
+        findById: vi.fn(() => null),
       },
     });
     const discoverAndCreate = new DiscoverAndCreate(deps);
@@ -90,6 +115,8 @@ describe('DiscoverAndCreate', () => {
       otaHotelId: toOtaHotelId('12345'),
       otaHotelName: '旧酒店名',
       partitionName: 'persist:xiaozhi:prod:ctrip:old',
+      channelContext: null,
+      discoveredAt: 1_700_000_000_000,
     };
     const probe = {
       channel,
@@ -104,6 +131,8 @@ describe('DiscoverAndCreate', () => {
         create: vi.fn(),
         findByChannelAndHotelId: vi.fn(() => existing),
         updatePartitionName: vi.fn(),
+        listByChannel: vi.fn(() => []),
+        findById: vi.fn(() => null),
       },
       deleteSessionData: vi.fn().mockRejectedValue(new Error('目录被占用')),
     });

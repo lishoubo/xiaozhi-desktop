@@ -12,6 +12,10 @@ export type OtaAccount = Readonly<{
   otaHotelId: OtaHotelId;
   otaHotelName: string | null;
   partitionName: string;
+  /** 渠道特定的免登录跳转上下文，抖音存 groupid；携程恒为 null。见 design.md §2.1。 */
+  channelContext: string | null;
+  /** 这条账号记录最近一次建号/更新的时间（epoch ms），listByChannel 排序用。 */
+  discoveredAt: number;
 }>;
 
 export type OtaAccountCreateInput = Readonly<{
@@ -20,6 +24,8 @@ export type OtaAccountCreateInput = Readonly<{
   otaHotelId: OtaHotelId;
   otaHotelName: string | null;
   partitionName: string;
+  channelContext: string | null;
+  discoveredAt: number;
 }>;
 
 export class InvalidOtaAccountError extends Error {
@@ -39,5 +45,7 @@ export function createOtaAccount(input: OtaAccountCreateInput): OtaAccount {
     otaHotelId: input.otaHotelId,
     otaHotelName: input.otaHotelName,
     partitionName: input.partitionName,
+    channelContext: input.channelContext,
+    discoveredAt: input.discoveredAt,
   };
 }

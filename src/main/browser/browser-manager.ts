@@ -377,6 +377,7 @@ export class BrowserManager {
       canGoBack: navigation.canGoBack(),
       canGoForward: navigation.canGoForward(),
       loading: tab.loading,
+      partitionName: tab.partitionName,
     };
   }
 }

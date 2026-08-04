@@ -29,6 +29,7 @@ let applicationDatabase: ApplicationDatabase | null = null;
 let calendarRepository: SqliteCalendarRepository | null = null;
 let unregisterCalendarHandlers: (() => void) | null = null;
 let discoverAndCreate: DiscoverAndCreate | null = null;
+let otaAccountRepository: SqliteOtaAccountRepository | null = null;
 
 configureNetworkPrivacy(app.commandLine);
 configureMainLogging(log, {
@@ -47,6 +48,7 @@ function openMainWindow(): void {
     : null;
   const ctripResult = ctripAutomation?.start() ?? null;
   if (!discoverAndCreate) throw new Error('Discovery pipeline is not initialized');
+  if (!otaAccountRepository) throw new Error('OtaAccount repository is not initialized');
   unregisterBrowserHandlers = registerBrowserHandlers({
     window: mainWindow,
     manager: browserManager,
@@ -56,6 +58,7 @@ function openMainWindow(): void {
     triggerDiscovery: (partitionName, channel, landingUrl, webContents) => {
       void discoverAndCreate?.trigger(partitionName, channel, landingUrl, webContents);
     },
+    otaAccountRepository,
   });
   unregisterAutomationHandlers = registerAutomationHandlers({
     window: mainWindow,
@@ -92,9 +95,10 @@ function initializeApplication(): void {
   );
   calendarRepository = new SqliteCalendarRepository(applicationDatabase);
   const userDataDir = app.getPath('userData');
+  otaAccountRepository = new SqliteOtaAccountRepository(applicationDatabase);
   discoverAndCreate = new DiscoverAndCreate({
     probes: createDiscoveryProbes(log),
-    repository: new SqliteOtaAccountRepository(applicationDatabase),
+    repository: otaAccountRepository,
     generateAccountId: () => randomUUID(),
     deleteSessionData: async (partitionName) => {
       await session.fromPartition(partitionName).clearStorageData();
@@ -150,5 +154,6 @@ app.once('will-quit', () => {
   applicationDatabase = null;
   calendarRepository = null;
   discoverAndCreate = null;
+  otaAccountRepository = null;
   log.info('Application shutdown completed');
 });

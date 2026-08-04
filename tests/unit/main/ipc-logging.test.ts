@@ -79,6 +79,7 @@ describe('IPC operational logging', () => {
         close: vi.fn(),
         create: vi.fn(),
         createAndNewPartition: vi.fn(),
+        createWithAlreadyPartition: vi.fn(),
         goBack: vi.fn(),
         goForward: vi.fn(),
         hide: vi.fn(),
@@ -91,6 +92,7 @@ describe('IPC operational logging', () => {
       userDataDir: temporaryUserDataDir(),
       loginUrlMatchers: new Map(),
       triggerDiscovery: vi.fn(),
+      otaAccountRepository: { listByChannel: vi.fn(() => []), findById: vi.fn(() => null) },
     });
 
     expect(() =>
@@ -116,6 +118,7 @@ describe('IPC operational logging', () => {
         close: vi.fn(),
         create: vi.fn(),
         createAndNewPartition: vi.fn(),
+        createWithAlreadyPartition: vi.fn(),
         goBack: vi.fn(),
         goForward: vi.fn(),
         hide: vi.fn(),
@@ -136,6 +139,7 @@ describe('IPC operational logging', () => {
       userDataDir: temporaryUserDataDir(),
       loginUrlMatchers: new Map(),
       triggerDiscovery: vi.fn(),
+      otaAccountRepository: { listByChannel: vi.fn(() => []), findById: vi.fn(() => null) },
     });
 
     await invoke(IPC_CHANNELS.cookies.import, sender, 'firefox');
@@ -162,6 +166,7 @@ describe('IPC operational logging', () => {
         close: vi.fn(),
         create,
         createAndNewPartition: vi.fn(),
+        createWithAlreadyPartition: vi.fn(),
         goBack: vi.fn(),
         goForward: vi.fn(),
         hide: vi.fn(),
@@ -174,6 +179,7 @@ describe('IPC operational logging', () => {
       userDataDir: temporaryUserDataDir(),
       loginUrlMatchers: new Map(),
       triggerDiscovery: vi.fn(),
+      otaAccountRepository: { listByChannel: vi.fn(() => []), findById: vi.fn(() => null) },
     });
 
     expect(() =>

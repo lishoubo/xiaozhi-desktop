@@ -16,12 +16,15 @@ describe('BrowserWorkspace', () => {
       canGoBack: false,
       canGoForward: false,
       loading: false,
+      partitionName: `persist:xiaozhi:dev:${channelId}:stub`,
     }),
   );
   const activate = vi.fn();
   const acknowledgeInterception = vi.fn();
   const listCookieSources = vi.fn();
   const importCookies = vi.fn();
+  const listByChannel = vi.fn();
+  const openExisting = vi.fn();
   let requestInterceptedListener: (() => void) | null = null;
   let stateChangedListener: ((tab: BrowserTab) => void) | null = null;
 
@@ -41,6 +44,9 @@ describe('BrowserWorkspace', () => {
     stateChangedListener = null;
     listCookieSources.mockReset();
     importCookies.mockReset();
+    listByChannel.mockReset();
+    listByChannel.mockResolvedValue([]);
+    openExisting.mockReset();
     listCookieSources.mockResolvedValue([
       { id: 'edge', name: 'Microsoft Edge' },
       { id: 'chrome', name: 'Google Chrome' },
@@ -74,7 +80,7 @@ describe('BrowserWorkspace', () => {
           }),
         },
         cookies: { import: importCookies, listSources: listCookieSources },
-        otaAccount: { startLogin },
+        otaAccount: { startLogin, listByChannel, openExisting },
       },
     });
   });
@@ -181,6 +187,7 @@ describe('BrowserWorkspace', () => {
       canGoBack: false,
       canGoForward: false,
       loading: true,
+      partitionName: 'persist:xiaozhi:dev:ctrip:stub',
     });
 
     const refreshButton = screen.getByRole('button', { name: '刷新' });
@@ -210,5 +217,111 @@ describe('BrowserWorkspace', () => {
 
     expect(await screen.findByText('浏览器工作区加载失败，请重试')).toBeInTheDocument();
     expect(screen.queryByText(/IPC list failure/)).not.toBeInTheDocument();
+  });
+
+  it('shows bound accounts for the active channel with displayName fallback', async () => {
+    listByChannel.mockResolvedValue([
+      {
+        id: 'a1',
+        channel: 'ctrip',
+        otaHotelId: 'ctrip-1',
+        otaHotelName: '银际酒店(包头)',
+        partitionName: 'persist:xiaozhi:prod:ctrip:aaa',
+        channelContext: null,
+        discoveredAt: 1000,
+      },
+      {
+        id: 'a2',
+        channel: 'ctrip',
+        otaHotelId: 'ctrip-2',
+        otaHotelName: null,
+        partitionName: 'persist:xiaozhi:prod:ctrip:bbb',
+        channelContext: null,
+        discoveredAt: 2000,
+      },
+    ]);
+
+    renderWorkspace();
+
+    expect(await screen.findByTitle('银际酒店(包头)')).toBeInTheDocument();
+    expect(await screen.findByTitle('ctrip-2')).toBeInTheDocument();
+    expect(listByChannel).toHaveBeenCalledWith('ctrip');
+  });
+
+  it('clicking a bound account with no open tab opens it via openExisting', async () => {
+    listByChannel.mockResolvedValue([
+      {
+        id: 'a1',
+        channel: 'ctrip',
+        otaHotelId: 'ctrip-1',
+        otaHotelName: '璞禾咖啡酒店',
+        partitionName: 'persist:xiaozhi:prod:ctrip:aaa',
+        channelContext: null,
+        discoveredAt: 1000,
+      },
+    ]);
+    openExisting.mockResolvedValue({
+      id: 'account-tab',
+      channelId: 'ctrip',
+      title: '璞禾咖啡酒店',
+      url: 'https://ebooking.ctrip.com/home/mainland',
+      canGoBack: false,
+      canGoForward: false,
+      loading: false,
+      partitionName: 'persist:xiaozhi:prod:ctrip:aaa',
+    });
+
+    renderWorkspace();
+    await screen.findByRole('tab', { name: '携程后台' });
+    const accountButton = await screen.findByTitle('璞禾咖啡酒店');
+    accountButton.click();
+
+    expect(openExisting).toHaveBeenCalledWith('a1');
+    expect(await screen.findByRole('tab', { name: '璞禾咖啡酒店' })).toBeInTheDocument();
+  });
+
+  it('clicking a bound account that already has an open tab activates it instead of opening a new one', async () => {
+    listByChannel.mockResolvedValue([
+      {
+        id: 'a1',
+        channel: 'ctrip',
+        otaHotelId: 'ctrip-1',
+        otaHotelName: '携程后台',
+        partitionName: 'persist:xiaozhi:dev:ctrip:stub',
+        channelContext: null,
+        discoveredAt: 1000,
+      },
+    ]);
+
+    renderWorkspace();
+    await screen.findByRole('tab', { name: '携程后台' });
+    activate.mockClear();
+    const accountButton = await screen.findByTitle('携程后台');
+    accountButton.click();
+
+    expect(openExisting).not.toHaveBeenCalled();
+    await waitFor(() => expect(activate).toHaveBeenCalledWith('ctrip-tab'));
+  });
+
+  it('clicking add account triggers the existing login flow for the active channel', async () => {
+    renderWorkspace();
+    await screen.findByRole('tab', { name: '携程后台' });
+    startLogin.mockClear();
+    screen.getByRole('button', { name: '添加账号' }).click();
+
+    await waitFor(() =>
+      expect(startLogin).toHaveBeenCalledWith(
+        expect.objectContaining({ channelId: 'ctrip', environment: 'prod' }),
+      ),
+    );
+  });
+
+  it('shows only the add-account button when the channel has no bound accounts', async () => {
+    listByChannel.mockResolvedValue([]);
+
+    renderWorkspace();
+
+    expect(await screen.findByRole('button', { name: '添加账号' })).toBeInTheDocument();
+    expect(screen.getByLabelText('账号列表').querySelectorAll('button')).toHaveLength(1);
   });
 });

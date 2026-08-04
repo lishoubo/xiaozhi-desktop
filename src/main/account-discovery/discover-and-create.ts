@@ -112,6 +112,8 @@ export class DiscoverAndCreate {
         otaHotelId: hotel.otaHotelId,
         otaHotelName: hotel.otaHotelName,
         partitionName,
+        channelContext: hotel.channelContext,
+        discoveredAt: Date.now(),
       });
     }
     await this.deps.removePendingPartition(partitionName);

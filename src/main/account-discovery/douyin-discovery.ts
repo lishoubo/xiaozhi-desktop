@@ -262,7 +262,11 @@ export class DouyinDiscoveryProbe implements DiscoveryProbe {
 
       return {
         kind: 'single',
-        hotel: { otaHotelId: toOtaHotelId(hotel.hotelId), otaHotelName: hotel.hotelName },
+        hotel: {
+          otaHotelId: toOtaHotelId(hotel.hotelId),
+          otaHotelName: hotel.hotelName,
+          channelContext: groupId,
+        },
       };
     } catch (error) {
       this.logger.warn('Douyin discovery failed', {

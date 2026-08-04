@@ -9,6 +9,8 @@ function input(overrides: Partial<Parameters<typeof createOtaAccount>[0]> = {}) 
     otaHotelId: toOtaHotelId('dy-111'),
     otaHotelName: null,
     partitionName: 'persist:xiaozhi:prod:douyin:short-id',
+    channelContext: null,
+    discoveredAt: 1_700_000_000_000,
     ...overrides,
   };
 }
@@ -27,5 +29,20 @@ describe('createOtaAccount', () => {
   it('otaHotelName 允许为 null——探测到门店名之前的状态', () => {
     const account = createOtaAccount(input({ otaHotelName: null }));
     expect(account.otaHotelName).toBeNull();
+  });
+
+  it('channelContext 允许为 null——携程场景恒为 null', () => {
+    const account = createOtaAccount(input({ channelContext: null }));
+    expect(account.channelContext).toBeNull();
+  });
+
+  it('channelContext 非空时原样保留——抖音场景存 groupid', () => {
+    const account = createOtaAccount(input({ channelContext: 'group-123' }));
+    expect(account.channelContext).toBe('group-123');
+  });
+
+  it('discoveredAt 原样保留', () => {
+    const account = createOtaAccount(input({ discoveredAt: 1_699_999_999_999 }));
+    expect(account.discoveredAt).toBe(1_699_999_999_999);
   });
 });

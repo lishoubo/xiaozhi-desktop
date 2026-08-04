@@ -7,7 +7,7 @@
   import Import from '@lucide/svelte/icons/import';
   import RotateCw from '@lucide/svelte/icons/rotate-cw';
   import X from '@lucide/svelte/icons/x';
-  import type { BrowserTab } from '../../../shared/browser';
+  import type { BrowserTab, OtaAccountDto } from '../../../shared/browser';
   import {
     enter,
     LAYOUT_ANIMATION_OPTIONS,
@@ -19,17 +19,21 @@
   import { Button } from '$lib/components/ui/button';
   import { Spinner } from '$lib/components/ui/spinner';
   import CookieImportDialog from './CookieImportDialog.svelte';
+  import AccountsNav from './AccountsNav.svelte';
 
   const COOKIE_PROMPT_KEY = 'hotel-butler.cookie-import-prompted';
   let activeChannelId = $state(OTA_CHANNELS[0].id);
   let activeTabIds = $state<Record<string, string>>({});
   let tabsByChannel = $state<Record<string, BrowserTab[]>>({});
+  let accountsByChannel = $state<Record<string, OtaAccountDto[]>>({});
   let viewport: HTMLElement | undefined;
   let cookiePrompt = $state(false);
   let activeTabs = $derived(tabsByChannel[activeChannelId] ?? []);
   let activeTab = $derived(
     activeTabs.find((tab) => tab.id === activeTabIds[activeChannelId]) ?? activeTabs[0],
   );
+  let activeAccounts = $derived(accountsByChannel[activeChannelId] ?? []);
+  let activeTabPartitionNames = $derived(new Set(activeTabs.map((tab) => tab.partitionName)));
 
   function reportBrowserFailure(event: string, message: string, reason: unknown): void {
     log.warn(event, {
@@ -69,9 +73,18 @@
     }
   }
 
+  async function loadAccounts(channelId: string): Promise<void> {
+    try {
+      accountsByChannel[channelId] = await window.hotelButler.otaAccount.listByChannel(channelId);
+    } catch (error) {
+      reportBrowserFailure('Ota accounts could not be loaded', '账号列表加载失败，请重试', error);
+    }
+  }
+
   async function selectChannel(channel: OtaChannel): Promise<void> {
     dismissAppNotification('browser-operation-error');
     activeChannelId = channel.id;
+    void loadAccounts(channel.id);
     const tabId = activeTabIds[channel.id];
     try {
       if (tabId) {
@@ -83,6 +96,33 @@
     } catch (error) {
       reportBrowserFailure('Browser channel could not be selected', '渠道切换失败，请重试', error);
     }
+  }
+
+  function findTabIdByPartition(partitionName: string): string | undefined {
+    return activeTabs.find((tab) => tab.partitionName === partitionName)?.id;
+  }
+
+  async function openAccount(account: OtaAccountDto): Promise<void> {
+    dismissAppNotification('browser-operation-error');
+    try {
+      const existingTabId = findTabIdByPartition(account.partitionName);
+      if (existingTabId) {
+        await window.hotelButler.browser.activate(existingTabId);
+        activeTabIds[account.channel] = existingTabId;
+      } else {
+        const tab = await window.hotelButler.otaAccount.openExisting(account.id);
+        updateTab(tab);
+        activeTabIds[account.channel] = tab.id;
+      }
+      await syncBounds();
+    } catch (error) {
+      reportBrowserFailure('Ota account tab could not be opened', '打开账号页面失败，请重试', error);
+    }
+  }
+
+  async function addAccount(): Promise<void> {
+    const channel = OTA_CHANNELS.find((item) => item.id === activeChannelId);
+    if (channel) await createTab(channel);
   }
 
   async function selectTab(tab: BrowserTab): Promise<void> {
@@ -176,6 +216,7 @@
     const observer = new ResizeObserver(() => void syncBounds());
     if (viewport) observer.observe(viewport);
     window.addEventListener('resize', syncBounds);
+    void loadAccounts(activeChannelId);
     cookiePrompt = localStorage.getItem(COOKIE_PROMPT_KEY) !== 'true';
     if (!cookiePrompt) {
       void window.hotelButler.browser
@@ -219,7 +260,7 @@
 </script>
 
 <main
-  class="grid h-full min-h-0 grid-rows-[62px_48px_minmax(0,1fr)] bg-background"
+  class="grid h-full min-h-0 grid-rows-[62px_40px_48px_minmax(0,1fr)] bg-background"
   data-motion="page"
   in:enter={{ ...PAGE_ENTER_OPTIONS, y: 0 }}
 >
@@ -245,6 +286,13 @@
       </button>
     {/each}
   </nav>
+
+  <AccountsNav
+    accounts={activeAccounts}
+    {activeTabPartitionNames}
+    onSelectAccount={(account) => void openAccount(account)}
+    onAddAccount={() => void addAccount()}
+  />
 
   <div class="flex min-w-0 items-center gap-2 border-b border-border bg-secondary/55 px-3">
     <nav class="flex shrink-0 gap-0.5" aria-label="页面控制">

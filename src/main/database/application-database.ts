@@ -116,6 +116,17 @@ const migrations: readonly Migration[] = [
       database.exec(`ALTER TABLE ota_account RENAME COLUMN display_name TO ota_hotel_name;`);
     },
   },
+  {
+    version: 5,
+    name: 'add-ota-account-channel-context-and-discovered-at',
+    apply(database) {
+      database.exec(`
+        ALTER TABLE ota_account ADD COLUMN channel_context TEXT;
+        ALTER TABLE ota_account ADD COLUMN discovered_at INTEGER NOT NULL DEFAULT 0;
+        UPDATE ota_account SET discovered_at = CAST(strftime('%s', created_at) AS INTEGER) * 1000;
+      `);
+    },
+  },
 ];
 
 function migrate(database: ApplicationDatabase): number {

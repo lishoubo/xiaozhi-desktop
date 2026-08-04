@@ -9,6 +9,8 @@ type OtaAccountRow = Readonly<{
   otaHotelId: string;
   otaHotelName: string | null;
   partitionName: string;
+  channelContext: string | null;
+  discoveredAt: number;
 }>;
 
 function accountFromRow(row: OtaAccountRow): OtaAccount {
@@ -18,6 +20,8 @@ function accountFromRow(row: OtaAccountRow): OtaAccount {
     otaHotelId: toOtaHotelId(row.otaHotelId),
     otaHotelName: row.otaHotelName,
     partitionName: row.partitionName,
+    channelContext: row.channelContext,
+    discoveredAt: row.discoveredAt,
   };
 }
 
@@ -26,7 +30,9 @@ const SELECT_COLUMNS = `
   channel,
   ota_hotel_id AS otaHotelId,
   ota_hotel_name AS otaHotelName,
-  partition_name AS partitionName
+  partition_name AS partitionName,
+  channel_context AS channelContext,
+  discovered_at AS discoveredAt
 `;
 
 export class SqliteOtaAccountRepository implements OtaAccountRepository {
@@ -37,8 +43,10 @@ export class SqliteOtaAccountRepository implements OtaAccountRepository {
     this.database
       .prepare(
         `
-        INSERT INTO ota_account (id, channel, ota_hotel_id, ota_hotel_name, partition_name)
-        VALUES (@id, @channel, @otaHotelId, @otaHotelName, @partitionName)
+        INSERT INTO ota_account
+          (id, channel, ota_hotel_id, ota_hotel_name, partition_name, channel_context, discovered_at)
+        VALUES
+          (@id, @channel, @otaHotelId, @otaHotelName, @partitionName, @channelContext, @discoveredAt)
       `,
       )
       .run(account);
@@ -68,5 +76,21 @@ export class SqliteOtaAccountRepository implements OtaAccountRepository {
       .get(id);
     if (!row) throw new Error('未找到 OtaAccount');
     return accountFromRow(row);
+  }
+
+  listByChannel(channel: ChannelId): readonly OtaAccount[] {
+    const rows = this.database
+      .prepare<[string], OtaAccountRow>(
+        `SELECT ${SELECT_COLUMNS} FROM ota_account WHERE channel = ? ORDER BY discovered_at DESC`,
+      )
+      .all(channel);
+    return rows.map(accountFromRow);
+  }
+
+  findById(id: OtaAccount['id']): OtaAccount | null {
+    const row = this.database
+      .prepare<[string], OtaAccountRow>(`SELECT ${SELECT_COLUMNS} FROM ota_account WHERE id = ?`)
+      .get(id);
+    return row ? accountFromRow(row) : null;
   }
 }

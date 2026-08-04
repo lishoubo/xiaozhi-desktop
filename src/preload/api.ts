@@ -5,6 +5,7 @@ import {
   browserRequestInterceptionSchema,
   browserTabSchema,
   cookieImportResultSchema,
+  otaAccountSchema,
   systemPreferencesSchema,
   type BrowserBounds,
   type BrowserCookieSource,
@@ -12,6 +13,7 @@ import {
   type BrowserRequestInterception,
   type BrowserTab,
   type CookieImportResult,
+  type OtaAccountDto,
   type StartLoginInput,
   type SystemPreferences,
 } from '../shared/browser';
@@ -31,6 +33,7 @@ import {
  */
 const browserTabListSchema = z.array(browserTabSchema);
 const browserCookieSourceListSchema = z.array(browserCookieSourceSchema);
+const otaAccountListSchema = z.array(otaAccountSchema);
 const optionalCtripCheckInResultSchema = ctripCheckInResultSchema.nullable();
 const voidSchema = z.undefined();
 
@@ -69,6 +72,8 @@ export type DesktopApi = Readonly<{
   }>;
   otaAccount: Readonly<{
     startLogin: (input: StartLoginInput) => Promise<BrowserTab>;
+    listByChannel: (channelId: string) => Promise<OtaAccountDto[]>;
+    openExisting: (accountId: string) => Promise<BrowserTab>;
   }>;
   system: Readonly<{
     getPreferences: () => Promise<SystemPreferences>;
@@ -148,6 +153,10 @@ export function createDesktopApi(
   const otaAccount = Object.freeze({
     startLogin: (input: StartLoginInput) =>
       invokeValidated(browserTabSchema, IPC_CHANNELS.otaAccount.startLogin, input),
+    listByChannel: (channelId: string) =>
+      invokeValidated(otaAccountListSchema, IPC_CHANNELS.otaAccount.listByChannel, channelId),
+    openExisting: (accountId: string) =>
+      invokeValidated(browserTabSchema, IPC_CHANNELS.otaAccount.openExisting, accountId),
   });
   const calendar = Object.freeze({
     load: () => invokeValidated(calendarSnapshotSchema, IPC_CHANNELS.calendar.load),
