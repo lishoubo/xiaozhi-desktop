@@ -174,6 +174,12 @@ export function registerBrowserHandlers({
       const account = otaAccountRepository.findById(toOtaAccountId(accountId));
       if (!account) throw new Error('未找到该账号');
       const url = otaAccountLandingUrl(account);
+      logger.info('Opening existing OTA account', {
+        accountId,
+        channel: account.channel,
+        partitionName: account.partitionName,
+        url,
+      });
       return manager.createWithAlreadyPartition(account.partitionName, account.channel, url);
     },
   );

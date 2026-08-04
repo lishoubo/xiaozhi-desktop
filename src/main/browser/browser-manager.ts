@@ -169,7 +169,7 @@ export class BrowserManager {
     this.tabs.set(id, tab);
     this.bindTabEvents(tab);
     this.activate(id);
-    this.logger.info('Browser tab created', { channelId });
+    this.logger.info('Browser tab created', { channelId, partitionName });
     void view.webContents.loadURL(url).catch((error: unknown) => {
       tab.loading = false;
       tab.title = '页面加载失败';

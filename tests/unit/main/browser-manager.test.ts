@@ -142,7 +142,7 @@ describe('BrowserManager', () => {
       },
     });
     expect(logger.info.mock.calls).toEqual([
-      ['Browser tab created', { channelId: 'ctrip' }],
+      ['Browser tab created', { channelId: 'ctrip', partitionName: 'persist:hotel-butler-browser' }],
       ['Browser tab closed', { channelId: 'ctrip' }],
     ]);
     expect(electron.views[0].webContents.close).toHaveBeenCalledOnce();
