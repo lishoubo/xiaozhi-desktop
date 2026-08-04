@@ -167,6 +167,32 @@ DiscoverAndCreate.trigger(partitionName, channel)
 
 **仍然不做的**：跨越"标签页整个生命周期"的重试（即 `none` 之后不在探测层内部安排下一次登录标签页级别的重试），这仍然依赖用户手动重新触发"去登录"——因为 `none` 也可能是页面结构真的变了（选择器过期），无限重试没有意义，交还给用户判断要不要重试是本次明确接受的简化（Non-Goals：不做探测失败的用户提示，本次也不做失败后的自动化外层重试）。
 
+### 9. 抖音门店探测：URL 判定要求带 `groupid`，执行层是两步接口调用，不产生 `multiple`
+
+**决策**：抖音渠道的 `LoginUrlMatcher.isPastLogin(url)` 要求 URL 同时满足"命中 `/p/home`"和"带 `groupid` 查询参数"——只判路径不判参数会在"停在选公司中间态"误判为已登录。抖音登录流程和携程不同：一个账号可能挂多家"公司"，登录后若只挂一家会自动带 `groupid` 直跳 `/p/home`，若挂多家则先停在 `/p/login` 下的选公司列表页，**由用户在登录标签页里手动选完公司**，选完之后才会落到同样带 `groupid` 的 `/p/home`（参照 `session.py:81-90` 的落地页约定）。这意味着"选哪个公司"这一步完全在用户的登录标签页交互里完成，探测层看到 URL 触发时，`groupid` 已经唯一确定，**不需要在探测层里处理"多公司选择"**——本次抖音探测的 `DiscoveryOutcome` 只会产生 `single`/`none`，不会产生 `multiple`（`multiple` 分支目前仍是携程独有的，探测执行阶段发现同一账号下有多个门店时才会触发）。
+
+**探测执行是两步接口调用，不做 Prefetch/DOM 兼底**：URL 判定命中时落地页是 `/p/home?groupid=xxx`，但 `groupid`（= account_id/group_id，账号层 ID）和门店信息接口 `dsl/get` 需要的 `root_life_account_id`（根生活号 ID）是两套不相等、无法互相换算的 ID（同账号实测数据：`group_id="1813179858562059"` vs `root_life_account_id="7324560848234481702"`，位数、数值都不同，参见 `docs/抖音/踩点/session踩点.md`），必须先请求 `getAccountDetail` 拿到 `root_life_account_id`：
+
+```
+loadURL('https://life.douyin.com/p/home')
+        ↓
+从落地 URL 解析 groupid（缺失 → none，不发起任何接口请求）
+        ↓
+第 1 步：按路径模板顺序请求 getAccountDetail(groupid)
+  逐个模板尝试，第一个解析出 root_life_account_id 的即用
+  全部模板都未命中 → none
+        ↓
+第 2 步：用 root_life_account_id 请求 dsl/get
+  正则提取 poiId/poiName
+  未解析出 → none
+        ↓
+single（otaHotelId=poiId, displayName=poiName）
+```
+
+两步都在页面上下文内用同步 XHR 发起（`executeJavaScript` 里跑，带 `withCredentials`），不依赖 Node 环境发请求，和携程 `executeJavaScript` 里跑 DOM 查询是同一机制。**不做** RPA 脚本里 `getAccountDetail` 之外的 Prefetch（sessionStorage/localStorage 缓存读取）、DOM scrape 兜底——RPA 脚本要兼容"选公司刚跳转、页面还没渲染完"这类过渡态，本次探测场景是"标签页已经在 `/p/home` 落地并触发了 URL 判定"，页面已经稳定，不需要那层兼底；如果真机验证发现 `getAccountDetail` 的接口路径模板本身会变（页面改版），属于 §Risks 里"渠道接口未踩点"同类风险，届时再补兼底，不在本次预先实现。
+
+**理由**：接口调用比携程的 DOM 选择器更贴近"数据的权威来源"（不依赖页面渲染出的具体 DOM 结构，只要接口契约不变就稳定），但代价是多了一次"先解出中间 ID 再查数据"的网络往返，且两个接口都未做真机验证（`ACCOUNT_DETAIL_URL_TEMPLATES` 里 5 个路径模板哪个在当前抖音后台仍然可用、`dsl/get` 的字段名是否仍是 `poiId`/`poiName`，都只是照抄 RPA 脚本的已知实现，未在这次会话里用真实账号验证过）。
+
 ## Risks / Trade-offs
 
 - **[风险] 携程门店信息靠 DOM 解析（`a.he-ctrip-hotel-title-link`），接口未踩点** → 页面改版会导致选择器失效；本次明确接受，后续接口踩点成功可直接替换 `CtripDiscoveryProbe` 内部实现，不影响 `DiscoveryProbe` 接口和调用方。**真机验证已实测到的具体表现（2026-08-04）**：同一账号不同次登录，携程有时会先经过移动端布局再跳回桌面版，移动布局下 `a.he-ctrip-hotel-title-link` 不存在，导致该次探测返回 `none`（实测耗时约 52 秒才触发 15 秒轮询超时兜底）；重试一次（同一账号重新走登录标签页）后命中桌面布局，选择器正常解析出门店并成功建号。当前无重试机制——`none` 结果会保留 `bound` 状态为未绑定，允许用户下次重新触发登录标签页时自然重试，但单次探测内部不会自动重试或等待布局切换，这是本次明确接受的简化
@@ -174,3 +200,4 @@ DiscoverAndCreate.trigger(partitionName, channel)
 - **[风险] 查重命中后旧 partition 直接删除，没有用户确认或回退手段** → 见决策 7，本次明确接受；用户若误操作会静默丢失旧登录态，只能重新登录找回
 - **[风险] Partition 名字里的短id 不携带业务语义，纯粹靠 `OtaAccount.partitionName` 做关联；如果这条数据库记录丢失，找回对应 cookie 需要遍历磁盘上的 partition 目录** → 可接受，因为 `OtaAccount` 本身就是这份登录态唯一的"账本"，与"cookie 是易变数据、数据库不重复存储"的决策一致
 - **[风险] 携程/美团探测本次占位不实现** → 明确的范围排除，不是遗漏
+- **[风险] 抖音 `getAccountDetail`/`dsl/get` 两个接口均未做真机验证** → 完全照抄 `rms-rpa-worker` 已验证过的 RPA 脚本里的 URL 模板和字段名，但那套脚本运行在"选公司刚完成、Prefetch 尚未就绪"的更早时机，本次探测时机（URL 已落到 `/p/home?groupid=`）没有实测过这两个接口在这个时机点是否仍返回预期结构；且抖音探测目前是 1 轮无重试（决策 8.1 的 3 轮重试只套用在携程，见该决策"重试策略：不套用，先写 1 轮，等真机验证暴露问题再补"的会话内决定），后续用真实抖音账号验证前不应视为已验证可用

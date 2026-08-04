@@ -23,12 +23,12 @@
 ## 4. main/account-discovery：探测层（触发去重 + 执行 + 查重创建）
 
 - [x] 4.1 新增 `main/account-discovery/discovery-probe.ts`：channel → `DiscoveryProbe` 实现的 registry，查不到时返回明确的"不支持"结果；新增 `main/account-discovery/login-url-matcher.ts`：channel → `LoginUrlMatcher` 的 registry
-- [ ] 4.2 新增 `main/account-discovery/douyin-discovery.ts`：复用已验证方式——在给定 partition 上创建 `WebContentsView`，加载 `life.douyin.com` 后台页面，`executeJavaScript` 调用 `groupAccountList` 接口并分页拉取全部门店，返回 `DiscoveryOutcome`
+- [x] 4.2 新增 `main/account-discovery/douyin-discovery.ts`：URL 判定登录成功后落地页已是 `/p/home?groupid=xxx`（用户已手动选完公司），两步接口调用——① `getAccountDetail`（按路径模板顺序尝试，不做 Prefetch/DOM 兼底）用 groupid 解出 `root_life_account_id`（与 groupid 是两套不相等、无法换算的 ID，见 design.md 决策 9）；② 用 `root_life_account_id` 请求 `dsl/get` 解析 poiId/poiName，返回 `DiscoveryOutcome`（`single`/`none`，本次抖音场景不产生 `multiple`——多公司账号由用户在登录标签页里手动选完公司后才触发探测，见决策 9）；同时新增 `douyin-login-url-matcher.ts`：`isPastLogin(url)` 要求命中 `/p/home` 且带 `groupid` 参数才算登录成功（对齐 `session.py:81-90` 的落地页约定，只判路径不判参数会在"停在选公司中间态"误判）
 - [x] 4.3 新增 `main/account-discovery/ctrip-discovery.ts`：在给定 partition 上创建 `WebContentsView`，加载携程登录后落地页，用 `executeJavaScript` 解析 `a.he-ctrip-hotel-title-link` 元素（文本为门店名、href 用 `/hotels?/(\d+)` 正则提取 otaHotelId），返回 `DiscoveryOutcome`（接口未踩点，DOM 选择器抄自 `rms-rpa-worker/.../ctrip/init_hotel_info.py` 已验证实现，见 design.md 决策 2）；同时新增 `ctrip-login-url-matcher.ts`：`isPastLogin(url) = !url.includes('/login/')`（抄自同仓库 `ctrip/login.py:30`，已验证判据）。**已用真实携程账号做真机验证（2026-08-04）**：URL 判定、探测触发、DOM 解析、建号全链路打通，`ota_account` 表已落地一条真实记录；同时实测到移动布局分支导致的一次 `none` 结果，已记录进 design.md 风险列表
 - [ ] 4.3b 新增 `main/account-discovery/meituan-discovery.ts` 占位：返回"暂不支持"，不实现真实探测逻辑（美团 `LoginUrlMatcher` 同样不注册）
 - [ ] 4.3c `CtripDiscoveryProbe.discover()` 轮询改为最多 3 轮、每轮 15 秒，轮次间不重新 `loadURL`（见 design.md 决策 8.1，真机验证暴露移动布局导致单轮 `none`）；补单测覆盖"第 1 轮无结果、第 2 轮拿到"的场景
 - [x] 4.4 新增 `main/account-discovery/discover-and-create.ts`：探测层主流程——用内存 `Set<partitionName>` 做探测防重入（同一 partition 探测进行中直接跳过，见 design.md 决策 8）；按 `(channel, otaHotelId)` 查重；不存在则创建 `OtaAccount`；已存在则更新该账号的 `partitionName` 为本次新 partition，并删除旧 partition 的 session 目录（见 design.md 决策 7/8，URL 触发场景下旧 partition 可能仍被占用，删除失败不阻断账号更新）；已绑定的 partition（已存在关联 `OtaAccount` 且本次未查重命中新账号变化）不重复探测
-- [x] 4.5 为 4.1-4.4 编写单测：mock `WebContentsView`/session 边界，验证携程 DOM 解析、抖音分页拉取、单店/多店的 `DiscoveryOutcome` 判定、查重命中时"更新 partitionName + 删除旧 partition"的行为（含删除失败时不应阻断账号更新本身）、同一 partition 并发触发时防重入生效、已绑定 partition 不重复探测（抖音分页拉取 4.2 尚未实现，对应单测未覆盖）
+- [x] 4.5 为 4.1-4.4 编写单测：mock `WebContentsView`/session 边界，验证携程 DOM 解析、抖音两步接口调用（`getAccountDetail` 全模板未命中、`dsl/get` 未解析出门店、落地 URL 缺 groupid 三种 `none` 路径）、单店/多店的 `DiscoveryOutcome` 判定、查重命中时"更新 partitionName + 删除旧 partition"的行为（含删除失败时不应阻断账号更新本身）、同一 partition 并发触发时防重入生效、已绑定 partition 不重复探测
 
 ## 5. main/database：持久化
 
