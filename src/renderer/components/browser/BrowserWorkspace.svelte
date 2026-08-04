@@ -86,13 +86,10 @@
     activeChannelId = channel.id;
     void loadAccounts(channel.id);
     const tabId = activeTabIds[channel.id];
+    if (!tabId) return;
     try {
-      if (tabId) {
-        await window.hotelButler.browser.activate(tabId);
-        await syncBounds();
-      } else if (!cookiePrompt) {
-        await createTab(channel);
-      }
+      await window.hotelButler.browser.activate(tabId);
+      await syncBounds();
     } catch (error) {
       reportBrowserFailure('Browser channel could not be selected', '渠道切换失败，请重试', error);
     }
@@ -184,11 +181,9 @@
     };
   }
 
-  async function finishCookiePrompt(): Promise<void> {
+  function finishCookiePrompt(): void {
     cookiePrompt = false;
-    if (await createTab(OTA_CHANNELS[0])) {
-      localStorage.setItem(COOKIE_PROMPT_KEY, 'true');
-    }
+    localStorage.setItem(COOKIE_PROMPT_KEY, 'true');
   }
 
   async function runNavigationAction(event: string, action: () => Promise<void>): Promise<void> {
@@ -233,8 +228,6 @@
             if (!mounted) return;
             activeTabIds[ctripTab.channelId] = ctripTab.id;
             await syncBounds();
-          } else {
-            await createTab(OTA_CHANNELS[0]);
           }
         })
         .catch((error: unknown) => {

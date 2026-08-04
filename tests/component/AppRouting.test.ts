@@ -106,11 +106,7 @@ describe('App routing and query integration', () => {
       'true',
     );
     expect(screen.queryByRole('textbox', { name: '网址' })).not.toBeInTheDocument();
-    expect(createTab).toHaveBeenCalledWith({
-      channelId: 'ctrip',
-      environment: 'prod',
-      url: 'https://ebooking.ctrip.com/',
-    });
+    expect(createTab).not.toHaveBeenCalled();
 
     await user.click(screen.getByRole('link', { name: '设置' }));
 

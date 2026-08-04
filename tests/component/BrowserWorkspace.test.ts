@@ -34,6 +34,11 @@ describe('BrowserWorkspace', () => {
     return render(BrowserWorkspace);
   }
 
+  async function openCtripViaAddAccount(): Promise<void> {
+    (await screen.findByRole('button', { name: '添加账号' })).click();
+    await screen.findByRole('tab', { name: '携程后台' });
+  }
+
   beforeEach(() => {
     localStorage.clear();
     clearAppNotifications();
@@ -98,8 +103,7 @@ describe('BrowserWorkspace', () => {
   it('keeps a separate tab set for each OTA shortcut', async () => {
     const user = userEvent.setup();
     const { container } = renderWorkspace();
-
-    expect(await screen.findByRole('tab', { name: '携程后台' })).toBeInTheDocument();
+    await openCtripViaAddAccount();
     const animate = vi.mocked(Element.prototype.animate);
     animate.mockClear();
     for (const image of container.querySelectorAll('img')) {
@@ -107,9 +111,10 @@ describe('BrowserWorkspace', () => {
     }
 
     await user.click(screen.getByRole('button', { name: '飞猪酒店商家' }));
+    expect(screen.queryByRole('tab', { name: '携程后台' })).not.toBeInTheDocument();
+    screen.getByRole('button', { name: '添加账号' }).click();
     expect(await screen.findByRole('tab', { name: '飞猪后台' })).toBeInTheDocument();
     expect(animate).toHaveBeenCalled();
-    expect(screen.queryByRole('tab', { name: '携程后台' })).not.toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: '携程酒店 eBooking' }));
     expect(await screen.findByRole('tab', { name: '携程后台' })).toBeInTheDocument();
@@ -164,11 +169,7 @@ describe('BrowserWorkspace', () => {
       ),
     );
     expect(localStorage.getItem('hotel-butler.cookie-import-prompted')).toBe('true');
-    expect(startLogin).toHaveBeenCalledWith({
-      channelId: 'ctrip',
-      environment: 'prod',
-      url: expect.any(String),
-    });
+    expect(startLogin).not.toHaveBeenCalled();
   });
 
   it('shows safe, accessible recovery feedback when a browser tab cannot be opened', async () => {
@@ -176,6 +177,8 @@ describe('BrowserWorkspace', () => {
       new Error("Error invoking remote method 'ota-account:start-login': /Users/private/app-data"),
     );
     renderWorkspace();
+
+    (await screen.findByRole('button', { name: '添加账号' })).click();
 
     const alert = (await screen.findByText('页面打开失败，请重试')).closest('[data-slot="alert"]');
     expect(alert).toHaveTextContent('页面打开失败，请重试');
@@ -187,7 +190,7 @@ describe('BrowserWorkspace', () => {
 
   it('uses the shared Spinner while the active page is refreshing', async () => {
     renderWorkspace();
-    await screen.findByRole('tab', { name: '携程后台' });
+    await openCtripViaAddAccount();
 
     stateChangedListener?.({
       id: 'ctrip-tab',
@@ -207,7 +210,7 @@ describe('BrowserWorkspace', () => {
 
   it('reports an intercepted embedded-browser request as a non-blocking notification', async () => {
     renderWorkspace();
-    await screen.findByRole('tab', { name: '携程后台' });
+    await openCtripViaAddAccount();
 
     requestInterceptedListener?.();
 
@@ -282,7 +285,6 @@ describe('BrowserWorkspace', () => {
     });
 
     renderWorkspace();
-    await screen.findByRole('tab', { name: '携程后台' });
     const accountButton = await screen.findByTitle('璞禾咖啡酒店');
     accountButton.click();
 
@@ -304,7 +306,7 @@ describe('BrowserWorkspace', () => {
     ]);
 
     renderWorkspace();
-    await screen.findByRole('tab', { name: '携程后台' });
+    await openCtripViaAddAccount();
     activate.mockClear();
     const accountButton = await screen.findByTitle('携程后台');
     accountButton.click();
@@ -315,9 +317,7 @@ describe('BrowserWorkspace', () => {
 
   it('clicking add account triggers the existing login flow for the active channel', async () => {
     renderWorkspace();
-    await screen.findByRole('tab', { name: '携程后台' });
-    startLogin.mockClear();
-    screen.getByRole('button', { name: '添加账号' }).click();
+    (await screen.findByRole('button', { name: '添加账号' })).click();
 
     await waitFor(() =>
       expect(startLogin).toHaveBeenCalledWith(
@@ -337,7 +337,7 @@ describe('BrowserWorkspace', () => {
 
   it('refreshes the accounts nav automatically when the main process reports a newly bound account', async () => {
     renderWorkspace();
-    await screen.findByRole('tab', { name: '携程后台' });
+    await screen.findByRole('button', { name: '添加账号' });
     listByChannel.mockClear();
     listByChannel.mockResolvedValue([
       {
@@ -359,7 +359,7 @@ describe('BrowserWorkspace', () => {
 
   it('does not refresh the accounts nav for a bound event on a different channel', async () => {
     renderWorkspace();
-    await screen.findByRole('tab', { name: '携程后台' });
+    await screen.findByRole('button', { name: '添加账号' });
     listByChannel.mockClear();
 
     accountBoundListener?.({ channel: 'douyin' });
