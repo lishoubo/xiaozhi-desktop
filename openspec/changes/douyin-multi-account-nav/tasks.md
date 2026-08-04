@@ -39,5 +39,7 @@
 ## 7. 收尾
 
 - [x] 7.1 全量运行受影响模块的测试（domain、main/database、main/account-discovery、main/browser、main/ipc、renderer 组件）
-- [ ] 7.2 人工验证：① 携程已有账号能在二级导航打开；② 抖音两次独立登录落在同一手机号/公司时，两条记录 `partitionName` 自然相同、`otaHotelId` 不同；③ 已打开标签页再点账号项能正确激活而非重复打开，产出 verification.md
+- [x] 7.2a 真机验证过程中发现并修复：① `channelContext` 缺失（历史数据/探测未解析出 groupid）时 `otaAccountLandingUrl` 直接抛错导致"打开账号页面失败"——改为退化到不带 groupid 的登录后台首页；② 建号成功后二级导航不自动刷新，需退出重进——新增 `onAccountBound` 事件通道推送给 renderer；③ 点渠道图标会自动新开登录标签、抢在用户选账号之前触发——去掉 `selectChannel`/`onMount`/`finishCookiePrompt` 里的自动 `createTab`，"开新标签"完全交给账号二级导航
+- [ ] 7.2b **待查根因，未解决**：真机验证中西子轻奢酒店、云上酒店(包头包百店)两个抖音账号点击后落到登录页。直接读取 partition 磁盘 Cookies 数据库确认——不是 cookie 过期（`ttwid`/`passport_csrf_token` 等辅助 cookie 均未过期），而是这份 partition **从建号那一刻起就没有保存住真正的登录会话 cookie**（`sessionid`/`sid_guard` 等核心凭证完全不存在，只有 csrf token/设备标识类辅助 cookie）。已删除这两条无效数据（本地 SQLite），`Opening existing OTA account`/`Browser tab created` 诊断日志已补上（见 `1cd0970`），下次复现时优先查：① 探测建号那次登录是否真的完成了完整的手机验证码认证流程，还是在拿到 groupid 后就被 URL 判定提前判定为"已登录"触发了探测；② CDP `webContents.debugger` 拦截响应期间是否会影响该 tab 正常的 cookie 写入时机
+- [ ] 7.2c 携程已有账号在二级导航打开验证；抖音两次独立登录落在同一手机号/公司时 `partitionName` 自然相同、`otaHotelId` 不同的验证；已打开标签页再点账号项正确激活而非重复打开的验证——待 7.2b 根因查清后一并产出 verification.md
 - [ ] 7.3 走 code-review 通道（独立 pass，不与 verification 合并）
