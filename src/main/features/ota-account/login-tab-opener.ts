@@ -8,6 +8,7 @@
  *
  * 流程B（打开已有账号）不走这里，见 docs/arch/2026-08-03-login-tab-flows.md。
  */
+import type { WebContents } from 'electron';
 import type { ChannelId } from '../../../domain/identity';
 import type { LoginUrlMatcher } from '../../../domain/ports/discovery';
 import type { BrowserTab } from '../../../shared/browser';
@@ -24,7 +25,12 @@ export type LoginTabOpenerDependencies = Readonly<{
     'createAndNewPartition'
   >;
   loginUrlMatchers: ReadonlyMap<ChannelId, LoginUrlMatcher>;
-  triggerDiscovery: (partitionName: string, channel: ChannelId) => void;
+  triggerDiscovery: (
+    partitionName: string,
+    channel: ChannelId,
+    landingUrl: string,
+    webContents: WebContents,
+  ) => void;
 }>;
 
 export class LoginTabOpener {
@@ -40,7 +46,8 @@ export class LoginTabOpener {
     const { tab, partitionName } = await browser.createAndNewPartition(environment, channel, url, {
       importedCookies: imported?.cookies,
       loginUrlMatcher: loginUrlMatchers.get(channel),
-      onUrlPastLogin: (boundPartitionName) => triggerDiscovery(boundPartitionName, channel),
+      onUrlPastLogin: (boundPartitionName, landingUrl, webContents) =>
+        triggerDiscovery(boundPartitionName, channel, landingUrl, webContents),
     });
     await addPendingPartition(userDataDir, {
       partitionName,

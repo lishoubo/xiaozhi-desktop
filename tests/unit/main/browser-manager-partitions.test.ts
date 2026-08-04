@@ -171,7 +171,11 @@ describe('BrowserManager — partition-aware tab creation', () => {
     const view = electron.views[0];
     view.handlers.get('did-navigate')?.({}, 'https://ebooking.ctrip.com/home/mainland');
 
-    expect(onUrlPastLogin).toHaveBeenCalledExactlyOnceWith(partitionName);
+    expect(onUrlPastLogin).toHaveBeenCalledExactlyOnceWith(
+      partitionName,
+      'https://ebooking.ctrip.com/home/mainland',
+      expect.anything(),
+    );
   });
 
   it('URL 判定命中后再次导航不重复触发 onUrlPastLogin', async () => {

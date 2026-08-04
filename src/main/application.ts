@@ -53,8 +53,8 @@ function openMainWindow(): void {
     logger: log,
     userDataDir: app.getPath('userData'),
     loginUrlMatchers: LOGIN_URL_MATCHERS,
-    triggerDiscovery: (partitionName, channel) => {
-      void discoverAndCreate?.trigger(partitionName, channel);
+    triggerDiscovery: (partitionName, channel, landingUrl, webContents) => {
+      void discoverAndCreate?.trigger(partitionName, channel, landingUrl, webContents);
     },
   });
   unregisterAutomationHandlers = registerAutomationHandlers({

@@ -38,7 +38,7 @@ describe('DiscoverAndCreate', () => {
     const deps = createDeps({ probes: new Map([[channel, probe]]) });
     const discoverAndCreate = new DiscoverAndCreate(deps);
 
-    await discoverAndCreate.trigger(partitionName, channel);
+    await discoverAndCreate.trigger(partitionName, channel, 'https://example.com/landing', {} as never);
 
     expect(deps.repository.create).toHaveBeenCalledWith({
       id: toOtaAccountId('generated-id'),
@@ -76,7 +76,7 @@ describe('DiscoverAndCreate', () => {
     });
     const discoverAndCreate = new DiscoverAndCreate(deps);
 
-    await discoverAndCreate.trigger(partitionName, channel);
+    await discoverAndCreate.trigger(partitionName, channel, 'https://example.com/landing', {} as never);
 
     expect(deps.repository.create).not.toHaveBeenCalled();
     expect(deps.repository.updatePartitionName).toHaveBeenCalledWith(existing.id, partitionName);
@@ -109,7 +109,7 @@ describe('DiscoverAndCreate', () => {
     });
     const discoverAndCreate = new DiscoverAndCreate(deps);
 
-    await expect(discoverAndCreate.trigger(partitionName, channel)).resolves.toBeUndefined();
+    await expect(discoverAndCreate.trigger(partitionName, channel, 'https://example.com/landing', {} as never)).resolves.toBeUndefined();
     expect(deps.repository.updatePartitionName).toHaveBeenCalled();
     expect(deps.removePendingPartition).toHaveBeenCalledWith(partitionName);
   });
@@ -128,8 +128,8 @@ describe('DiscoverAndCreate', () => {
     const deps = createDeps({ probes: new Map([[channel, probe]]) });
     const discoverAndCreate = new DiscoverAndCreate(deps);
 
-    const first = discoverAndCreate.trigger(partitionName, channel);
-    await discoverAndCreate.trigger(partitionName, channel);
+    const first = discoverAndCreate.trigger(partitionName, channel, 'https://example.com/landing', {} as never);
+    await discoverAndCreate.trigger(partitionName, channel, 'https://example.com/landing', {} as never);
 
     expect(probe.discover).toHaveBeenCalledTimes(1);
     resolveDiscover({ kind: 'none' });
@@ -147,8 +147,8 @@ describe('DiscoverAndCreate', () => {
     const deps = createDeps({ probes: new Map([[channel, probe]]) });
     const discoverAndCreate = new DiscoverAndCreate(deps);
 
-    await discoverAndCreate.trigger(partitionName, channel);
-    await discoverAndCreate.trigger(partitionName, channel);
+    await discoverAndCreate.trigger(partitionName, channel, 'https://example.com/landing', {} as never);
+    await discoverAndCreate.trigger(partitionName, channel, 'https://example.com/landing', {} as never);
 
     expect(probe.discover).toHaveBeenCalledTimes(1);
   });
@@ -157,7 +157,7 @@ describe('DiscoverAndCreate', () => {
     const deps = createDeps();
     const discoverAndCreate = new DiscoverAndCreate(deps);
 
-    await expect(discoverAndCreate.trigger(partitionName, channel)).resolves.toBeUndefined();
+    await expect(discoverAndCreate.trigger(partitionName, channel, 'https://example.com/landing', {} as never)).resolves.toBeUndefined();
     expect(deps.repository.create).not.toHaveBeenCalled();
   });
 
@@ -175,10 +175,10 @@ describe('DiscoverAndCreate', () => {
     const deps = createDeps({ probes: new Map([[channel, probe]]) });
     const discoverAndCreate = new DiscoverAndCreate(deps);
 
-    await discoverAndCreate.trigger(partitionName, channel);
+    await discoverAndCreate.trigger(partitionName, channel, 'https://example.com/landing', {} as never);
     expect(deps.repository.create).not.toHaveBeenCalled();
 
-    await discoverAndCreate.trigger(partitionName, channel);
+    await discoverAndCreate.trigger(partitionName, channel, 'https://example.com/landing', {} as never);
     expect(probe.discover).toHaveBeenCalledTimes(2);
   });
 });

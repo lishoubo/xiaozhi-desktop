@@ -1,4 +1,4 @@
-import { app, ipcMain, type IpcMainInvokeEvent } from 'electron';
+import { app, ipcMain, type IpcMainInvokeEvent, type WebContents } from 'electron';
 import { z, type ZodType } from 'zod';
 import {
   browserBoundsSchema,
@@ -41,7 +41,12 @@ type RegisterBrowserHandlersOptions = Readonly<{
   cookieImporter?: Pick<BrowserCookieImporter, 'listSources' | 'readCookies'>;
   userDataDir: string;
   loginUrlMatchers: ReadonlyMap<ChannelId, LoginUrlMatcher>;
-  triggerDiscovery: (partitionName: string, channel: ChannelId) => void;
+  triggerDiscovery: (
+    partitionName: string,
+    channel: ChannelId,
+    landingUrl: string,
+    webContents: WebContents,
+  ) => void;
 }>;
 
 function systemPreferences(): SystemPreferences {

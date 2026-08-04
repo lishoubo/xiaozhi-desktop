@@ -8,11 +8,12 @@
  *   - 探测已经成功过一次（这个 partition 已经关联了 OtaAccount）→ 同样跳过，
  *     不重复创建 WebContentsView、不重复请求渠道接口（决策 8 的性能考量）
  */
+import type { WebContents } from 'electron';
 import type { ChannelId } from '../../domain/identity';
 import { toOtaAccountId } from '../../domain/identity';
-import type { DiscoveredOtaHotel, DiscoveryProbe } from '../../domain/ports/discovery';
 import type { OtaAccountRepository } from '../../domain/ports/repositories';
 import type { AppLogger } from '../../shared/logging';
+import type { DiscoveredOtaHotel, DiscoveryProbe } from './discovery-probe-port';
 
 export type DiscoverAndCreateDependencies = Readonly<{
   probes: ReadonlyMap<ChannelId, DiscoveryProbe>;
@@ -32,8 +33,20 @@ export class DiscoverAndCreate {
   /**
    * 触发探测。幂等：同一个 partitionName 无论被调用多少次，最多真正执行一次
    * 探测；探测成功建/更新账号后，这个 partition 永久不再触发。
+   *
+   * `landingUrl` 是 URL 判定命中登录成功那一刻的完整 URL，`webContents` 是
+   * 这个登录标签页本身（用户可见）的 WebContents 引用，原样透传给
+   * `DiscoveryProbe.discover`——部分渠道（如抖音）需要在用户已登录、已经
+   * 落在正确页面的这个真实标签页上直接读数据/模拟点击，而不是新开一个
+   * 隐藏页面重新走一遍登录态（探测过必需的数据只在这个已渲染好的页面里
+   * 才存在，新开页面拿不到）。
    */
-  async trigger(partitionName: string, channel: ChannelId): Promise<void> {
+  async trigger(
+    partitionName: string,
+    channel: ChannelId,
+    landingUrl: string,
+    webContents: WebContents,
+  ): Promise<void> {
     if (this.bound.has(partitionName) || this.inflight.has(partitionName)) return;
 
     const probe = this.deps.probes.get(channel);
@@ -45,7 +58,7 @@ export class DiscoverAndCreate {
     this.deps.logger.info('Discovery triggered', { channel, partitionName });
     this.inflight.add(partitionName);
     try {
-      const outcome = await probe.discover(partitionName);
+      const outcome = await probe.discover(partitionName, landingUrl, webContents);
       this.deps.logger.info('Discovery outcome', { channel, kind: outcome.kind });
       switch (outcome.kind) {
         case 'unsupported':

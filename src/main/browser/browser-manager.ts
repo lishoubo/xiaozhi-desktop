@@ -6,6 +6,7 @@ import {
   type Input,
   type Rectangle,
   type Session,
+  type WebContents,
   type WebRequestFilter,
 } from 'electron';
 import { randomUUID } from 'node:crypto';
@@ -27,9 +28,11 @@ type ManagedTab = {
   partitionName: string;
   /**
    * 仅登录标签页设置；URL 判定已登录（见 design.md 决策 8）时调用一次，
-   * 触发账号探测。不再有"标签页关闭时触发"的兜底路径。
+   * 触发账号探测。不再有"标签页关闭时触发"的兜底路径。`landingUrl` 是
+   * 命中判定那一刻的完整 URL——部分渠道（如抖音）的门店身份参数只存在
+   * 于这个 URL 里，探测层需要它才能定位到正确的门店。
    */
-  onUrlPastLogin?: (partitionName: string) => void;
+  onUrlPastLogin?: (partitionName: string, landingUrl: string, webContents: WebContents) => void;
   /** 该渠道的登录页 URL 判据；未注册时不参与 URL 触发。 */
   loginUrlMatcher?: LoginUrlMatcher;
   /** 本次登录标签页是否已经触发过探测——命中一次后不再重复调用。 */
@@ -108,7 +111,7 @@ export class BrowserManager {
     url: string,
     options: Readonly<{
       importedCookies?: readonly CookiesSetDetails[];
-      onUrlPastLogin?: (partitionName: string) => void;
+      onUrlPastLogin?: (partitionName: string, landingUrl: string, webContents: WebContents) => void;
       loginUrlMatcher?: LoginUrlMatcher;
     }> = {},
   ): Promise<Readonly<{ tab: BrowserTab; partitionName: string }>> {
@@ -135,7 +138,7 @@ export class BrowserManager {
     url: string,
     partitionName: string,
     tabSession: Session,
-    onUrlPastLogin?: (partitionName: string) => void,
+    onUrlPastLogin?: (partitionName: string, landingUrl: string, webContents: WebContents) => void,
     loginUrlMatcher?: LoginUrlMatcher,
   ): ManagedTab {
     assertWebUrl(url);
@@ -349,7 +352,7 @@ export class BrowserManager {
     if (!isPastLogin) return;
 
     tab.urlPastLoginTriggered = true;
-    tab.onUrlPastLogin(tab.partitionName);
+    tab.onUrlPastLogin(tab.partitionName, url, tab.view.webContents);
   }
 
   private emit(tab: ManagedTab): void {

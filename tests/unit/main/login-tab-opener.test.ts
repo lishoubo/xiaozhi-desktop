@@ -30,10 +30,13 @@ describe('LoginTabOpener', () => {
     expect(options.loginUrlMatcher).toBe(matcher);
     expect(typeof options.onUrlPastLogin).toBe('function');
 
-    options.onUrlPastLogin('persist:xiaozhi:prod:ctrip:aaa');
+    const webContents = {} as never;
+    options.onUrlPastLogin('persist:xiaozhi:prod:ctrip:aaa', 'https://ebooking.ctrip.com/hotel/12345', webContents);
     expect(triggerDiscovery).toHaveBeenCalledExactlyOnceWith(
       'persist:xiaozhi:prod:ctrip:aaa',
       channel,
+      'https://ebooking.ctrip.com/hotel/12345',
+      webContents,
     );
   });
 

@@ -15,12 +15,12 @@
  * 页面改版会导致选择器失效，属于本次明确接受的风险（design.md Risks）；
  * 后续接口踩点成功可直接替换本文件内部实现，不影响 DiscoveryProbe 接口。
  */
-import { WebContentsView, type Session } from 'electron';
+import { WebContentsView, type Session, type WebContents } from 'electron';
 import { z } from 'zod';
 import type { ChannelId } from '../../domain/identity';
 import { toChannelId, toOtaHotelId } from '../../domain/identity';
-import type { DiscoveryOutcome, DiscoveryProbe } from '../../domain/ports/discovery';
 import type { AppLogger } from '../../shared/logging';
+import type { DiscoveryOutcome, DiscoveryProbe } from './discovery-probe-port';
 
 /**
  * 携程 ebooking 多门店账号登录成功后的落地页（login.py 注释里标注的真实观察值：
@@ -83,7 +83,12 @@ export class CtripDiscoveryProbe implements DiscoveryProbe {
     private readonly logger: AppLogger,
   ) {}
 
-  async discover(partitionName: string): Promise<DiscoveryOutcome> {
+  /** `landingUrl` 未使用——携程门店信息只依赖 cookie，重新导航到固定管理页即可。 */
+  async discover(
+    partitionName: string,
+    _landingUrl: string,
+    _webContents: WebContents,
+  ): Promise<DiscoveryOutcome> {
     const view = new WebContentsView({
       webPreferences: {
         contextIsolation: true,
