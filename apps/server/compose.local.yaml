@@ -38,6 +38,20 @@ services:
       timeout: 5s
       retries: 20
 
+  database-init:
+    image: hotel-butler-server:local
+    restart: 'no'
+    environment:
+      NODE_ENV: development
+      DATABASE_URL: postgres://root:mysecretpassword@db:5432/local
+      INITIAL_ADMIN_NAME: ${INITIAL_ADMIN_NAME:-本地管理员}
+      INITIAL_ADMIN_PASSWORD: ${INITIAL_ADMIN_PASSWORD:-admin123}
+      INITIAL_ADMIN_USERNAME: ${INITIAL_ADMIN_USERNAME:-admin}
+    depends_on:
+      db:
+        condition: service_healthy
+    command: ['npm', 'run', 'db:initialize', '--workspace', '@hotel-butler/server']
+
   server:
     build:
       context: ../..
@@ -53,6 +67,7 @@ services:
       ORIGIN: https://localhost:${SERVER_HTTPS_PORT:-4173}
       LOCAL_HTTPS_CERT_DIR: /certs
       NODE_EXTRA_CA_CERTS: /certs/rootCA.pem
+      LOCAL_PHONE_OTP_CODE: ${LOCAL_PHONE_OTP_CODE:-123456}
     ports:
       - '${SERVER_HTTPS_PORT:-4173}:4173'
     volumes:
@@ -62,6 +77,8 @@ services:
         condition: service_healthy
       rms:
         condition: service_healthy
+      database-init:
+        condition: service_completed_successfully
     healthcheck:
       test: ['CMD', 'node', 'apps/server/tests/compose/server-healthcheck.mjs']
       interval: 5s

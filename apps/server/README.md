@@ -52,6 +52,15 @@ the complete local environment:
 npm run compose:local
 ```
 
+The database initializer runs migrations and creates the first administrator only when
+that username does not already exist. Local defaults are `admin` / `admin123`; override
+them with `INITIAL_ADMIN_USERNAME`, `INITIAL_ADMIN_PASSWORD`, and `INITIAL_ADMIN_NAME`.
+Restarting the stack does not reset the password or remove the named database volumes.
+
+Administrators sign in at `/login` with username and password. Phone OTP is reserved for
+regular users; local development uses `LOCAL_PHONE_OTP_CODE`, while production deliberately
+fails OTP delivery until an SMS provider is configured.
+
 Production uses `compose.production.yaml`. Copy `.env.production.example` to the ignored
 `.env.production`, fill in the Alibaba Cloud Container Registry locations and production
 values, then validate it without starting or deploying services:
@@ -66,6 +75,11 @@ configured Alibaba Cloud images and does not build server locally:
 ```sh
 npm run compose:production
 ```
+
+Production requires an explicit administrator name, an unpredictable username of at least
+8 characters, and a password of at least 16 characters containing lowercase, uppercase,
+number, and symbol characters. These values are initialization secrets and should be
+supplied through the deployment environment, not committed.
 
 The production stack contains PostgreSQL and server only. PostgreSQL data is bind-mounted
 from `POSTGRES_DATA_DIR`; the server is stateless and logs to stdout. RMS MySQL remains an

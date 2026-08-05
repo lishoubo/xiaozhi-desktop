@@ -18,6 +18,20 @@ services:
       timeout: 5s
       retries: 10
 
+  database-init:
+    image: ${ALIYUN_REGISTRY:?Set ALIYUN_REGISTRY}/${ALIYUN_NAMESPACE:?Set ALIYUN_NAMESPACE}/hotel-butler-server:${SERVER_IMAGE_TAG:?Set SERVER_IMAGE_TAG}
+    restart: 'no'
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: ${DATABASE_URL:?Set DATABASE_URL}
+      INITIAL_ADMIN_NAME: ${INITIAL_ADMIN_NAME:?Set INITIAL_ADMIN_NAME}
+      INITIAL_ADMIN_PASSWORD: ${INITIAL_ADMIN_PASSWORD:?Set INITIAL_ADMIN_PASSWORD}
+      INITIAL_ADMIN_USERNAME: ${INITIAL_ADMIN_USERNAME:?Set INITIAL_ADMIN_USERNAME}
+    depends_on:
+      db:
+        condition: service_healthy
+    command: ['node', '--experimental-strip-types', 'apps/server/scripts/initialize-database.ts']
+
   server:
     image: ${ALIYUN_REGISTRY:?Set ALIYUN_REGISTRY}/${ALIYUN_NAMESPACE:?Set ALIYUN_NAMESPACE}/hotel-butler-server:${SERVER_IMAGE_TAG:?Set SERVER_IMAGE_TAG}
     restart: unless-stopped
@@ -34,8 +48,8 @@ services:
     ports:
       - '${SERVER_BIND_ADDRESS:-127.0.0.1}:${SERVER_PORT:-3000}:3000'
     depends_on:
-      db:
-        condition: service_healthy
+      database-init:
+        condition: service_completed_successfully
     healthcheck:
       test: ['CMD', 'node', 'apps/server/tests/compose/server-healthcheck.mjs']
       interval: 10s

@@ -5,6 +5,8 @@ import { GenericContainer, Wait, type StartedTestContainer } from 'testcontainer
 const execFileAsync = promisify(execFile);
 const postgresPort = 5432;
 const rmsPort = 3306;
+const postgresHostPort = 55432;
+const rmsHostPort = 53306;
 
 function databaseUrl(
 	protocol: 'postgres' | 'mysql',
@@ -44,7 +46,7 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
 				POSTGRES_PASSWORD: 'testpassword',
 				POSTGRES_DB: 'test'
 			})
-			.withExposedPorts(postgresPort)
+			.withExposedPorts({ container: postgresPort, host: postgresHostPort })
 			.withWaitStrategy(Wait.forLogMessage(/database system is ready to accept connections/, 2))
 			.withStartupTimeout(120_000)
 			.start();
@@ -58,7 +60,7 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
 				MYSQL_PASSWORD: 'testpassword'
 			})
 			.withCommand(['--character-set-server=utf8mb4', '--collation-server=utf8mb4_0900_ai_ci'])
-			.withExposedPorts(rmsPort)
+			.withExposedPorts({ container: rmsPort, host: rmsHostPort })
 			.withWaitStrategy(Wait.forLogMessage(/ready for connections.*port: 3306/i))
 			.withStartupTimeout(120_000)
 			.start();
@@ -80,9 +82,13 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
 			'testpassword',
 			'rms_test'
 		);
+		process.env.INITIAL_ADMIN_NAME = 'E2E Administrator';
+		process.env.INITIAL_ADMIN_PASSWORD = 'admin123';
+		process.env.INITIAL_ADMIN_USERNAME = 'admin';
+		process.env.LOCAL_PHONE_OTP_CODE = '123456';
 
 		const npmCommand = process.platform === 'win32' ? 'npm.cmd' : 'npm';
-		await execFileAsync(npmCommand, ['run', 'db:push', '--', '--force'], {
+		await execFileAsync(npmCommand, ['run', 'db:initialize'], {
 			env: process.env,
 			maxBuffer: 10 * 1024 * 1024
 		});

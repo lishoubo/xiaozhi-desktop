@@ -5,10 +5,17 @@ import type { RequestLogger } from '$lib/server/logging/request-logging';
 // for information about these interfaces
 declare global {
 	namespace App {
+		type AuthUser = User & {
+			banned?: boolean | null;
+			phoneNumber?: string | null;
+			phoneNumberVerified?: boolean | null;
+			role?: string | null;
+		};
+
 		interface Locals {
 			logger: RequestLogger;
 			requestId: string;
-			user?: User;
+			user?: AuthUser;
 			session?: Session;
 		}
 

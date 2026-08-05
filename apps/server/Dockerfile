@@ -39,6 +39,9 @@ COPY packages/api/package.json packages/api/package.json
 RUN npm ci --omit=dev --workspace @hotel-butler/server --workspace @hotel-butler/api
 
 COPY --from=build --chown=node:node /workspace/apps/server/build apps/server/build
+COPY --from=build --chown=node:node /workspace/apps/server/drizzle apps/server/drizzle
+COPY --from=build --chown=node:node /workspace/apps/server/scripts/initialize-database.ts apps/server/scripts/initialize-database.ts
+COPY --from=build --chown=node:node /workspace/apps/server/src/lib/server/db/auth.schema.ts apps/server/src/lib/server/db/auth.schema.ts
 COPY --from=build --chown=node:node /workspace/packages/api packages/api
 COPY --chown=node:node apps/server/tests/compose/server-healthcheck.mjs apps/server/tests/compose/server-healthcheck.mjs
 
