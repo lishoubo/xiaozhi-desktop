@@ -1,5 +1,6 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { createRequire } from 'node:module';
 import type { ForgeConfig } from '@electron-forge/shared-types';
 import { MakerSquirrel } from '@electron-forge/maker-squirrel';
 import { MakerZIP } from '@electron-forge/maker-zip';
@@ -11,6 +12,7 @@ import { FusesPlugin } from '@electron-forge/plugin-fuses';
 import { FuseV1Options, FuseVersion } from '@electron/fuses';
 
 const nativeRuntimeDependencies = ['better-sqlite3', 'node-addon-api'] as const;
+const require = createRequire(import.meta.url);
 
 const config: ForgeConfig = {
   packagerConfig: {
@@ -23,7 +25,7 @@ const config: ForgeConfig = {
       await Promise.all(
         nativeRuntimeDependencies.map(async (dependency) => {
           await fs.cp(
-            path.resolve('node_modules', dependency),
+            path.dirname(require.resolve(`${dependency}/package.json`)),
             path.join(buildPath, 'node_modules', dependency),
             {
               recursive: true,

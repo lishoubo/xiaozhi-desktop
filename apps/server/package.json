@@ -1,5 +1,5 @@
 {
-	"name": "server",
+	"name": "@hotel-butler/server",
 	"private": true,
 	"version": "0.0.1",
 	"type": "module",
@@ -10,11 +10,12 @@
 		"prepare": "svelte-kit sync || echo ''",
 		"check": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json",
 		"check:watch": "svelte-kit sync && svelte-check --tsconfig ./tsconfig.json --watch",
-		"lint": "prettier --check . && eslint .",
+		"lint": "eslint .",
 		"format": "prettier --write .",
-		"test:unit": "vitest",
-		"test": "npm run test:unit -- --run && npm run test:e2e",
-		"test:e2e": "playwright install && playwright test",
+		"format:check": "prettier --check .",
+		"test:unit": "vitest run",
+		"test": "npm run test:unit && npm run test:e2e",
+		"test:e2e": "playwright test",
 		"db:start": "docker compose up",
 		"db:push": "drizzle-kit push",
 		"db:generate": "drizzle-kit generate",
@@ -58,6 +59,7 @@
 		"testcontainers": "^12.0.4"
 	},
 	"dependencies": {
+		"@hotel-butler/api": "*",
 		"@lucide/svelte": "^1.28.0",
 		"@tanstack/svelte-query": "^5.90.2",
 		"@trpc/server": "11.18.0",

@@ -7,8 +7,15 @@ import AppNotificationCenter from '../../src/renderer/components/layout/AppNotif
 import { clearAppNotifications } from '../../src/renderer/notifications';
 
 describe('BrowserWorkspace', () => {
-  const startLogin = vi.fn(
-    async ({ channelId, url }: { channelId: string; environment: string; url: string }) => ({
+  const defaultStartLogin = async ({
+    channelId,
+    url,
+  }: {
+    channelId: string;
+    environment: string;
+    url: string;
+  }) =>
+    Promise.resolve({
       id: `${channelId}-tab`,
       channelId,
       title: channelId === 'ctrip' ? '携程后台' : '飞猪后台',
@@ -17,8 +24,8 @@ describe('BrowserWorkspace', () => {
       canGoForward: false,
       loading: false,
       partitionName: `persist:xiaozhi:dev:${channelId}:stub`,
-    }),
-  );
+    });
+  const startLogin = vi.fn(defaultStartLogin);
   const activate = vi.fn();
   const acknowledgeInterception = vi.fn();
   const listCookieSources = vi.fn();
@@ -34,16 +41,32 @@ describe('BrowserWorkspace', () => {
     return render(BrowserWorkspace);
   }
 
+  function releaseDialogInteractionLock(): void {
+    document.body.style.removeProperty('margin-right');
+    document.body.style.removeProperty('overflow');
+    document.body.style.removeProperty('pointer-events');
+    document.body.style.removeProperty('user-select');
+    document.body.style.removeProperty('--scrollbar-width');
+  }
+
   async function openCtripViaAddAccount(): Promise<void> {
-    (await screen.findByRole('button', { name: '添加账号' })).click();
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole('button', { name: '添加账号' }));
+    await user.click(await screen.findByRole('button', { name: '新建账号' }));
     await screen.findByRole('tab', { name: '携程后台' });
+    await waitFor(() =>
+      expect(screen.queryByRole('dialog', { name: /添加账号/ })).not.toBeInTheDocument(),
+    );
+    releaseDialogInteractionLock();
   }
 
   beforeEach(() => {
+    document.body.removeAttribute('style');
     localStorage.clear();
     clearAppNotifications();
     localStorage.setItem('hotel-butler.cookie-import-prompted', 'true');
-    startLogin.mockClear();
+    startLogin.mockReset();
+    startLogin.mockImplementation(defaultStartLogin);
     activate.mockClear();
     acknowledgeInterception.mockReset();
     requestInterceptedListener = null;
@@ -112,8 +135,13 @@ describe('BrowserWorkspace', () => {
 
     await user.click(screen.getByRole('button', { name: '飞猪酒店商家' }));
     expect(screen.queryByRole('tab', { name: '携程后台' })).not.toBeInTheDocument();
-    screen.getByRole('button', { name: '添加账号' }).click();
+    await user.click(screen.getByRole('button', { name: '添加账号' }));
+    await user.click(await screen.findByRole('button', { name: '新建账号' }));
     expect(await screen.findByRole('tab', { name: '飞猪后台' })).toBeInTheDocument();
+    await waitFor(() =>
+      expect(screen.queryByRole('dialog', { name: /添加账号/ })).not.toBeInTheDocument(),
+    );
+    releaseDialogInteractionLock();
     expect(animate).toHaveBeenCalled();
 
     await user.click(screen.getByRole('button', { name: '携程酒店 eBooking' }));
@@ -168,6 +196,7 @@ describe('BrowserWorkspace', () => {
         'closed',
       ),
     );
+    releaseDialogInteractionLock();
     expect(localStorage.getItem('hotel-butler.cookie-import-prompted')).toBe('true');
     expect(startLogin).not.toHaveBeenCalled();
   });
@@ -178,7 +207,9 @@ describe('BrowserWorkspace', () => {
     );
     renderWorkspace();
 
-    (await screen.findByRole('button', { name: '添加账号' })).click();
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole('button', { name: '添加账号' }));
+    await user.click(await screen.findByRole('button', { name: '新建账号' }));
 
     const alert = (await screen.findByText('页面打开失败，请重试')).closest('[data-slot="alert"]');
     expect(alert).toHaveTextContent('页面打开失败，请重试');
@@ -315,9 +346,11 @@ describe('BrowserWorkspace', () => {
     await waitFor(() => expect(activate).toHaveBeenCalledWith('ctrip-tab'));
   });
 
-  it('clicking add account triggers the existing login flow for the active channel', async () => {
+  it('starts a new login from the add-account panel for the active channel', async () => {
+    const user = userEvent.setup();
     renderWorkspace();
-    (await screen.findByRole('button', { name: '添加账号' })).click();
+    await user.click(await screen.findByRole('button', { name: '添加账号' }));
+    await user.click(await screen.findByRole('button', { name: '新建账号' }));
 
     await waitFor(() =>
       expect(startLogin).toHaveBeenCalledWith(

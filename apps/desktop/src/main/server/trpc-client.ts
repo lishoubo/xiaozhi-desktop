@@ -1,0 +1,32 @@
+import type { AppRouter } from '@hotel-butler/api';
+import { createTRPCClient, httpLink, type TRPCClient } from '@trpc/client';
+
+export interface ServerTrpcClientOptions {
+  baseUrl: string;
+  fetch?: typeof globalThis.fetch;
+}
+
+export function serverTrpcEndpoint(baseUrl: string): string {
+  const url = new URL(baseUrl);
+
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+    throw new Error('The server URL must use HTTP or HTTPS');
+  }
+
+  url.pathname = `${url.pathname.replace(/\/$/, '')}/api/trpc`;
+  url.search = '';
+  url.hash = '';
+
+  return url.toString();
+}
+
+export function createServerTrpcClient(options: ServerTrpcClientOptions): TRPCClient<AppRouter> {
+  return createTRPCClient<AppRouter>({
+    links: [
+      httpLink({
+        url: serverTrpcEndpoint(options.baseUrl),
+        fetch: options.fetch,
+      }),
+    ],
+  });
+}

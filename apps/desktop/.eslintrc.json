@@ -18,6 +18,12 @@
     "sourceType": "module"
   },
   "rules": {
+    "@typescript-eslint/no-unused-vars": [
+      "error",
+      {
+        "argsIgnorePattern": "^_"
+      }
+    ],
     "import/no-restricted-paths": [
       "error",
       {

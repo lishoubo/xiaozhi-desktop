@@ -8,3 +8,9 @@ bun.lockb
 # Miscellaneous
 /static/
 /drizzle/
+
+# Repository metadata and generated sources
+/.github/skills/
+/AGENTS.md
+/DESIGN.md
+/src/lib/server/db/auth.schema.ts
