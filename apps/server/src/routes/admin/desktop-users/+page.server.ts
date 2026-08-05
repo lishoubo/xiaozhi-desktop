@@ -29,6 +29,9 @@ export const actions: Actions = {
 
 		const updated = await setDesktopUserStatus(userId, status as DesktopUserStatus);
 		if (!updated) return fail(404, { message: '桌面用户不存在或已被删除' });
-		return { message: status === 'disabled' ? '桌面用户已停用' : '桌面用户已恢复' };
+		return {
+			message: status === 'disabled' ? '桌面用户已停用' : '桌面用户已恢复',
+			success: true
+		};
 	}
 };

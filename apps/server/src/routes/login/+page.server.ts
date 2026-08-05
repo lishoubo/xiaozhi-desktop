@@ -1,15 +1,11 @@
 import { APIError } from 'better-auth/api';
 import { fail, redirect } from '@sveltejs/kit';
-import { dev } from '$app/environment';
-import { env } from '$env/dynamic/private';
 import { auth } from '$lib/server/auth';
 import { isAdministrator } from '$lib/server/admin-access';
-import { getVisibleLocalAdminCredentials } from '$lib/server/local-admin-credentials';
 import type { Actions, PageServerLoad } from './$types';
 
 export const load: PageServerLoad = ({ locals }) => {
 	if (isAdministrator(locals.user)) redirect(302, '/admin');
-	return { localAdminCredentials: getVisibleLocalAdminCredentials(env, dev) };
 };
 
 export const actions: Actions = {

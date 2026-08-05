@@ -1,12 +1,17 @@
 <script lang="ts">
 	import { page } from '$app/state';
 	import { resolve } from '$app/paths';
-	import { Hotel, LayoutDashboard, LogOut, MonitorSmartphone } from '@lucide/svelte';
-	import * as Sidebar from '$lib/components/ui/sidebar/index.js';
-	import { Separator } from '$lib/components/ui/separator/index.js';
+	import { Hotel, LayoutDashboard, LogOut, Menu, MonitorSmartphone } from '@lucide/svelte';
+	import { Button } from '$lib/components/ui/button/index.js';
+	import * as Sheet from '$lib/components/ui/sheet/index.js';
 	import type { LayoutProps } from './$types';
 
 	let { data, children }: LayoutProps = $props();
+	let mobileNavigationOpen = $state(false);
+
+	const administratorInitial = $derived(
+		data.administrator.name.trim().charAt(0).toUpperCase() || 'A'
+	);
 
 	const navigation = [
 		{ href: '/admin', icon: LayoutDashboard, label: 'Dashboard' },
@@ -14,76 +19,95 @@
 	] as const;
 </script>
 
-<Sidebar.Provider>
-	<Sidebar.Root collapsible="none">
-		<Sidebar.Header class="px-2 py-3">
-			<a class="flex items-center gap-3 rounded-md px-2 py-2" href={resolve('/admin')}>
-				<span
-					class="grid size-8 shrink-0 place-items-center rounded-md bg-primary text-primary-foreground"
-				>
-					<Hotel class="size-4" />
-				</span>
-				<span class="min-w-0">
-					<span class="block truncate text-sm font-semibold">Hotel Butler</span>
-					<span class="block truncate text-xs text-muted-foreground">业务管理后台</span>
-				</span>
-			</a>
-		</Sidebar.Header>
-		<Separator />
-		<Sidebar.Content>
-			<Sidebar.Group>
-				<Sidebar.GroupLabel>工作台</Sidebar.GroupLabel>
-				<Sidebar.GroupContent>
-					<Sidebar.Menu>
-						{#each navigation as item (item.href)}
-							<Sidebar.MenuItem>
-								<Sidebar.MenuButton
-									isActive={item.href === '/admin'
-										? page.url.pathname === item.href
-										: page.url.pathname.startsWith(item.href)}
-									tooltipContent={item.label}
-								>
-									{#snippet child({ props })}
-										<a {...props} href={resolve(item.href)}>
-											<item.icon />
-											<span>{item.label}</span>
-										</a>
-									{/snippet}
-								</Sidebar.MenuButton>
-							</Sidebar.MenuItem>
-						{/each}
-					</Sidebar.Menu>
-				</Sidebar.GroupContent>
-			</Sidebar.Group>
-		</Sidebar.Content>
-		<Sidebar.Footer>
-			<div class="px-2 py-1">
-				<p class="truncate text-sm font-medium">{data.administrator.name}</p>
-				<p class="truncate text-xs text-muted-foreground">
-					{data.administrator.username ?? '后台管理员'}
-				</p>
-			</div>
-			<form method="post" action="/admin/sign-out">
-				<Sidebar.MenuButton tooltipContent="退出登录">
-					{#snippet child({ props })}
-						<button {...props} type="submit">
-							<LogOut />
-							<span>退出登录</span>
-						</button>
-					{/snippet}
-				</Sidebar.MenuButton>
-			</form>
-		</Sidebar.Footer>
-	</Sidebar.Root>
+{#snippet sidebarContent(closeOnNavigate = false)}
+	<div class="flex h-full flex-col bg-sidebar text-sidebar-foreground">
+		<a class="flex h-20 items-center gap-3 px-5" href={resolve('/admin')}>
+			<span class="grid size-9 place-items-center rounded-md bg-foreground text-background">
+				<Hotel class="size-4" />
+			</span>
+			<span>
+				<span class="block text-sm font-semibold tracking-tight text-foreground">Hotel Butler</span>
+				<span class="mt-0.5 block text-xs text-muted-foreground">管理后台</span>
+			</span>
+		</a>
 
-	<Sidebar.Inset>
-		<header class="flex h-14 shrink-0 items-center gap-3 border-b px-4 md:px-6">
-			<Sidebar.Trigger class="md:hidden" aria-label="打开导航菜单" />
-			<Separator orientation="vertical" class="h-4 md:hidden" />
-			<p class="text-sm text-muted-foreground">管理桌面用户与业务状态</p>
-		</header>
-		<div class="flex-1 p-4 md:p-6 lg:p-8">
-			{@render children()}
+		<nav class="space-y-1 px-3" aria-label="后台主导航">
+			{#each navigation as item (item.href)}
+				{@const active =
+					item.href === '/admin'
+						? page.url.pathname === item.href
+						: page.url.pathname.startsWith(item.href)}
+				<a
+					href={resolve(item.href)}
+					aria-current={active ? 'page' : undefined}
+					onclick={() => {
+						if (closeOnNavigate) mobileNavigationOpen = false;
+					}}
+					class={[
+						'flex h-10 items-center gap-3 rounded-md px-3 text-sm font-medium transition-colors duration-150',
+						active
+							? 'bg-sidebar-accent text-sidebar-accent-foreground'
+							: 'text-sidebar-foreground hover:bg-white/70 hover:text-foreground'
+					]}
+				>
+					<item.icon class="size-4" />
+					<span>{item.label}</span>
+				</a>
+			{/each}
+		</nav>
+
+		<div class="mt-auto border-t border-sidebar-border p-4">
+			<div class="flex items-center gap-3">
+				<span
+					class="grid size-9 shrink-0 place-items-center rounded-full bg-tint-lavender text-sm font-semibold text-accent-foreground"
+				>
+					{administratorInitial}
+				</span>
+				<div class="min-w-0 flex-1">
+					<p class="truncate text-sm font-medium text-foreground">
+						{data.administrator.isLocal ? '本地管理员' : data.administrator.name}
+					</p>
+					<p class="truncate text-xs text-muted-foreground">
+						{data.administrator.username ?? data.administrator.name}
+					</p>
+				</div>
+				<form method="post" action="/admin/sign-out">
+					<Button type="submit" variant="ghost" size="icon-sm" aria-label="退出登录">
+						<LogOut />
+					</Button>
+				</form>
+			</div>
 		</div>
-	</Sidebar.Inset>
-</Sidebar.Provider>
+	</div>
+{/snippet}
+
+<div class="flex min-h-svh bg-background">
+	<aside class="sticky top-0 hidden h-svh w-64 shrink-0 border-r border-sidebar-border md:block">
+		{@render sidebarContent()}
+	</aside>
+
+	<div class="min-w-0 flex-1">
+		<header class="flex h-16 items-center border-b border-border bg-background px-4 md:hidden">
+			<Sheet.Root bind:open={mobileNavigationOpen}>
+				<Sheet.Trigger
+					class="grid size-10 place-items-center rounded-md text-foreground hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring/30 focus-visible:outline-none"
+					aria-label="打开导航菜单"
+				>
+					<Menu class="size-5" />
+				</Sheet.Trigger>
+				<Sheet.Content side="left" class="w-64 gap-0 bg-sidebar p-0" showCloseButton={false}>
+					<Sheet.Header class="sr-only">
+						<Sheet.Title>后台导航</Sheet.Title>
+						<Sheet.Description>管理后台页面导航与当前管理员信息</Sheet.Description>
+					</Sheet.Header>
+					{@render sidebarContent(true)}
+				</Sheet.Content>
+			</Sheet.Root>
+			<p class="ml-3 text-sm font-semibold">Hotel Butler</p>
+		</header>
+
+		<main class="px-5 py-8 sm:px-8 lg:px-12 lg:py-10">
+			{@render children()}
+		</main>
+	</div>
+</div>
