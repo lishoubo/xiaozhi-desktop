@@ -2,6 +2,23 @@
 
 > 本仓库同时维护 `AGENTS.md`（供 Codex 使用）。两份文件规则相同、措辞对齐，只在工具入口一节有差异（本文写 Claude Code 的 skill 与 slash command，`AGENTS.md` 写工具无关的等效说法）。**改动任何一条规则时请同步两处。**
 
+## 仓库上下文
+
+| 路径 | 职责 |
+|---|---|
+| `apps/desktop/` | Electron 桌面应用；本地数据默认留在本地，仅需要跨设备或后台管理的业务数据通过 tRPC 与 server 通信 |
+| `apps/server/` | desktop 的 backend API，以及面向管理人员的 SSR 业务数据管理后台 |
+| `packages/api/` | desktop 与 server 共享的 tRPC contract、schema 和纯类型；不放任一应用的实现细节 |
+
+- 跨端接口先定义共享 contract，再分别实现 server procedure 和 desktop client；不得让 desktop 直接依赖 server 实现。
+- 设计 desktop UI 时以当前任务为中心，控制信息密度，优先渐进披露，避免把辅助信息长期堆在主界面。
+- 设计 server 管理后台时从管理人员的业务任务出发，优先可检索、可比较、可追踪和可恢复，不照搬 desktop 布局。
+- 全仓 UI 原则只维护在根目录 `DESIGN.md`；子项目不复制该文件，有确实独立的规则时写入对应目录的 `AGENTS.md`。
+
+### 根目录治理
+
+根目录只保留全仓入口和事实来源：`AGENTS.md`、`CLAUDE.md`、`DESIGN.md`、根 `package.json` / lockfile、共享工具配置、`openspec/` 与 `docs/`。应用专属配置和说明留在对应 workspace；不要在根目录或多个应用中维护重复文档。
+
 ## 依赖
 
 | 依赖 | 层级 | 提供什么 |

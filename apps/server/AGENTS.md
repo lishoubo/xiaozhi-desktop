@@ -1,3 +1,13 @@
+# Server 范围规则
+
+本文件补充根目录 `AGENTS.md`，不重复全仓规则；发生冲突时，以这里更具体的 server 规则为准。
+
+- server 同时承载 desktop 的 tRPC backend API 和 SSR 管理后台。
+- API 以 `packages/api` 中的共享 contract 为边界，不向 desktop 暴露数据库模型或 server 实现。
+- 管理后台从管理人员的业务任务和决策顺序出发组织页面；优先检索、筛选、状态识别、异常处理和操作追踪。
+- 信息密度服务于比较和决策。复杂数据可使用表格与筛选，但避免无业务目的的指标卡、图表和装饰性仪表盘。
+- 全仓视觉与体验原则读取根目录 `DESIGN.md`，本目录不维护重复副本。
+
 <!-- intent-skills:start -->
 ## Skill Loading
 
