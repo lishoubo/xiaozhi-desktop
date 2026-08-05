@@ -59,7 +59,6 @@
 	},
 	"dependencies": {
 		"@lucide/svelte": "^1.28.0",
-		"@trpc/client": "^11.18.0",
 		"@tanstack/svelte-query": "^5.90.2",
 		"@trpc/server": "11.18.0",
 		"bits-ui": "^2.18.1",
