@@ -1,14 +1,19 @@
 import { describe, expect, it } from 'vitest';
-import { isSuperAdmin } from './admin-access';
+import { isAdministrator } from './admin-access';
 
-describe('super administrator access', () => {
-	it('accepts the configured superAdmin role', () => {
-		expect(isSuperAdmin({ role: 'superAdmin' } as App.AuthUser)).toBe(true);
-		expect(isSuperAdmin({ role: 'user,superAdmin' } as App.AuthUser)).toBe(true);
-	});
+const administrator: App.AuthUser = {
+	createdAt: new Date('2026-08-05T00:00:00Z'),
+	email: 'admin@example.invalid',
+	emailVerified: false,
+	id: 'admin-id',
+	name: 'Administrator',
+	updatedAt: new Date('2026-08-05T00:00:00Z'),
+	username: 'admin'
+};
 
-	it('rejects missing and regular user roles', () => {
-		expect(isSuperAdmin(undefined)).toBe(false);
-		expect(isSuperAdmin({ role: 'user' } as App.AuthUser)).toBe(false);
+describe('administrator access', () => {
+	it('treats every authenticated admin identity as an administrator', () => {
+		expect(isAdministrator(administrator)).toBe(true);
+		expect(isAdministrator(undefined)).toBe(false);
 	});
 });

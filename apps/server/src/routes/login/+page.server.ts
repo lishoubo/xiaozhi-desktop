@@ -1,12 +1,15 @@
 import { APIError } from 'better-auth/api';
 import { fail, redirect } from '@sveltejs/kit';
+import { dev } from '$app/environment';
+import { env } from '$env/dynamic/private';
 import { auth } from '$lib/server/auth';
-import { isSuperAdmin } from '$lib/server/admin-access';
+import { isAdministrator } from '$lib/server/admin-access';
+import { getVisibleLocalAdminCredentials } from '$lib/server/local-admin-credentials';
 import type { Actions, PageServerLoad } from './$types';
 
 export const load: PageServerLoad = ({ locals }) => {
-	if (isSuperAdmin(locals.user)) redirect(302, '/admin/users');
-	return {};
+	if (isAdministrator(locals.user)) redirect(302, '/admin');
+	return { localAdminCredentials: getVisibleLocalAdminCredentials(env, dev) };
 };
 
 export const actions: Actions = {
@@ -28,6 +31,6 @@ export const actions: Actions = {
 					: '登录失败，请稍后重试';
 			return fail(400, { message, username });
 		}
-		redirect(303, '/admin/users');
+		redirect(303, '/admin');
 	}
 };

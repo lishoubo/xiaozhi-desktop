@@ -8,6 +8,20 @@
       "when": 1785911808820,
       "tag": "0000_giant_madame_masque",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1785915041603,
+      "tag": "0001_split-admin-and-desktop-users",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1785916525926,
+      "tag": "0002_absent_speed",
+      "breakpoints": true
     }
   ]
 }

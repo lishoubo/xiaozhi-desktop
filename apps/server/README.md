@@ -57,9 +57,11 @@ that username does not already exist. Local defaults are `admin` / `admin123`; o
 them with `INITIAL_ADMIN_USERNAME`, `INITIAL_ADMIN_PASSWORD`, and `INITIAL_ADMIN_NAME`.
 Restarting the stack does not reset the password or remove the named database volumes.
 
-Administrators sign in at `/login` with username and password. Phone OTP is reserved for
-regular users; local development uses `LOCAL_PHONE_OTP_CODE`, while production deliberately
-fails OTP delivery until an SMS provider is configured.
+Administrators sign in at `/login` with username and password. Administrator authentication
+uses dedicated `admin_*` tables; every identity in `admin_user` is an administrator, so there is
+no administrator role or ban-management model. Desktop users are stored separately in
+`desktop_user`, keyed by phone number, and do not share administrator credentials. Phone OTP
+delivery will be connected to this desktop-user identity when an SMS provider is selected.
 
 Production uses `compose.production.yaml`. Copy `.env.production.example` to the ignored
 `.env.production`, fill in the Alibaba Cloud Container Registry locations and production

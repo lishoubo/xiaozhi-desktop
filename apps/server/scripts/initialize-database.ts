@@ -6,7 +6,7 @@ import { and, eq } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/postgres-js';
 import { migrate } from 'drizzle-orm/postgres-js/migrator';
 import postgres from 'postgres';
-import { account, user } from '../src/lib/server/db/auth.schema.ts';
+import { adminAccount, adminUser } from '../src/lib/server/db/auth.schema.ts';
 
 const serverDirectory = fileURLToPath(new URL('..', import.meta.url));
 
@@ -72,21 +72,20 @@ export async function initializeDatabase(environment: NodeJS.ProcessEnv): Promis
 		const inserted = await database.transaction(async (transaction) => {
 			const userId = randomUUID();
 			const insertedUsers = await transaction
-				.insert(user)
+				.insert(adminUser)
 				.values({
 					displayUsername: admin.username,
 					email: temporaryEmailForUsername(admin.username),
 					emailVerified: false,
 					id: userId,
 					name: admin.name,
-					role: 'superAdmin',
 					username: admin.username
 				})
-				.onConflictDoNothing({ target: user.username })
-				.returning({ id: user.id });
+				.onConflictDoNothing({ target: adminUser.username })
+				.returning({ id: adminUser.id });
 			if (insertedUsers.length === 0) return false;
 
-			await transaction.insert(account).values({
+			await transaction.insert(adminAccount).values({
 				accountId: userId,
 				id: randomUUID(),
 				password: await hashPassword(admin.password),
@@ -97,18 +96,18 @@ export async function initializeDatabase(environment: NodeJS.ProcessEnv): Promis
 		});
 		if (!inserted) {
 			const existingUsers = await database
-				.select({ id: user.id, role: user.role })
-				.from(user)
-				.where(eq(user.username, admin.username))
+				.select({ id: adminUser.id })
+				.from(adminUser)
+				.where(eq(adminUser.username, admin.username))
 				.limit(1);
 			const existingUser = existingUsers[0];
-			if (!existingUser || existingUser.role !== 'superAdmin') {
-				throw new Error('Initial administrator username is already used by a non-admin account');
-			}
+			if (!existingUser) throw new Error('Initial administrator could not be loaded');
 			const credentials = await database
-				.select({ id: account.id })
-				.from(account)
-				.where(and(eq(account.userId, existingUser.id), eq(account.providerId, 'credential')))
+				.select({ id: adminAccount.id })
+				.from(adminAccount)
+				.where(
+					and(eq(adminAccount.userId, existingUser.id), eq(adminAccount.providerId, 'credential'))
+				)
 				.limit(1);
 			if (credentials.length === 0) {
 				throw new Error('Initial administrator exists without username/password credentials');

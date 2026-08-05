@@ -1,7 +1,7 @@
 import { relations } from "drizzle-orm";
 import { pgTable, text, timestamp, boolean, index } from "drizzle-orm/pg-core";
 
-export const user = pgTable("user", {
+export const adminUser = pgTable("admin_user", {
   id: text("id").primaryKey(),
   name: text("name").notNull(),
   email: text("email").notNull().unique(),
@@ -12,18 +12,12 @@ export const user = pgTable("user", {
     .defaultNow()
     .$onUpdate(() => /* @__PURE__ */ new Date())
     .notNull(),
-  role: text("role"),
-  banned: boolean("banned").default(false),
-  banReason: text("ban_reason"),
-  banExpires: timestamp("ban_expires"),
   username: text("username").unique(),
   displayUsername: text("display_username"),
-  phoneNumber: text("phone_number").unique(),
-  phoneNumberVerified: boolean("phone_number_verified"),
 });
 
-export const session = pgTable(
-  "session",
+export const adminSession = pgTable(
+  "admin_session",
   {
     id: text("id").primaryKey(),
     expiresAt: timestamp("expires_at").notNull(),
@@ -36,21 +30,20 @@ export const session = pgTable(
     userAgent: text("user_agent"),
     userId: text("user_id")
       .notNull()
-      .references(() => user.id, { onDelete: "cascade" }),
-    impersonatedBy: text("impersonated_by"),
+      .references(() => adminUser.id, { onDelete: "cascade" }),
   },
-  (table) => [index("session_userId_idx").on(table.userId)],
+  (table) => [index("adminSession_userId_idx").on(table.userId)],
 );
 
-export const account = pgTable(
-  "account",
+export const adminAccount = pgTable(
+  "admin_account",
   {
     id: text("id").primaryKey(),
     accountId: text("account_id").notNull(),
     providerId: text("provider_id").notNull(),
     userId: text("user_id")
       .notNull()
-      .references(() => user.id, { onDelete: "cascade" }),
+      .references(() => adminUser.id, { onDelete: "cascade" }),
     accessToken: text("access_token"),
     refreshToken: text("refresh_token"),
     idToken: text("id_token"),
@@ -63,11 +56,11 @@ export const account = pgTable(
       .$onUpdate(() => /* @__PURE__ */ new Date())
       .notNull(),
   },
-  (table) => [index("account_userId_idx").on(table.userId)],
+  (table) => [index("adminAccount_userId_idx").on(table.userId)],
 );
 
-export const verification = pgTable(
-  "verification",
+export const adminVerification = pgTable(
+  "admin_verification",
   {
     id: text("id").primaryKey(),
     identifier: text("identifier").notNull(),
@@ -79,24 +72,24 @@ export const verification = pgTable(
       .$onUpdate(() => /* @__PURE__ */ new Date())
       .notNull(),
   },
-  (table) => [index("verification_identifier_idx").on(table.identifier)],
+  (table) => [index("adminVerification_identifier_idx").on(table.identifier)],
 );
 
-export const userRelations = relations(user, ({ many }) => ({
-  sessions: many(session),
-  accounts: many(account),
+export const adminUserRelations = relations(adminUser, ({ many }) => ({
+  adminSessions: many(adminSession),
+  adminAccounts: many(adminAccount),
 }));
 
-export const sessionRelations = relations(session, ({ one }) => ({
-  user: one(user, {
-    fields: [session.userId],
-    references: [user.id],
+export const adminSessionRelations = relations(adminSession, ({ one }) => ({
+  adminUser: one(adminUser, {
+    fields: [adminSession.userId],
+    references: [adminUser.id],
   }),
 }));
 
-export const accountRelations = relations(account, ({ one }) => ({
-  user: one(user, {
-    fields: [account.userId],
-    references: [user.id],
+export const adminAccountRelations = relations(adminAccount, ({ one }) => ({
+  adminUser: one(adminUser, {
+    fields: [adminAccount.userId],
+    references: [adminUser.id],
   }),
 }));

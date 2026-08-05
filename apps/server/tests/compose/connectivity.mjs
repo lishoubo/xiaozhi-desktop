@@ -30,18 +30,21 @@ const postgresClient = postgres(databaseUrl, { max: 1 });
 const rmsClient = await createConnection(rmsDatabaseUrl);
 
 try {
-	const [postgresRows, adminRows, [rmsRows]] = await Promise.all([
+	const [postgresRows, adminRows, desktopUserTableRows, [rmsRows]] = await Promise.all([
 		postgresClient`select 1 as value`,
-		postgresClient`select username, role from "user" where role = 'superAdmin'`,
+		postgresClient`select username from admin_user where username = 'admin'`,
+		postgresClient`select to_regclass('public.desktop_user') as table_name`,
 		rmsClient.query('select 1 as value'),
 		requestHealth()
 	]);
 
 	assert.equal(postgresRows[0]?.value, 1);
 	assert.equal(adminRows[0]?.username, 'admin');
-	assert.equal(adminRows[0]?.role, 'superAdmin');
+	assert.equal(desktopUserTableRows[0]?.table_name, 'desktop_user');
 	assert.equal(rmsRows[0]?.value, 1);
-	console.info('Compose connectivity verified: HTTPS server, PostgreSQL, and RMS MySQL');
+	console.info(
+		'Compose connectivity verified: HTTPS server, separate admin/desktop-user tables, PostgreSQL, and RMS MySQL'
+	);
 } finally {
 	await Promise.all([postgresClient.end(), rmsClient.end()]);
 }

@@ -1,12 +1,12 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
+import postgresClient from 'postgres';
 import { GenericContainer, Wait, type StartedTestContainer } from 'testcontainers';
+import { e2ePostgresHostPort, e2eRmsHostPort } from './ports';
 
 const execFileAsync = promisify(execFile);
 const postgresPort = 5432;
 const rmsPort = 3306;
-const postgresHostPort = 55432;
-const rmsHostPort = 53306;
 
 function databaseUrl(
 	protocol: 'postgres' | 'mysql',
@@ -46,7 +46,7 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
 				POSTGRES_PASSWORD: 'testpassword',
 				POSTGRES_DB: 'test'
 			})
-			.withExposedPorts({ container: postgresPort, host: postgresHostPort })
+			.withExposedPorts({ container: postgresPort, host: e2ePostgresHostPort })
 			.withWaitStrategy(Wait.forLogMessage(/database system is ready to accept connections/, 2))
 			.withStartupTimeout(120_000)
 			.start();
@@ -60,7 +60,7 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
 				MYSQL_PASSWORD: 'testpassword'
 			})
 			.withCommand(['--character-set-server=utf8mb4', '--collation-server=utf8mb4_0900_ai_ci'])
-			.withExposedPorts({ container: rmsPort, host: rmsHostPort })
+			.withExposedPorts({ container: rmsPort, host: e2eRmsHostPort })
 			.withWaitStrategy(Wait.forLogMessage(/ready for connections.*port: 3306/i))
 			.withStartupTimeout(120_000)
 			.start();
@@ -85,13 +85,24 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
 		process.env.INITIAL_ADMIN_NAME = 'E2E Administrator';
 		process.env.INITIAL_ADMIN_PASSWORD = 'admin123';
 		process.env.INITIAL_ADMIN_USERNAME = 'admin';
-		process.env.LOCAL_PHONE_OTP_CODE = '123456';
 
 		const npmCommand = process.platform === 'win32' ? 'npm.cmd' : 'npm';
 		await execFileAsync(npmCommand, ['run', 'db:initialize'], {
 			env: process.env,
 			maxBuffer: 10 * 1024 * 1024
 		});
+		const database = postgresClient(process.env.DATABASE_URL, { max: 1 });
+		try {
+			await database`
+				insert into desktop_user (
+					id, phone_number, display_name, phone_number_verified, status, last_login_at
+				) values (
+					'desktop-e2e-user', '13800138000', '测试桌面用户', true, 'active', now()
+				)
+			`;
+		} finally {
+			await database.end();
+		}
 	} catch (error) {
 		try {
 			await stopContainers(containers);

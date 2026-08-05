@@ -6,10 +6,8 @@ import type { RequestLogger } from '$lib/server/logging/request-logging';
 declare global {
 	namespace App {
 		type AuthUser = User & {
-			banned?: boolean | null;
-			phoneNumber?: string | null;
-			phoneNumberVerified?: boolean | null;
-			role?: string | null;
+			displayUsername?: string | null;
+			username?: string | null;
 		};
 
 		interface Locals {
