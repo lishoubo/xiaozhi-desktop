@@ -1,0 +1,17 @@
+.git
+.github
+.agents
+.codex
+node_modules
+**/node_modules
+**/.svelte-kit
+**/.cert
+**/build
+**/coverage
+**/test-results
+**/playwright-report
+**/.env
+**/.env.*
+!**/.env.example
+apps/desktop/out
+output

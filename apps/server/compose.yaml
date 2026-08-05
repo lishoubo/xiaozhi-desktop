@@ -1,7 +1,7 @@
 services:
   db:
     image: pgvector/pgvector:0.8.5-pg18
-    restart: always
+    restart: unless-stopped
     ports:
       - '5432:5432'
     environment:
@@ -18,7 +18,7 @@ services:
 
   rms:
     image: mysql:8.4
-    restart: always
+    restart: unless-stopped
     ports:
       - '3306:3306'
     environment:
@@ -35,6 +35,55 @@ services:
       interval: 5s
       timeout: 5s
       retries: 20
+
+  server:
+    build:
+      context: ../..
+      dockerfile: apps/server/Dockerfile
+    image: hotel-butler-server:local
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgres://root:mysecretpassword@db:5432/local
+      RMS_DATABASE_URL: mysql://hotel_butler:mysecretpassword@rms:3306/rms
+      ORIGIN: https://localhost:${SERVER_HTTPS_PORT:-4173}
+      LOCAL_HTTPS_CERT_DIR: /certs
+      NODE_EXTRA_CA_CERTS: /certs/rootCA.pem
+    ports:
+      - '${SERVER_HTTPS_PORT:-4173}:4173'
+    volumes:
+      - ./.cert:/certs:ro
+    depends_on:
+      db:
+        condition: service_healthy
+      rms:
+        condition: service_healthy
+    healthcheck:
+      test: ['CMD', 'node', 'apps/server/tests/compose/https-healthcheck.mjs']
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 120s
+
+  connectivity-test:
+    image: hotel-butler-server:local
+    profiles: ['test']
+    environment:
+      DATABASE_URL: postgres://root:mysecretpassword@db:5432/local
+      RMS_DATABASE_URL: mysql://hotel_butler:mysecretpassword@rms:3306/rms
+      SERVER_URL: https://server:4173
+      NODE_EXTRA_CA_CERTS: /certs/rootCA.pem
+    volumes:
+      - ./.cert:/certs:ro
+    depends_on:
+      db:
+        condition: service_healthy
+      rms:
+        condition: service_healthy
+      server:
+        condition: service_healthy
+    command: ['node', 'apps/server/tests/compose/connectivity.mjs']
 
 volumes:
   pgdata:
