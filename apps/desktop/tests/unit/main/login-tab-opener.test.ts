@@ -4,7 +4,7 @@ import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { toChannelId } from '../../../src/domain/identity';
 import { LoginTabOpener } from '../../../src/main/features/ota-account/login-tab-opener';
-import { writeImportedCookies } from '../../../src/main/cookie-import/store';
+import { readImportedCookies, writeImportedCookies } from '../../../src/main/cookie-import/store';
 
 const temporaryDirectories: string[] = [];
 
@@ -89,7 +89,7 @@ describe('LoginTabOpener', () => {
       );
     });
 
-    it('携程：注入 cookie，页面加载完成后静默触发探测，成功后删除该渠道 cookie', async () => {
+    it('携程：注入 cookie，页面加载完成后静默触发探测，成功后不删除该渠道 cookie（允许反复登录）', async () => {
       const channel = toChannelId('ctrip');
       const userDataDir = tempUserDataDir();
       await writeImportedCookies(userDataDir, channel, [{ name: 'a', value: '1' } as never], {
@@ -117,14 +117,13 @@ describe('LoginTabOpener', () => {
       expect(typeof options.onLoadFinished).toBe('function');
 
       const webContents = {} as never;
-      await options.onLoadFinished(
+      options.onLoadFinished(
         'persist:xiaozhi:prod:ctrip:aaa',
         'https://ebooking.ctrip.com/home/mainland',
         webContents,
       );
-      // await 上面这行本身不足以等到内部 IIFE 完成（onLoadFinished 是 void 回调），
-      // 用一次微任务队列刷新等待其内部 async 逻辑跑完。
-      await Promise.resolve();
+      // `onLoadFinished` 内部用 `void triggerDiscovery(...)` 触发，不等待其完成——
+      // 用一次微任务队列刷新等待 mock 的 resolved promise 落地。
       await Promise.resolve();
 
       expect(triggerDiscovery).toHaveBeenCalledExactlyOnceWith(
@@ -133,6 +132,7 @@ describe('LoginTabOpener', () => {
         'https://ebooking.ctrip.com/home/mainland',
         webContents,
       );
+      await expect(readImportedCookies(userDataDir, channel)).resolves.not.toBeNull();
     });
 
     it('抖音：注入 cookie，挂 onUrlPastLogin/loginUrlMatcher，不删除 cookie', async () => {

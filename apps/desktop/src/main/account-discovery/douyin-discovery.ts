@@ -15,8 +15,10 @@
  * 就是因为完全没传这个 body。**不需要逆向拼出这些请求头/body**——让页面
  * 按它原生的方式自己发这个请求，我们只被动拦截响应体解析：用
  * `webContents.debugger`（CDP）监听 `Network.responseReceived` 定位
- * `dsl/get` 请求，再用 `Network.getResponseBody` 取出完整 JSON，字段提取
- * 逻辑对齐 RPA 参照实现 `poi_fetch.py::parse_poi_from_dsl`（`poiId`/
+ * `dsl/get` 请求命中，等对应的 `Network.loadingFinished` 触发后再用
+ * `Network.getResponseBody` 取出完整 JSON（响应头到达不代表 body 已完整
+ * 接收，过早调用会间歇性抛错，见 `DslGetResponseCapture` 类注释），字段
+ * 提取逻辑对齐 RPA 参照实现 `poi_fetch.py::parse_poi_from_dsl`（`poiId`/
  * `poiName` 正则）。不侵入页面 JS 上下文，不需要关心 body/请求头结构，
  * 页面改版只要接口路径不变就不受影响。
  *
@@ -153,22 +155,45 @@ function isCdpResponseReceivedParams(value: unknown): value is CdpResponseReceiv
   return typeof response.url === 'string' && typeof response.status === 'number';
 }
 
+type CdpLoadingFinishedParams = Readonly<{ requestId: string }>;
+
+function isCdpLoadingFinishedParams(value: unknown): value is CdpLoadingFinishedParams {
+  if (typeof value !== 'object' || value === null) return false;
+  return typeof (value as Record<string, unknown>).requestId === 'string';
+}
+
 /**
  * 用 CDP 拦截"门店管理"页面自己发起的 `dsl/get` 请求响应体——不自己拼
  * 请求，只被动监听并取回真实响应。
+ *
+ * `Network.getResponseBody` 只有在请求真正加载完成（`loadingFinished`）
+ * 后才保证能拿到完整 body——`responseReceived` 只代表响应头已到达，body
+ * 可能仍在流式传输中，此时调用会间歇性抛错（"No resource with given
+ * identifier found" 一类），命中率取决于响应体大小和网络时序。故先在
+ * `responseReceived` 里记下命中的 requestId，真正取 body 的时机推迟到
+ * 该 requestId 对应的 `loadingFinished` 事件。
  */
 class DslGetResponseCapture {
   private resolveHotel: ((hotel: { hotelId: string; hotelName: string } | null) => void) | null = null;
+  private pendingRequestId: string | null = null;
   private readonly onEvent = (
     _event: unknown,
     method: string,
     params: unknown,
   ): void => {
-    if (method !== 'Network.responseReceived') return;
-    if (!isCdpResponseReceivedParams(params)) return;
-    if (!params.response.url.includes(DSL_GET_PATH)) return;
-    if (params.response.status < 200 || params.response.status >= 300) return;
-    void this.fetchAndResolveBody(params.requestId);
+    if (method === 'Network.responseReceived') {
+      if (!isCdpResponseReceivedParams(params)) return;
+      if (!params.response.url.includes(DSL_GET_PATH)) return;
+      if (params.response.status < 200 || params.response.status >= 300) return;
+      this.pendingRequestId = params.requestId;
+      return;
+    }
+    if (method === 'Network.loadingFinished') {
+      if (!isCdpLoadingFinishedParams(params)) return;
+      if (params.requestId !== this.pendingRequestId) return;
+      this.pendingRequestId = null;
+      void this.fetchAndResolveBody(params.requestId);
+    }
   };
 
   constructor(

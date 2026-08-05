@@ -2,6 +2,7 @@
   import CircleUserRound from '@lucide/svelte/icons/circle-user-round';
   import CalendarDays from '@lucide/svelte/icons/calendar-days';
   import Globe2 from '@lucide/svelte/icons/globe-2';
+  import Building2 from '@lucide/svelte/icons/building-2';
   import Menu from '@lucide/svelte/icons/menu';
   import Settings from '@lucide/svelte/icons/settings';
   import { link } from 'svelte-spa-router';
@@ -84,6 +85,16 @@
           aria-label="日历"
         >
           <CalendarDays size={22} strokeWidth={1.9} />
+        </a>
+
+        <a
+          class={navigationClass}
+          href="/hotels"
+          use:link
+          use:active={{ className: 'active' }}
+          aria-label="酒店管理"
+        >
+          <Building2 size={22} strokeWidth={1.9} />
         </a>
 
         <a

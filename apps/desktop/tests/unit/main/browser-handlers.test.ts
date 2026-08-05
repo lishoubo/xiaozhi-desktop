@@ -1,6 +1,10 @@
-import { describe, expect, it, vi } from 'vitest';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { toChannelId, toOtaAccountId, toOtaHotelId } from '../../../src/domain/identity';
 import { IPC_CHANNELS } from '../../../src/shared/ipc-channels';
+import { writeImportedCookies } from '../../../src/main/cookie-import/store';
 
 const electron = vi.hoisted(() => {
   const handlers = new Map<string, (event: { sender: unknown }, ...args: unknown[]) => unknown>();
@@ -307,5 +311,43 @@ describe('otaAccount.createFromExistingSession handler', () => {
     expect(() =>
       invoke(IPC_CHANNELS.otaAccount.createFromExistingSession, sender, { accountId: 'missing' }),
     ).toThrow('未找到该账号');
+  });
+});
+
+describe('cookies.listImportedChannels handler', () => {
+  const temporaryDirectories: string[] = [];
+
+  afterEach(() => {
+    for (const directory of temporaryDirectories.splice(0)) {
+      fs.rmSync(directory, { force: true, recursive: true });
+    }
+  });
+
+  function tempUserDataDir(): string {
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'xiaozhi-browser-handlers-test-'));
+    temporaryDirectories.push(directory);
+    return directory;
+  }
+
+  it('透传 listImportedChannels 的查询结果', async () => {
+    const sender = {};
+    const userDataDir = tempUserDataDir();
+    await writeImportedCookies(userDataDir, toChannelId('meituan'), [{ name: 'a', value: '1' } as never], {
+      importedAt: '2026-08-05T00:00:00.000Z',
+      sourceId: 'chrome',
+    });
+    registerBrowserHandlers({
+      window: { webContents: sender },
+      manager: baseManager(),
+      logger: createLogger(),
+      userDataDir,
+      loginUrlMatchers: new Map(),
+      triggerDiscovery: vi.fn(),
+      otaAccountRepository: { listByChannel: vi.fn(() => []), findById: vi.fn(() => null) },
+    });
+
+    const result = await invoke(IPC_CHANNELS.cookies.listImportedChannels, sender);
+
+    expect(result).toEqual([{ channel: toChannelId('meituan'), importedAt: '2026-08-05T00:00:00.000Z' }]);
   });
 });

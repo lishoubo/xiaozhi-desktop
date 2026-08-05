@@ -7,6 +7,7 @@ import NotFoundPage from './pages/NotFoundPage.svelte';
 import SettingsPage from './pages/SettingsPage.svelte';
 import ProfilePage from './pages/ProfilePage.svelte';
 import AgentPage from './pages/AgentPage.svelte';
+import HotelManagementPage from './pages/HotelManagementPage.svelte';
 
 export const routes: RouteDefinition = {
   '/': BrowserPage,
@@ -14,5 +15,6 @@ export const routes: RouteDefinition = {
   '/profile': ProfilePage,
   '/agent': AgentPage,
   '/calendar': CalendarPage,
+  '/hotels': HotelManagementPage,
   '*': NotFoundPage,
 };

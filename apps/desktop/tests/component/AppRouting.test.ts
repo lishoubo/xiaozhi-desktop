@@ -149,6 +149,17 @@ describe('App routing and query integration', () => {
     expect(window.location.hash).toBe('#/calendar');
   });
 
+  it('opens the managed hotel list from the application sidebar', async () => {
+    const user = userEvent.setup();
+    render(App);
+
+    await user.click(screen.getByRole('link', { name: '酒店管理' }));
+
+    await waitFor(() => expect(window.location.hash).toBe('#/hotels'));
+    expect(await screen.findByRole('heading', { name: '酒店管理' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: '上海云栖酒店' })).toBeInTheDocument();
+  });
+
   it('collapses and expands the wider icon sidebar without tooltip wrappers', async () => {
     const user = userEvent.setup();
     render(App);
@@ -207,6 +218,7 @@ describe('App routing and query integration', () => {
     render(App);
 
     await user.click(await screen.findByRole('link', { name: '设置' }));
+    await user.click(await screen.findByRole('button', { name: '已登录 Cookie 列表' }));
     await user.click(await screen.findByRole('button', { name: '导入 Cookie' }));
 
     expect(await screen.findByRole('dialog', { name: '从浏览器导入 Cookie' })).toBeVisible();

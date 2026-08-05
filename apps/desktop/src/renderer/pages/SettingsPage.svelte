@@ -6,7 +6,7 @@
   import Settings2 from '@lucide/svelte/icons/settings-2';
   import { enter, PAGE_ENTER_OPTIONS } from '../motion';
   import type { SystemPreferences } from '../../shared/browser';
-  import CookieImportDialog from '../components/browser/CookieImportDialog.svelte';
+  import CookieLoginListDialog from '../components/browser/CookieLoginListDialog.svelte';
   import { dismissAppNotification, showAppNotification } from '../notifications';
 
   let preferences = $state<SystemPreferences | null>(null);
@@ -88,11 +88,7 @@
             <Cookie size={17} class="text-muted-foreground" />
             Cookie
           </span>
-          <CookieImportDialog
-            triggerLabel="导入 Cookie"
-            triggerVariant="outline"
-            triggerSize="sm"
-          />
+          <CookieLoginListDialog />
         </div>
       </div>
     </section>

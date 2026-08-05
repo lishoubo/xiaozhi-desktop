@@ -4,8 +4,7 @@ import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { toChannelId } from '../../../../src/domain/identity';
 import {
-  deleteImportedCookies,
-  hasImportedCookies,
+  listImportedChannels,
   readImportedCookies,
   writeImportedCookies,
 } from '../../../../src/main/cookie-import/store';
@@ -74,22 +73,34 @@ describe('writeImportedCookies / readImportedCookies', () => {
   });
 });
 
-describe('hasImportedCookies / deleteImportedCookies', () => {
-  it('导入后 hasImportedCookies 返回 true，删除后返回 false', async () => {
+describe('listImportedChannels', () => {
+  it('没有任何导入记录时返回空数组', async () => {
     const userDataDir = temporaryUserDataDir();
-    const channel = toChannelId('ctrip');
-    await expect(hasImportedCookies(userDataDir, channel)).resolves.toBe(false);
-
-    await writeImportedCookies(userDataDir, channel, [{ name: 'a', value: '1' } as never], manifest);
-    await expect(hasImportedCookies(userDataDir, channel)).resolves.toBe(true);
-
-    await deleteImportedCookies(userDataDir, channel);
-    await expect(hasImportedCookies(userDataDir, channel)).resolves.toBe(false);
-    await expect(readImportedCookies(userDataDir, channel)).resolves.toBeNull();
+    await expect(listImportedChannels(userDataDir)).resolves.toEqual([]);
   });
 
-  it('删除从未导入过的渠道不抛错', async () => {
+  it('列出所有已导入渠道及其导入时间', async () => {
     const userDataDir = temporaryUserDataDir();
-    await expect(deleteImportedCookies(userDataDir, toChannelId('meituan'))).resolves.toBeUndefined();
+    await writeImportedCookies(
+      userDataDir,
+      toChannelId('douyin'),
+      [{ name: 'a', value: '1' } as never],
+      { importedAt: '2026-08-03T00:00:00.000Z', sourceId: 'chrome' },
+    );
+    await writeImportedCookies(
+      userDataDir,
+      toChannelId('ctrip'),
+      [{ name: 'b', value: '2' } as never],
+      { importedAt: '2026-08-04T00:00:00.000Z', sourceId: 'edge' },
+    );
+
+    const summaries = await listImportedChannels(userDataDir);
+    expect(summaries).toHaveLength(2);
+    expect(summaries).toEqual(
+      expect.arrayContaining([
+        { channel: toChannelId('douyin'), importedAt: '2026-08-03T00:00:00.000Z' },
+        { channel: toChannelId('ctrip'), importedAt: '2026-08-04T00:00:00.000Z' },
+      ]),
+    );
   });
 });

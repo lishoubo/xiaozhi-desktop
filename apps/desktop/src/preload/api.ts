@@ -5,6 +5,7 @@ import {
   browserRequestInterceptionSchema,
   browserTabSchema,
   cookieImportResultSchema,
+  importedChannelSummarySchema,
   otaAccountBoundEventSchema,
   otaAccountSchema,
   systemPreferencesSchema,
@@ -14,12 +15,12 @@ import {
   type BrowserRequestInterception,
   type BrowserTab,
   type CookieImportResult,
+  type ImportedChannelSummary,
   type OtaAccountBoundEvent,
   type OtaAccountDto,
   type StartLoginInput,
   type SystemPreferences,
 } from '../shared/browser';
-const booleanSchema = z.boolean();
 import { IPC_CHANNELS } from '../shared/ipc-channels';
 import {
   calendarEventRecordSchema,
@@ -36,6 +37,7 @@ import {
  */
 const browserTabListSchema = z.array(browserTabSchema);
 const browserCookieSourceListSchema = z.array(browserCookieSourceSchema);
+const importedChannelSummaryListSchema = z.array(importedChannelSummarySchema);
 const otaAccountListSchema = z.array(otaAccountSchema);
 const optionalCtripCheckInResultSchema = ctripCheckInResultSchema.nullable();
 const voidSchema = z.undefined();
@@ -72,12 +74,12 @@ export type DesktopApi = Readonly<{
   cookies: Readonly<{
     listSources: () => Promise<BrowserCookieSource[]>;
     import: (sourceId: BrowserCookieSourceId) => Promise<CookieImportResult>;
+    listImportedChannels: () => Promise<ImportedChannelSummary[]>;
   }>;
   otaAccount: Readonly<{
     startLogin: (input: StartLoginInput) => Promise<BrowserTab>;
     listByChannel: (channelId: string) => Promise<OtaAccountDto[]>;
     openExisting: (accountId: string) => Promise<BrowserTab>;
-    hasImportedCookies: (channelId: string) => Promise<boolean>;
     createFromCookie: (input: StartLoginInput) => Promise<BrowserTab>;
     createFromExistingSession: (accountId: string) => Promise<BrowserTab>;
     onAccountBound: (listener: (event: OtaAccountBoundEvent) => void) => () => void;
@@ -156,6 +158,8 @@ export function createDesktopApi(
       invokeValidated(browserCookieSourceListSchema, IPC_CHANNELS.cookies.listSources),
     import: (sourceId: BrowserCookieSourceId) =>
       invokeValidated(cookieImportResultSchema, IPC_CHANNELS.cookies.import, sourceId),
+    listImportedChannels: () =>
+      invokeValidated(importedChannelSummaryListSchema, IPC_CHANNELS.cookies.listImportedChannels),
   });
   const otaAccount = Object.freeze({
     startLogin: (input: StartLoginInput) =>
@@ -164,8 +168,6 @@ export function createDesktopApi(
       invokeValidated(otaAccountListSchema, IPC_CHANNELS.otaAccount.listByChannel, channelId),
     openExisting: (accountId: string) =>
       invokeValidated(browserTabSchema, IPC_CHANNELS.otaAccount.openExisting, accountId),
-    hasImportedCookies: (channelId: string) =>
-      invokeValidated(booleanSchema, IPC_CHANNELS.otaAccount.hasImportedCookies, channelId),
     createFromCookie: (input: StartLoginInput) =>
       invokeValidated(browserTabSchema, IPC_CHANNELS.otaAccount.createFromCookie, input),
     createFromExistingSession: (accountId: string) =>

@@ -75,6 +75,13 @@ export const cookieImportResultSchema = z.strictObject({
 
 export type CookieImportResult = Readonly<z.infer<typeof cookieImportResultSchema>>;
 
+export const importedChannelSummarySchema = z.strictObject({
+  channel: nonEmptyStringSchema,
+  importedAt: nonEmptyStringSchema,
+});
+
+export type ImportedChannelSummary = Readonly<z.infer<typeof importedChannelSummarySchema>>;
+
 export const startLoginInputSchema = z.strictObject({
   channelId: nonEmptyStringSchema,
   environment: z.enum(['prod', 'dev']),

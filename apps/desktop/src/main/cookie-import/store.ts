@@ -8,7 +8,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import type { CookiesSetDetails } from 'electron';
-import type { ChannelId } from '../../domain/identity';
+import { parseChannelId, type ChannelId } from '../../domain/identity';
 import type { BrowserCookieSourceId } from '../../shared/browser';
 
 const COOKIE_IMPORTS_DIRNAME = 'cookie-imports';
@@ -64,17 +64,33 @@ export async function readImportedCookies(
   return { manifest, cookies };
 }
 
-/** 供"添加账号"面板判断"从cookie创建"是否可用（add-account-flow-per-channel/design.md §5.2）。 */
-export async function hasImportedCookies(userDataDir: string, channel: ChannelId): Promise<boolean> {
-  return (await readImportedCookies(userDataDir, channel)) !== null;
-}
+export type ImportedChannelSummary = Readonly<{
+  channel: ChannelId;
+  importedAt: string;
+}>;
 
-/**
- * 携程"从cookie创建"探测成功建号后调用——一份携程 cookie 只对应一个账号，
- * 消费后删除，使该渠道重新回到"未导入"状态（design.md 决策5）。
- * 目录本不存在时静默忽略。
- */
-export async function deleteImportedCookies(userDataDir: string, channel: ChannelId): Promise<void> {
-  const directory = channelDirectory(userDataDir, channel);
-  await fs.rm(directory, { recursive: true, force: true });
+/** 供设置页"已登录 Cookie 列表"展示所有已导入渠道（add-account-flow-per-channel/design.md §10.3）。 */
+export async function listImportedChannels(
+  userDataDir: string,
+): Promise<readonly ImportedChannelSummary[]> {
+  const root = path.join(userDataDir, COOKIE_IMPORTS_DIRNAME);
+  let entries: string[];
+  try {
+    entries = await fs.readdir(root);
+  } catch (error: unknown) {
+    if (error instanceof Error && 'code' in error && error.code === 'ENOENT') return [];
+    throw error;
+  }
+
+  const summaries = await Promise.all(
+    entries.map(async (entry): Promise<ImportedChannelSummary | null> => {
+      const channel = parseChannelId(entry);
+      if (!channel) return null;
+      const manifest = await readJsonFile<CookieImportManifest>(
+        path.join(root, entry, 'manifest.json'),
+      );
+      return manifest ? { channel, importedAt: manifest.importedAt } : null;
+    }),
+  );
+  return summaries.filter((summary): summary is ImportedChannelSummary => summary !== null);
 }

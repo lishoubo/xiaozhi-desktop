@@ -2,6 +2,7 @@
   import { autoAnimate } from '@formkit/auto-animate';
   import { onMount } from 'svelte';
   import log from 'electron-log/renderer';
+  import { push } from 'svelte-spa-router';
   import ArrowLeft from '@lucide/svelte/icons/arrow-left';
   import ArrowRight from '@lucide/svelte/icons/arrow-right';
   import Import from '@lucide/svelte/icons/import';
@@ -16,6 +17,8 @@
   } from '../../motion';
   import { OTA_CHANNELS, type OtaChannel } from '../../data/ota-channels';
   import { dismissAppNotification, showAppNotification } from '../../notifications';
+  import { consumePendingTabActivation } from '../../pending-tab-activation';
+  import { requestCookieListAutoOpen } from '../../pending-cookie-list-open';
   import { Button } from '$lib/components/ui/button';
   import { Spinner } from '$lib/components/ui/spinner';
   import CookieImportDialog from './CookieImportDialog.svelte';
@@ -74,6 +77,20 @@
     }
   }
 
+  async function selectOtherHotel(account: OtaAccountDto): Promise<boolean> {
+    try {
+      dismissAppNotification('browser-operation-error');
+      const tab = await window.hotelButler.otaAccount.createFromExistingSession(account.id);
+      updateTab(tab);
+      activeTabIds[tab.channelId] = tab.id;
+      await syncBounds();
+      return true;
+    } catch (error) {
+      reportBrowserFailure('Ota account tab could not be created from existing session', '从其他账号登录失败，请重试', error);
+      return false;
+    }
+  }
+
   async function loadAccounts(channelId: string): Promise<void> {
     try {
       accountsByChannel[channelId] = await window.hotelButler.otaAccount.listByChannel(channelId);
@@ -127,13 +144,6 @@
     const channel = OTA_CHANNELS.find((item) => item.id === activeChannelId);
     if (!channel) return false;
     return createTab(channel);
-  }
-
-  function accountCreated(tab: BrowserTab): void {
-    updateTab(tab);
-    activeTabIds[tab.channelId] = tab.id;
-    void loadAccounts(tab.channelId);
-    void syncBounds();
   }
 
   async function selectTab(tab: BrowserTab): Promise<void> {
@@ -200,6 +210,12 @@
     localStorage.setItem(COOKIE_PROMPT_KEY, 'true');
   }
 
+  async function finishCookiePromptAndReviewImports(): Promise<void> {
+    finishCookiePrompt();
+    requestCookieListAutoOpen();
+    await push('/settings');
+  }
+
   async function runNavigationAction(event: string, action: () => Promise<void>): Promise<void> {
     dismissAppNotification('browser-operation-error');
     try {
@@ -228,31 +244,48 @@
     const observer = new ResizeObserver(() => void syncBounds());
     if (viewport) observer.observe(viewport);
     window.addEventListener('resize', syncBounds);
-    void loadAccounts(activeChannelId);
-    cookiePrompt = localStorage.getItem(COOKIE_PROMPT_KEY) !== 'true';
-    if (!cookiePrompt) {
+    const pendingTab = consumePendingTabActivation();
+    if (pendingTab) {
+      updateTab(pendingTab);
+      activeChannelId = pendingTab.channelId;
+      activeTabIds[pendingTab.channelId] = pendingTab.id;
+      void loadAccounts(pendingTab.channelId);
+      cookiePrompt = false;
       void window.hotelButler.browser
-        .list()
-        .then(async (tabs) => {
-          if (!mounted) return;
-          for (const tab of tabs) updateTab(tab);
-          const ctripTab = tabs.find((tab) => tab.channelId === OTA_CHANNELS[0].id);
-          if (ctripTab) {
-            await window.hotelButler.browser.activate(ctripTab.id);
-            if (!mounted) return;
-            activeTabIds[ctripTab.channelId] = ctripTab.id;
-            await syncBounds();
-          }
-        })
+        .activate(pendingTab.id)
+        .then(() => syncBounds())
         .catch((error: unknown) => {
           if (mounted) {
-            reportBrowserFailure(
-              'Browser workspace could not be loaded',
-              '浏览器工作区加载失败，请重试',
-              error,
-            );
+            reportBrowserFailure('Pending tab could not be activated', '标签激活失败，请重试', error);
           }
         });
+    } else {
+      void loadAccounts(activeChannelId);
+      cookiePrompt = localStorage.getItem(COOKIE_PROMPT_KEY) !== 'true';
+      if (!cookiePrompt) {
+        void window.hotelButler.browser
+          .list()
+          .then(async (tabs) => {
+            if (!mounted) return;
+            for (const tab of tabs) updateTab(tab);
+            const ctripTab = tabs.find((tab) => tab.channelId === OTA_CHANNELS[0].id);
+            if (ctripTab) {
+              await window.hotelButler.browser.activate(ctripTab.id);
+              if (!mounted) return;
+              activeTabIds[ctripTab.channelId] = ctripTab.id;
+              await syncBounds();
+            }
+          })
+          .catch((error: unknown) => {
+            if (mounted) {
+              reportBrowserFailure(
+                'Browser workspace could not be loaded',
+                '浏览器工作区加载失败，请重试',
+                error,
+              );
+            }
+          });
+      }
     }
     return () => {
       mounted = false;
@@ -305,8 +338,8 @@
       accounts={activeAccounts}
       {activeTabPartitionNames}
       onSelectAccount={(account) => void openAccount(account)}
-      onAccountCreated={accountCreated}
       onNewLogin={newLoginForActiveChannel}
+      onSelectOtherHotel={selectOtherHotel}
     />
   {/if}
 
@@ -429,7 +462,7 @@
       <CookieImportDialog
         triggerLabel="导入 Cookie"
         triggerSize="sm"
-        onComplete={finishCookiePrompt}
+        onComplete={finishCookiePromptAndReviewImports}
       />
     </div>
   </aside>

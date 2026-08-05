@@ -1,7 +1,10 @@
 <script lang="ts">
-  import type { BrowserTab, OtaAccountDto } from '../../../shared/browser';
+  import type { OtaAccountDto } from '../../../shared/browser';
   import type { OtaChannel } from '../../data/ota-channels';
   import AddAccountPanel from './AddAccountPanel.svelte';
+  import SelectOtherHotelPanel from './SelectOtherHotelPanel.svelte';
+
+  const DOUYIN_CHANNEL_ID = 'douyin';
 
   type Props = Readonly<{
     channel: OtaChannel;
@@ -9,8 +12,8 @@
     accounts: readonly OtaAccountDto[];
     activeTabPartitionNames: ReadonlySet<string>;
     onSelectAccount: (account: OtaAccountDto) => void;
-    onAccountCreated: (tab: BrowserTab) => void;
     onNewLogin: () => Promise<boolean>;
+    onSelectOtherHotel: (account: OtaAccountDto) => Promise<boolean>;
   }>;
 
   let {
@@ -19,9 +22,11 @@
     accounts,
     activeTabPartitionNames,
     onSelectAccount,
-    onAccountCreated,
     onNewLogin,
+    onSelectOtherHotel,
   }: Props = $props();
+
+  let supportsOtherHotel = $derived(channel.id === DOUYIN_CHANNEL_ID);
 </script>
 
 <nav
@@ -49,5 +54,8 @@
       <span class="max-w-40 truncate">{account.otaHotelName ?? account.otaHotelId}</span>
     </button>
   {/each}
-  <AddAccountPanel {channel} {activeTabId} existingAccounts={accounts} {onAccountCreated} {onNewLogin} />
+  <AddAccountPanel {onNewLogin} />
+  {#if supportsOtherHotel}
+    <SelectOtherHotelPanel channelId={channel.id} {activeTabId} onSelect={onSelectOtherHotel} />
+  {/if}
 </nav>

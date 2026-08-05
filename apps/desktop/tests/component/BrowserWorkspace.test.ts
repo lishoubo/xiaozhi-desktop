@@ -52,12 +52,7 @@ describe('BrowserWorkspace', () => {
   async function openCtripViaAddAccount(): Promise<void> {
     const user = userEvent.setup();
     await user.click(await screen.findByRole('button', { name: '添加账号' }));
-    await user.click(await screen.findByRole('button', { name: '新建账号' }));
     await screen.findByRole('tab', { name: '携程后台' });
-    await waitFor(() =>
-      expect(screen.queryByRole('dialog', { name: /添加账号/ })).not.toBeInTheDocument(),
-    );
-    releaseDialogInteractionLock();
   }
 
   beforeEach(() => {
@@ -136,12 +131,7 @@ describe('BrowserWorkspace', () => {
     await user.click(screen.getByRole('button', { name: '飞猪酒店商家' }));
     expect(screen.queryByRole('tab', { name: '携程后台' })).not.toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: '添加账号' }));
-    await user.click(await screen.findByRole('button', { name: '新建账号' }));
     expect(await screen.findByRole('tab', { name: '飞猪后台' })).toBeInTheDocument();
-    await waitFor(() =>
-      expect(screen.queryByRole('dialog', { name: /添加账号/ })).not.toBeInTheDocument(),
-    );
-    releaseDialogInteractionLock();
     expect(animate).toHaveBeenCalled();
 
     await user.click(screen.getByRole('button', { name: '携程酒店 eBooking' }));
@@ -209,7 +199,6 @@ describe('BrowserWorkspace', () => {
 
     const user = userEvent.setup();
     await user.click(await screen.findByRole('button', { name: '添加账号' }));
-    await user.click(await screen.findByRole('button', { name: '新建账号' }));
 
     const alert = (await screen.findByText('页面打开失败，请重试')).closest('[data-slot="alert"]');
     expect(alert).toHaveTextContent('页面打开失败，请重试');
@@ -350,7 +339,6 @@ describe('BrowserWorkspace', () => {
     const user = userEvent.setup();
     renderWorkspace();
     await user.click(await screen.findByRole('button', { name: '添加账号' }));
-    await user.click(await screen.findByRole('button', { name: '新建账号' }));
 
     await waitFor(() =>
       expect(startLogin).toHaveBeenCalledWith(

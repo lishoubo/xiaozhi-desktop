@@ -7,20 +7,17 @@
  *
  * 流程B（打开已有账号）不走这里，见 docs/arch/2026-08-03-login-tab-flows.md。
  *
- * 两个入口对应"添加账号"面板的操作④与操作②
- * （add-account-flow-per-channel/design.md §3、§4）：
- * - `open()`：操作④"新建账号"，不注入 cookie，等待用户手动登录
- * - `createFromCookie()`：操作②"从cookie创建"，注入已导入的 cookie；
- *   携程静默判定落地结果，抖音打开页面等待用户选公司
+ * 两个方法对应两个不同的 UI 入口（add-account-flow-per-channel/design.md
+ * §10）：
+ * - `open()`：添加账号面板"新建账号"，不注入 cookie，等待用户手动登录
+ * - `createFromCookie()`：设置页"已登录 Cookie 列表"里的"登录账号"，
+ *   注入已导入的 cookie；携程静默判定落地结果，抖音打开页面等待用户选公司
  */
 import type { WebContents } from 'electron';
 import { toChannelId, type ChannelId } from '../../../domain/identity';
 import type { LoginUrlMatcher } from '../../../domain/ports/discovery';
 import type { BrowserTab } from '../../../shared/browser';
-import {
-  deleteImportedCookies,
-  readImportedCookies,
-} from '../../cookie-import/store';
+import { readImportedCookies } from '../../cookie-import/store';
 import {
   addPendingPartition,
   type PendingPartition,
@@ -69,9 +66,10 @@ export class LoginTabOpener {
   }
 
   /**
-   * "从cookie创建"：要求该渠道已有导入好的 cookie（调用方负责在 UI 层
-   * 用 `hasImportedCookies` 判断可用性，这里没有 cookie 时直接报错，不
-   * 静默退化为无 cookie 的新建登录）。
+   * "登录账号"：要求该渠道已有导入好的 cookie（调用方负责在 UI 层用
+   * `listImportedChannels` 判断该渠道是否已导入，这里没有 cookie 时直接
+   * 报错，不静默退化为无 cookie 的新建登录）。携程与抖音均不消费/删除
+   * 已导入的 cookie，允许反复登录/重建（design.md §10.2）。
    */
   async createFromCookie(
     environment: PendingPartition['environment'],
@@ -83,15 +81,12 @@ export class LoginTabOpener {
     if (!imported) throw new Error('该渠道尚未导入 Cookie');
 
     if (channel === CTRIP_CHANNEL_ID) {
-      // 携程：一份 cookie 对应一个账号，不等待用户交互，页面加载完成即
-      // 静默判定（design.md 决策3）。
+      // 携程：不等待用户交互，页面加载完成即静默判定（design.md 决策3）；
+      // cookie 不删除，允许同一份 cookie 反复登录/重建（design.md §10.2）。
       const { tab, partitionName } = await browser.createAndNewPartition(environment, channel, url, {
         importedCookies: imported.cookies,
         onLoadFinished: (boundPartitionName, landingUrl, webContents) => {
-          void (async () => {
-            const bound = await triggerDiscovery(boundPartitionName, channel, landingUrl, webContents);
-            if (bound) await deleteImportedCookies(userDataDir, channel);
-          })();
+          void triggerDiscovery(boundPartitionName, channel, landingUrl, webContents);
         },
       });
       await addPendingPartition(userDataDir, {

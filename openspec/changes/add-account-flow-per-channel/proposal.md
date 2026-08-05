@@ -2,35 +2,41 @@
 
 现有 cookie 导入（`CookieImportDialog.svelte` 全局引导浮层 → `cookie-import/store.ts` 落盘）与"添加账号"是两条彼此断开的链路：导入的 cookie 存到磁盘后，唯一的消费点是 `LoginTabOpener.open()` 里悄悄做的"预填"——即使用户已经导入过 cookie，点"添加账号"仍然固定打开一个新登录页让用户重新手动登录，导入的 cookie 没有对应的"直接用这份 cookie 建账号"路径。同时携程和抖音对"一份登录态能建几个账号"的语义不同（携程一份 cookie 对应一个账号；抖音一份登录态可能挂多个公司/门店，且已建号的账号本身就带着可复用的登录态），需要在"添加账号"入口上把这些差异变成用户可见的显式操作，而不是像现在这样悄悄预填。
 
+**追加背景（本轮修订）**：上述"添加账号四操作面板"方案已实现并部分真机验证（`tasks.md` 1-4 节），但真机验证暴露了可用性问题——四个按钮挤在一个小 Dialog 里，用户看不到"我在哪些渠道已经导入过 cookie、导入的是什么时候"，操作①"导入cookie"和②"从cookie创建"分处两步、状态不直观。改为把"cookie 的可见性与登录入口"整体迁移到设置页的独立列表页，添加账号面板收敛为单一"新建账号"入口：设置页管"已导入的登录态"，添加账号面板只管"新建一个账号"，职责更清晰，也更适合桌面打包后的实际使用习惯。
+
 ## What Changes
 
-"添加账号"入口从单一按钮改为最多四个并列操作（按渠道能力显示/置灰，不做隐式判断分流）：
+1. **设置页新增"已登录 Cookie 列表"**：原设置页"Cookie"行的按钮位置改为"已登录 Cookie 列表"入口，打开后是一个列表弹窗：右上角保留"导入 Cookie"（复用现有 `CookieImportDialog`，逻辑不变，仍是全局跨渠道一次性导入）；列表本身按渠道展示已导入的 cookie，每行：渠道名 + 导入时间（`manifest.importedAt`）+ 操作：
+   - **登录账号**（该渠道有已导入 cookie 时才展示这一行）：调用现有 `createFromCookie`，用该 cookie 注入一个新 partition 并打开标签页，跳转到内置浏览器；新 partition 处于未绑定状态，用户在页面里自行完成登录确认/选门店/选公司，随后走既有的 URL 判定 → 探测 → 建号流程
+   - **从其他账号登录**（仅抖音）：调用现有 `createFromExistingSession`，弹出该渠道下已建号账号列表，选择其一后复用其 `partitionName` 对应登录态打开页面，允许切换到另一个公司/门店再次探测建号
+2. **"添加账号"面板收敛为单一操作**：移除面板内原操作①导入cookie、②从cookie创建、③从其他登录态创建三个按钮，只保留④新建账号——`AddAccountPanel.svelte` 从四宫格精简为单按钮，与设置页 cookie 列表不再有功能重叠
+3. **携程"登录账号"成功后不再删除 cookie**：原决策5（探测成功后调用 `deleteImportedCookies`）废止。携程与抖音行为统一——同一份 cookie 允许反复登录/重建，不会因为"已消费"而从列表里消失。`deleteImportedCookies` 函数本身随调用点一起删除（无遗留死代码）
+4. **cookie 导入去重维持现状不变**：同渠道再次导入直接整体覆盖（`writeImportedCookies` 已有行为），继续按渠道去重、不做更细粒度的按账号去重（cookie 内容无法可靠解析出账号/门店标识）
+5. **美团渠道风险状态更新**：`cookie-login-account-discovery/design-meituan.md` 标注的"`poiInfos` 接口本次未做真机验证"风险已由用户真机验证通过，本次同步更新该文档的风险状态
+6. **修正（真机验证后）：「从其他账号登录」挪回浏览器工作区，改名「服务商切换」**：第1点里"cookie 列表页抖音行旁边的从其他账号登录按钮"经真机验证确认位置不对——这是"给抖音账号导航栏加一种新增门店的方式"，跟"cookie 导入管理"是不同语境。改为：cookie 列表页所有渠道统一只有"登录账号"一个操作；浏览器工作区账号导航栏（`AccountsNav.svelte`）新增"服务商切换"按钮，与"添加账号"并列，仅抖音渠道渲染，点击后列出该渠道已建号账号供选择，复用其登录态切换门店（`createFromExistingSession` 调用点从 cookie 列表页改为这里，方法本身不变）
 
-1. **导入 cookie**：复用现有 `CookieImportDialog`，把 cookie 存入该渠道的导入区（`cookie-import/store.ts`），仅存盘，不触发建号
-2. **从 cookie 创建**：消费"已导入的 cookie"（来自操作1）直接建号——用该 cookie 注入一个新 partition，跳过人工登录页；该渠道没有已导入 cookie 时按钮置灰不可点。携程场景：注入后直接触发探测，一份 cookie 对应一个账号，成功后视为已消费。抖音场景：注入后打开登录态页面，允许用户选择公司（对应 groupid），选定后对该 groupid 探测建号，一份 cookie 可反复用于建多个账号
-3. **从其他登录态创建**（仅抖音）：列出该渠道下已建号成功的账号（`OtaAccount`），选择其一，复用其 `partitionName` 对应的登录态打开页面，允许用户切换/选择另一个公司并对新 groupid 探测建号。该渠道没有已存在账号时按钮置灰或不显示。携程不提供此操作（一份登录态只对应一个账号，复用没有意义）
-4. **新建账号**：现状流程A不变——新建 partition → 打开登录页 → 用户登录 → URL 判定 → 探测 → 建号
-
-`LoginTabOpener.open()` 现有的"无条件预填 cookie 到新建登录页"逻辑移除，拆分为上述操作2/4两条独立路径，不再耦合在一起。
+`LoginTabOpener.open()` 现有的"无条件预填 cookie 到新建登录页"逻辑保持已移除的状态（沿用上一轮结论），`createFromCookie`/`createFromExistingSession` 两个 main 层方法与对应 IPC 保留并复用，本轮只调整它们在 renderer 侧的入口位置与携程分支的 cookie 消费策略。
 
 ## Capabilities
 
 ### New Capabilities
 
-- `add-account-flow`：定义"添加账号"入口的四个操作（导入cookie / 从cookie创建 / 从其他登录态创建 / 新建账号）、每个操作的可用性条件（置灰规则）、以及携程与抖音在操作2/3上的行为差异
+- `cookie-login-list`：定义设置页"已登录 Cookie 列表"——展示字段（渠道、导入时间）、每行操作（登录账号，所有渠道一致）
 
 ### Modified Capabilities
 
-（`openspec/specs/` 目前尚无已归档的顶层 spec，无既有 capability 可修改；`douyin-multi-account-nav/design.md` 决策 #3/#4 关于"不提供复用已登录 cookie 入口"的结论，本次变更调整为"提供，但作为用户显式选择的独立操作，而非登录流程默认行为"，具体收敛写入 design.md）
+- `add-account-flow`（本变更上一轮新增，尚未归档进 `openspec/specs/`）：范围收窄为仅"新建账号"一个操作，原操作①②③迁移进 `cookie-login-list`；携程 cookie 消费策略从"成功后删除"改为"不删除"
+
+（`douyin-multi-account-nav/design.md` 决策 #3/#4 关于"不提供复用已登录 cookie 入口"的结论，延续上一轮的调整结论："提供，但作为用户显式选择的独立操作"——本轮只是把这个入口从添加账号面板挪到了 cookie 列表页，结论不变）
 
 ## Impact
 
-- `src/renderer/components/browser/AccountsNav.svelte`：`onAddAccount` 改为打开一个"添加账号"操作面板/弹窗，渲染四个操作按钮，按渠道与已导入cookie/已有账号状态决定可用性
-- 新增前端组件：添加账号操作面板；抖音专用的"选择公司"步骤 UI；"选择已有账号复用登录态"的列表 UI
-- `src/main/features/ota-account/login-tab-opener.ts`：拆分为"从cookie创建"与"新建账号"两条独立方法，不再无条件预填
-- `src/main/browser/browser-manager.ts`：`createWithAlreadyPartition` 需要支持挂载 `onUrlPastLogin`/`loginUrlMatcher`（操作3复用已有 partition 时也要能触发探测，目前该方法不支持这两个回调，仅 `createAndNewPartition` 支持）
-- `src/main/account-discovery/discover-and-create.ts`：`multiple` 探测结果目前不落库、不标记 `bound`（design.md 决策 2 遗留缺口），操作2/3 依赖这个"同一 partition 可反复探测直到用户选定"的能力，需要确认现状是否已经满足或需要补一个"确认选择"的触发点
-- `src/main/cookie-import/store.ts`：新增"渠道是否存在已导入 cookie"查询能力（供操作2置灰判断）；携程场景建号成功后需要标记 cookie 已消费
-- `src/domain/ports/repositories.ts` / `OtaAccountRepository`：新增或复用 `listByChannel`（供操作3列出已有账号）
-- `src/main/ipc/browser-handlers.ts` / `shared/ipc-channels.ts`：新增查询"该渠道已导入cookie状态"、"从cookie创建"、"从其他登录态创建（选择账号+选择公司）"对应的 IPC
-- 关联测试：`login-tab-opener`、`cookie-import/store`、`AccountsNav`、`discover-and-create` 现有测试需同步调整
+- `src/renderer/pages/SettingsPage.svelte`：Cookie 行的按钮改为打开新增的 cookie 列表弹窗组件
+- 新增前端组件 `CookieLoginListDialog.svelte`：列表渲染 + "登录账号"操作（所有渠道一致），复用既有 `createFromCookie` IPC
+- `src/renderer/components/browser/AddAccountPanel.svelte`：删除操作①②③相关的按钮、状态（`hasCookie`/`checkingCookie`/`pickingExistingAccount`/`supportsExistingSession`/`CookieImportDialog` 引用）与逻辑，只保留 `newLogin`
+- `src/renderer/components/browser/AccountsNav.svelte`：恢复 `channel` prop，新增 `onSelectOtherHotel` prop，仅抖音渠道渲染新增组件 `SelectOtherHotelPanel.svelte`（"服务商切换"按钮 + 已建号账号选择列表，复用既有 `createFromExistingSession` IPC）
+- `src/renderer/components/browser/BrowserWorkspace.svelte`：新增 `selectOtherHotel(account)` 处理函数，与既有 `createTab`/`openAccount` 同一套 `updateTab`/`activate`/`syncBounds` 状态更新模式
+- `src/main/cookie-import/store.ts`：新增 `listImportedChannels(userDataDir): Promise<ReadonlyArray<{channel: ChannelId; importedAt: string}>>`（供列表页一次性查询所有已导入渠道，替代只能单渠道查询的现状）；删除 `deleteImportedCookies`（无调用点）
+- `src/main/features/ota-account/login-tab-opener.ts`：携程分支去掉"探测成功后删除cookie"这一步
+- IPC：新增 `cookies.listImportedChannels`（列表页数据源）；删除 `ota-account:has-imported-cookies` 及对应 preload 方法（`AddAccountPanel` 不再需要按渠道置灰，无其他调用点）；`ota-account:create-from-existing-session` 调用方从 cookie 列表页改为 `AccountsNav`/`SelectOtherHotelPanel`，方法本身不变
+- 关联测试：`cookie-import/store`、`login-tab-opener`（携程分支）、`AddAccountPanel`、新增的 cookie 列表组件测试需同步调整

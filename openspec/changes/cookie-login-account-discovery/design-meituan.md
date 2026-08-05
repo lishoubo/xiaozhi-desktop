@@ -84,5 +84,5 @@ DiscoveredOtaHotel {
 
 ## Risks / Trade-offs
 
-- **[风险] `poiInfos` 接口本次未做真机验证** —— 完全照抄 RPA 已验证实现，但探测时机（URL 判定刚命中 `/ebooking/merchant/ebIframe`）与 RPA 原场景（`_login_success_result` 里，已经过 `finalize_meituan_session` + 角色选择处理之后）不完全相同，cookie 生效时机是否已经足够早，需要真机验证才能确认，本次不假设已验证可用
+- **[已验证]** `poiInfos` 接口已完成真机验证（add-account-flow-per-channel 变更第二轮修订）：探测时机（URL 判定刚命中 `/ebooking/merchant/ebIframe`）下 cookie 已生效，可正常取到门店数据，不再是阻塞风险
 - **[风险] "选择角色"弹层可能挡住登录后的第一次探测时机** —— 若该弹层在 URL 判定命中之前就已出现且 `poiInfos` 恰好依赖弹层选择完成后才生效（未验证，理论上不需要），会导致这一轮 `none`；按 `design.md` 决策 8 的"未绑定则允许下次导航重新触发"兜底，不单独处理

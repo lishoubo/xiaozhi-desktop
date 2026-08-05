@@ -20,7 +20,7 @@ import { IPC_CHANNELS } from '../../shared/ipc-channels';
 import type { AppLogger } from '../../shared/logging';
 import { BrowserCookieImporter } from '../cookie-import/browser-cookie-importer';
 import { friendlyCookieImportMessage } from '../cookie-import/cookie-import';
-import { hasImportedCookies, writeImportedCookies } from '../cookie-import/store';
+import { listImportedChannels, writeImportedCookies } from '../cookie-import/store';
 import { LoginTabOpener } from '../features/ota-account/login-tab-opener';
 
 const DOUYIN_CHANNEL_ID = toChannelId('douyin');
@@ -156,6 +156,9 @@ export function registerBrowserHandlers({
   handle(IPC_CHANNELS.cookies.listSources, noArgumentsSchema, '请求参数无效', () =>
     cookieImporter.listSources(),
   );
+  handle(IPC_CHANNELS.cookies.listImportedChannels, noArgumentsSchema, '请求参数无效', () =>
+    listImportedChannels(userDataDir),
+  );
   handle(
     IPC_CHANNELS.otaAccount.startLogin,
     z.tuple([startLoginInputSchema]),
@@ -168,12 +171,6 @@ export function registerBrowserHandlers({
     z.tuple([otaAccountChannelSchema]),
     '渠道标识无效',
     (_event, channelId) => otaAccountRepository.listByChannel(toChannelId(channelId)),
-  );
-  handle(
-    IPC_CHANNELS.otaAccount.hasImportedCookies,
-    z.tuple([otaAccountChannelSchema]),
-    '渠道标识无效',
-    (_event, channelId) => hasImportedCookies(userDataDir, toChannelId(channelId)),
   );
   handle(
     IPC_CHANNELS.otaAccount.createFromCookie,
