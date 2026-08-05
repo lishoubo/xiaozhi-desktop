@@ -21,9 +21,32 @@ RUN DATABASE_URL=postgres://build:build@localhost/build \
     BETTER_AUTH_SECRET=build-only-placeholder-not-a-secret \
     npm run build --workspace @hotel-butler/server
 
-FROM build AS runtime
+FROM build AS local-runtime
 
 ENV NODE_ENV=production
 EXPOSE 4173
 
 CMD ["npm", "run", "preview:container", "--workspace", "@hotel-butler/server"]
+
+FROM node:24.18.1-bookworm-slim AS production
+
+WORKDIR /workspace
+
+COPY package.json package-lock.json ./
+COPY apps/server/package.json apps/server/package.json
+COPY packages/api/package.json packages/api/package.json
+
+RUN npm ci --omit=dev --workspace @hotel-butler/server --workspace @hotel-butler/api
+
+COPY --from=build --chown=node:node /workspace/apps/server/build apps/server/build
+COPY --from=build --chown=node:node /workspace/packages/api packages/api
+COPY --chown=node:node apps/server/tests/compose/server-healthcheck.mjs apps/server/tests/compose/server-healthcheck.mjs
+
+ENV NODE_ENV=production
+ENV HOST=0.0.0.0
+ENV PORT=3000
+EXPOSE 3000
+
+USER node
+
+CMD ["node", "apps/server/build"]

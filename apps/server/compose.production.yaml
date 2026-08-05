@@ -1,0 +1,44 @@
+name: hotel-butler-production
+
+services:
+  db:
+    image: ${ALIYUN_REGISTRY:?Set ALIYUN_REGISTRY}/${ALIYUN_NAMESPACE:?Set ALIYUN_NAMESPACE}/pgvector:${PGVECTOR_IMAGE_TAG:?Set PGVECTOR_IMAGE_TAG}
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:?Set POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:?Set POSTGRES_DB}
+    volumes:
+      - type: bind
+        source: ${POSTGRES_DATA_DIR:?Set POSTGRES_DATA_DIR}
+        target: /var/lib/postgresql
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"']
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  server:
+    image: ${ALIYUN_REGISTRY:?Set ALIYUN_REGISTRY}/${ALIYUN_NAMESPACE:?Set ALIYUN_NAMESPACE}/hotel-butler-server:${SERVER_IMAGE_TAG:?Set SERVER_IMAGE_TAG}
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: ${DATABASE_URL:?Set DATABASE_URL}
+      RMS_DATABASE_URL: ${RMS_DATABASE_URL:?Set RMS_DATABASE_URL to the external read-only RMS database}
+      ORIGIN: ${ORIGIN:?Set ORIGIN to the public Caddy HTTPS origin}
+      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?Set BETTER_AUTH_SECRET}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      HOST: 0.0.0.0
+      PORT: 3000
+      SERVER_HEALTH_URL: http://localhost:3000/api/trpc/system.health
+    ports:
+      - '${SERVER_BIND_ADDRESS:-127.0.0.1}:${SERVER_PORT:-3000}:3000'
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ['CMD', 'node', 'apps/server/tests/compose/server-healthcheck.mjs']
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 30s

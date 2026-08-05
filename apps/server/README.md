@@ -40,3 +40,34 @@ npm run build
 You can preview the production build with `npm run preview`.
 
 > To deploy your app, you may need to install an [adapter](https://svelte.dev/docs/kit/adapters) for your target environment.
+
+## Docker Compose
+
+Local development uses `compose.local.yaml`, official upstream database images, named
+volumes, and the host-trusted certificate prepared by `npm run https:setup`. From the
+repository root, this command stops the previous local stack, rebuilds server, and starts
+the complete local environment:
+
+```sh
+npm run compose:local
+```
+
+Production uses `compose.production.yaml`. Copy `.env.production.example` to the ignored
+`.env.production`, fill in the Alibaba Cloud Container Registry locations and production
+values, then validate it without starting or deploying services:
+
+```sh
+npm run server:compose:production:config
+```
+
+After validation, start the production stack from the repository root. This pulls the
+configured Alibaba Cloud images and does not build server locally:
+
+```sh
+npm run compose:production
+```
+
+The production stack contains PostgreSQL and server only. PostgreSQL data is bind-mounted
+from `POSTGRES_DATA_DIR`; the server is stateless and logs to stdout. RMS MySQL remains an
+external read-only dependency. Caddy terminates public HTTPS and proxies to the server's
+loopback-bound HTTP port.

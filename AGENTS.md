@@ -7,8 +7,10 @@
 
 | 路径 | 职责 |
 |---|---|
-| `apps/desktop/` | Electron 桌面应用；本地数据默认留在本地，仅需要跨设备或后台管理的业务数据通过 tRPC 与 server 通信 |
-| `apps/server/` | desktop 的 backend API，以及面向管理人员的 SSR 业务数据管理后台 |
+| `apps/desktop/` | Electron 桌面应用 |
+| `apps/server/` | 桌面应用的 backend API，以及桌面业务数据管理后台 |
+| ↳ PostgreSQL | 本系统主数据库，用于管理本系统数据 |
+| ↳ MySQL | RMS 系统数据库，仅以只读方式获取业务数据 |
 | `packages/api/` | desktop 与 server 共享的 tRPC contract、schema 和纯类型；不放任一应用的实现细节 |
 
 - 跨端接口先定义共享 contract，再分别实现 server procedure 和 desktop client；不得让 desktop 直接依赖 server 实现。
@@ -136,7 +138,7 @@ docs/                            规范之外的文档
 
 ## 编程约束
 
-详见 `docs/ENGINEERING_PRINCIPLES.md`（工程原则）、`docs/TESTING_STANDARDS.md`（测试）、`docs/ELECTRON_SECURITY.md`（Electron 安全）。以下是必须遵守的硬约束：
+测试细则见 `docs/TESTING_STANDARDS.md`。通用工程与 Electron 安全必须遵守以下硬约束：
 
 - **核心业务逻辑与框架解耦**：`src/domain/` 零框架依赖，不 import `electron` / `better-sqlite3` / `svelte` / harness SDK / `node:fs`。判定标准 = 验收标准：domain 的测试用裸 vitest 跑，不需要 mock 任何东西
 - 依赖方向：`renderer` 只通过 `preload` 访问 `main`；`domain` 不依赖任何一端；只有 composition root 能 import Gateway 实现
