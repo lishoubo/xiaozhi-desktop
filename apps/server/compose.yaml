@@ -3,12 +3,39 @@ services:
     image: pgvector/pgvector:0.8.5-pg18
     restart: always
     ports:
-      - 5432:5432
+      - '5432:5432'
     environment:
       POSTGRES_USER: root
       POSTGRES_PASSWORD: mysecretpassword
       POSTGRES_DB: local
     volumes:
       - pgdata:/var/lib/postgresql
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U root -d local']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  rms:
+    image: mysql:8.4
+    restart: always
+    ports:
+      - '3306:3306'
+    environment:
+      TZ: Asia/Shanghai
+      MYSQL_ROOT_PASSWORD: rootsecretpassword
+      MYSQL_DATABASE: rms
+      MYSQL_USER: hotel_butler
+      MYSQL_PASSWORD: mysecretpassword
+    command: ['--character-set-server=utf8mb4', '--collation-server=utf8mb4_0900_ai_ci']
+    volumes:
+      - rmsdata:/var/lib/mysql
+    healthcheck:
+      test: ['CMD-SHELL', 'mysqladmin ping -h localhost -u root -p"$${MYSQL_ROOT_PASSWORD}"']
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
 volumes:
   pgdata:
+  rmsdata:
