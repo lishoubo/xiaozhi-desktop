@@ -1,6 +1,6 @@
 services:
   db:
-    image: postgres
+    image: pgvector/pgvector:0.8.5-pg18
     restart: always
     ports:
       - 5432:5432
