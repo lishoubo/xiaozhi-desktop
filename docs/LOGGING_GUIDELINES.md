@@ -50,6 +50,8 @@ Prefer allow-listed metadata over attempting to remove fields from a raw object.
 
 ## Placement and Ownership
 
+- Server requests use a request-scoped Pino child logger and a validated correlation ID. SvelteKit owns HTTP and unexpected-error events; tRPC owns procedure outcome events. Neither layer logs request bodies, headers, sessions, raw input, or raw error messages.
+- Shared API code depends only on the minimal logger contract provided through tRPC context; it must not import Pino or server framework code.
 - Main process owns logs for IPC handling, persistence, database, native APIs, browser sessions, filesystem access, security decisions, and application lifecycle.
 - Renderer logs only meaningful UI/session failures or lifecycle events that are unavailable in main. It must not log form contents or duplicate every main-process event.
 - Preload normally remains a thin, unlogged bridge; log invoke outcomes at the trusted main boundary.
