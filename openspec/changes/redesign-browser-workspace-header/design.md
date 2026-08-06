@@ -2,7 +2,7 @@
 
 > **版本**：v0.3 · 2026-08-06  
 > **范围**：OTA 渠道导航、登录账号选择、同 Session 多标签  
-> **阶段**：renderer UI 已实现，待手工视觉验收
+> **阶段**：credential 功能链完善中，待手工功能与视觉验收
 
 ---
 
@@ -130,9 +130,19 @@ Electron 中每个 `WebContents` 都必须使用一个 `Session`。`partitionNam
 |------|------|---------------------------|----------|----------------|
 | 标签 `＋` | 页面标签末尾 | `新建标签页` | 当前账号再开一个页面 | 复用当前 partition |
 | 账号 `＋` | 当前账号右侧 | `切换登录账号` | 查看当前渠道已登录账号 | 列表选择后使用目标 partition |
+| 从 Cookie 导入 | 账号列表右上角 | `从 Cookie 导入` | 导入后直接打开当前渠道 | 创建新 partition 并注入当前渠道 Cookie |
 | 登录新账号 | 账号列表右上角 | `登录新渠道账号` | 建立一份新登录态 | 创建新 partition |
 
-账号区 `＋` 虽然采用加号图形，但行为不是立即创建 partition，而是先进入账号选择列表；真正创建新 partition 的入口在列表内部，文案必须完整显示“登录新渠道账号”。
+账号区 `＋` 虽然采用加号图形，但行为不是立即创建 partition，而是先进入账号选择列表；真正创建新 partition 的入口在列表内部，分别是“从 Cookie 导入”和“登录新渠道账号”。
+
+Cookie 导入保留两个入口及不同收尾流程：
+
+```text
+初始化提示导入  → 导入 Cookie → 设置页 → 已导入 Cookie 列表 → 用户选择渠道登录
+账号列表内导入  → 导入 Cookie → 直接取当前渠道 → 创建登录 partition → 打开工作区
+```
+
+两个入口复用同一个浏览器来源选择组件和现有 `cookies.import` 能力。账号列表入口不导航设置页，也不展示已导入 Cookie 列表；若当前渠道没有可用 Cookie，则沿用 `createFromCookie` 的明确失败并保留原账号页面。
 
 ---
 
@@ -295,11 +305,12 @@ persist:xiaozhi:prod:douyin:e5f6g7h8
 列表规则：
 
 - 只展示当前渠道的 credential，不把其他渠道混入列表。
-- 一个 credential/partition 只展示一项；同 credential 关联多家门店时不拆项。
+- 数据源直接读取当前渠道的 `OtaCredential`；不从 `OtaAccount` 反推 credential。
+- 一个 credential/partition 只展示一项；credential 没有关联门店时也必须展示。
 - 当前渠道任意标签使用该 partition 时，状态为“已打开”。
 - 其他 credential 状态为“未打开”。
-- 主标签优先使用可靠的渠道账号标识；无法取得时使用代表性账号名称，最终回退“未识别账号”。
-- 关联多家门店时可以显示“关联 N 家门店”作为辅助信息，但点击行为始终是切换登录 Session，不是切换门店。
+- 主标签优先使用 `credentialExtra` 中经过白名单保存的渠道账号名称，其次使用 `channelAccountId`，最终回退“未识别账号”。
+- 本工作区不读取或展示 `OtaAccount` 门店信息；门店是 credential 关联的业务数据，不是登录态选择项。
 - “删除”涉及 credential 和磁盘 Session 生命周期，保持为独立后续方案；本设计只保留位置参考，不定义其执行行为。
 
 ### 4.2 打开列表
@@ -622,7 +633,7 @@ align-items: center
 ## Risks / Trade-offs
 
 - [共享 Session 使一个标签的登录/登出影响其他标签] → 将同 partition 标签明确视为一个账号工作组；切换身份必须走账号入口。
-- [账号标签可能来自门店发现结果，不等同于真实平台用户名] → 优先使用 credential 身份字段；无法确认时使用中性回退文案。
+- [部分渠道 credential 身份仍是临时或不可读标识] → 优先使用 credential 白名单身份字段；无法确认时使用中性回退文案，不读取门店账号补名。
 - [切换账号会丢失旧标签页面位置] → 保留持久化 Session，重新选择时免登录；跨账号标签恢复另立需求。
 - [账号面板可能被原生 WebContentsView 遮挡] → 打开前 hide，关闭或失败时恢复原 activeTab。
 - [切换目标页面创建成功、关闭旧标签中途失败] → 关闭操作按目标 partition 过滤并允许幂等重试，当前账号始终由 activeTab 派生。
@@ -633,12 +644,12 @@ align-items: center
 
 已完成：
 
-1. renderer 内按 `partitionName` 聚合当前渠道的登录会话。
-2. 账号列表按 credential/partition 去重，并接入 WebContentsView hide/restore。
-3. 标签区 `＋` 通过现有 `openExisting` 能力复用当前 partition 创建新标签；无需修改 main/preload。
+1. renderer 直接读取当前渠道的 `OtaCredential`，并按 active tab 的 `partitionName` 派生当前 credential。
+2. 账号列表直接列出 credential；SQLite 的 partition 唯一约束保证一份登录态一项，并接入 WebContentsView hide/restore。
+3. 标签区 `＋` 通过 credential 专用 `openExisting` 能力复用当前 partition 创建新标签。
 4. 账号切换采用“先打开目标 partition，再关闭旧 partition 标签”的顺序。
 5. 头部已重构为两个 64px 行，并落地背景色、尺寸、对齐和两个 `＋` 的独立语义。
-6. 已完成 3 个核心组件用例及 desktop TypeScript/Svelte 静态检查。
+6. 已完成 5 个核心组件用例、相关 IPC/repository/preload unit 测试及 desktop TypeScript/Svelte 静态检查。
 
 待完成：
 

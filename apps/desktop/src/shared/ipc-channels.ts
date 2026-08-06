@@ -30,6 +30,10 @@ export const IPC_CHANNELS = {
     createFromCookie: 'ota-account:create-from-cookie',
     createFromExistingSession: 'ota-account:create-from-existing-session',
   },
+  otaCredential: {
+    listByChannel: 'ota-credential:list-by-channel',
+    openExisting: 'ota-credential:open-existing',
+  },
   cookies: {
     import: 'cookies:import',
     listSources: 'cookies:list-sources',

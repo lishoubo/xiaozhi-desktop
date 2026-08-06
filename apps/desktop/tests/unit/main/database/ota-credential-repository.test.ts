@@ -48,6 +48,26 @@ describe('SqliteOtaCredentialRepository', () => {
     expect(repository.findByChannelAndAccountId(toChannelId('douyin'), 'missing')).toBeNull();
   });
 
+  it('按渠道列出全部 credential，不要求存在关联账号', () => {
+    const older = repository.create(input());
+    const newer = repository.create(
+      input({
+        id: toOtaCredentialId('credential-2'),
+        partitionName: 'persist:xiaozhi:prod:douyin:short-2',
+        discoveredAt: older.discoveredAt + 1,
+      }),
+    );
+    repository.create(
+      input({
+        id: toOtaCredentialId('credential-3'),
+        channel: toChannelId('ctrip'),
+        partitionName: 'persist:xiaozhi:prod:ctrip:short-3',
+      }),
+    );
+
+    expect(repository.listByChannel(toChannelId('douyin'))).toEqual([newer, older]);
+  });
+
   it('拒绝重复 partitionName', () => {
     repository.create(input());
     expect(() => repository.create(input({ id: toOtaCredentialId('credential-2') }))).toThrow();

@@ -38,6 +38,7 @@ export interface OtaAccountRepository {
 
 export interface OtaCredentialRepository {
   create(input: OtaCredentialCreateInput): OtaCredential;
+  listByChannel(channel: ChannelId): readonly OtaCredential[];
   findById(id: OtaCredentialId): OtaCredential | null;
   findByPartitionName(partitionName: string): OtaCredential | null;
   findByChannelAndAccountId(channel: ChannelId, channelAccountId: string): OtaCredential | null;

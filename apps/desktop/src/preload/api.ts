@@ -8,6 +8,7 @@ import {
   importedChannelSummarySchema,
   otaAccountBoundEventSchema,
   otaAccountSchema,
+  otaCredentialListSchema,
   systemPreferencesSchema,
   type BrowserBounds,
   type BrowserCookieSource,
@@ -18,6 +19,7 @@ import {
   type ImportedChannelSummary,
   type OtaAccountBoundEvent,
   type OtaAccountDto,
+  type OtaCredentialDto,
   type StartLoginInput,
   type SystemPreferences,
 } from '../shared/browser';
@@ -83,6 +85,10 @@ export type DesktopApi = Readonly<{
     createFromCookie: (input: StartLoginInput) => Promise<BrowserTab>;
     createFromExistingSession: (accountId: string) => Promise<BrowserTab>;
     onAccountBound: (listener: (event: OtaAccountBoundEvent) => void) => () => void;
+  }>;
+  otaCredential: Readonly<{
+    listByChannel: (channelId: string) => Promise<OtaCredentialDto[]>;
+    openExisting: (credentialId: string) => Promise<BrowserTab>;
   }>;
   system: Readonly<{
     getPreferences: () => Promise<SystemPreferences>;
@@ -177,7 +183,17 @@ export function createDesktopApi(
         accountId,
       ),
     onAccountBound: (listener: (event: OtaAccountBoundEvent) => void) =>
-      subscribeValidated(otaAccountBoundEventSchema, IPC_CHANNELS.otaAccount.accountBound, listener),
+      subscribeValidated(
+        otaAccountBoundEventSchema,
+        IPC_CHANNELS.otaAccount.accountBound,
+        listener,
+      ),
+  });
+  const otaCredential = Object.freeze({
+    listByChannel: (channelId: string) =>
+      invokeValidated(otaCredentialListSchema, IPC_CHANNELS.otaCredential.listByChannel, channelId),
+    openExisting: (credentialId: string) =>
+      invokeValidated(browserTabSchema, IPC_CHANNELS.otaCredential.openExisting, credentialId),
   });
   const calendar = Object.freeze({
     load: () => invokeValidated(calendarSnapshotSchema, IPC_CHANNELS.calendar.load),
@@ -205,6 +221,7 @@ export function createDesktopApi(
     calendar,
     cookies,
     otaAccount,
+    otaCredential,
     system,
   });
 }

@@ -70,6 +70,21 @@ function credentialRepository(
   channel = toChannelId('douyin'),
 ) {
   return {
+    listByChannel: vi.fn((requestedChannel) =>
+      requestedChannel === channel
+        ? [
+            {
+              id: toOtaCredentialId('credential-1'),
+              channel,
+              channelAccountId: null,
+              partitionName,
+              credentialExtra: null,
+              discoveredAt: 1,
+              lastRefreshedAt: null,
+            },
+          ]
+        : [],
+    ),
     findById: vi.fn((id) =>
       id === toOtaCredentialId('credential-1')
         ? {
@@ -283,13 +298,48 @@ describe('otaAccount.listByChannel / openExisting handlers', () => {
         listByChannel: vi.fn(() => []),
         findById: vi.fn(() => account),
       },
-      otaCredentialRepository: { findById: vi.fn(() => null) },
+      otaCredentialRepository: {
+        listByChannel: vi.fn(() => []),
+        findById: vi.fn(() => null),
+      },
     });
 
     expect(() => invoke(IPC_CHANNELS.otaAccount.openExisting, sender, 'a1')).toThrow(
       'credential credential-1 不存在',
     );
     expect(manager.createWithAlreadyPartition).not.toHaveBeenCalled();
+  });
+});
+
+describe('otaCredential.listByChannel / openExisting handlers', () => {
+  it('lists credentials without requiring linked OTA accounts and opens the default channel URL', () => {
+    const sender = {};
+    const manager = baseManager();
+    const otaCredentialRepository = credentialRepository(
+      'persist:xiaozhi:prod:ctrip:credential-only',
+      toChannelId('ctrip'),
+    );
+    registerBrowserHandlers({
+      window: { webContents: sender },
+      manager,
+      logger: createLogger(),
+      userDataDir: '/tmp/does-not-matter',
+      loginUrlMatchers: new Map(),
+      triggerDiscovery: vi.fn(),
+      otaAccountRepository: { listByChannel: vi.fn(() => []), findById: vi.fn(() => null) },
+      otaCredentialRepository,
+    });
+
+    expect(invoke(IPC_CHANNELS.otaCredential.listByChannel, sender, 'ctrip')).toEqual([
+      expect.objectContaining({ id: 'credential-1', channel: 'ctrip' }),
+    ]);
+    invoke(IPC_CHANNELS.otaCredential.openExisting, sender, 'credential-1');
+
+    expect(manager.createWithAlreadyPartition).toHaveBeenCalledWith(
+      'persist:xiaozhi:prod:ctrip:credential-only',
+      'ctrip',
+      'https://ebooking.ctrip.com/home/mainland',
+    );
   });
 });
 

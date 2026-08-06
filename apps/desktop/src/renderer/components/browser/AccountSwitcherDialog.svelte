@@ -7,19 +7,28 @@
   import { Button } from '$lib/components/ui/button';
   import * as Dialog from '$lib/components/ui/dialog';
   import { Spinner } from '$lib/components/ui/spinner';
-  import type { LoginSessionOption } from './login-session-options';
+  import type { LoginCredentialOption } from './login-credential-options';
+  import CookieImportDialog from './CookieImportDialog.svelte';
 
   type Props = Readonly<{
     channel: OtaChannel;
-    sessions: readonly LoginSessionOption[];
-    activeSession: LoginSessionOption | undefined;
+    credentials: readonly LoginCredentialOption[];
+    activeCredential: LoginCredentialOption | undefined;
     activeTabId: string | undefined;
-    onSelectSession: (session: LoginSessionOption) => Promise<boolean>;
+    onSelectCredential: (credential: LoginCredentialOption) => Promise<boolean>;
+    onCookieImport: () => Promise<boolean>;
     onNewLogin: () => Promise<boolean>;
   }>;
 
-  let { channel, sessions, activeSession, activeTabId, onSelectSession, onNewLogin }: Props =
-    $props();
+  let {
+    channel,
+    credentials,
+    activeCredential,
+    activeTabId,
+    onSelectCredential,
+    onCookieImport,
+    onNewLogin,
+  }: Props = $props();
 
   let open = $state(false);
   let busyPartition = $state<string | null>(null);
@@ -54,16 +63,16 @@
     tabToRestore = undefined;
   }
 
-  async function selectSession(session: LoginSessionOption): Promise<void> {
-    if (session.partitionName === activeSession?.partitionName) {
+  async function selectCredential(credential: LoginCredentialOption): Promise<void> {
+    if (credential.partitionName === activeCredential?.partitionName) {
       await handleOpenChange(false);
       return;
     }
 
     dismissAppNotification('account-switcher-error');
-    busyPartition = session.partitionName;
+    busyPartition = credential.partitionName;
     try {
-      const switched = await onSelectSession(session);
+      const switched = await onSelectCredential(credential);
       if (switched) await handleOpenChange(false, false);
     } finally {
       busyPartition = null;
@@ -90,6 +99,11 @@
       startingLogin = false;
     }
   }
+
+  async function finishCookieImport(): Promise<void> {
+    const started = await onCookieImport();
+    if (started) await handleOpenChange(false, false);
+  }
 </script>
 
 <Button
@@ -115,30 +129,37 @@
           </span>
           <Dialog.Title class="truncate text-xl">已登录账号列表</Dialog.Title>
         </div>
-        <Button
-          class="h-10 shrink-0 gap-2 px-4"
-          disabled={startingLogin || busyPartition !== null}
-          onclick={() => void startNewLogin()}
-        >
-          {#if startingLogin}<Spinner class="size-4" />{:else}<Plus size={17} />{/if}
-          登录新渠道账号
-        </Button>
+        <div class="flex shrink-0 items-center gap-2">
+          <CookieImportDialog
+            triggerLabel="从 Cookie 导入"
+            triggerVariant="outline"
+            onComplete={finishCookieImport}
+          />
+          <Button
+            class="h-10 shrink-0 gap-2 px-4"
+            disabled={startingLogin || busyPartition !== null}
+            onclick={() => void startNewLogin()}
+          >
+            {#if startingLogin}<Spinner class="size-4" />{:else}<Plus size={17} />{/if}
+            登录新渠道账号
+          </Button>
+        </div>
       </div>
       <Dialog.Description class="sr-only">
-        切换 {channel.name} 已保存的登录账号，或登录新的渠道账号。
+        切换 {channel.name} 已保存的登录账号、从 Cookie 导入或登录新的渠道账号。
       </Dialog.Description>
     </Dialog.Header>
 
-    {#if sessions.length === 0}
+    {#if credentials.length === 0}
       <div
         class="grid min-h-40 place-items-center rounded-xl bg-[#f7f8fa] px-6 text-sm text-[#747b89]"
       >
-        当前渠道暂无已识别的登录账号
+        当前渠道暂无登录凭据
       </div>
     {:else}
       <div class="grid gap-3" aria-label={`${channel.name} 已登录账号`}>
-        {#each sessions as session (session.partitionName)}
-          {@const isActive = session.partitionName === activeSession?.partitionName}
+        {#each credentials as credential (credential.partitionName)}
+          {@const isActive = credential.partitionName === activeCredential?.partitionName}
           <button
             type="button"
             class={[
@@ -149,7 +170,7 @@
             ]}
             disabled={startingLogin || busyPartition !== null}
             aria-pressed={isActive}
-            onclick={() => void selectSession(session)}
+            onclick={() => void selectCredential(credential)}
           >
             <span class="min-w-0">
               <span class="mb-3 flex items-center gap-2.5">
@@ -165,14 +186,11 @@
                 <span class="text-base font-semibold text-[#292e3a]">{channel.shortName}</span>
               </span>
               <span class="block truncate text-sm text-[#747b89]">
-                {isActive ? '当前使用账号' : '登录账号'}：{session.label}
-                {#if session.relatedAccountCount > 1}
-                  · 关联 {session.relatedAccountCount} 家门店
-                {/if}
+                {isActive ? '当前使用账号' : '登录账号'}：{credential.label}
               </span>
             </span>
 
-            {#if busyPartition === session.partitionName}
+            {#if busyPartition === credential.partitionName}
               <Spinner class="size-5 shrink-0" aria-label="正在切换账号" />
             {/if}
           </button>

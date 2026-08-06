@@ -129,6 +129,24 @@ export const otaAccountSchema = z.strictObject({
 
 export type OtaAccountDto = Readonly<z.infer<typeof otaAccountSchema>>;
 
+export const otaCredentialSchema = z.strictObject({
+  id: nonEmptyStringSchema,
+  channel: nonEmptyStringSchema,
+  channelAccountId: z.string().nullable(),
+  partitionName: nonEmptyStringSchema,
+  credentialExtra: jsonObjectSchema.nullable(),
+  discoveredAt: z.number(),
+  lastRefreshedAt: z.number().nullable(),
+});
+
+export type OtaCredentialDto = Readonly<z.infer<typeof otaCredentialSchema>>;
+
+export const otaCredentialListSchema = z.array(otaCredentialSchema);
+
+export const otaCredentialChannelSchema = nonEmptyStringSchema;
+
+export const otaCredentialIdSchema = nonEmptyStringSchema;
+
 export const otaAccountBoundEventSchema = z.strictObject({
   channel: nonEmptyStringSchema,
 });

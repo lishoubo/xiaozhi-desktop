@@ -8,6 +8,7 @@ import {
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import Database from 'better-sqlite3';
 
 let electronApp: ElectronApplication;
 let page: Page;
@@ -93,6 +94,105 @@ test('starts the Electron window with the Svelte browser shell', async () => {
 
   expect(versions.electron).toBeTruthy();
   expect(versions.name).toBeTruthy();
+});
+
+test('uses credential-backed account switching and shared-session tabs', async (_fixtures, testInfo) => {
+  await login();
+  await page.getByRole('button', { name: '暂不导入' }).click();
+
+  const databasePath = path.join(runtimeDirectory, 'user-data', 'hotel-butler.sqlite');
+  const insertCredentialSql = `
+    INSERT INTO ota_credential
+      (id, channel, channel_account_id, partition_name, credential_extra,
+       discovered_at, last_refreshed_at)
+    VALUES
+      (@id, 'ctrip', @channelAccountId, @partitionName, @credentialExtra,
+       @discoveredAt, @discoveredAt)
+  `;
+  const credentialB = {
+    id: 'e2e-credential-b',
+    channelAccountId: 'e2e-account-b',
+    partitionName: 'persist:xiaozhi:prod:ctrip:e2e-b',
+    credentialExtra: JSON.stringify({ hotelName: '测试登录账号 B' }),
+    discoveredAt: 1,
+  };
+  const database = new Database(databasePath);
+  const insertCredential = database.prepare(insertCredentialSql);
+  insertCredential.run({
+    id: 'e2e-credential-a',
+    channelAccountId: 'e2e-account-a',
+    partitionName: 'persist:xiaozhi:prod:ctrip:e2e-a',
+    credentialExtra: JSON.stringify({ hotelName: '测试登录账号 A' }),
+    discoveredAt: 2,
+  });
+  insertCredential.run(credentialB);
+  database.close();
+
+  await page.getByRole('button', { name: '美团酒店' }).click();
+  await page.getByRole('button', { name: '携程酒店 eBooking' }).click();
+  const accountArea = page.getByLabel('当前登录账号');
+  const accountSwitcher = page.getByRole('button', { name: '切换登录账号' });
+  await expect(accountArea).toContainText('携程酒店 eBooking');
+
+  await accountSwitcher.click();
+  const dialog = page.getByRole('dialog', { name: '已登录账号列表' });
+  await expect(dialog.getByRole('button', { name: /测试登录账号 A/ })).toBeVisible();
+  await expect(dialog.getByRole('button', { name: /测试登录账号 B/ })).toBeVisible();
+  await dialog.screenshot({
+    path: testInfo.outputPath('browser-workspace-credential-dialog.png'),
+  });
+  await page.screenshot({
+    path: testInfo.outputPath('browser-workspace-credential-list-wide.png'),
+  });
+  await page.keyboard.press('Escape');
+  await expect(dialog).toBeHidden();
+
+  await electronApp.evaluate(({ BrowserWindow }) => {
+    BrowserWindow.getAllWindows()[0]?.setSize(860, 700);
+  });
+  await expect(accountSwitcher).toBeVisible();
+  await expect(accountArea).toBeVisible();
+  await page.screenshot({
+    path: testInfo.outputPath('browser-workspace-empty-narrow.png'),
+  });
+  await electronApp.evaluate(({ BrowserWindow }) => {
+    BrowserWindow.getAllWindows()[0]?.setSize(1200, 800);
+  });
+
+  await accountSwitcher.click();
+  await dialog.getByRole('button', { name: /测试登录账号 A/ }).click();
+  await expect(accountArea).toContainText('测试登录账号 A');
+  await expect(page.getByRole('tab')).toHaveCount(1);
+
+  await page.getByRole('button', { name: '新建标签页' }).click();
+  await expect(page.getByRole('tab')).toHaveCount(2);
+  await accountSwitcher.click();
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('tab')).toHaveCount(2);
+
+  await accountSwitcher.click();
+  const failureDatabase = new Database(databasePath);
+  failureDatabase.prepare('DELETE FROM ota_credential WHERE id = ?').run(credentialB.id);
+  failureDatabase.close();
+  await dialog.getByRole('button', { name: /测试登录账号 B/ }).click();
+  await expect(dialog).toBeVisible();
+  await expect(page.getByText('打开账号页面失败，请重试')).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('tab')).toHaveCount(2);
+  await expect(accountArea).toContainText('测试登录账号 A');
+
+  const restoredDatabase = new Database(databasePath);
+  restoredDatabase.prepare(insertCredentialSql).run(credentialB);
+  restoredDatabase.close();
+  await accountSwitcher.click();
+  await dialog.getByRole('button', { name: /测试登录账号 B/ }).click();
+  await expect(accountArea).toContainText('测试登录账号 B');
+  await expect(page.getByRole('tab')).toHaveCount(1);
+
+  await page.locator('button[aria-label^="关闭 "]').click();
+  await expect(page.getByRole('tab')).toHaveCount(0);
+  await expect(accountArea).toContainText('携程酒店 eBooking');
+  await expect(page.getByRole('button', { name: '新建标签页' })).toBeDisabled();
 });
 
 test('opens the AI concierge from the icon sidebar', async () => {

@@ -10,7 +10,7 @@
   import RotateCw from '@lucide/svelte/icons/rotate-cw';
   import VolumeX from '@lucide/svelte/icons/volume-x';
   import X from '@lucide/svelte/icons/x';
-  import type { BrowserTab, OtaAccountDto } from '../../../shared/browser';
+  import type { BrowserTab, OtaCredentialDto } from '../../../shared/browser';
   import {
     enter,
     LAYOUT_ANIMATION_OPTIONS,
@@ -26,16 +26,16 @@
   import AccountSwitcherDialog from './AccountSwitcherDialog.svelte';
   import CookieImportDialog from './CookieImportDialog.svelte';
   import {
-    buildLoginSessionOptions,
-    currentLoginSession,
-    type LoginSessionOption,
-  } from './login-session-options';
+    buildLoginCredentialOptions,
+    currentLoginCredential,
+    type LoginCredentialOption,
+  } from './login-credential-options';
 
   const COOKIE_PROMPT_KEY = 'hotel-butler.cookie-import-prompted';
   let activeChannelId = $state(OTA_CHANNELS[0].id);
   let activeTabIds = $state<Record<string, string>>({});
   let tabsByChannel = $state<Record<string, BrowserTab[]>>({});
-  let accountsByChannel = $state<Record<string, OtaAccountDto[]>>({});
+  let credentialsByChannel = $state<Record<string, OtaCredentialDto[]>>({});
   let viewport: HTMLElement | undefined;
   let cookiePrompt = $state(false);
   let openingSessionTab = $state(false);
@@ -43,10 +43,12 @@
   let activeTab = $derived(
     activeTabs.find((tab) => tab.id === activeTabIds[activeChannelId]) ?? activeTabs[0],
   );
-  let activeAccounts = $derived(accountsByChannel[activeChannelId] ?? []);
+  let activeCredentials = $derived(credentialsByChannel[activeChannelId] ?? []);
   let activeChannel = $derived(OTA_CHANNELS.find((item) => item.id === activeChannelId));
-  let activeSessions = $derived(buildLoginSessionOptions(activeAccounts));
-  let activeSession = $derived(currentLoginSession(activeSessions, activeTab?.partitionName));
+  let activeCredentialOptions = $derived(buildLoginCredentialOptions(activeCredentials));
+  let activeCredential = $derived(
+    currentLoginCredential(activeCredentialOptions, activeTab?.partitionName),
+  );
 
   function reportBrowserFailure(event: string, message: string, reason: unknown): void {
     log.warn(event, {
@@ -86,18 +88,23 @@
     }
   }
 
-  async function loadAccounts(channelId: string): Promise<void> {
+  async function loadCredentials(channelId: string): Promise<void> {
     try {
-      accountsByChannel[channelId] = await window.hotelButler.otaAccount.listByChannel(channelId);
+      credentialsByChannel[channelId] =
+        await window.hotelButler.otaCredential.listByChannel(channelId);
     } catch (error) {
-      reportBrowserFailure('Ota accounts could not be loaded', '账号列表加载失败，请重试', error);
+      reportBrowserFailure(
+        'Ota credentials could not be loaded',
+        '登录凭据列表加载失败，请重试',
+        error,
+      );
     }
   }
 
   async function selectChannel(channel: OtaChannel): Promise<void> {
     dismissAppNotification('browser-operation-error');
     activeChannelId = channel.id;
-    void loadAccounts(channel.id);
+    void loadCredentials(channel.id);
     const tabId = activeTabIds[channel.id];
     try {
       if (tabId) {
@@ -113,17 +120,19 @@
     }
   }
 
-  async function openExistingAccountTab(account: OtaAccountDto): Promise<BrowserTab | null> {
+  async function openExistingCredentialTab(
+    credential: OtaCredentialDto,
+  ): Promise<BrowserTab | null> {
     dismissAppNotification('browser-operation-error');
     try {
-      const tab = await window.hotelButler.otaAccount.openExisting(account.id);
+      const tab = await window.hotelButler.otaCredential.openExisting(credential.id);
       updateTab(tab);
-      activeTabIds[account.channel] = tab.id;
+      activeTabIds[credential.channel] = tab.id;
       await syncBounds();
       return tab;
     } catch (error) {
       reportBrowserFailure(
-        'Ota account tab could not be opened',
+        'Ota credential tab could not be opened',
         '打开账号页面失败，请重试',
         error,
       );
@@ -158,18 +167,18 @@
   }
 
   async function openNewTabForActiveSession(): Promise<void> {
-    if (!activeSession || openingSessionTab) return;
+    if (!activeCredential || openingSessionTab) return;
     openingSessionTab = true;
     try {
-      await openExistingAccountTab(activeSession.representativeAccount);
+      await openExistingCredentialTab(activeCredential.credential);
     } finally {
       openingSessionTab = false;
     }
   }
 
-  async function switchLoginSession(session: LoginSessionOption): Promise<boolean> {
+  async function switchLoginCredential(credential: LoginCredentialOption): Promise<boolean> {
     const previousTabs = [...activeTabs];
-    const alreadyOpen = previousTabs.find((tab) => tab.partitionName === session.partitionName);
+    const alreadyOpen = previousTabs.find((tab) => tab.partitionName === credential.partitionName);
     let targetTab = alreadyOpen;
 
     if (targetTab) {
@@ -185,7 +194,7 @@
         return false;
       }
     } else {
-      targetTab = (await openExistingAccountTab(session.representativeAccount)) ?? undefined;
+      targetTab = (await openExistingCredentialTab(credential.credential)) ?? undefined;
       if (!targetTab) return false;
     }
 
@@ -204,6 +213,32 @@
     return true;
   }
 
+  async function loginFromImportedCookiesForActiveChannel(): Promise<boolean> {
+    const channel = OTA_CHANNELS.find((item) => item.id === activeChannelId);
+    if (!channel) return false;
+    const previousTabs = [...activeTabs];
+    dismissAppNotification('browser-operation-error');
+    try {
+      const tab = await window.hotelButler.otaAccount.createFromCookie({
+        channelId: channel.id,
+        environment: 'prod',
+        url: channel.url,
+      });
+      updateTab(tab);
+      activeTabIds[channel.id] = tab.id;
+      await closeSupersededTabs(tab.channelId, tab.partitionName, previousTabs);
+      await syncBounds();
+      return true;
+    } catch (error) {
+      reportBrowserFailure(
+        'Imported cookies could not open the active channel',
+        `未在导入结果中找到可用的${channel.name}登录态`,
+        error,
+      );
+      return false;
+    }
+  }
+
   async function selectTab(tab: BrowserTab): Promise<void> {
     dismissAppNotification('browser-operation-error');
     try {
@@ -217,23 +252,34 @@
 
   async function closeTab(tab: BrowserTab): Promise<void> {
     dismissAppNotification('browser-operation-error');
+    const tabs = tabsByChannel[tab.channelId] ?? [];
+    const index = tabs.findIndex((item) => item.id === tab.id);
     try {
-      const tabs = tabsByChannel[tab.channelId] ?? [];
-      const index = tabs.findIndex((item) => item.id === tab.id);
       await window.hotelButler.browser.close(tab.id);
-      const nextTabs = tabs.filter((item) => item.id !== tab.id);
-      tabsByChannel[tab.channelId] = nextTabs;
-      if (activeTabIds[tab.channelId] === tab.id) {
-        const next = nextTabs[Math.min(index, nextTabs.length - 1)];
-        if (next) {
-          await window.hotelButler.browser.activate(next.id);
-          activeTabIds[tab.channelId] = next.id;
-        } else {
-          delete activeTabIds[tab.channelId];
-        }
-      }
     } catch (error) {
       reportBrowserFailure('Browser tab could not be closed', '标签关闭失败，请重试', error);
+      return;
+    }
+
+    const nextTabs = tabs.filter((item) => item.id !== tab.id);
+    tabsByChannel[tab.channelId] = nextTabs;
+    if (activeTabIds[tab.channelId] !== tab.id) return;
+
+    const next = nextTabs[Math.min(index, nextTabs.length - 1)];
+    if (!next) {
+      delete activeTabIds[tab.channelId];
+      return;
+    }
+
+    activeTabIds[tab.channelId] = next.id;
+    try {
+      await window.hotelButler.browser.activate(next.id);
+    } catch (error) {
+      reportBrowserFailure(
+        'Adjacent browser tab could not be activated after close',
+        '相邻标签激活失败，请重试',
+        error,
+      );
     }
   }
 
@@ -297,7 +343,7 @@
       });
     });
     const unsubscribeAccountBound = window.hotelButler.otaAccount.onAccountBound(({ channel }) => {
-      if (channel === activeChannelId) void loadAccounts(channel);
+      if (channel === activeChannelId) void loadCredentials(channel);
     });
     const observer = new ResizeObserver(() => void syncBounds());
     if (viewport) observer.observe(viewport);
@@ -307,7 +353,7 @@
       updateTab(pendingTab);
       activeChannelId = pendingTab.channelId;
       activeTabIds[pendingTab.channelId] = pendingTab.id;
-      void loadAccounts(pendingTab.channelId);
+      void loadCredentials(pendingTab.channelId);
       cookiePrompt = false;
       void window.hotelButler.browser
         .activate(pendingTab.id)
@@ -322,7 +368,7 @@
           }
         });
     } else {
-      void loadAccounts(activeChannelId);
+      void loadCredentials(activeChannelId);
       cookiePrompt = localStorage.getItem(COOKIE_PROMPT_KEY) !== 'true';
       if (!cookiePrompt) {
         void window.hotelButler.browser
@@ -490,8 +536,8 @@
         size="icon-sm"
         class="shrink-0 text-[#5f6673] hover:bg-[#eef1f5]"
         aria-label="新建标签页"
-        title={activeSession ? '新建标签页' : '请先选择登录账号'}
-        disabled={!activeSession || openingSessionTab}
+        title={activeCredential ? '新建标签页' : '请先选择登录账号'}
+        disabled={!activeCredential || openingSessionTab}
         onclick={() => void openNewTabForActiveSession()}
       >
         {#if openingSessionTab}
@@ -505,11 +551,11 @@
     <div class="flex min-w-0 shrink-0 items-center gap-2" aria-label="当前登录账号">
       <div
         class="grid h-10 w-[clamp(220px,19vw,300px)] grid-cols-[20px_minmax(0,1fr)_20px] items-center rounded-[10px] border border-primary bg-white px-3 text-sm text-[#242936]"
-        title={activeSession?.label ?? (activeTab ? '正在登录' : '未选择账号')}
+        title={activeCredential?.label ?? activeChannel?.name ?? '未选择渠道'}
       >
         <span aria-hidden="true"></span>
         <span class="truncate text-center font-medium">
-          {activeSession?.label ?? (activeTab ? '正在登录' : '未选择账号')}
+          {activeCredential?.label ?? activeChannel?.name ?? '未选择渠道'}
         </span>
         <VolumeX class="justify-self-end text-[#69707d]" size={16} strokeWidth={1.7} />
       </div>
@@ -517,10 +563,11 @@
       {#if activeChannel}
         <AccountSwitcherDialog
           channel={activeChannel}
-          sessions={activeSessions}
-          {activeSession}
+          credentials={activeCredentialOptions}
+          {activeCredential}
           activeTabId={activeTab?.id}
-          onSelectSession={switchLoginSession}
+          onSelectCredential={switchLoginCredential}
+          onCookieImport={loginFromImportedCookiesForActiveChannel}
           onNewLogin={newLoginForActiveChannel}
         />
       {/if}

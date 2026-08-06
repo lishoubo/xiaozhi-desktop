@@ -67,6 +67,18 @@ export class SqliteOtaCredentialRepository implements OtaCredentialRepository {
     return credential;
   }
 
+  listByChannel(channel: ChannelId): readonly OtaCredential[] {
+    return this.database
+      .prepare<[string], OtaCredentialRow>(
+        `SELECT ${SELECT_COLUMNS}
+         FROM ota_credential
+         WHERE channel = ?
+         ORDER BY discovered_at DESC`,
+      )
+      .all(channel)
+      .map(credentialFromRow);
+  }
+
   findById(id: OtaCredentialId): OtaCredential | null {
     const row = this.database
       .prepare<[string], OtaCredentialRow>(

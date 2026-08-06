@@ -26,6 +26,12 @@ export class UnsupportedChannelForLandingUrlError extends Error {
   }
 }
 
+export function otaChannelLandingUrl(channel: ChannelId): string {
+  const defaultUrl = CHANNEL_DEFAULT_URLS.get(channel);
+  if (!defaultUrl) throw new UnsupportedChannelForLandingUrlError(channel);
+  return defaultUrl;
+}
+
 /**
  * 抖音场景 `bindExtra.merchantGroupId` 存 groupid，拼回门店首页；缺失时（历史数据、
  * 探测未能解析出 groupid）退化到不带 groupid 的登录后台首页，而不是
@@ -38,7 +44,5 @@ export function otaAccountLandingUrl(account: Pick<OtaAccount, 'channel' | 'bind
   if (account.channel === 'douyin' && merchantGroupId) {
     return `${DOUYIN_HOME_URL}?groupid=${encodeURIComponent(merchantGroupId)}`;
   }
-  const defaultUrl = CHANNEL_DEFAULT_URLS.get(account.channel);
-  if (!defaultUrl) throw new UnsupportedChannelForLandingUrlError(account.channel);
-  return defaultUrl;
+  return otaChannelLandingUrl(account.channel);
 }

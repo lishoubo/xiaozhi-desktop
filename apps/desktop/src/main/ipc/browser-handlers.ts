@@ -8,17 +8,27 @@ import {
   createFromExistingSessionInputSchema,
   otaAccountChannelSchema,
   otaAccountIdSchema,
+  otaCredentialChannelSchema,
+  otaCredentialIdSchema,
   startLoginInputSchema,
   type BrowserBounds,
   type SystemPreferences,
 } from '../../shared/browser';
-import { toChannelId, toOtaAccountId, type ChannelId } from '../../domain/identity';
+import {
+  toChannelId,
+  toOtaAccountId,
+  toOtaCredentialId,
+  type ChannelId,
+} from '../../domain/identity';
 import type { LoginUrlMatcher } from '../../domain/ports/discovery';
 import type {
   OtaAccountRepository,
   OtaCredentialRepository,
 } from '../../domain/ports/repositories';
-import { otaAccountLandingUrl } from '../../domain/policy/ota-account-landing-url-policy';
+import {
+  otaAccountLandingUrl,
+  otaChannelLandingUrl,
+} from '../../domain/policy/ota-account-landing-url-policy';
 import { IPC_CHANNELS } from '../../shared/ipc-channels';
 import type { AppLogger } from '../../shared/logging';
 import { BrowserCookieImporter } from '../cookie-import/browser-cookie-importer';
@@ -62,7 +72,7 @@ type RegisterBrowserHandlersOptions = Readonly<{
     webContents: WebContents,
   ) => Promise<boolean>;
   otaAccountRepository: Pick<OtaAccountRepository, 'listByChannel' | 'findById'>;
-  otaCredentialRepository: Pick<OtaCredentialRepository, 'findById'>;
+  otaCredentialRepository: Pick<OtaCredentialRepository, 'findById' | 'listByChannel'>;
 }>;
 
 function systemPreferences(): SystemPreferences {
@@ -231,6 +241,28 @@ export function registerBrowserHandlers({
     },
   );
   handle(
+    IPC_CHANNELS.otaCredential.listByChannel,
+    z.tuple([otaCredentialChannelSchema]),
+    '渠道标识无效',
+    (_event, channelId) => otaCredentialRepository.listByChannel(toChannelId(channelId)),
+  );
+  handle(
+    IPC_CHANNELS.otaCredential.openExisting,
+    z.tuple([otaCredentialIdSchema]),
+    '登录凭据标识无效',
+    (_event, credentialId) => {
+      const credential = otaCredentialRepository.findById(toOtaCredentialId(credentialId));
+      if (!credential) throw new Error('未找到该登录凭据');
+      const url = otaChannelLandingUrl(credential.channel);
+      logger.info('Opening existing OTA credential', {
+        credentialId,
+        channel: credential.channel,
+        url,
+      });
+      return manager.createWithAlreadyPartition(credential.partitionName, credential.channel, url);
+    },
+  );
+  handle(
     IPC_CHANNELS.cookies.import,
     z.tuple([browserCookieSourceIdSchema]),
     '浏览器类型无效',
@@ -292,6 +324,7 @@ export function registerBrowserHandlers({
     ...Object.values(IPC_CHANNELS.otaAccount).filter(
       (channel) => channel !== IPC_CHANNELS.otaAccount.accountBound,
     ),
+    ...Object.values(IPC_CHANNELS.otaCredential),
     ...Object.values(IPC_CHANNELS.system),
   ];
   return () => {

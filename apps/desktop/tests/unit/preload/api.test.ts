@@ -227,6 +227,41 @@ describe('createDesktopApi', () => {
     ]);
   });
 
+  it('maps otaCredential reads and opens to fixed IPC channels', async () => {
+    const credential = {
+      id: 'credential-1',
+      channel: 'douyin',
+      channelAccountId: 'user-1',
+      partitionName: 'persist:xiaozhi:prod:douyin:short',
+      credentialExtra: { name: '运营账号' },
+      discoveredAt: 1000,
+      lastRefreshedAt: null,
+    };
+    const tab = {
+      id: 'tab-1',
+      channelId: 'douyin',
+      title: '抖音来客',
+      url: 'https://life.douyin.com/p/home',
+      canGoBack: false,
+      canGoForward: false,
+      loading: false,
+      partitionName: credential.partitionName,
+    };
+    const invoke = vi.fn(async (channel: string) => {
+      if (channel === IPC_CHANNELS.otaCredential.listByChannel) return [credential];
+      if (channel === IPC_CHANNELS.otaCredential.openExisting) return tab;
+      return undefined;
+    });
+    const api = createDesktopApi({ chrome: '1', electron: '2', node: '3' }, invoke);
+
+    await expect(api.otaCredential.listByChannel('douyin')).resolves.toEqual([credential]);
+    await expect(api.otaCredential.openExisting('credential-1')).resolves.toEqual(tab);
+    expect(invoke.mock.calls).toEqual([
+      [IPC_CHANNELS.otaCredential.listByChannel, 'douyin'],
+      [IPC_CHANNELS.otaCredential.openExisting, 'credential-1'],
+    ]);
+  });
+
   it('subscribes to sanitized ota-account bound events', () => {
     const subscribe = vi.fn();
     const listener = vi.fn();
