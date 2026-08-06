@@ -1,10 +1,16 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { toChannelId, toOtaAccountId, toOtaHotelId } from '../../../../src/domain/identity';
+import {
+  toChannelId,
+  toOtaAccountId,
+  toOtaCredentialId,
+  toOtaHotelId,
+} from '../../../../src/domain/identity';
 import {
   openApplicationDatabase,
   type ApplicationDatabase,
 } from '../../../../src/main/database/application-database';
 import { SqliteOtaAccountRepository } from '../../../../src/main/database/ota-account-repository';
+import { SqliteOtaCredentialRepository } from '../../../../src/main/database/ota-credential-repository';
 
 function createLogger() {
   return { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
@@ -13,11 +19,11 @@ function createLogger() {
 function input(overrides: Partial<Parameters<SqliteOtaAccountRepository['create']>[0]> = {}) {
   return {
     id: toOtaAccountId('account-1'),
+    credentialId: toOtaCredentialId('credential-1'),
     channel: toChannelId('douyin'),
     otaHotelId: toOtaHotelId('dy-111'),
     otaHotelName: null,
-    partitionName: 'persist:xiaozhi:prod:douyin:short-1',
-    channelContext: null,
+    bindExtra: null,
     discoveredAt: 1_700_000_000_000,
     ...overrides,
   };
@@ -25,9 +31,27 @@ function input(overrides: Partial<Parameters<SqliteOtaAccountRepository['create'
 
 let database: ApplicationDatabase;
 let repository: SqliteOtaAccountRepository;
+let credentialRepository: SqliteOtaCredentialRepository;
 
 beforeEach(() => {
   database = openApplicationDatabase(':memory:', createLogger());
+  credentialRepository = new SqliteOtaCredentialRepository(database);
+  credentialRepository.create({
+    id: toOtaCredentialId('credential-1'),
+    channel: toChannelId('douyin'),
+    partitionName: 'persist:xiaozhi:prod:douyin:short-1',
+    credentialExtra: null,
+    discoveredAt: 1,
+    lastRefreshedAt: null,
+  });
+  credentialRepository.create({
+    id: toOtaCredentialId('credential-2'),
+    channel: toChannelId('douyin'),
+    partitionName: 'persist:xiaozhi:prod:douyin:short-2',
+    credentialExtra: null,
+    discoveredAt: 2,
+    lastRefreshedAt: null,
+  });
   repository = new SqliteOtaAccountRepository(database);
 });
 
@@ -36,7 +60,8 @@ describe('SqliteOtaAccountRepository', () => {
     repository.create(input());
 
     const found = repository.findByChannelAndHotelId(toChannelId('douyin'), toOtaHotelId('dy-111'));
-    expect(found?.partitionName).toBe('persist:xiaozhi:prod:douyin:short-1');
+    expect(found?.credentialId).toBe('credential-1');
+    expect(found).not.toHaveProperty('partitionName');
   });
 
   it('查询不存在的渠道+门店组合返回 null', () => {
@@ -46,11 +71,16 @@ describe('SqliteOtaAccountRepository', () => {
   });
 
   it('多个账号并存，互不影响——同渠道不同门店、同门店不同渠道', () => {
-    repository.create(input({ id: toOtaAccountId('account-1'), otaHotelId: toOtaHotelId('dy-111') }));
-    repository.create(input({ id: toOtaAccountId('account-2'), otaHotelId: toOtaHotelId('dy-222') }));
+    repository.create(
+      input({ id: toOtaAccountId('account-1'), otaHotelId: toOtaHotelId('dy-111') }),
+    );
+    repository.create(
+      input({ id: toOtaAccountId('account-2'), otaHotelId: toOtaHotelId('dy-222') }),
+    );
     repository.create(
       input({
         id: toOtaAccountId('account-3'),
+        credentialId: toOtaCredentialId('credential-1'),
         channel: toChannelId('ctrip'),
         otaHotelId: toOtaHotelId('dy-111'),
       }),
@@ -72,39 +102,62 @@ describe('SqliteOtaAccountRepository', () => {
     expect(() => repository.create(input({ id: toOtaAccountId('account-2') }))).toThrow();
   });
 
-  it('查重命中：updatePartitionName 更新登录态指针，账号 id 与门店不变', () => {
+  it('查重命中：updateDiscovery 更新登录态引用和酒店发现事实，账号 id 不变', () => {
     const created = repository.create(input());
 
-    const updated = repository.updatePartitionName(created.id, 'persist:xiaozhi:prod:douyin:short-2');
+    const updated = repository.updateDiscovery(created.id, {
+      credentialId: toOtaCredentialId('credential-2'),
+      otaHotelName: '新酒店名',
+      bindExtra: { merchantGroupId: 'group-2' },
+      discoveredAt: 2_000,
+    });
 
     expect(updated.id).toBe(created.id);
     expect(updated.otaHotelId).toBe(created.otaHotelId);
-    expect(updated.partitionName).toBe('persist:xiaozhi:prod:douyin:short-2');
+    expect(updated.credentialId).toBe('credential-2');
+    expect(updated.otaHotelName).toBe('新酒店名');
+    expect(updated.bindExtra).toEqual({ merchantGroupId: 'group-2' });
+    expect(updated.discoveredAt).toBe(2_000);
     expect(
       repository.findByChannelAndHotelId(toChannelId('douyin'), toOtaHotelId('dy-111'))
-        ?.partitionName,
-    ).toBe('persist:xiaozhi:prod:douyin:short-2');
+        ?.credentialId,
+    ).toBe('credential-2');
   });
 
-  it('updatePartitionName 对不存在的账号 id 抛错', () => {
+  it('updateDiscovery 对不存在的账号 id 抛错', () => {
     expect(() =>
-      repository.updatePartitionName(toOtaAccountId('missing'), 'persist:xiaozhi:prod:douyin:x'),
+      repository.updateDiscovery(toOtaAccountId('missing'), {
+        credentialId: toOtaCredentialId('credential-2'),
+        otaHotelName: null,
+        bindExtra: null,
+        discoveredAt: 2,
+      }),
     ).toThrow('未找到 OtaAccount');
   });
 
-  it('create 正确写入 channelContext 与 discoveredAt', () => {
-    const created = repository.create(input({ channelContext: 'group-1', discoveredAt: 1_234 }));
+  it('create 正确写入 bindExtra 与 discoveredAt', () => {
+    const created = repository.create(
+      input({ bindExtra: { merchantGroupId: 'group-1' }, discoveredAt: 1_234 }),
+    );
 
-    expect(created.channelContext).toBe('group-1');
+    expect(created.bindExtra).toEqual({ merchantGroupId: 'group-1' });
     expect(created.discoveredAt).toBe(1_234);
   });
 
   it('listByChannel 按 discoveredAt 降序返回，且跨渠道过滤', () => {
     repository.create(
-      input({ id: toOtaAccountId('account-1'), otaHotelId: toOtaHotelId('dy-111'), discoveredAt: 100 }),
+      input({
+        id: toOtaAccountId('account-1'),
+        otaHotelId: toOtaHotelId('dy-111'),
+        discoveredAt: 100,
+      }),
     );
     repository.create(
-      input({ id: toOtaAccountId('account-2'), otaHotelId: toOtaHotelId('dy-222'), discoveredAt: 300 }),
+      input({
+        id: toOtaAccountId('account-2'),
+        otaHotelId: toOtaHotelId('dy-222'),
+        discoveredAt: 300,
+      }),
     );
     repository.create(
       input({

@@ -93,7 +93,7 @@ export class BrowserManager {
   }
 
   /**
-   * 已有账号：直接用它的 `OtaAccount.partitionName` 开标签页。
+   * 已有 credential：直接用它的 `partitionName` 开标签页。
    * `options` 默认不传，行为与流程B（打开已有账号）现状完全一致；传入
    * `onUrlPastLogin`/`loginUrlMatcher` 时用于"从其他登录态创建账号"——
    * 复用已有 partition 打开页面后，用户在页面内切换到另一个门店/公司，
@@ -104,7 +104,11 @@ export class BrowserManager {
     channelId: string,
     url: string,
     options: Readonly<{
-      onUrlPastLogin?: (partitionName: string, landingUrl: string, webContents: WebContents) => void;
+      onUrlPastLogin?: (
+        partitionName: string,
+        landingUrl: string,
+        webContents: WebContents,
+      ) => void;
       loginUrlMatcher?: LoginUrlMatcher;
     }> = {},
   ): BrowserTab {
@@ -139,9 +143,17 @@ export class BrowserManager {
     url: string,
     options: Readonly<{
       importedCookies?: readonly CookiesSetDetails[];
-      onUrlPastLogin?: (partitionName: string, landingUrl: string, webContents: WebContents) => void;
+      onUrlPastLogin?: (
+        partitionName: string,
+        landingUrl: string,
+        webContents: WebContents,
+      ) => void;
       loginUrlMatcher?: LoginUrlMatcher;
-      onLoadFinished?: (partitionName: string, landingUrl: string, webContents: WebContents) => void;
+      onLoadFinished?: (
+        partitionName: string,
+        landingUrl: string,
+        webContents: WebContents,
+      ) => void;
     }> = {},
   ): Promise<Readonly<{ tab: BrowserTab; partitionName: string }>> {
     const { session: tabSession, partitionName } = this.sessionFactory.sessionForLogin(

@@ -256,20 +256,22 @@ describe('BrowserWorkspace', () => {
     listByChannel.mockResolvedValue([
       {
         id: 'a1',
+        credentialId: 'credential-1',
         channel: 'ctrip',
         otaHotelId: 'ctrip-1',
         otaHotelName: '银际酒店(包头)',
         partitionName: 'persist:xiaozhi:prod:ctrip:aaa',
-        channelContext: null,
+        bindExtra: null,
         discoveredAt: 1000,
       },
       {
         id: 'a2',
+        credentialId: 'credential-2',
         channel: 'ctrip',
         otaHotelId: 'ctrip-2',
         otaHotelName: null,
         partitionName: 'persist:xiaozhi:prod:ctrip:bbb',
-        channelContext: null,
+        bindExtra: null,
         discoveredAt: 2000,
       },
     ]);
@@ -285,11 +287,12 @@ describe('BrowserWorkspace', () => {
     listByChannel.mockResolvedValue([
       {
         id: 'a1',
+        credentialId: 'credential-1',
         channel: 'ctrip',
         otaHotelId: 'ctrip-1',
         otaHotelName: '璞禾咖啡酒店',
         partitionName: 'persist:xiaozhi:prod:ctrip:aaa',
-        channelContext: null,
+        bindExtra: null,
         discoveredAt: 1000,
       },
     ]);
@@ -316,11 +319,12 @@ describe('BrowserWorkspace', () => {
     listByChannel.mockResolvedValue([
       {
         id: 'a1',
+        credentialId: 'credential-1',
         channel: 'ctrip',
         otaHotelId: 'ctrip-1',
         otaHotelName: '携程后台',
         partitionName: 'persist:xiaozhi:dev:ctrip:stub',
-        channelContext: null,
+        bindExtra: null,
         discoveredAt: 1000,
       },
     ]);
@@ -363,11 +367,12 @@ describe('BrowserWorkspace', () => {
     listByChannel.mockResolvedValue([
       {
         id: 'a1',
+        credentialId: 'credential-1',
         channel: 'ctrip',
         otaHotelId: 'ctrip-1',
         otaHotelName: '新绑定门店',
         partitionName: 'persist:xiaozhi:dev:ctrip:stub',
-        channelContext: null,
+        bindExtra: null,
         discoveredAt: 1000,
       },
     ]);

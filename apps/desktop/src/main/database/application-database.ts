@@ -127,6 +127,41 @@ const migrations: readonly Migration[] = [
       `);
     },
   },
+  {
+    version: 6,
+    name: 'split-ota-credential-from-account',
+    apply(database) {
+      database.exec(`
+        DROP TABLE ota_account;
+
+        CREATE TABLE ota_credential (
+          id TEXT PRIMARY KEY,
+          channel TEXT NOT NULL,
+          partition_name TEXT NOT NULL UNIQUE,
+          credential_extra TEXT,
+          discovered_at INTEGER NOT NULL,
+          last_refreshed_at INTEGER,
+          created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE TABLE ota_account (
+          id TEXT PRIMARY KEY,
+          credential_id TEXT NOT NULL REFERENCES ota_credential(id) ON UPDATE CASCADE ON DELETE RESTRICT,
+          channel TEXT NOT NULL,
+          ota_hotel_id TEXT NOT NULL,
+          ota_hotel_name TEXT,
+          bind_extra TEXT,
+          discovered_at INTEGER NOT NULL,
+          created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE UNIQUE INDEX ota_account_channel_hotel_idx ON ota_account(channel, ota_hotel_id);
+        CREATE INDEX ota_account_credential_idx ON ota_account(credential_id);
+      `);
+    },
+  },
 ];
 
 function migrate(database: ApplicationDatabase): number {

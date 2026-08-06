@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import type { JsonObject, JsonValue } from '../domain/json';
 
 const nonEmptyStringSchema = z
   .string()
@@ -94,6 +95,19 @@ export const otaAccountChannelSchema = nonEmptyStringSchema;
 
 export const otaAccountIdSchema = nonEmptyStringSchema;
 
+const jsonValueSchema: z.ZodType<JsonValue> = z.lazy(() =>
+  z.union([
+    z.string(),
+    z.number(),
+    z.boolean(),
+    z.null(),
+    z.array(jsonValueSchema),
+    z.record(z.string(), jsonValueSchema),
+  ]),
+);
+
+const jsonObjectSchema: z.ZodType<JsonObject> = z.record(z.string(), jsonValueSchema);
+
 export const createFromExistingSessionInputSchema = z.strictObject({
   accountId: nonEmptyStringSchema,
 });
@@ -104,11 +118,12 @@ export type CreateFromExistingSessionInput = Readonly<
 
 export const otaAccountSchema = z.strictObject({
   id: nonEmptyStringSchema,
+  credentialId: nonEmptyStringSchema,
   channel: nonEmptyStringSchema,
   otaHotelId: nonEmptyStringSchema,
   otaHotelName: z.string().nullable(),
   partitionName: nonEmptyStringSchema,
-  channelContext: z.string().nullable(),
+  bindExtra: jsonObjectSchema.nullable(),
   discoveredAt: z.number(),
 });
 

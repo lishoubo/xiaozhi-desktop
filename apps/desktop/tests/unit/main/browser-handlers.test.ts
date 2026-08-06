@@ -2,7 +2,12 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { toChannelId, toOtaAccountId, toOtaHotelId } from '../../../src/domain/identity';
+import {
+  toChannelId,
+  toOtaAccountId,
+  toOtaCredentialId,
+  toOtaHotelId,
+} from '../../../src/domain/identity';
 import { IPC_CHANNELS } from '../../../src/shared/ipc-channels';
 import { writeImportedCookies } from '../../../src/main/cookie-import/store';
 
@@ -60,17 +65,37 @@ function baseManager() {
   };
 }
 
+function credentialRepository(
+  partitionName = 'persist:xiaozhi:prod:douyin:short',
+  channel = toChannelId('douyin'),
+) {
+  return {
+    findById: vi.fn((id) =>
+      id === toOtaCredentialId('credential-1')
+        ? {
+            id: toOtaCredentialId('credential-1'),
+            channel,
+            partitionName,
+            credentialExtra: null,
+            discoveredAt: 1,
+            lastRefreshedAt: null,
+          }
+        : null,
+    ),
+  };
+}
+
 describe('otaAccount.listByChannel / openExisting handlers', () => {
   it('listByChannel 透传 repository 结果', () => {
     const sender = {};
     const accounts = [
       {
         id: toOtaAccountId('a1'),
+        credentialId: toOtaCredentialId('credential-1'),
         channel: toChannelId('douyin'),
         otaHotelId: toOtaHotelId('dy-1'),
         otaHotelName: '门店A',
-        partitionName: 'persist:xiaozhi:prod:douyin:short',
-        channelContext: 'group-1',
+        bindExtra: { merchantGroupId: 'group-1' },
         discoveredAt: 1000,
       },
     ];
@@ -86,23 +111,29 @@ describe('otaAccount.listByChannel / openExisting handlers', () => {
       loginUrlMatchers: new Map(),
       triggerDiscovery: vi.fn(),
       otaAccountRepository,
+      otaCredentialRepository: credentialRepository(),
     });
 
     const result = invoke(IPC_CHANNELS.otaAccount.listByChannel, sender, 'douyin');
 
     expect(otaAccountRepository.listByChannel).toHaveBeenCalledWith(toChannelId('douyin'));
-    expect(result).toBe(accounts);
+    expect(result).toEqual([
+      {
+        ...accounts[0],
+        partitionName: 'persist:xiaozhi:prod:douyin:short',
+      },
+    ]);
   });
 
   it('openExisting 对抖音账号拼出带 groupid 的落地 URL 并调用 createWithAlreadyPartition', () => {
     const sender = {};
     const account = {
       id: toOtaAccountId('a1'),
+      credentialId: toOtaCredentialId('credential-1'),
       channel: toChannelId('douyin'),
       otaHotelId: toOtaHotelId('dy-1'),
       otaHotelName: '门店A',
-      partitionName: 'persist:xiaozhi:prod:douyin:short',
-      channelContext: 'group-1',
+      bindExtra: { merchantGroupId: 'group-1' },
       discoveredAt: 1000,
     };
     const manager = baseManager();
@@ -118,6 +149,7 @@ describe('otaAccount.listByChannel / openExisting handlers', () => {
       loginUrlMatchers: new Map(),
       triggerDiscovery: vi.fn(),
       otaAccountRepository,
+      otaCredentialRepository: credentialRepository(),
     });
 
     invoke(IPC_CHANNELS.otaAccount.openExisting, sender, 'a1');
@@ -134,11 +166,11 @@ describe('otaAccount.listByChannel / openExisting handlers', () => {
     const sender = {};
     const account = {
       id: toOtaAccountId('a2'),
+      credentialId: toOtaCredentialId('credential-1'),
       channel: toChannelId('ctrip'),
       otaHotelId: toOtaHotelId('12345'),
       otaHotelName: '测试酒店',
-      partitionName: 'persist:xiaozhi:prod:ctrip:short',
-      channelContext: null,
+      bindExtra: null,
       discoveredAt: 2000,
     };
     const manager = baseManager();
@@ -154,6 +186,10 @@ describe('otaAccount.listByChannel / openExisting handlers', () => {
       loginUrlMatchers: new Map(),
       triggerDiscovery: vi.fn(),
       otaAccountRepository,
+      otaCredentialRepository: credentialRepository(
+        'persist:xiaozhi:prod:ctrip:short',
+        toChannelId('ctrip'),
+      ),
     });
 
     invoke(IPC_CHANNELS.otaAccount.openExisting, sender, 'a2');
@@ -165,15 +201,15 @@ describe('otaAccount.listByChannel / openExisting handlers', () => {
     );
   });
 
-  it('openExisting 对 channelContext 缺失的抖音账号退化到不带 groupid 的落地 URL，而不是报错', () => {
+  it('openExisting 对 bindExtra 缺失的抖音账号退化到不带 groupid 的落地 URL，而不是报错', () => {
     const sender = {};
     const account = {
       id: toOtaAccountId('a3'),
+      credentialId: toOtaCredentialId('credential-1'),
       channel: toChannelId('douyin'),
       otaHotelId: toOtaHotelId('dy-2'),
       otaHotelName: '门店B',
-      partitionName: 'persist:xiaozhi:prod:douyin:short2',
-      channelContext: null,
+      bindExtra: null,
       discoveredAt: 3000,
     };
     const manager = baseManager();
@@ -189,6 +225,7 @@ describe('otaAccount.listByChannel / openExisting handlers', () => {
       loginUrlMatchers: new Map(),
       triggerDiscovery: vi.fn(),
       otaAccountRepository,
+      otaCredentialRepository: credentialRepository('persist:xiaozhi:prod:douyin:short2'),
     });
 
     invoke(IPC_CHANNELS.otaAccount.openExisting, sender, 'a3');
@@ -214,11 +251,44 @@ describe('otaAccount.listByChannel / openExisting handlers', () => {
       loginUrlMatchers: new Map(),
       triggerDiscovery: vi.fn(),
       otaAccountRepository,
+      otaCredentialRepository: credentialRepository(),
     });
 
     expect(() => invoke(IPC_CHANNELS.otaAccount.openExisting, sender, 'missing')).toThrow(
       '未找到该账号',
     );
+  });
+
+  it('openExisting 对缺失 credential 的账号明确报错且不创建临时 partition', () => {
+    const sender = {};
+    const account = {
+      id: toOtaAccountId('a1'),
+      credentialId: toOtaCredentialId('credential-1'),
+      channel: toChannelId('douyin'),
+      otaHotelId: toOtaHotelId('dy-1'),
+      otaHotelName: '门店A',
+      bindExtra: { merchantGroupId: 'group-1' },
+      discoveredAt: 1000,
+    };
+    const manager = baseManager();
+    registerBrowserHandlers({
+      window: { webContents: sender },
+      manager,
+      logger: createLogger(),
+      userDataDir: '/tmp/does-not-matter',
+      loginUrlMatchers: new Map(),
+      triggerDiscovery: vi.fn(),
+      otaAccountRepository: {
+        listByChannel: vi.fn(() => []),
+        findById: vi.fn(() => account),
+      },
+      otaCredentialRepository: { findById: vi.fn(() => null) },
+    });
+
+    expect(() => invoke(IPC_CHANNELS.otaAccount.openExisting, sender, 'a1')).toThrow(
+      'credential credential-1 不存在',
+    );
+    expect(manager.createWithAlreadyPartition).not.toHaveBeenCalled();
   });
 });
 
@@ -227,11 +297,11 @@ describe('otaAccount.createFromExistingSession handler', () => {
     const sender = {};
     const account = {
       id: toOtaAccountId('a1'),
+      credentialId: toOtaCredentialId('credential-1'),
       channel: toChannelId('douyin'),
       otaHotelId: toOtaHotelId('dy-1'),
       otaHotelName: '门店A',
-      partitionName: 'persist:xiaozhi:prod:douyin:short',
-      channelContext: 'group-1',
+      bindExtra: { merchantGroupId: 'group-1' },
       discoveredAt: 1000,
     };
     const manager = baseManager();
@@ -248,6 +318,7 @@ describe('otaAccount.createFromExistingSession handler', () => {
       loginUrlMatchers: new Map([[toChannelId('douyin'), matcher]]),
       triggerDiscovery: vi.fn(),
       otaAccountRepository,
+      otaCredentialRepository: credentialRepository(),
     });
 
     invoke(IPC_CHANNELS.otaAccount.createFromExistingSession, sender, { accountId: 'a1' });
@@ -264,11 +335,11 @@ describe('otaAccount.createFromExistingSession handler', () => {
     const sender = {};
     const account = {
       id: toOtaAccountId('a2'),
+      credentialId: toOtaCredentialId('credential-1'),
       channel: toChannelId('ctrip'),
       otaHotelId: toOtaHotelId('12345'),
       otaHotelName: '测试酒店',
-      partitionName: 'persist:xiaozhi:prod:ctrip:short',
-      channelContext: null,
+      bindExtra: null,
       discoveredAt: 2000,
     };
     const manager = baseManager();
@@ -284,6 +355,10 @@ describe('otaAccount.createFromExistingSession handler', () => {
       loginUrlMatchers: new Map(),
       triggerDiscovery: vi.fn(),
       otaAccountRepository,
+      otaCredentialRepository: credentialRepository(
+        'persist:xiaozhi:prod:ctrip:short',
+        toChannelId('ctrip'),
+      ),
     });
 
     expect(() =>
@@ -306,6 +381,7 @@ describe('otaAccount.createFromExistingSession handler', () => {
       loginUrlMatchers: new Map(),
       triggerDiscovery: vi.fn(),
       otaAccountRepository,
+      otaCredentialRepository: credentialRepository(),
     });
 
     expect(() =>
@@ -332,10 +408,15 @@ describe('cookies.listImportedChannels handler', () => {
   it('透传 listImportedChannels 的查询结果', async () => {
     const sender = {};
     const userDataDir = tempUserDataDir();
-    await writeImportedCookies(userDataDir, toChannelId('meituan'), [{ name: 'a', value: '1' } as never], {
-      importedAt: '2026-08-05T00:00:00.000Z',
-      sourceId: 'chrome',
-    });
+    await writeImportedCookies(
+      userDataDir,
+      toChannelId('meituan'),
+      [{ name: 'a', value: '1' } as never],
+      {
+        importedAt: '2026-08-05T00:00:00.000Z',
+        sourceId: 'chrome',
+      },
+    );
     registerBrowserHandlers({
       window: { webContents: sender },
       manager: baseManager(),
@@ -344,10 +425,13 @@ describe('cookies.listImportedChannels handler', () => {
       loginUrlMatchers: new Map(),
       triggerDiscovery: vi.fn(),
       otaAccountRepository: { listByChannel: vi.fn(() => []), findById: vi.fn(() => null) },
+      otaCredentialRepository: credentialRepository(),
     });
 
     const result = await invoke(IPC_CHANNELS.cookies.listImportedChannels, sender);
 
-    expect(result).toEqual([{ channel: toChannelId('meituan'), importedAt: '2026-08-05T00:00:00.000Z' }]);
+    expect(result).toEqual([
+      { channel: toChannelId('meituan'), importedAt: '2026-08-05T00:00:00.000Z' },
+    ]);
   });
 });

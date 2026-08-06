@@ -1,4 +1,4 @@
-import { app, BrowserWindow, session } from 'electron';
+import { app, BrowserWindow } from 'electron';
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import log from 'electron-log/main';
@@ -15,6 +15,7 @@ import { SqliteCalendarRepository } from './calendar/calendar-repository';
 import { registerCalendarHandlers } from './ipc/calendar-handlers';
 import { isStartupAutomationEnabled } from '../domain/policy/startup-automation-policy';
 import { SqliteOtaAccountRepository } from './database/ota-account-repository';
+import { SqliteOtaCredentialRepository } from './database/ota-credential-repository';
 import { DiscoverAndCreate } from './account-discovery/discover-and-create';
 import { createDiscoveryProbes } from './account-discovery/discovery-probe';
 import { LOGIN_URL_MATCHERS } from './account-discovery/login-url-matcher';
@@ -31,6 +32,7 @@ let calendarRepository: SqliteCalendarRepository | null = null;
 let unregisterCalendarHandlers: (() => void) | null = null;
 let discoverAndCreate: DiscoverAndCreate | null = null;
 let otaAccountRepository: SqliteOtaAccountRepository | null = null;
+let otaCredentialRepository: SqliteOtaCredentialRepository | null = null;
 
 configureNetworkPrivacy(app.commandLine);
 configureMainLogging(log, {
@@ -50,6 +52,7 @@ function openMainWindow(): void {
   const ctripResult = ctripAutomation?.start() ?? null;
   if (!discoverAndCreate) throw new Error('Discovery pipeline is not initialized');
   if (!otaAccountRepository) throw new Error('OtaAccount repository is not initialized');
+  if (!otaCredentialRepository) throw new Error('OtaCredential repository is not initialized');
   unregisterBrowserHandlers = registerBrowserHandlers({
     window: mainWindow,
     manager: browserManager,
@@ -57,8 +60,10 @@ function openMainWindow(): void {
     userDataDir: app.getPath('userData'),
     loginUrlMatchers: LOGIN_URL_MATCHERS,
     triggerDiscovery: (partitionName, channel, landingUrl, webContents) =>
-      discoverAndCreate?.trigger(partitionName, channel, landingUrl, webContents) ?? Promise.resolve(false),
+      discoverAndCreate?.trigger(partitionName, channel, landingUrl, webContents) ??
+      Promise.resolve(false),
     otaAccountRepository,
+    otaCredentialRepository,
   });
   unregisterAutomationHandlers = registerAutomationHandlers({
     window: mainWindow,
@@ -96,13 +101,13 @@ function initializeApplication(): void {
   calendarRepository = new SqliteCalendarRepository(applicationDatabase);
   const userDataDir = app.getPath('userData');
   otaAccountRepository = new SqliteOtaAccountRepository(applicationDatabase);
+  otaCredentialRepository = new SqliteOtaCredentialRepository(applicationDatabase);
   discoverAndCreate = new DiscoverAndCreate({
     probes: createDiscoveryProbes(log),
-    repository: otaAccountRepository,
+    accountRepository: otaAccountRepository,
+    credentialRepository: otaCredentialRepository,
     generateAccountId: () => randomUUID(),
-    deleteSessionData: async (partitionName) => {
-      await session.fromPartition(partitionName).clearStorageData();
-    },
+    generateCredentialId: () => randomUUID(),
     removePendingPartition: (partitionName) => removePendingPartition(userDataDir, partitionName),
     logger: log,
     onAccountBound: (channel) => {
@@ -160,5 +165,6 @@ app.once('will-quit', () => {
   calendarRepository = null;
   discoverAndCreate = null;
   otaAccountRepository = null;
+  otaCredentialRepository = null;
   log.info('Application shutdown completed');
 });

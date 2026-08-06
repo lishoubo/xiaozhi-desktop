@@ -1,37 +1,50 @@
-import { toChannelId, toOtaAccountId, toOtaHotelId, type ChannelId, type OtaHotelId } from '../../domain/identity';
-import { createOtaAccount, type OtaAccount, type OtaAccountCreateInput } from '../../domain/ota-account';
+import {
+  toChannelId,
+  toOtaAccountId,
+  toOtaCredentialId,
+  toOtaHotelId,
+  type ChannelId,
+  type OtaHotelId,
+} from '../../domain/identity';
+import {
+  createOtaAccount,
+  type OtaAccount,
+  type OtaAccountCreateInput,
+  type OtaAccountDiscoveryUpdate,
+} from '../../domain/ota-account';
 import type { OtaAccountRepository } from '../../domain/ports/repositories';
 import type { ApplicationDatabase } from './application-database';
+import { parseJsonObject, serializeJsonObject } from './json-storage';
 
 type OtaAccountRow = Readonly<{
   id: string;
+  credentialId: string;
   channel: string;
   otaHotelId: string;
   otaHotelName: string | null;
-  partitionName: string;
-  channelContext: string | null;
+  bindExtra: string | null;
   discoveredAt: number;
 }>;
 
 function accountFromRow(row: OtaAccountRow): OtaAccount {
-  return {
+  return createOtaAccount({
     id: toOtaAccountId(row.id),
+    credentialId: toOtaCredentialId(row.credentialId),
     channel: toChannelId(row.channel),
     otaHotelId: toOtaHotelId(row.otaHotelId),
     otaHotelName: row.otaHotelName,
-    partitionName: row.partitionName,
-    channelContext: row.channelContext,
+    bindExtra: parseJsonObject(row.bindExtra, 'bindExtra'),
     discoveredAt: row.discoveredAt,
-  };
+  });
 }
 
 const SELECT_COLUMNS = `
   id,
+  credential_id AS credentialId,
   channel,
   ota_hotel_id AS otaHotelId,
   ota_hotel_name AS otaHotelName,
-  partition_name AS partitionName,
-  channel_context AS channelContext,
+  bind_extra AS bindExtra,
   discovered_at AS discoveredAt
 `;
 
@@ -42,14 +55,12 @@ export class SqliteOtaAccountRepository implements OtaAccountRepository {
     const account = createOtaAccount(input);
     this.database
       .prepare(
-        `
-        INSERT INTO ota_account
-          (id, channel, ota_hotel_id, ota_hotel_name, partition_name, channel_context, discovered_at)
-        VALUES
-          (@id, @channel, @otaHotelId, @otaHotelName, @partitionName, @channelContext, @discoveredAt)
-      `,
+        `INSERT INTO ota_account
+          (id, credential_id, channel, ota_hotel_id, ota_hotel_name, bind_extra, discovered_at)
+         VALUES
+          (@id, @credentialId, @channel, @otaHotelId, @otaHotelName, @bindExtra, @discoveredAt)`,
       )
-      .run(account);
+      .run({ ...account, bindExtra: serializeJsonObject(account.bindExtra) });
     return account;
   }
 
@@ -62,14 +73,18 @@ export class SqliteOtaAccountRepository implements OtaAccountRepository {
     return row ? accountFromRow(row) : null;
   }
 
-  updatePartitionName(id: OtaAccount['id'], partitionName: string): OtaAccount {
+  updateDiscovery(id: OtaAccount['id'], update: OtaAccountDiscoveryUpdate): OtaAccount {
     const result = this.database
       .prepare(
         `UPDATE ota_account
-         SET partition_name = ?, updated_at = CURRENT_TIMESTAMP
-         WHERE id = ?`,
+         SET credential_id = @credentialId,
+             ota_hotel_name = @otaHotelName,
+             bind_extra = @bindExtra,
+             discovered_at = @discoveredAt,
+             updated_at = CURRENT_TIMESTAMP
+         WHERE id = @id`,
       )
-      .run(partitionName, id);
+      .run({ ...update, id, bindExtra: serializeJsonObject(update.bindExtra) });
     if (result.changes === 0) throw new Error('未找到 OtaAccount');
     const row = this.database
       .prepare<[string], OtaAccountRow>(`SELECT ${SELECT_COLUMNS} FROM ota_account WHERE id = ?`)

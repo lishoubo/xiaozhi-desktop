@@ -4,6 +4,7 @@ import {
   parseChannelId,
   toChannelId,
   toOtaAccountId,
+  toOtaCredentialId,
 } from '../../../src/domain/identity';
 
 describe('toChannelId', () => {
@@ -58,5 +59,15 @@ describe('toOtaAccountId', () => {
 
   it('与 ChannelId 用同一套校验', () => {
     expect(() => toOtaAccountId('')).toThrow(InvalidIdentifierError);
+  });
+});
+
+describe('toOtaCredentialId', () => {
+  it('接受规范化 credential 标识', () => {
+    expect(toOtaCredentialId('douyin-credential-1')).toBe('douyin-credential-1');
+  });
+
+  it('拒绝空 credential 标识', () => {
+    expect(() => toOtaCredentialId('')).toThrow(InvalidIdentifierError);
   });
 });

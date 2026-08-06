@@ -10,6 +10,7 @@
  */
 import type { WebContents } from 'electron';
 import type { ChannelId, OtaHotelId } from '../../domain/identity';
+import type { JsonObject } from '../../domain/json';
 
 export type DiscoveredOtaHotel = Readonly<{
   otaHotelId: OtaHotelId;
@@ -20,7 +21,7 @@ export type DiscoveredOtaHotel = Readonly<{
    * `{ partnerId, partnerName }`（见 cookie-login-account-discovery/design-meituan.md 决策 10）；
    * 携程恒为 null。
    */
-  channelContext: string | null;
+  bindExtra: JsonObject | null;
 }>;
 
 export type DiscoveryOutcome =
@@ -40,5 +41,9 @@ export interface DiscoveryProbe {
    * 的渠道（如携程，cookie 本身已包含全部所需信息，新开隐藏页面重新
    * 导航即可）忽略它。
    */
-  discover(partitionName: string, landingUrl: string, webContents: WebContents): Promise<DiscoveryOutcome>;
+  discover(
+    partitionName: string,
+    landingUrl: string,
+    webContents: WebContents,
+  ): Promise<DiscoveryOutcome>;
 }

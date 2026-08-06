@@ -21,7 +21,7 @@ export class SessionFactory {
 
   constructor(private readonly logger: AppLogger) {}
 
-  /** 已有账号：直接用它的 `OtaAccount.partitionName`，不重新拼接。 */
+  /** 已有 credential：直接用它的 `partitionName`，不重新拼接。 */
   sessionForAccount(partitionName: string): Session {
     return this.fromPartitionCached(partitionName);
   }
@@ -29,7 +29,7 @@ export class SessionFactory {
   /**
    * 开一份新的登录态：短id 在此刻随机生成、创建后即固化（design.md 决策 3）。
    * 返回的 `partitionName` 是这份登录态唯一的权威指针，调用方必须原样保留——
-   * 探测成功后要靠它落库 `OtaAccount.partitionName`。
+   * 探测成功后要靠它落库 `OtaCredential.partitionName`。
    */
   sessionForLogin(
     environment: 'prod' | 'dev',

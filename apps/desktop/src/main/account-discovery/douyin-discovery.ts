@@ -30,6 +30,7 @@ import type { ChannelId } from '../../domain/identity';
 import { toChannelId, toOtaHotelId } from '../../domain/identity';
 import type { AppLogger } from '../../shared/logging';
 import type { DiscoveryOutcome, DiscoveryProbe } from './discovery-probe-port';
+import { douyinBindExtra } from '../../domain/ota-bind-extra';
 
 const DSL_GET_PATH = '/life/merchant/manager/v1/dsl/get';
 
@@ -174,13 +175,10 @@ function isCdpLoadingFinishedParams(value: unknown): value is CdpLoadingFinished
  * 该 requestId 对应的 `loadingFinished` 事件。
  */
 class DslGetResponseCapture {
-  private resolveHotel: ((hotel: { hotelId: string; hotelName: string } | null) => void) | null = null;
+  private resolveHotel: ((hotel: { hotelId: string; hotelName: string } | null) => void) | null =
+    null;
   private pendingRequestId: string | null = null;
-  private readonly onEvent = (
-    _event: unknown,
-    method: string,
-    params: unknown,
-  ): void => {
+  private readonly onEvent = (_event: unknown, method: string, params: unknown): void => {
     if (method === 'Network.responseReceived') {
       if (!isCdpResponseReceivedParams(params)) return;
       if (!params.response.url.includes(DSL_GET_PATH)) return;
@@ -236,7 +234,9 @@ class DslGetResponseCapture {
       const result = (await this.webContents.debugger.sendCommand('Network.getResponseBody', {
         requestId,
       })) as { body: string; base64Encoded: boolean };
-      const body = result.base64Encoded ? Buffer.from(result.body, 'base64').toString('utf8') : result.body;
+      const body = result.base64Encoded
+        ? Buffer.from(result.body, 'base64').toString('utf8')
+        : result.body;
       const hotel = extractHotelFromDslBody(body);
       if (!hotel) {
         this.logger.warn('Douyin discovery: dsl/get response did not yield hotel info', {
@@ -268,7 +268,10 @@ export class DouyinDiscoveryProbe implements DiscoveryProbe {
   ): Promise<DiscoveryOutcome> {
     const groupId = extractGroupIdFromCurrentUrl(landingUrl);
     if (!groupId) {
-      this.logger.warn('Douyin discovery: no groupid on landing URL', { partitionName, landingUrl });
+      this.logger.warn('Douyin discovery: no groupid on landing URL', {
+        partitionName,
+        landingUrl,
+      });
       return { kind: 'none' };
     }
 
@@ -290,7 +293,7 @@ export class DouyinDiscoveryProbe implements DiscoveryProbe {
         hotel: {
           otaHotelId: toOtaHotelId(hotel.hotelId),
           otaHotelName: hotel.hotelName,
-          channelContext: groupId,
+          bindExtra: douyinBindExtra(groupId),
         },
       };
     } catch (error) {

@@ -93,6 +93,7 @@ describe('IPC operational logging', () => {
       loginUrlMatchers: new Map(),
       triggerDiscovery: vi.fn(),
       otaAccountRepository: { listByChannel: vi.fn(() => []), findById: vi.fn(() => null) },
+      otaCredentialRepository: { findById: vi.fn(() => null) },
     });
 
     expect(() =>
@@ -140,6 +141,7 @@ describe('IPC operational logging', () => {
       loginUrlMatchers: new Map(),
       triggerDiscovery: vi.fn(),
       otaAccountRepository: { listByChannel: vi.fn(() => []), findById: vi.fn(() => null) },
+      otaCredentialRepository: { findById: vi.fn(() => null) },
     });
 
     await invoke(IPC_CHANNELS.cookies.import, sender, 'firefox');
@@ -180,6 +182,7 @@ describe('IPC operational logging', () => {
       loginUrlMatchers: new Map(),
       triggerDiscovery: vi.fn(),
       otaAccountRepository: { listByChannel: vi.fn(() => []), findById: vi.fn(() => null) },
+      otaCredentialRepository: { findById: vi.fn(() => null) },
     });
 
     expect(() =>

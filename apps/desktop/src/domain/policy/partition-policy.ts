@@ -3,7 +3,7 @@
  *
  * **partition 是业务隔离单位**，短id 在创建登录标签页那一刻随机生成，不代表
  * 业务身份——此时账号还不存在（探测尚未发生），无法从账号反推 partition 名字。
- * 探测成功后，`OtaAccount.partitionName` 原样存下这个名字，此后定位这份登录态
+ * 探测成功后，`OtaCredential.partitionName` 原样存下这个名字，此后定位这份登录态
  * 一律查这个字段，不再用任何公式重新计算。
  *
  * 这是 D1 的修复核心：此前所有 OTA 账号共用 `persist:hotel-butler-browser`

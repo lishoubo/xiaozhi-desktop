@@ -13,6 +13,7 @@ import type { ChannelId } from '../../domain/identity';
 import { toChannelId, toOtaHotelId } from '../../domain/identity';
 import type { AppLogger } from '../../shared/logging';
 import type { DiscoveryOutcome, DiscoveryProbe } from './discovery-probe-port';
+import { meituanBindExtra } from '../../domain/ota-bind-extra';
 
 const POI_INFOS_URL =
   'https://me.meituan.com/api/gw/v1/ampaccount/accountpoi/poiInfos' +
@@ -82,7 +83,11 @@ export class MeituanDiscoveryProbe implements DiscoveryProbe {
   constructor(private readonly logger: AppLogger) {}
 
   /** 复用 landingUrl——登录成功判定命中时标签页已经在 me.meituan.com 域下，直接原地发起同源 XHR。 */
-  async discover(partitionName: string, landingUrl: string, webContents: WebContents): Promise<DiscoveryOutcome> {
+  async discover(
+    partitionName: string,
+    landingUrl: string,
+    webContents: WebContents,
+  ): Promise<DiscoveryOutcome> {
     const view = new WebContentsView({
       webPreferences: {
         contextIsolation: true,
@@ -110,13 +115,10 @@ export class MeituanDiscoveryProbe implements DiscoveryProbe {
         .map((poi) => ({
           otaHotelId: toOtaHotelId(String(poi.poiId)),
           otaHotelName: poi.poiName || poi.partnerName || '',
-          channelContext:
-            poi.partnerId || poi.partnerName
-              ? JSON.stringify({
-                  partnerId: poi.partnerId != null ? String(poi.partnerId) : null,
-                  partnerName: poi.partnerName ?? null,
-                })
-              : null,
+          bindExtra: meituanBindExtra(
+            poi.partnerId != null ? String(poi.partnerId) : null,
+            poi.partnerName ?? null,
+          ),
         }));
       if (hotels.length === 0) return { kind: 'none' };
       if (hotels.length === 1) return { kind: 'single', hotel: hotels[0] };

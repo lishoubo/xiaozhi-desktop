@@ -194,11 +194,12 @@ describe('createDesktopApi', () => {
   it('maps otaAccount actions to fixed IPC channels', async () => {
     const account = {
       id: 'a1',
+      credentialId: 'credential-1',
       channel: 'douyin',
       otaHotelId: 'dy-1',
       otaHotelName: '门店A',
       partitionName: 'persist:xiaozhi:prod:douyin:short',
-      channelContext: 'group-1',
+      bindExtra: { merchantGroupId: 'group-1' },
       discoveredAt: 1000,
     };
     const tab = {
@@ -235,7 +236,10 @@ describe('createDesktopApi', () => {
     const subscription = subscribe.mock.calls[0][1] as (value: unknown) => void;
     subscription({ channel: 'douyin' });
 
-    expect(subscribe).toHaveBeenCalledWith(IPC_CHANNELS.otaAccount.accountBound, expect.any(Function));
+    expect(subscribe).toHaveBeenCalledWith(
+      IPC_CHANNELS.otaAccount.accountBound,
+      expect.any(Function),
+    );
     expect(listener).toHaveBeenCalledWith({ channel: 'douyin' });
   });
 });

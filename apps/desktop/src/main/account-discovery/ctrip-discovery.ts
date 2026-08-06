@@ -108,7 +108,7 @@ export class CtripDiscoveryProbe implements DiscoveryProbe {
       const hotels = parsed.data.map((hotel) => ({
         otaHotelId: toOtaHotelId(hotel.hotelId),
         otaHotelName: hotel.hotelName,
-        channelContext: null,
+        bindExtra: null,
       }));
       if (hotels.length === 0) return { kind: 'none' };
       if (hotels.length === 1) return { kind: 'single', hotel: hotels[0] };

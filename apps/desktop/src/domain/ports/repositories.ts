@@ -11,8 +11,9 @@ import type {
   CalendarEventUpdateInput,
   CalendarSnapshot,
 } from '../calendar';
-import type { ChannelId, OtaHotelId } from '../identity';
-import type { OtaAccount, OtaAccountCreateInput } from '../ota-account';
+import type { ChannelId, OtaCredentialId, OtaHotelId } from '../identity';
+import type { OtaAccount, OtaAccountCreateInput, OtaAccountDiscoveryUpdate } from '../ota-account';
+import type { OtaCredential, OtaCredentialCreateInput } from '../ota-credential';
 
 export interface CalendarRepository {
   load(): CalendarSnapshot;
@@ -24,10 +25,15 @@ export interface CalendarRepository {
 export interface OtaAccountRepository {
   create(input: OtaAccountCreateInput): OtaAccount;
   findByChannelAndHotelId(channel: ChannelId, otaHotelId: OtaHotelId): OtaAccount | null;
-  /** 查重命中时把 partitionName 更新为最新登录，见 design.md 决策 7。 */
-  updatePartitionName(id: OtaAccount['id'], partitionName: string): OtaAccount;
+  updateDiscovery(id: OtaAccount['id'], update: OtaAccountDiscoveryUpdate): OtaAccount;
   /** 账号二级导航用：按渠道列出已绑定账号，discoveredAt 降序。 */
   listByChannel(channel: ChannelId): readonly OtaAccount[];
   /** 账号二级导航用：点击某一项打开时按 id 反查完整账号信息。 */
   findById(id: OtaAccount['id']): OtaAccount | null;
+}
+
+export interface OtaCredentialRepository {
+  create(input: OtaCredentialCreateInput): OtaCredential;
+  findById(id: OtaCredentialId): OtaCredential | null;
+  findByPartitionName(partitionName: string): OtaCredential | null;
 }
