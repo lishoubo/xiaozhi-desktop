@@ -260,8 +260,13 @@
         event.stopPropagation();
         const nextDate = new Date(date);
         nextDate.setDate(nextDate.getDate() + 1);
-        overflowDate =
-          eventsForDate(date).length === 0 && eventsForDate(nextDate).length > 0 ? nextDate : date;
+        const hiddenEventCount = Number.parseInt(moreButton.textContent?.match(/\d+/)?.[0] ?? '');
+        const dateEventCount = eventsForDate(date).length;
+        const nextDateEventCount = eventsForDate(nextDate).length;
+        const belongsToNextDate = Number.isNaN(hiddenEventCount)
+          ? dateEventCount === 0 && nextDateEventCount > 0
+          : dateEventCount <= hiddenEventCount && nextDateEventCount > hiddenEventCount;
+        overflowDate = belongsToNextDate ? nextDate : date;
       }
       return;
     }

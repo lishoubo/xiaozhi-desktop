@@ -12,7 +12,24 @@ export interface ApiLogger {
   error: ApiLogMethod;
 }
 
+export const employeeIdentitySchema = z.strictObject({
+  id: z.string().regex(/^\d+$/),
+  orgId: z.string().regex(/^\d+$/),
+  username: z.string().min(1),
+  fullName: z.string().nullable(),
+  phone: z.string().regex(/^1\d{10}$/),
+  roleCode: z.string().min(1),
+});
+
+export type EmployeeIdentity = Readonly<z.infer<typeof employeeIdentitySchema>>;
+
+export interface EmployeeIdentityDirectory {
+  // eslint-disable-next-line no-unused-vars -- parameter name documents the directory contract.
+  findActiveByPhone(phone: string): Promise<EmployeeIdentity | null>;
+}
+
 export interface ApiContext {
+  employeeDirectory: EmployeeIdentityDirectory;
   logger: ApiLogger;
   requestId: string;
 }
@@ -43,6 +60,12 @@ const healthResponseSchema = z.object({
 });
 
 export const appRouter = t.router({
+  identity: t.router({
+    employeeByPhone: publicProcedure
+      .input(z.strictObject({ phone: z.string().regex(/^1\d{10}$/) }))
+      .output(employeeIdentitySchema.nullable())
+      .query(({ ctx, input }) => ctx.employeeDirectory.findActiveByPhone(input.phone)),
+  }),
   system: t.router({
     health: publicProcedure.output(healthResponseSchema).query(() => ({ status: 'ok' })),
   }),

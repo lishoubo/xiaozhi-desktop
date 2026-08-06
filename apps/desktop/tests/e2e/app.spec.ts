@@ -286,9 +286,13 @@ test('navigates between the browser workspace and settings', async () => {
   await expect(page).toHaveURL(/#\/settings$/);
   await expect(page.getByRole('heading', { name: '设置', exact: true })).toBeVisible();
   await expect(page.getByText('客户端版本')).toBeVisible();
+  await page.getByRole('button', { name: '已登录 Cookie 列表' }).click();
   await page.getByRole('button', { name: '导入 Cookie' }).click();
   await expect(page.getByRole('dialog', { name: '从浏览器导入 Cookie' })).toBeVisible();
   await page.getByRole('button', { name: '取消' }).click();
+  const cookieListDialog = page.getByRole('dialog', { name: '已登录 Cookie 列表' });
+  await cookieListDialog.getByRole('button', { name: '关闭' }).click();
+  await expect(cookieListDialog).toHaveCount(0);
 
   await page.getByRole('link', { name: '浏览器' }).click();
   await expect(page).toHaveURL(/#\/$/);

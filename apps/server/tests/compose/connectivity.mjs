@@ -40,10 +40,10 @@ try {
 
 	assert.equal(postgresRows[0]?.value, 1);
 	assert.equal(adminRows[0]?.username, 'admin');
-	assert.equal(desktopUserTableRows[0]?.table_name, 'desktop_user');
+	assert.equal(desktopUserTableRows[0]?.table_name, null);
 	assert.equal(rmsRows[0]?.value, 1);
 	console.info(
-		'Compose connectivity verified: HTTPS server, separate admin/desktop-user tables, PostgreSQL, and RMS MySQL'
+		'Compose connectivity verified: HTTPS server, PostgreSQL administrator data, no desktop-user copy, and RMS MySQL'
 	);
 } finally {
 	await Promise.all([postgresClient.end(), rmsClient.end()]);

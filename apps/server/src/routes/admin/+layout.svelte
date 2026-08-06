@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { page } from '$app/state';
 	import { resolve } from '$app/paths';
-	import { Hotel, LayoutDashboard, LogOut, Menu, MonitorSmartphone } from '@lucide/svelte';
+	import { Hotel, LayoutDashboard, LogOut, Menu } from '@lucide/svelte';
 	import { Button } from '$lib/components/ui/button/index.js';
 	import * as Sheet from '$lib/components/ui/sheet/index.js';
 	import type { LayoutProps } from './$types';
@@ -13,10 +13,7 @@
 		data.administrator.name.trim().charAt(0).toUpperCase() || 'A'
 	);
 
-	const navigation = [
-		{ href: '/admin', icon: LayoutDashboard, label: 'Dashboard' },
-		{ href: '/admin/desktop-users', icon: MonitorSmartphone, label: '桌面用户管理' }
-	] as const;
+	const navigation = [{ href: '/admin', icon: LayoutDashboard, label: 'Dashboard' }] as const;
 </script>
 
 {#snippet sidebarContent(closeOnNavigate = false)}
