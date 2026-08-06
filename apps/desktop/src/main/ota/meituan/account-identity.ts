@@ -85,54 +85,61 @@ export const FETCH_MEITUAN_ACCOUNT_IDENTITY_EXPRESSION = `
   (async () => {
     try {
       const marker = 'req:announcementEB,key:';
-      let rawStorage = null;
-      for (let attempt = 0; attempt < 20 && !rawStorage; attempt += 1) {
-        rawStorage = localStorage.getItem('globalStorage');
-        if (!rawStorage) await new Promise((resolve) => setTimeout(resolve, 500));
-      }
-      if (!rawStorage) return { kind: 'missing-global-storage' };
-
-      let storage;
-      try {
-        storage = JSON.parse(rawStorage);
-      } catch (error) {
-        return { kind: 'invalid-global-storage' };
-      }
-
-      const matchingKeys = [];
-      const visit = (value) => {
-        if (typeof value === 'string') {
-          if (value.includes(marker)) matchingKeys.push(value);
-          return;
-        }
-        if (Array.isArray(value)) {
-          value.forEach(visit);
-          return;
-        }
-        if (value && typeof value === 'object') {
-          for (const [key, nested] of Object.entries(value)) {
-            visit(key);
-            visit(nested);
-          }
-        }
-      };
-      visit(storage);
-
-      const accountIds = [];
-      const seen = new Set();
-      for (const key of matchingKeys) {
-        const markerIndex = key.indexOf(marker);
+      const readAccountIds = () => {
+        const rawStorage = localStorage.getItem('globalStorage');
+        if (!rawStorage) return [];
+        let storage;
         try {
-          const params = JSON.parse(key.slice(markerIndex + marker.length));
-          const accountId = String(params.bizAccountId ?? '').trim();
-          if (accountId && !seen.has(accountId)) {
-            seen.add(accountId);
-            accountIds.push(accountId);
-          }
+          storage = JSON.parse(rawStorage);
         } catch (error) {
-          // Ignore malformed cache entries and continue with other candidates.
+          return [];
+        }
+
+        const matchingKeys = [];
+        const visit = (value) => {
+          if (typeof value === 'string') {
+            if (value.includes(marker)) matchingKeys.push(value);
+            return;
+          }
+          if (Array.isArray(value)) {
+            value.forEach(visit);
+            return;
+          }
+          if (value && typeof value === 'object') {
+            for (const [key, nested] of Object.entries(value)) {
+              visit(key);
+              visit(nested);
+            }
+          }
+        };
+        visit(storage);
+
+        const accountIds = [];
+        const seen = new Set();
+        for (const key of matchingKeys) {
+          const markerIndex = key.indexOf(marker);
+          try {
+            const params = JSON.parse(key.slice(markerIndex + marker.length));
+            const accountId = String(params.bizAccountId ?? '').trim();
+            if (accountId && !seen.has(accountId)) {
+              seen.add(accountId);
+              accountIds.push(accountId);
+            }
+          } catch (error) {
+            // Ignore malformed cache entries and continue with other candidates.
+          }
+        }
+        return accountIds;
+      };
+
+      let accountIds = [];
+      for (let attempt = 0; attempt < 20 && accountIds.length === 0; attempt += 1) {
+        accountIds = readAccountIds();
+        if (accountIds.length === 0) {
+          await new Promise((resolve) => setTimeout(resolve, 500));
         }
       }
+      if (accountIds.length === 0) return { kind: 'missing-account-candidate' };
 
       const candidates = [];
       for (const candidateAccountId of accountIds) {

@@ -7,7 +7,7 @@
 ## 2. 美团渠道模块
 
 - [x] 2.1 为美团账号详情和 `poiInfos` 纯解析编写定向测试，覆盖白名单字段、账号 ID 不一致、无效响应与多酒店结果
-- [x] 2.2 新建 `main/ota/meituan`，实现账号身份读取、酒店读取和隐藏 view 编排；移除原始响应/账号敏感值日志，使 2.1 测试通过
+- [x] 2.2 新建 `main/ota/meituan`，在当前已登录标签页实现账号身份读取和酒店读取；移除原始响应/账号敏感值日志，使 2.1 测试通过
 - [x] 2.3 将美团登录 URL matcher 迁入渠道目录，并更新引用；不移动抖音或携程文件
 
 ## 3. 功能编排与落库
@@ -20,5 +20,5 @@
 
 - [x] 4.1 独立 verification pass：核对 SQLite migration、字段白名单、美团身份/酒店分离、多酒店写入和其他渠道未迁移，并把证据写入 `verification.md`
 - [x] 4.2 完成态运行一次 desktop 受影响模块质量门禁（测试、类型检查、Svelte 检查和 lint），如实记录结果
-- [x] 4.3 独立 code-review pass：检查敏感日志、错误处理、Electron view 清理、依赖方向及是否出现 ChannelAdapter 或其他渠道范围扩张
+- [x] 4.3 独立 code-review pass：检查敏感日志、错误处理、当前页面信任校验、依赖方向及是否出现 ChannelAdapter 或其他渠道范围扩张
 - [x] 4.4 验证通过后同步 `local-ota-credentials` 稳定规范；未通过前不得提前同步或归档

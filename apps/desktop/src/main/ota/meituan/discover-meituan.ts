@@ -1,4 +1,4 @@
-import { WebContentsView, type WebContents } from 'electron';
+import type { WebContents } from 'electron';
 import type { JsonObject } from '../../../domain/json';
 import type { AppLogger } from '../../../shared/logging';
 import {
@@ -38,23 +38,14 @@ function isTrustedLandingUrl(landingUrl: string): boolean {
 }
 
 export function createMeituanDiscovery(logger: AppLogger): DiscoverMeituan {
-  return async (_partitionName, landingUrl, webContents) => {
-    if (!isTrustedLandingUrl(landingUrl)) {
-      logger.warn('Meituan discovery rejected untrusted landing URL');
+  return async (_partitionName, _landingUrl, webContents) => {
+    if (!isTrustedLandingUrl(webContents.getURL())) {
+      logger.warn('Meituan discovery rejected untrusted current URL');
       return { kind: 'none' };
     }
 
-    const view = new WebContentsView({
-      webPreferences: {
-        contextIsolation: true,
-        nodeIntegration: false,
-        sandbox: true,
-        session: webContents.session,
-      },
-    });
     try {
-      await view.webContents.loadURL(landingUrl);
-      const rawIdentity: unknown = await view.webContents.executeJavaScript(
+      const rawIdentity: unknown = await webContents.executeJavaScript(
         FETCH_MEITUAN_ACCOUNT_IDENTITY_EXPRESSION,
       );
       const identity = parseMeituanAccountIdentityCandidates(rawIdentity);
@@ -63,7 +54,7 @@ export function createMeituanDiscovery(logger: AppLogger): DiscoverMeituan {
         return { kind: 'none' };
       }
 
-      const rawPois: unknown = await view.webContents.executeJavaScript(
+      const rawPois: unknown = await webContents.executeJavaScript(
         FETCH_MEITUAN_POI_INFOS_EXPRESSION,
       );
       const hotels = parseMeituanPoiInfos(rawPois);
@@ -79,8 +70,6 @@ export function createMeituanDiscovery(logger: AppLogger): DiscoverMeituan {
         errorName: error instanceof Error ? error.name : 'UnknownError',
       });
       return { kind: 'none' };
-    } finally {
-      if (!view.webContents.isDestroyed()) view.webContents.close();
     }
   };
 }

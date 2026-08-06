@@ -54,10 +54,18 @@ rg -n "from '../../account-discovery|from '../account-discovery|ChannelAdapter|M
 
 结果：无匹配。
 
-## 尚未包含
+## 真实美团运行态验收
 
-- 本 pass 没有用真实美团账号重新走一次运行态登录。接口链路已在本次实现前通过踩点验证，
-  但新落库链路仍需用户运行态验收。
+- 清理 userData 后启动应用，日志确认新数据库执行 7 个 migration，主窗口正常初始化。
+- 美团发现改为直接使用当前已登录 `WebContents`。首次运行暴露 `globalStorage` 已创建但
+  announcement key 尚未写入的时序问题，因此轮询条件改为“已解析出 `bizAccountId`”。
+- 修复后真实登录日志在 2026-08-06 14:16:55 依次出现：
+  `Meituan discovery completed { hotelCount: 1 }`、`outcome { kind: 'found' }`、
+  `saved hotels { hotelCount: 1 }`。
+- 该结果证明 `globalStorage → bizAccountId → getDetail → poiInfos → credential/account`
+  在当前页面链路中完成；日志未输出账号 ID、登录名、手机号、cookie 或原始响应。
+- 当前页面编排、美团身份和酒店解析、功能落库相关定向测试共 22 个用例通过，Node
+  TypeScript 检查通过。
 
 ## 完成态质量门禁
 
@@ -71,7 +79,7 @@ rg -n "from '../../account-discovery|from '../account-discovery|ChannelAdapter|M
 
 ## Code Review Pass
 
-审查重点：领域不变量、数据库更新语义、敏感日志、Electron view 清理、依赖方向和范围控制。
+审查重点：领域不变量、数据库更新语义、敏感日志、当前页面信任校验、依赖方向和范围控制。
 
 发现并修复：
 

@@ -45,7 +45,7 @@ repository 增加按 `(channel, channelAccountId)` 查询和更新账号身份�
 main/ota/meituan/
 ├── account-identity.ts       # globalStorage 候选解析与 getDetail 账号白名单校验
 ├── poi-infos.ts              # poiInfos 请求与酒店结果校验
-├── discover-meituan.ts       # 隐藏 view 生命周期及两类请求编排
+├── discover-meituan.ts       # 当前已登录标签页上的两类请求编排
 └── login-url-matcher.ts      # 美团登录成功 URL 判断
 ```
 
@@ -77,18 +77,20 @@ type MeituanDiscoveryResult =
 最后仅清理一次 pending partition 并通知一次账号已绑定。已有数据只有在整套渠道结果通过
 校验后才更新。
 
-### 4. 保留 Electron 操作在 main，纯解析可定向测试
+### 4. 直接使用当前美团标签页，纯解析可定向测试
 
-同源 XHR 和隐藏 `WebContentsView` 保留在 main。接口响应先作为 `unknown` 进入 Zod schema；
-账号和酒店映射函数保持纯函数，以便无需 Electron mock 即可覆盖有效响应、无效账号 ID、
-多酒店和字段白名单。
+同源 XHR 直接在触发发现的当前 `WebContents` 中执行。该标签页已经完成登录并位于
+`https://me.meituan.com`，因此无需创建隐藏 view、重复加载页面或等待新页面初始化
+`globalStorage`。执行前必须通过 `webContents.getURL()` 校验当前主 frame 的协议和 host。
 
-隐藏 view 继续复用可见登录页的 session，加载受信任的美团 landing URL 后发起同源请求。
-`finally` 始终关闭 view。日志不输出原始响应、cookie、登录名或手机号。
+接口响应先作为 `unknown` 进入 Zod schema；账号和酒店映射函数保持纯函数，以便无需
+Electron mock 即可覆盖有效响应、无效账号 ID、多酒店和字段白名单。日志不输出原始响应、
+cookie、登录名或手机号。
 
 ## Risks / Trade-offs
 
-- [美团 `globalStorage` 写入较晚] → 保留有界轮询；超时返回 `none`，不写部分数据。
+- [当前标签页刚完成跳转时 `globalStorage` 尚未写入] → 保留有界轮询；超时返回 `none`，
+  不写部分数据。
 - [账号详情成功但酒店接口失败] → 不更新 credential，保留已有本地数据，等待下次触发。
 - [多酒店部分写入时 repository 抛错] → 错误向上保留上下文；SQLite 单次 repository 调用
   仍原子，但本轮不为整个发现引入新的 Unit of Work。
