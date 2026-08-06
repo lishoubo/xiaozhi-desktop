@@ -11,7 +11,9 @@ export const rmsClient = createPool({
 	maxIdle: 10,
 	idleTimeout: 60_000,
 	queueLimit: 0,
-	enableKeepAlive: true
+	enableKeepAlive: true,
+	supportBigNumbers: true,
+	bigNumberStrings: true
 });
 
 export const rmsDb = drizzle({ client: rmsClient });

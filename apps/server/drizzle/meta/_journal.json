@@ -22,6 +22,13 @@
       "when": 1785916525926,
       "tag": "0002_absent_speed",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1785987046416,
+      "tag": "0003_curved_wendigo",
+      "breakpoints": true
     }
   ]
 }

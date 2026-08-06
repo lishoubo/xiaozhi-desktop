@@ -14,7 +14,7 @@ export default defineConfig({
 			INITIAL_ADMIN_PASSWORD: 'admin123',
 			INITIAL_ADMIN_USERNAME: 'admin',
 			ORIGIN: baseURL,
-			RMS_DATABASE_URL: `mysql://hotel_butler:testpassword@localhost:${e2eRmsHostPort}/rms_test`
+			RMS_DATABASE_URL: `mysql://hotel_butler:testpassword@localhost:${e2eRmsHostPort}/rms`
 		},
 		port: 4173,
 		stderr: 'pipe',

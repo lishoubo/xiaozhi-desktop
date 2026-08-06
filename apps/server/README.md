@@ -56,12 +56,15 @@ The database initializer runs migrations and creates the first administrator onl
 that username does not already exist. Local defaults are `admin` / `admin123`; override
 them with `INITIAL_ADMIN_USERNAME`, `INITIAL_ADMIN_PASSWORD`, and `INITIAL_ADMIN_NAME`.
 Restarting the stack does not reset the password or remove the named database volumes.
+When the RMS MySQL data volume is created for the first time, the official MySQL image imports
+`rms-schema.sql` from its initialization directory. Existing RMS volumes are left unchanged and
+do not re-import the dump.
 
 Administrators sign in at `/login` with username and password. Administrator authentication
 uses dedicated `admin_*` tables; every identity in `admin_user` is an administrator, so there is
-no administrator role or ban-management model. Desktop users are stored separately in
-`desktop_user`, keyed by phone number, and do not share administrator credentials. Phone OTP
-delivery will be connected to this desktop-user identity when an SMS provider is selected.
+no administrator role or ban-management model. Desktop employee identity is resolved read-only
+from the RMS `employee` table after phone OTP; it is not copied into PostgreSQL. Phone OTP delivery
+and the desktop integration will be connected when an SMS provider and session flow are selected.
 
 Production uses `compose.production.yaml`. Copy `.env.production.example` to the ignored
 `.env.production`, fill in the Alibaba Cloud Container Registry locations and production

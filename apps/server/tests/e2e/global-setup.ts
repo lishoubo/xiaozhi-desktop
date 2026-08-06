@@ -1,12 +1,14 @@
 import { execFile } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
+import { createConnection } from 'mysql2/promise';
 import { promisify } from 'node:util';
-import postgresClient from 'postgres';
 import { GenericContainer, Wait, type StartedTestContainer } from 'testcontainers';
 import { e2ePostgresHostPort, e2eRmsHostPort } from './ports';
 
 const execFileAsync = promisify(execFile);
 const postgresPort = 5432;
 const rmsPort = 3306;
+const rmsSchemaPath = fileURLToPath(new URL('../../rms-schema.sql', import.meta.url));
 
 function databaseUrl(
 	protocol: 'postgres' | 'mysql',
@@ -55,11 +57,14 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
 		const rms = await new GenericContainer('mysql:8.4')
 			.withEnvironment({
 				MYSQL_ROOT_PASSWORD: 'testrootpassword',
-				MYSQL_DATABASE: 'rms_test',
+				MYSQL_DATABASE: 'rms',
 				MYSQL_USER: 'hotel_butler',
 				MYSQL_PASSWORD: 'testpassword'
 			})
 			.withCommand(['--character-set-server=utf8mb4', '--collation-server=utf8mb4_0900_ai_ci'])
+			.withCopyFilesToContainer([
+				{ source: rmsSchemaPath, target: '/docker-entrypoint-initdb.d/001-rms-schema.sql' }
+			])
 			.withExposedPorts({ container: rmsPort, host: e2eRmsHostPort })
 			.withWaitStrategy(Wait.forLogMessage(/ready for connections.*port: 3306/i))
 			.withStartupTimeout(120_000)
@@ -80,7 +85,7 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
 			rmsPort,
 			'hotel_butler',
 			'testpassword',
-			'rms_test'
+			'rms'
 		);
 		process.env.INITIAL_ADMIN_NAME = 'E2E Administrator';
 		process.env.INITIAL_ADMIN_PASSWORD = 'admin123';
@@ -91,17 +96,16 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
 			env: process.env,
 			maxBuffer: 10 * 1024 * 1024
 		});
-		const database = postgresClient(process.env.DATABASE_URL, { max: 1 });
+		const rmsDatabase = await createConnection(process.env.RMS_DATABASE_URL);
 		try {
-			await database`
-				insert into desktop_user (
-					id, phone_number, display_name, phone_number_verified, status, last_login_at
-				) values (
-					'desktop-e2e-user', '13800138000', '测试桌面用户', true, 'active', now()
-				)
-			`;
+			await rmsDatabase.execute(
+				`INSERT INTO employee (
+					org_id, username, password_hash, full_name, phone, role_code, status
+				) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+				[42, 'desktop-e2e-user', 'unused-e2e-hash', '测试桌面员工', '13800138000', 'FRONT_DESK', 1]
+			);
 		} finally {
-			await database.end();
+			await rmsDatabase.end();
 		}
 	} catch (error) {
 		try {

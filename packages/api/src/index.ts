@@ -1,1 +1,11 @@
-export { appRouter, type ApiContext, type AppRouter } from './router';
+export {
+  appRouter,
+  employeeIdentitySchema,
+  phoneCodeSchema,
+  phoneNumberSchema,
+  type ApiContext,
+  type AppRouter,
+  type EmployeeIdentity,
+  type EmployeeIdentityDirectory,
+  type PhoneOtpGateway,
+} from './router';
