@@ -13,11 +13,14 @@ import {
 
 const channel = toChannelId('ctrip');
 const partitionName = 'persist:xiaozhi:prod:ctrip:aaa';
+const meituanChannel = toChannelId('meituan');
+const meituanPartitionName = 'persist:xiaozhi:prod:meituan:bbb';
 
 function credential(overrides: Partial<OtaCredential> = {}): OtaCredential {
   return {
     id: toOtaCredentialId('credential-1'),
     channel,
+    channelAccountId: null,
     partitionName,
     credentialExtra: null,
     discoveredAt: 100,
@@ -54,9 +57,12 @@ function createDeps(
     create: vi.fn((input) => input),
     findById: vi.fn(() => null),
     findByPartitionName: vi.fn(() => null),
+    findByChannelAndAccountId: vi.fn(() => null),
+    updateIdentity: vi.fn(),
   };
   return {
     probes: new Map(),
+    discoverMeituan: vi.fn().mockResolvedValue({ kind: 'none' }),
     accountRepository,
     credentialRepository,
     generateAccountId: vi.fn(() => 'generated-account-id'),
@@ -83,6 +89,7 @@ describe('DiscoverAndCreate', () => {
     expect(deps.credentialRepository.create).toHaveBeenCalledWith({
       id: toOtaCredentialId('generated-credential-id'),
       channel,
+      channelAccountId: null,
       partitionName,
       credentialExtra: null,
       discoveredAt: expect.any(Number),
@@ -302,5 +309,151 @@ describe('DiscoverAndCreate', () => {
 
     expect(deps.credentialRepository.create).not.toHaveBeenCalled();
     expect(probe.discover).toHaveBeenCalledTimes(2);
+  });
+
+  it('美团显式发现创建带渠道身份的 credential，并一次保存全部酒店', async () => {
+    const discoverMeituan = vi.fn().mockResolvedValue({
+      kind: 'found',
+      credential: {
+        channelAccountId: '274615733',
+        credentialExtra: {
+          partnerId: '4595635',
+          login: 'hotel-login',
+          accountType: 1,
+          accountStatus: 1,
+          maskedPhone: '138****1234',
+        },
+      },
+      hotels: [
+        {
+          otaHotelId: toOtaHotelId('hotel-1'),
+          otaHotelName: '美团酒店一',
+          bindExtra: { otaPartnerId: 'partner-1', otaPartnerName: '合作方一' },
+        },
+        {
+          otaHotelId: toOtaHotelId('hotel-2'),
+          otaHotelName: '美团酒店二',
+          bindExtra: null,
+        },
+      ],
+    });
+    const onAccountBound = vi.fn();
+    const deps = createDeps({
+      discoverMeituan,
+      generateAccountId: vi
+        .fn()
+        .mockReturnValueOnce('generated-account-1')
+        .mockReturnValueOnce('generated-account-2'),
+      onAccountBound,
+    });
+    const discoverAndCreate = new DiscoverAndCreate(deps);
+
+    await expect(
+      discoverAndCreate.trigger(
+        meituanPartitionName,
+        meituanChannel,
+        'https://me.meituan.com/ebooking/index.html',
+        {} as never,
+      ),
+    ).resolves.toBe(true);
+
+    expect(discoverMeituan).toHaveBeenCalledTimes(1);
+    expect(deps.credentialRepository.create).toHaveBeenCalledWith({
+      id: toOtaCredentialId('generated-credential-id'),
+      channel: meituanChannel,
+      channelAccountId: '274615733',
+      partitionName: meituanPartitionName,
+      credentialExtra: expect.objectContaining({ partnerId: '4595635' }),
+      discoveredAt: expect.any(Number),
+      lastRefreshedAt: expect.any(Number),
+    });
+    expect(deps.accountRepository.create).toHaveBeenCalledTimes(2);
+    expect(deps.accountRepository.create).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        id: toOtaAccountId('generated-account-1'),
+        credentialId: toOtaCredentialId('generated-credential-id'),
+        otaHotelId: toOtaHotelId('hotel-1'),
+      }),
+    );
+    expect(deps.accountRepository.create).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        id: toOtaAccountId('generated-account-2'),
+        credentialId: toOtaCredentialId('generated-credential-id'),
+        otaHotelId: toOtaHotelId('hotel-2'),
+      }),
+    );
+    expect(deps.removePendingPartition).toHaveBeenCalledTimes(1);
+    expect(onAccountBound).toHaveBeenCalledTimes(1);
+    expect(onAccountBound).toHaveBeenCalledWith(meituanChannel);
+  });
+
+  it('美团已有 credential 时刷新身份，不改变 partition', async () => {
+    const existingCredential = credential({
+      channel: meituanChannel,
+      partitionName: meituanPartitionName,
+    });
+    const discoverMeituan = vi.fn().mockResolvedValue({
+      kind: 'found',
+      credential: {
+        channelAccountId: '274615733',
+        credentialExtra: { partnerId: '4595635' },
+      },
+      hotels: [
+        {
+          otaHotelId: toOtaHotelId('hotel-1'),
+          otaHotelName: '美团酒店一',
+          bindExtra: null,
+        },
+      ],
+    });
+    const deps = createDeps({ discoverMeituan });
+    vi.mocked(deps.credentialRepository.findByPartitionName).mockReturnValue(existingCredential);
+    vi.mocked(deps.credentialRepository.updateIdentity).mockReturnValue({
+      ...existingCredential,
+      channelAccountId: '274615733',
+      credentialExtra: { partnerId: '4595635' },
+      lastRefreshedAt: 200,
+    });
+    const discoverAndCreate = new DiscoverAndCreate(deps);
+
+    await discoverAndCreate.trigger(
+      meituanPartitionName,
+      meituanChannel,
+      'https://me.meituan.com/ebooking/index.html',
+      {} as never,
+    );
+
+    expect(deps.credentialRepository.create).not.toHaveBeenCalled();
+    expect(deps.credentialRepository.updateIdentity).toHaveBeenCalledWith(existingCredential.id, {
+      channelAccountId: '274615733',
+      credentialExtra: { partnerId: '4595635' },
+      lastRefreshedAt: expect.any(Number),
+    });
+    expect(deps.accountRepository.create).toHaveBeenCalledWith(
+      expect.objectContaining({ credentialId: existingCredential.id }),
+    );
+  });
+
+  it('美团身份发现失败时保留已有 credential 和账号', async () => {
+    const discoverMeituan = vi.fn().mockResolvedValue({ kind: 'none' });
+    const deps = createDeps({ discoverMeituan });
+    const discoverAndCreate = new DiscoverAndCreate(deps);
+
+    await expect(
+      discoverAndCreate.trigger(
+        meituanPartitionName,
+        meituanChannel,
+        'https://me.meituan.com/ebooking/index.html',
+        {} as never,
+      ),
+    ).resolves.toBe(false);
+
+    expect(deps.credentialRepository.create).not.toHaveBeenCalled();
+    expect(deps.credentialRepository.updateIdentity).not.toHaveBeenCalled();
+    expect(deps.accountRepository.create).not.toHaveBeenCalled();
+    expect(deps.accountRepository.updateDiscovery).not.toHaveBeenCalled();
+    expect(deps.removePendingPartition).not.toHaveBeenCalled();
   });
 });

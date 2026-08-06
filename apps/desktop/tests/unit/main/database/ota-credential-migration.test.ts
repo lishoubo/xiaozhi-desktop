@@ -73,6 +73,61 @@ function legacyDatabase(accounts: readonly LegacyAccount[] = []): string {
   return filename;
 }
 
+function version6Database(): string {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'ota-credential-v6-migration-'));
+  temporaryDirectories.push(directory);
+  const filename = path.join(directory, 'application.sqlite');
+  const database = new Database(filename);
+  database.exec(`
+    CREATE TABLE schema_migrations (
+      version INTEGER PRIMARY KEY,
+      name TEXT NOT NULL,
+      applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+    INSERT INTO schema_migrations(version, name) VALUES
+      (1, 'create-calendar-storage'),
+      (2, 'add-calendar-event-notes'),
+      (3, 'create-ota-account'),
+      (4, 'rename-ota-account-display-name'),
+      (5, 'add-ota-account-channel-context-and-discovered-at'),
+      (6, 'split-ota-credential-from-account');
+
+    CREATE TABLE calendar_groups (id TEXT PRIMARY KEY);
+    CREATE TABLE calendar_events (calendar_id TEXT NOT NULL);
+
+    CREATE TABLE ota_credential (
+      id TEXT PRIMARY KEY,
+      channel TEXT NOT NULL,
+      partition_name TEXT NOT NULL UNIQUE,
+      credential_extra TEXT,
+      discovered_at INTEGER NOT NULL,
+      last_refreshed_at INTEGER,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+    INSERT INTO ota_credential
+      (id, channel, partition_name, credential_extra, discovered_at, last_refreshed_at)
+    VALUES
+      ('credential-1', 'meituan', 'persist:xiaozhi:prod:meituan:one', NULL, 1700000000000, NULL);
+
+    CREATE TABLE ota_account (
+      id TEXT PRIMARY KEY,
+      credential_id TEXT NOT NULL REFERENCES ota_credential(id) ON UPDATE CASCADE ON DELETE RESTRICT,
+      channel TEXT NOT NULL,
+      ota_hotel_id TEXT NOT NULL,
+      ota_hotel_name TEXT,
+      bind_extra TEXT,
+      discovered_at INTEGER NOT NULL,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE UNIQUE INDEX ota_account_channel_hotel_idx ON ota_account(channel, ota_hotel_id);
+    CREATE INDEX ota_account_credential_idx ON ota_account(credential_id);
+  `);
+  database.close();
+  return filename;
+}
+
 afterEach(() => {
   for (const directory of temporaryDirectories.splice(0)) {
     fs.rmSync(directory, { force: true, recursive: true });
@@ -126,6 +181,27 @@ describe('OTA credential v6 migration', () => {
     );
     expect(
       database.prepare('SELECT COUNT(*) AS count FROM schema_migrations WHERE version = 6').get(),
+    ).toEqual({ count: 1 });
+    database.close();
+  });
+});
+
+describe('OTA credential channel account v7 migration', () => {
+  it('保留 v6 credential，并增加可空渠道账号字段和普通联合索引', () => {
+    const database = openApplicationDatabase(version6Database(), createLogger());
+
+    expect(
+      database
+        .prepare('SELECT id, channel_account_id AS channelAccountId FROM ota_credential')
+        .all(),
+    ).toEqual([{ id: 'credential-1', channelAccountId: null }]);
+    expect(database.prepare('PRAGMA index_list(ota_credential)').all()).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ name: 'ota_credential_channel_account_idx', unique: 0 }),
+      ]),
+    );
+    expect(
+      database.prepare('SELECT COUNT(*) AS count FROM schema_migrations WHERE version = 7').get(),
     ).toEqual({ count: 1 });
     database.close();
   });

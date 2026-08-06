@@ -162,6 +162,17 @@ const migrations: readonly Migration[] = [
       `);
     },
   },
+  {
+    version: 7,
+    name: 'add-ota-credential-channel-account-id',
+    apply(database) {
+      database.exec(`
+        ALTER TABLE ota_credential ADD COLUMN channel_account_id TEXT;
+        CREATE INDEX ota_credential_channel_account_idx
+          ON ota_credential(channel, channel_account_id);
+      `);
+    },
+  },
 ];
 
 function migrate(database: ApplicationDatabase): number {

@@ -75,6 +75,7 @@ function credentialRepository(
         ? {
             id: toOtaCredentialId('credential-1'),
             channel,
+            channelAccountId: null,
             partitionName,
             credentialExtra: null,
             discoveredAt: 1,

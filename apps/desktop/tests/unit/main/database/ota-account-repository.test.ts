@@ -39,6 +39,7 @@ beforeEach(() => {
   credentialRepository.create({
     id: toOtaCredentialId('credential-1'),
     channel: toChannelId('douyin'),
+    channelAccountId: null,
     partitionName: 'persist:xiaozhi:prod:douyin:short-1',
     credentialExtra: null,
     discoveredAt: 1,
@@ -47,6 +48,7 @@ beforeEach(() => {
   credentialRepository.create({
     id: toOtaCredentialId('credential-2'),
     channel: toChannelId('douyin'),
+    channelAccountId: null,
     partitionName: 'persist:xiaozhi:prod:douyin:short-2',
     credentialExtra: null,
     discoveredAt: 2,

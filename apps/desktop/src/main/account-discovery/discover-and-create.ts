@@ -1,15 +1,20 @@
 import type { WebContents } from 'electron';
 import type { ChannelId } from '../../domain/identity';
 import { toOtaAccountId, toOtaCredentialId } from '../../domain/identity';
+import type { OtaCredential } from '../../domain/ota-credential';
 import type {
   OtaAccountRepository,
   OtaCredentialRepository,
 } from '../../domain/ports/repositories';
 import type { AppLogger } from '../../shared/logging';
 import type { DiscoveredOtaHotel, DiscoveryProbe } from './discovery-probe-port';
+import type { DiscoverMeituan } from '../ota/meituan/discover-meituan';
+
+const MEITUAN_CHANNEL = 'meituan';
 
 export type DiscoverAndCreateDependencies = Readonly<{
   probes: ReadonlyMap<ChannelId, DiscoveryProbe>;
+  discoverMeituan: DiscoverMeituan;
   accountRepository: OtaAccountRepository;
   credentialRepository: OtaCredentialRepository;
   generateAccountId: () => string;
@@ -33,8 +38,9 @@ export class DiscoverAndCreate {
   ): Promise<boolean> {
     if (this.bound.has(partitionName) || this.inflight.has(partitionName)) return false;
 
-    const probe = this.deps.probes.get(channel);
-    if (!probe) {
+    const isMeituan = channel === MEITUAN_CHANNEL;
+    const probe = isMeituan ? null : this.deps.probes.get(channel);
+    if (!isMeituan && !probe) {
       this.deps.logger.info('Discovery skipped: no probe registered for channel', { channel });
       return false;
     }
@@ -42,6 +48,18 @@ export class DiscoverAndCreate {
     this.deps.logger.info('Discovery triggered', { channel });
     this.inflight.add(partitionName);
     try {
+      if (isMeituan) {
+        const result = await this.deps.discoverMeituan(partitionName, landingUrl, webContents);
+        this.deps.logger.info('Meituan discovery outcome', { kind: result.kind });
+        if (result.kind === 'none') return false;
+        await this.persistMeituanResult(partitionName, channel, result.credential, result.hotels);
+        this.bound.add(partitionName);
+        this.deps.logger.info('Meituan discovery saved hotels', {
+          hotelCount: result.hotels.length,
+        });
+        return true;
+      }
+      if (!probe) return false;
       const outcome = await probe.discover(partitionName, landingUrl, webContents);
       this.deps.logger.info('Discovery outcome', { channel, kind: outcome.kind });
       switch (outcome.kind) {
@@ -80,11 +98,24 @@ export class DiscoverAndCreate {
     hotel: DiscoveredOtaHotel,
   ): Promise<void> {
     const now = Date.now();
+    const credential = this.findOrCreateCredential(partitionName, channel, now);
+
+    this.upsertAccount(channel, credential, hotel, now);
+    await this.deps.removePendingPartition(partitionName);
+    this.deps.onAccountBound?.(channel);
+  }
+
+  private findOrCreateCredential(
+    partitionName: string,
+    channel: ChannelId,
+    now: number,
+  ): OtaCredential {
     const credential =
       this.deps.credentialRepository.findByPartitionName(partitionName) ??
       this.deps.credentialRepository.create({
         id: toOtaCredentialId(this.deps.generateCredentialId()),
         channel,
+        channelAccountId: null,
         partitionName,
         credentialExtra: null,
         discoveredAt: now,
@@ -93,7 +124,53 @@ export class DiscoverAndCreate {
     if (credential.channel !== channel) {
       throw new Error('partition 对应 credential 的渠道与本次探测渠道不一致');
     }
+    return credential;
+  }
 
+  private async persistMeituanResult(
+    partitionName: string,
+    channel: ChannelId,
+    identity: Readonly<{
+      channelAccountId: string;
+      credentialExtra: OtaCredential['credentialExtra'];
+    }>,
+    hotels: readonly DiscoveredOtaHotel[],
+  ): Promise<void> {
+    const now = Date.now();
+    const existing = this.deps.credentialRepository.findByPartitionName(partitionName);
+    let credential: OtaCredential;
+    if (existing) {
+      if (existing.channel !== channel) {
+        throw new Error('partition 对应 credential 的渠道与美团探测渠道不一致');
+      }
+      credential = this.deps.credentialRepository.updateIdentity(existing.id, {
+        channelAccountId: identity.channelAccountId,
+        credentialExtra: identity.credentialExtra,
+        lastRefreshedAt: now,
+      });
+    } else {
+      credential = this.deps.credentialRepository.create({
+        id: toOtaCredentialId(this.deps.generateCredentialId()),
+        channel,
+        channelAccountId: identity.channelAccountId,
+        partitionName,
+        credentialExtra: identity.credentialExtra,
+        discoveredAt: now,
+        lastRefreshedAt: now,
+      });
+    }
+
+    for (const hotel of hotels) this.upsertAccount(channel, credential, hotel, now);
+    await this.deps.removePendingPartition(partitionName);
+    this.deps.onAccountBound?.(channel);
+  }
+
+  private upsertAccount(
+    channel: ChannelId,
+    credential: OtaCredential,
+    hotel: DiscoveredOtaHotel,
+    now: number,
+  ): void {
     const existing = this.deps.accountRepository.findByChannelAndHotelId(channel, hotel.otaHotelId);
     if (existing) {
       this.deps.accountRepository.updateDiscovery(existing.id, {
@@ -113,7 +190,5 @@ export class DiscoverAndCreate {
         discoveredAt: now,
       });
     }
-    await this.deps.removePendingPartition(partitionName);
-    this.deps.onAccountBound?.(channel);
   }
 }

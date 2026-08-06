@@ -1,8 +1,8 @@
-# OTA Credential、本地 OTA Account 与浏览器 intent/probe 设计
+# OTA Credential、本地 OTA Account 与渠道代码组织设计
 
 > 日期：2026-08-06
 >
-> 状态：方案草案，供后续 OpenSpec proposal/design/tasks 使用
+> 状态：架构讨论稿；双模型已经落地，账号身份字段和渠道目录调整待后续 OpenSpec 确认
 >
 > 前置现状：`docs/arch/2026-08-05-ota-login-and-hotel-binding-current-state.md`
 
@@ -29,7 +29,8 @@ OtaCredential 1 ────── * OtaAccount
    partition                 otaHotel + bindExtra
 ```
 
-流程也随之简化：登录或 cookie 导入时完成 credential probe 和 hotel probe，形成可复用的本地账号目录；绑定 RMS 酒店时优先直接选择本地 `OtaAccount`。
+流程也随之简化：登录或 cookie 导入时读取渠道账号身份并发现酒店，形成可复用的本地账号
+目录；绑定 RMS 酒店时优先直接选择本地 `OtaAccount`。
 
 ## 2. 模型总览
 
@@ -56,6 +57,7 @@ OtaCredential 1 ────── * OtaAccount
 type OtaCredential = Readonly<{
   id: OtaCredentialId;
   channel: ChannelId;
+  channelAccountId: string | null;
   partitionName: string;
   credentialExtra: CredentialExtra | null;
   discoveredAt: number;
@@ -66,9 +68,12 @@ type OtaCredential = Readonly<{
 字段语义：
 
 - `id`：本地与远端共同使用的 credential 关联键。
+- `channelAccountId`：渠道侧的稳定登录账号 ID，用于按渠道账号快速检索；例如美团
+  `bizAcctId`。它不是本地 `OtaAccount.id`，因此不建议命名为 `otaAccountId`，避免两种
+  ID 在接口和日志中混淆。
 - `partitionName`：Electron session 的唯一权威指针。
-- `credentialExtra`：credential probe 返回的渠道原始登录身份信息。
-- `lastRefreshedAt`：最近一次成功完成 credential probe 的时间。
+- `credentialExtra`：渠道特定、经过校验和白名单筛选的辅助登录身份信息。
+- `lastRefreshedAt`：最近一次成功刷新渠道账号身份的时间。
 
 `credentialExtra` 是渠道特定、经过校验的 JSON。示例：
 
@@ -79,11 +84,26 @@ type DouyinCredentialExtra = Readonly<{
 }>;
 
 type MeituanCredentialExtra = Readonly<{
-  hotelId: string;
+  partnerId: string | null;
+  login: string | null;
+  accountType: number | null;
+  accountStatus: number | null;
+  maskedPhone: string | null;
 }>;
 ```
 
-美团的 credential 信息即使只有 `hotelId`，也可以如实保存。它与本地 `OtaAccount.otaHotelId` 数值相同并不构成问题：前者是“用什么身份登录”，后者是“这个身份能操作哪家酒店”。这是渠道事实导致的 1:1，而不是领域模型必须合并。
+`channelAccountId` 只保存可检索的主身份；其他经过白名单筛选、对后续渠道调用有用的
+账号资料放在 `credentialExtra`。不要为了字段齐全而保存 `getDetail` 的整个原始响应。
+
+美团已经验证的身份链路是：从 `https://me.meituan.com` 的 `localStorage.globalStorage`
+解析 `bizAccountId`，再同源调用账号 `getDetail` 接口。`getDetail.bizAcctId` 写入
+`channelAccountId`，`partnerId` 等辅助账号资料写入 `credentialExtra`；`poiInfos` 返回的
+酒店 ID、名称和进入酒店所需上下文写入一个或多个本地 `OtaAccount`。账号身份和酒店
+事实不再互相代替。
+
+`channelAccountId` 首期允许为空，因为新建 partition 后可能尚未登录或探测尚未成功。
+SQLite 增加普通联合索引 `(channel, channel_account_id)`，先不加唯一约束：同一渠道账号
+是否允许保留多份 credential/partition，需要结合刷新与导入流程再定。
 
 `credentialExtra` 不保存原始 cookie、密码或验证码。cookie 仍只存在于 Electron session；需要同步 RMS 时由 desktop main 导出。
 
@@ -100,11 +120,10 @@ type OtaAccount = Readonly<{
   otaHotelName: string | null;
   bindExtra: OtaBindExtra | null;
   discoveredAt: number;
-  lastSeenAt: number;
 }>;
 ```
 
-与当前实现相比：
+当前已经落地的拆分结果：
 
 - 增加 `credentialId`。
 - `partitionName` 移到 `OtaCredential`。
@@ -121,9 +140,12 @@ type OtaBindExtra = Readonly<{
 }>;
 ```
 
-本地账号的去重不能再使用当前的 `(channel, otaHotelId)`。至少要包含 `credentialId` 和渠道定义的稳定酒店入口身份；抖音需要把 `groupId` 纳入判断。具体唯一键由各渠道 hotel probe 提供，不在通用层解析任意 JSON。
+本地账号的去重不能长期使用当前的 `(channel, otaHotelId)`。至少要包含 `credentialId` 和
+渠道定义的稳定酒店入口身份；抖音需要把 `groupId` 纳入判断。具体稳定键由各渠道酒店
+发现函数提供，不在通用层解析任意 JSON。
 
-hotel probe 只 upsert 本次发现的账号，不因一次结果缺失就删除历史账号。后续若要识别账号已失效，另行设计明确的完整快照或校验机制。
+酒店发现函数只 upsert 本次发现的账号，不因一次结果缺失就删除历史账号。后续若要识别
+账号已失效，另行设计明确的完整快照或校验机制。
 
 ### 3.3 本地关系
 
@@ -197,9 +219,9 @@ selected RmsHotel.id           → RmsOtaAccount.hotelId
 
 探测可以更新本地目录，但不能自动改变已有 `RmsOtaAccount`。正式绑定必须经过用户确认。
 
-## 5. 两类 Probe
+## 5. 两类渠道事实
 
-### 5.1 CredentialProbe
+### 5.1 Credential 身份事实
 
 每次新登录、cookie 导入或刷新 credential 时运行，用于回答：
 
@@ -207,27 +229,18 @@ selected RmsHotel.id           → RmsOtaAccount.hotelId
 - 当前渠道登录身份是谁。
 - 应保存哪些脱敏的渠道原始信息。
 
-```ts
-type CredentialProbeResult<TExtra> = Readonly<{
-  channelIdentity: string | null;
-  displayName: string | null;
-  extra: TExtra | null;
-}>;
-
-interface CredentialProbe<TExtra> extends OtaProbe<CredentialProbeResult<TExtra>> {}
-```
-
 不同渠道结果可以不同：
 
 - 抖音：从 cookie/页面事实判断登录状态，并取得 `loginId` 等信息。
-- 美团：如果唯一可靠信息就是 `hotelId`，结果可以只包含它。
+- 美团：从 `globalStorage` 取得 `bizAccountId`，再由 `getDetail` 校验并补全账号资料。
 - 携程：待踩点后定义自己的 extra，不要求提前套入抖音或美团结构。
 
-这里的“probe cookie”是从 cookie 中提取身份事实，不是把原始 cookie 放进 probe 结果或 SQLite。
+从 cookie 中提取身份事实时，不把原始 cookie 放进函数结果或 SQLite。
 
-### 5.2 HotelProbe
+### 5.2 酒店事实
 
-在 credential probe 成功后运行，用于回答“当前 credential 可操作哪些 OTA 酒店”。它返回零个、一个或多个本地 `OtaAccount` 所需事实。
+在账号身份读取成功后运行，用于回答“当前 credential 可操作哪些 OTA 酒店”。它返回零个、
+一个或多个本地 `OtaAccount` 所需事实。
 
 ```ts
 type DiscoveredOtaHotel = Readonly<{
@@ -238,15 +251,21 @@ type DiscoveredOtaHotel = Readonly<{
 }>;
 ```
 
-`stableKey` 由渠道 probe 生成，仅用于同一 credential 下的本地账号 upsert。例如抖音可纳入 `groupId`，通用层不理解其组成。
+`stableKey` 由渠道酒店发现函数生成，仅用于同一 credential 下的本地账号 upsert。例如抖音
+可纳入 `groupId`，通用层不理解其组成。
 
-CredentialProbe 和 HotelProbe 可以使用不同的页面、URL、cookie 或 network response。通用层不规定“必须登录后先去哪一页”，由 feature 和渠道 probe 决定。
+账号身份和酒店发现可以使用不同的页面、URL、cookie 或 network response。通用层不规定
+“必须登录后先去哪一页”，由功能模块和渠道实现决定。
 
 ### 5.3 共同运行机制
 
-Probe 只负责探测事实和清理监听器，不负责 UI、落库、远端 mutation 或业务顺序。
+“账号身份”和“酒店信息”只表示两类需要取得的事实，不要求在代码中建立统一的
+跨渠道接口、基类、registry 或 runner。美团、抖音、携程分别提供具体函数，并自行处理
+本渠道页面、接口、结果结构、超时和清理。
 
-每个 probe 注册自己的超时和重试策略；小型 `ProbeRunner` 统一处理 timeout、retry、cancel 和 cleanup。结果结构由具体 probe 定义，不建立跨渠道统一状态机或候选模型。
+功能模块负责 UI 之外的业务顺序和落库；渠道函数只取得并校验渠道事实，不直接执行远端
+mutation。多个渠道确实重复的低层能力，例如隐藏页面生命周期、等待/重试、同源 XHR、
+CDP 会话和日志脱敏，可以沉淀到 `main/browser/`，但不包装成统一渠道协议。
 
 ## 6. BrowserIntent 与 Feature
 
@@ -262,7 +281,8 @@ type BrowserIntent =
   | { kind: 'BROWSE_OTA_ACCOUNT'; otaAccountId: OtaAccountId };
 ```
 
-BrowserManager 只管理 tab、session、本次 intent 和受信任 probe 的挂载，不理解绑定业务。renderer 不能指定 partition、任意 URL、任意 probe 或脚本。
+BrowserManager 只管理 tab、session、本次 intent 和受信任渠道操作的挂载，不理解绑定业务。
+renderer 不能指定 partition、任意 URL 或任意脚本。
 
 ### 6.2 创建或导入 credential
 
@@ -271,14 +291,15 @@ BrowserManager 只管理 tab、session、本次 intent 和受信任 probe 的挂
 ```text
 创建 credentialId 和 partition
   → 用户新登录或导入 cookie
-  → CredentialProbe
-  → 保存 OtaCredential.credentialExtra
-  → HotelProbe
+  → 调用该渠道的账号身份读取函数
+  → 保存 OtaCredential.channelAccountId 和 credentialExtra
+  → 调用该渠道的酒店发现函数
   → upsert 0..N 个本地 OtaAccount
   → 同步或创建 RmsOtaCredential
 ```
 
-酒店发现不再等到绑定时才做。即使没有发现酒店，只要 credential probe 成功，也可以保存 credential，稍后重新探测。
+酒店发现不再等到绑定时才做。即使没有发现酒店，只要账号身份读取成功，也可以保存
+credential，稍后重新探测。
 
 ### 6.3 绑定 OTA 账号
 
@@ -292,19 +313,22 @@ BrowserManager 只管理 tab、session、本次 intent 和受信任 probe 的挂
   → 创建/更新 RmsOtaAccount
 ```
 
-绑定本身通常不打开浏览器、不运行 probe，也不重新导出 cookie。若本地没有可选账号，feature 引导用户先执行“新建/导入 credential”；完成后回到选择。
+绑定本身通常不打开浏览器、不运行渠道探测，也不重新导出 cookie。若本地没有可选账号，
+feature 引导用户先执行“新建/导入 credential”；完成后回到选择。
 
 抖音还可以从已有 credential 发起“重新发现账号”：
 
 ```text
 选择已有 Douyin OtaCredential
   → intent=DISCOVER_OTA_ACCOUNTS 打开首页
-  → HotelProbe 获取当前可见的多个公司/酒店
+  → 调用抖音酒店发现函数获取当前可见的多个公司/酒店
   → upsert 本地 OtaAccount
   → 返回绑定选择
 ```
 
-这里不再在“选择公司”页面设计持续 probe。只在抖音首页读取已经确定的公司/酒店上下文。如果首页一次能够返回多个公司下的酒店，就一次入库多条；如果只能返回当前 `groupId`，则每次用户切换并进入首页后增量发现，不假设 probe 能枚举不可见公司。
+这里不再在“选择公司”页面设计持续探测。只在抖音首页读取已经确定的公司/酒店上下文。
+如果首页一次能够返回多个公司下的酒店，就一次入库多条；如果只能返回当前 `groupId`，
+则每次用户切换并进入首页后增量发现，不假设渠道函数能枚举不可见公司。
 
 ### 6.4 刷新 credential
 
@@ -313,8 +337,8 @@ BrowserManager 只管理 tab、session、本次 intent 和受信任 probe 的挂
 ```text
 选择 OtaCredential
   → 使用原 partition 重新登录或导入 cookie
-  → CredentialProbe 更新 credentialExtra
-  → HotelProbe 增量刷新本地 OtaAccount
+  → 调用该渠道账号身份函数，更新 channelAccountId 和 credentialExtra
+  → 调用该渠道酒店发现函数，增量刷新本地 OtaAccount
   → 导出 cookie并更新 RmsOtaCredential
 ```
 
@@ -322,9 +346,22 @@ BrowserManager 只管理 tab、session、本次 intent 和受信任 probe 的挂
 
 ### 6.5 渠道 feature 的边界
 
-优先由通用 create/refresh/discover feature 组合渠道 probe。只有抖音出现跨页面多轮交互、多个 probe 相互反馈等真实差异时，再拆 `DouyinCredentialFeature` 或 `DouyinAccountDiscoveryFeature`。
+create/refresh/discover 等功能模块知道自己支持哪些 OTA 渠道，并用普通显式控制流调用
+渠道具体函数。例如账号发现功能可以直接按 `channel` 分支调用
+`meituan/fetch-poi-infos`、`douyin/discover-hotels` 或 `ctrip/discover-hotels`。
 
-稳定抽象仍然只有 intent 和 probe；feature 使用普通显式控制流，不实现统一状态机。
+不引入 `ChannelAdapter`、统一 capability interface 或全局渠道 registry。不同功能对渠道的
+能力要求本来就不同：酒店发现、登录检测、打开账号、携程入住自动化不需要被塞进同一个
+大接口。若某个功能自身需要一个小 contract，该 contract 归该功能所有，仅约束该调用点。
+
+依赖方向固定为：
+
+```text
+main 功能模块 → main/ota/<channel> → main/browser 等通用基础能力
+```
+
+渠道目录不得反向 import 功能模块。这样渠道事实集中在一处，同时保留功能模块对业务流程
+的显式控制。
 
 ## 7. 本地 OTA 登录信息页面
 
@@ -359,68 +396,96 @@ BrowserManager 只管理 tab、session、本次 intent 和受信任 probe 的挂
 5. 本地探测结果不能自动覆盖远端绑定。
 6. 登录过期不自动解绑；解绑不自动删除 credential。
 7. cookie、密码和 `partitionName` 不进入 renderer、日志或普通 DTO。
-8. credential probe 和 hotel probe 失败时保留已有本地数据，不把暂时失败解释为账号已消失。
-9. 普通浏览不意外触发探测；只有 feature 根据 intent 注册 probe。
+8. 渠道账号身份或酒店发现失败时保留已有本地数据，不把暂时失败解释为账号已消失。
+9. 普通浏览不意外触发探测；只有功能模块根据 intent 发起渠道操作。
 
 ## 9. 对现有实现的影响
 
-现有 `ota_account` 数据可以原地演进，也可以拆表迁移；目标结构必须满足：
+当前 SQLite version 6 已经拆出 `ota_credential` 与 `ota_account`。后续只需要在现有结构上
+增加渠道账号身份字段，并保持两个模型的职责不变：
 
 ```text
 ota_credential
-  id, channel, partition_name, credential_extra,
+  id, channel, channel_account_id, partition_name, credential_extra,
   discovered_at, last_refreshed_at
 
 ota_account
   id, credential_id, channel, ota_hotel_id, ota_hotel_name,
-  bind_extra, discovered_at, last_seen_at
+  bind_extra, discovered_at
 ```
 
-迁移原则：
+后续迁移原则：
 
-1. 先按现有 `partition_name` 建立 `OtaCredential`。
-2. 现有每条 `ota_account` 保留为一条本地酒店入口，并关联对应 credential。
-3. `channel_context` 迁移为 `bind_extra`。
-4. 不根据本地数据猜测 `RmsHotel` 或自动创建远端绑定。
-5. 不删除已有 partition 目录。
+1. 给 `ota_credential` 增加可空的 `channel_account_id TEXT`。
+2. 增加普通索引 `(channel, channel_account_id)`，暂不增加唯一约束。
+3. 旧数据通过下一次渠道身份读取逐步回填，不用 `ota_hotel_id` 猜账号 ID。
+4. 不改变现有 `ota_account`、远端绑定或 partition 目录。
 
 建议组件边界：
 
 ```text
-src/main/features/ota-account/
-├── create-ota-credential.ts
-├── refresh-ota-credential.ts
-├── discover-ota-accounts.ts
-└── bind-ota-account.ts
+src/main/features/
+├── ota-credential/
+│   ├── create-credential.ts
+│   └── refresh-credential.ts
+└── ota-account/
+    ├── discover-and-create.ts
+    ├── open-account.ts
+    └── login-tab-opener.ts
+
+src/main/ota/
+├── meituan/
+│   ├── read-account-identity.ts
+│   ├── fetch-account-detail.ts
+│   ├── fetch-poi-infos.ts
+│   └── login-url-matcher.ts
+├── douyin/
+│   ├── discover-credential.ts
+│   ├── discover-hotels.ts
+│   └── login-url-matcher.ts
+└── ctrip/
+    ├── discover-credential.ts
+    ├── discover-hotels.ts
+    ├── check-in-automation.ts
+    └── login-url-matcher.ts
 
 src/main/browser/
 ├── browser-manager.ts
-├── browser-intent.ts
-└── session-factory.ts
-
-src/main/account-discovery/
-├── credential-probe.ts
-├── hotel-probe.ts
-├── probe-runner.ts
-├── probe-registry.ts
-└── <channel>-*.ts
+├── hidden-page.ts
+├── same-origin-xhr.ts
+├── wait-until.ts
+└── cdp-session.ts
 ```
+
+这是目标职责划分，不要求一次性机械搬目录。后续按具体功能逐步迁移：
+
+| 现有文件 | 目标位置 |
+|---|---|
+| `account-discovery/discover-and-create.ts` | `features/ota-account/discover-and-create.ts` |
+| `account-discovery/meituan-discovery.ts` | `ota/meituan/fetch-poi-infos.ts`，账号身份读取拆到同渠道目录 |
+| `account-discovery/douyin-discovery.ts` | `ota/douyin/discover-hotels.ts` |
+| `account-discovery/*-login-url-matcher.ts` | `ota/<channel>/login-url-matcher.ts` |
+| `automation/ctrip-check-in-automation.ts` | `ota/ctrip/check-in-automation.ts` |
+
+本次讨论不新增第三个领域模型，不设计统一渠道适配器，也不直接改变 server/RMS 模型。
+字段迁移和目录调整属于后续实现任务，需要单独进入 OpenSpec。
 
 ## 10. 待验证事实
 
 方案不依赖这些问题已有答案，但实现前需要逐渠道踩点：
 
-- 美团的 `hotelId` 是否同时是稳定登录身份和唯一酒店入口。
+- 美团账号身份链路已确认可由 `globalStorage.bizAccountId` 和账号 `getDetail` 得到；仍需
+  验证该 ID 在账号切换、子账号和长期刷新场景中的稳定性。
 - 携程可从 cookie、首页或接口获得哪些 credential 身份信息。
 - 抖音首页接口一次返回当前 `groupId`，还是能返回当前 login 下的全部公司/酒店。
-- cookie 导入后是否必须真实导航一次，才能完成 credential/hotel probe。
-- 某渠道 hotel probe 返回的是完整快照还是增量结果。
+- cookie 导入后是否必须真实导航一次，才能完成账号身份读取和酒店发现。
+- 某渠道酒店发现函数返回的是完整快照还是增量结果。
 
 ## 11. 实施与验收建议
 
 正式实现涉及 domain、SQLite、IPC、共享 contract、server 和 RMS 接口，应先建立 OpenSpec 三件套。建议拆为：
 
-1. 本地 `OtaCredential` + `OtaAccount` 拆分、两类 probe、登录信息页面。
+1. 本地 `OtaCredential` + `OtaAccount`、渠道身份/酒店发现函数、登录信息页面。
 2. 使用本地账号的简化绑定流程。
 3. `RmsOtaCredential` 及 RMS credential/绑定同步。
 
@@ -428,7 +493,7 @@ src/main/account-discovery/
 
 - 美团可以表达一 credential 对一账号，而无需特殊模型。
 - 同一抖音 credential 可发现并保存多个带不同 `groupId` 的账号。
-- 新登录和 cookie 导入都会运行 credential probe 与 hotel probe。
+- 新登录和 cookie 导入都会读取账号身份并发现酒店。
 - 绑定已有本地账号时不重新登录、不重复探测。
 - 刷新 credential 后，已有远端绑定保持不变。
 - 本地登录信息页能按 credential 展示关联酒店。

@@ -13,7 +13,11 @@ import type {
 } from '../calendar';
 import type { ChannelId, OtaCredentialId, OtaHotelId } from '../identity';
 import type { OtaAccount, OtaAccountCreateInput, OtaAccountDiscoveryUpdate } from '../ota-account';
-import type { OtaCredential, OtaCredentialCreateInput } from '../ota-credential';
+import type {
+  OtaCredential,
+  OtaCredentialCreateInput,
+  OtaCredentialIdentityUpdate,
+} from '../ota-credential';
 
 export interface CalendarRepository {
   load(): CalendarSnapshot;
@@ -36,4 +40,6 @@ export interface OtaCredentialRepository {
   create(input: OtaCredentialCreateInput): OtaCredential;
   findById(id: OtaCredentialId): OtaCredential | null;
   findByPartitionName(partitionName: string): OtaCredential | null;
+  findByChannelAndAccountId(channel: ChannelId, channelAccountId: string): OtaCredential | null;
+  updateIdentity(id: OtaCredentialId, update: OtaCredentialIdentityUpdate): OtaCredential;
 }

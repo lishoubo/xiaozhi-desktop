@@ -14,6 +14,7 @@ function input(overrides: Partial<Parameters<SqliteOtaCredentialRepository['crea
   return {
     id: toOtaCredentialId('credential-1'),
     channel: toChannelId('douyin'),
+    channelAccountId: null,
     partitionName: 'persist:xiaozhi:prod:douyin:short-1',
     credentialExtra: null,
     discoveredAt: 1_700_000_000_000,
@@ -32,19 +33,54 @@ beforeEach(() => {
 
 describe('SqliteOtaCredentialRepository', () => {
   it('创建后可按 ID 和 partitionName 查询并还原 extra', () => {
-    const created = repository.create(input({ credentialExtra: { loginId: 'login-1' } }));
+    const created = repository.create(
+      input({ channelAccountId: 'account-1', credentialExtra: { loginId: 'login-1' } }),
+    );
 
     expect(repository.findById(created.id)).toEqual(created);
     expect(repository.findByPartitionName(created.partitionName)).toEqual(created);
+    expect(repository.findByChannelAndAccountId(created.channel, 'account-1')).toEqual(created);
   });
 
   it('查询不存在的 credential 返回 null', () => {
     expect(repository.findById(toOtaCredentialId('missing'))).toBeNull();
     expect(repository.findByPartitionName('persist:xiaozhi:prod:douyin:missing')).toBeNull();
+    expect(repository.findByChannelAndAccountId(toChannelId('douyin'), 'missing')).toBeNull();
   });
 
   it('拒绝重复 partitionName', () => {
     repository.create(input());
     expect(() => repository.create(input({ id: toOtaCredentialId('credential-2') }))).toThrow();
+  });
+
+  it('只更新渠道账号身份，不改变渠道和 partition', () => {
+    const created = repository.create(input());
+
+    const updated = repository.updateIdentity(created.id, {
+      channelAccountId: 'account-2',
+      credentialExtra: { partnerId: 'partner-1' },
+      lastRefreshedAt: 1_700_000_000_100,
+    });
+
+    expect(updated).toEqual({
+      ...created,
+      channelAccountId: 'account-2',
+      credentialExtra: { partnerId: 'partner-1' },
+      lastRefreshedAt: 1_700_000_000_100,
+    });
+    expect(repository.findById(created.id)).toEqual(updated);
+  });
+
+  it('拒绝写入空白渠道账号 ID，并保留原记录', () => {
+    const created = repository.create(input());
+
+    expect(() =>
+      repository.updateIdentity(created.id, {
+        channelAccountId: ' ',
+        credentialExtra: { partnerId: 'partner-1' },
+        lastRefreshedAt: 1_700_000_000_100,
+      }),
+    ).toThrow();
+    expect(repository.findById(created.id)).toEqual(created);
   });
 });

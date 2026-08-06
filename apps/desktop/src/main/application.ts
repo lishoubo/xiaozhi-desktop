@@ -21,6 +21,7 @@ import { createDiscoveryProbes } from './account-discovery/discovery-probe';
 import { LOGIN_URL_MATCHERS } from './account-discovery/login-url-matcher';
 import { removePendingPartition } from './file-store/pending-partitions-store';
 import { IPC_CHANNELS } from '../shared/ipc-channels';
+import { createMeituanDiscovery } from './ota/meituan/discover-meituan';
 
 let mainWindow: BrowserWindow | null = null;
 let browserManager: BrowserManager | null = null;
@@ -104,6 +105,7 @@ function initializeApplication(): void {
   otaCredentialRepository = new SqliteOtaCredentialRepository(applicationDatabase);
   discoverAndCreate = new DiscoverAndCreate({
     probes: createDiscoveryProbes(log),
+    discoverMeituan: createMeituanDiscovery(log),
     accountRepository: otaAccountRepository,
     credentialRepository: otaCredentialRepository,
     generateAccountId: () => randomUUID(),
