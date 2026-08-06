@@ -6,7 +6,9 @@
   import ArrowLeft from '@lucide/svelte/icons/arrow-left';
   import ArrowRight from '@lucide/svelte/icons/arrow-right';
   import Import from '@lucide/svelte/icons/import';
+  import Plus from '@lucide/svelte/icons/plus';
   import RotateCw from '@lucide/svelte/icons/rotate-cw';
+  import VolumeX from '@lucide/svelte/icons/volume-x';
   import X from '@lucide/svelte/icons/x';
   import type { BrowserTab, OtaAccountDto } from '../../../shared/browser';
   import {
@@ -21,8 +23,13 @@
   import { requestCookieListAutoOpen } from '../../pending-cookie-list-open';
   import { Button } from '$lib/components/ui/button';
   import { Spinner } from '$lib/components/ui/spinner';
+  import AccountSwitcherDialog from './AccountSwitcherDialog.svelte';
   import CookieImportDialog from './CookieImportDialog.svelte';
-  import AccountsNav from './AccountsNav.svelte';
+  import {
+    buildLoginSessionOptions,
+    currentLoginSession,
+    type LoginSessionOption,
+  } from './login-session-options';
 
   const COOKIE_PROMPT_KEY = 'hotel-butler.cookie-import-prompted';
   let activeChannelId = $state(OTA_CHANNELS[0].id);
@@ -31,13 +38,15 @@
   let accountsByChannel = $state<Record<string, OtaAccountDto[]>>({});
   let viewport: HTMLElement | undefined;
   let cookiePrompt = $state(false);
+  let openingSessionTab = $state(false);
   let activeTabs = $derived(tabsByChannel[activeChannelId] ?? []);
   let activeTab = $derived(
     activeTabs.find((tab) => tab.id === activeTabIds[activeChannelId]) ?? activeTabs[0],
   );
   let activeAccounts = $derived(accountsByChannel[activeChannelId] ?? []);
   let activeChannel = $derived(OTA_CHANNELS.find((item) => item.id === activeChannelId));
-  let activeTabPartitionNames = $derived(new Set(activeTabs.map((tab) => tab.partitionName)));
+  let activeSessions = $derived(buildLoginSessionOptions(activeAccounts));
+  let activeSession = $derived(currentLoginSession(activeSessions, activeTab?.partitionName));
 
   function reportBrowserFailure(event: string, message: string, reason: unknown): void {
     log.warn(event, {
@@ -59,7 +68,7 @@
     if (index === -1 || !activeTabIds[next.channelId]) activeTabIds[next.channelId] = next.id;
   }
 
-  async function createTab(channel: OtaChannel, url = channel.url): Promise<boolean> {
+  async function createTab(channel: OtaChannel, url = channel.url): Promise<BrowserTab | null> {
     try {
       dismissAppNotification('browser-operation-error');
       const tab = await window.hotelButler.otaAccount.startLogin({
@@ -70,24 +79,10 @@
       updateTab(tab);
       activeTabIds[channel.id] = tab.id;
       await syncBounds();
-      return true;
+      return tab;
     } catch (error) {
       reportBrowserFailure('Browser tab could not be created', '页面打开失败，请重试', error);
-      return false;
-    }
-  }
-
-  async function selectOtherHotel(account: OtaAccountDto): Promise<boolean> {
-    try {
-      dismissAppNotification('browser-operation-error');
-      const tab = await window.hotelButler.otaAccount.createFromExistingSession(account.id);
-      updateTab(tab);
-      activeTabIds[tab.channelId] = tab.id;
-      await syncBounds();
-      return true;
-    } catch (error) {
-      reportBrowserFailure('Ota account tab could not be created from existing session', '从其他账号登录失败，请重试', error);
-      return false;
+      return null;
     }
   }
 
@@ -118,32 +113,95 @@
     }
   }
 
-  function findTabIdByPartition(partitionName: string): string | undefined {
-    return activeTabs.find((tab) => tab.partitionName === partitionName)?.id;
-  }
-
-  async function openAccount(account: OtaAccountDto): Promise<void> {
+  async function openExistingAccountTab(account: OtaAccountDto): Promise<BrowserTab | null> {
     dismissAppNotification('browser-operation-error');
     try {
-      const existingTabId = findTabIdByPartition(account.partitionName);
-      if (existingTabId) {
-        await window.hotelButler.browser.activate(existingTabId);
-        activeTabIds[account.channel] = existingTabId;
-      } else {
-        const tab = await window.hotelButler.otaAccount.openExisting(account.id);
-        updateTab(tab);
-        activeTabIds[account.channel] = tab.id;
-      }
+      const tab = await window.hotelButler.otaAccount.openExisting(account.id);
+      updateTab(tab);
+      activeTabIds[account.channel] = tab.id;
       await syncBounds();
+      return tab;
     } catch (error) {
-      reportBrowserFailure('Ota account tab could not be opened', '打开账号页面失败，请重试', error);
+      reportBrowserFailure(
+        'Ota account tab could not be opened',
+        '打开账号页面失败，请重试',
+        error,
+      );
+      return null;
     }
+  }
+
+  async function closeSupersededTabs(
+    channelId: string,
+    targetPartitionName: string,
+    previousTabs: readonly BrowserTab[],
+  ): Promise<void> {
+    const closedTabIds = new Set<string>();
+    for (const tab of previousTabs) {
+      if (tab.partitionName === targetPartitionName) continue;
+      try {
+        await window.hotelButler.browser.close(tab.id);
+        closedTabIds.add(tab.id);
+      } catch (error) {
+        reportBrowserFailure(
+          'Superseded browser tab could not be closed',
+          '旧账号页面关闭失败，请手动关闭',
+          error,
+        );
+      }
+    }
+    if (closedTabIds.size > 0) {
+      tabsByChannel[channelId] = (tabsByChannel[channelId] ?? []).filter(
+        (tab) => !closedTabIds.has(tab.id),
+      );
+    }
+  }
+
+  async function openNewTabForActiveSession(): Promise<void> {
+    if (!activeSession || openingSessionTab) return;
+    openingSessionTab = true;
+    try {
+      await openExistingAccountTab(activeSession.representativeAccount);
+    } finally {
+      openingSessionTab = false;
+    }
+  }
+
+  async function switchLoginSession(session: LoginSessionOption): Promise<boolean> {
+    const previousTabs = [...activeTabs];
+    const alreadyOpen = previousTabs.find((tab) => tab.partitionName === session.partitionName);
+    let targetTab = alreadyOpen;
+
+    if (targetTab) {
+      try {
+        await window.hotelButler.browser.activate(targetTab.id);
+        activeTabIds[targetTab.channelId] = targetTab.id;
+      } catch (error) {
+        reportBrowserFailure(
+          'Existing account tab could not be activated',
+          '账号切换失败，请重试',
+          error,
+        );
+        return false;
+      }
+    } else {
+      targetTab = (await openExistingAccountTab(session.representativeAccount)) ?? undefined;
+      if (!targetTab) return false;
+    }
+
+    await closeSupersededTabs(targetTab.channelId, targetTab.partitionName, previousTabs);
+    await syncBounds();
+    return true;
   }
 
   async function newLoginForActiveChannel(): Promise<boolean> {
     const channel = OTA_CHANNELS.find((item) => item.id === activeChannelId);
     if (!channel) return false;
-    return createTab(channel);
+    const previousTabs = [...activeTabs];
+    const tab = await createTab(channel);
+    if (!tab) return false;
+    await closeSupersededTabs(tab.channelId, tab.partitionName, previousTabs);
+    return true;
   }
 
   async function selectTab(tab: BrowserTab): Promise<void> {
@@ -256,7 +314,11 @@
         .then(() => syncBounds())
         .catch((error: unknown) => {
           if (mounted) {
-            reportBrowserFailure('Pending tab could not be activated', '标签激活失败，请重试', error);
+            reportBrowserFailure(
+              'Pending tab could not be activated',
+              '标签激活失败，请重试',
+              error,
+            );
           }
         });
     } else {
@@ -304,21 +366,21 @@
 </script>
 
 <main
-  class="grid h-full min-h-0 grid-rows-[62px_40px_48px_minmax(0,1fr)] bg-background"
+  class="grid h-full min-h-0 grid-rows-[64px_64px_minmax(0,1fr)] bg-background"
   data-motion="page"
   in:enter={{ ...PAGE_ENTER_OPTIONS, y: 0 }}
 >
   <nav
-    class="flex min-w-0 items-center gap-1 overflow-x-auto border-b border-border px-4"
+    class="flex min-w-0 items-center gap-1 overflow-x-auto border-b border-[#e5e7eb] bg-[#f4f6fa] px-4"
     aria-label="OTA 快捷入口"
   >
     {#each OTA_CHANNELS as channel (channel.id)}
       <button
         class={[
-          'grid size-9 shrink-0 place-items-center rounded-md transition-colors duration-150 ease-out motion-reduce:transition-none',
+          'flex h-10 shrink-0 items-center justify-center gap-[7px] rounded-lg border px-2.5 text-sm font-medium whitespace-nowrap transition-[background-color,border-color,color,box-shadow] duration-150 ease-out motion-reduce:transition-none',
           activeChannelId === channel.id
-            ? 'bg-accent text-accent-foreground'
-            : 'text-muted-foreground hover:bg-muted hover:text-foreground',
+            ? 'border-[#e2e6ec] bg-white text-[#242936] shadow-sm'
+            : 'border-transparent text-[#5f6673] hover:bg-[#eaedf3] hover:text-[#242936]',
         ]}
         type="button"
         aria-label={channel.name}
@@ -327,27 +389,19 @@
         onclick={() => void selectChannel(channel)}
       >
         <img class="size-5 rounded-sm object-contain" src={channel.iconUrl} alt="" />
+        <span>{channel.shortName}</span>
       </button>
     {/each}
   </nav>
 
-  {#if activeChannel}
-    <AccountsNav
-      channel={activeChannel}
-      activeTabId={activeTab?.id}
-      accounts={activeAccounts}
-      {activeTabPartitionNames}
-      onSelectAccount={(account) => void openAccount(account)}
-      onNewLogin={newLoginForActiveChannel}
-      onSelectOtherHotel={selectOtherHotel}
-    />
-  {/if}
-
-  <div class="flex min-w-0 items-center gap-2 border-b border-border bg-secondary/55 px-3">
-    <nav class="flex shrink-0 gap-0.5" aria-label="页面控制">
+  <div
+    class="grid min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 border-b border-[#e5e7eb] bg-[#fafbfc] px-4"
+  >
+    <nav class="flex shrink-0 items-center gap-1" aria-label="页面控制">
       <Button
         variant="ghost"
-        size="icon"
+        size="icon-sm"
+        class="text-[#5f6673] hover:bg-[#eef1f5]"
         aria-label="后退"
         disabled={!activeTab?.canGoBack}
         onclick={() =>
@@ -360,7 +414,8 @@
       </Button>
       <Button
         variant="ghost"
-        size="icon"
+        size="icon-sm"
+        class="text-[#5f6673] hover:bg-[#eef1f5]"
         aria-label="前进"
         disabled={!activeTab?.canGoForward}
         onclick={() =>
@@ -373,7 +428,8 @@
       </Button>
       <Button
         variant="ghost"
-        size="icon"
+        size="icon-sm"
+        class="text-[#5f6673] hover:bg-[#eef1f5]"
         aria-label="刷新"
         disabled={!activeTab}
         onclick={() =>
@@ -388,10 +444,11 @@
           <RotateCw size={16} strokeWidth={1.8} />
         {/if}
       </Button>
+      <span class="ml-2 h-6 w-px bg-[#e1e4e9]" aria-hidden="true"></span>
     </nav>
 
     <div
-      class="flex min-w-0 flex-1 items-end gap-1 self-stretch overflow-x-auto pt-1.5"
+      class="flex min-w-0 items-center gap-1 overflow-x-auto"
       role="tablist"
       aria-label="已打开页面"
       use:autoAnimate={LAYOUT_ANIMATION_OPTIONS}
@@ -399,10 +456,10 @@
       {#each activeTabs as tab (tab.id)}
         <div
           class={[
-            'group flex h-[41px] min-w-32 max-w-56 items-center rounded-t-md border border-b-0 text-xs transition-colors duration-150 ease-out motion-reduce:transition-none',
+            'group flex h-10 min-w-[132px] max-w-[200px] items-center rounded-lg border text-xs transition-[background-color,border-color,color] duration-150 ease-out motion-reduce:transition-none',
             activeTab?.id === tab.id
-              ? 'border-border bg-background text-foreground'
-              : 'border-transparent text-muted-foreground hover:bg-muted',
+              ? 'border-[#e2e6ec] bg-white text-[#242936]'
+              : 'border-transparent text-[#5f6673] hover:bg-[#f0f2f5] hover:text-[#242936]',
           ]}
         >
           <button
@@ -427,6 +484,46 @@
           </button>
         </div>
       {/each}
+
+      <Button
+        variant="ghost"
+        size="icon-sm"
+        class="shrink-0 text-[#5f6673] hover:bg-[#eef1f5]"
+        aria-label="新建标签页"
+        title={activeSession ? '新建标签页' : '请先选择登录账号'}
+        disabled={!activeSession || openingSessionTab}
+        onclick={() => void openNewTabForActiveSession()}
+      >
+        {#if openingSessionTab}
+          <Spinner class="size-4" />
+        {:else}
+          <Plus size={17} strokeWidth={1.8} />
+        {/if}
+      </Button>
+    </div>
+
+    <div class="flex min-w-0 shrink-0 items-center gap-2" aria-label="当前登录账号">
+      <div
+        class="grid h-10 w-[clamp(220px,19vw,300px)] grid-cols-[20px_minmax(0,1fr)_20px] items-center rounded-[10px] border border-primary bg-white px-3 text-sm text-[#242936]"
+        title={activeSession?.label ?? (activeTab ? '正在登录' : '未选择账号')}
+      >
+        <span aria-hidden="true"></span>
+        <span class="truncate text-center font-medium">
+          {activeSession?.label ?? (activeTab ? '正在登录' : '未选择账号')}
+        </span>
+        <VolumeX class="justify-self-end text-[#69707d]" size={16} strokeWidth={1.7} />
+      </div>
+
+      {#if activeChannel}
+        <AccountSwitcherDialog
+          channel={activeChannel}
+          sessions={activeSessions}
+          {activeSession}
+          activeTabId={activeTab?.id}
+          onSelectSession={switchLoginSession}
+          onNewLogin={newLoginForActiveChannel}
+        />
+      {/if}
     </div>
   </div>
 
@@ -436,7 +533,7 @@
         class="grid h-full place-items-center text-sm text-muted-foreground"
         transition:enter={SURFACE_TRANSITION_OPTIONS}
       >
-        {cookiePrompt ? '导入 Cookie 后开始使用' : '点击上方快捷入口打开平台'}
+        {cookiePrompt ? '导入 Cookie 后开始使用' : '点击右上角账号按钮选择登录账号'}
       </div>
     {/if}
   </section>

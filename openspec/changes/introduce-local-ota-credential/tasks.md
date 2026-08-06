@@ -1,3 +1,11 @@
+## 当前进度（2026-08-06）
+
+- 状态：21/21 项任务完成，代码、验证证据和稳定规范均已收口。
+- 实现提交：`ec4831d feat(desktop): split OTA credentials from accounts`。
+- 验证：desktop 单元测试 201 个、组件测试 52 个通过；TypeScript、Svelte、lint 与 OpenSpec 严格校验通过。
+- 运行态：已清空旧 userData 并按新 migration 启动；SQLite 中不存在 `ota_account_legacy_v5`，重新登录/导入可生成 credential/account。
+- 下一步：用户验收后归档 `introduce-local-ota-credential`；本轮不包含 CredentialProbe、BrowserIntent、登录信息页或 RMS 接口。
+
 ## 1. Domain 模型拆分
 
 - [x] 1.1 先更新 identity/domain 定向测试：覆盖合法与非法 `OtaCredentialId`、credential 必须有 partition、account 必须有 credentialId 且不再拥有 partition；运行最小测试确认按预期失败
