@@ -11,8 +11,10 @@ import {
   type DiscoverAndCreateDependencies,
 } from '../../../src/main/account-discovery/discover-and-create';
 
-const channel = toChannelId('ctrip');
-const partitionName = 'persist:xiaozhi:prod:ctrip:aaa';
+const channel = toChannelId('douyin');
+const partitionName = 'persist:xiaozhi:prod:douyin:aaa';
+const ctripChannel = toChannelId('ctrip');
+const ctripPartitionName = 'persist:xiaozhi:prod:ctrip:ccc';
 const meituanChannel = toChannelId('meituan');
 const meituanPartitionName = 'persist:xiaozhi:prod:meituan:bbb';
 
@@ -62,6 +64,7 @@ function createDeps(
   };
   return {
     probes: new Map(),
+    discoverCtrip: vi.fn().mockResolvedValue({ kind: 'none' }),
     discoverMeituan: vi.fn().mockResolvedValue({ kind: 'none' }),
     accountRepository,
     credentialRepository,
@@ -309,6 +312,141 @@ describe('DiscoverAndCreate', () => {
 
     expect(deps.credentialRepository.create).not.toHaveBeenCalled();
     expect(probe.discover).toHaveBeenCalledTimes(2);
+  });
+
+  it('携程单酒店结果创建带 hotel-dom 临时身份的 credential', async () => {
+    const discoverCtrip = vi.fn().mockResolvedValue({
+      kind: 'found',
+      credential: {
+        channelAccountId: '12345',
+        credentialExtra: {
+          hotelId: '12345',
+          hotelName: '携程测试酒店',
+          identitySource: 'hotel-dom',
+        },
+      },
+      hotels: [
+        {
+          otaHotelId: toOtaHotelId('12345'),
+          otaHotelName: '携程测试酒店',
+          bindExtra: null,
+        },
+      ],
+    });
+    const deps = createDeps({ discoverCtrip });
+    const discoverAndCreate = new DiscoverAndCreate(deps);
+
+    await expect(
+      discoverAndCreate.trigger(
+        ctripPartitionName,
+        ctripChannel,
+        'https://ebooking.ctrip.com/hotel/12345',
+        {} as never,
+      ),
+    ).resolves.toBe(true);
+
+    expect(discoverCtrip).toHaveBeenCalledOnce();
+    expect(deps.credentialRepository.create).toHaveBeenCalledWith({
+      id: toOtaCredentialId('generated-credential-id'),
+      channel: ctripChannel,
+      channelAccountId: '12345',
+      partitionName: ctripPartitionName,
+      credentialExtra: {
+        hotelId: '12345',
+        hotelName: '携程测试酒店',
+        identitySource: 'hotel-dom',
+      },
+      discoveredAt: expect.any(Number),
+      lastRefreshedAt: expect.any(Number),
+    });
+    expect(deps.accountRepository.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        credentialId: toOtaCredentialId('generated-credential-id'),
+        channel: ctripChannel,
+        otaHotelId: toOtaHotelId('12345'),
+      }),
+    );
+  });
+
+  it('携程已有 credential 时刷新 hotel-dom 临时身份', async () => {
+    const existingCredential = credential({
+      channel: ctripChannel,
+      partitionName: ctripPartitionName,
+    });
+    const discoverCtrip = vi.fn().mockResolvedValue({
+      kind: 'found',
+      credential: {
+        channelAccountId: '12345',
+        credentialExtra: {
+          hotelId: '12345',
+          hotelName: '携程测试酒店',
+          identitySource: 'hotel-dom',
+        },
+      },
+      hotels: [
+        {
+          otaHotelId: toOtaHotelId('12345'),
+          otaHotelName: '携程测试酒店',
+          bindExtra: null,
+        },
+      ],
+    });
+    const deps = createDeps({ discoverCtrip });
+    vi.mocked(deps.credentialRepository.findByPartitionName).mockReturnValue(existingCredential);
+    vi.mocked(deps.credentialRepository.updateIdentity).mockReturnValue({
+      ...existingCredential,
+      channelAccountId: '12345',
+      credentialExtra: {
+        hotelId: '12345',
+        hotelName: '携程测试酒店',
+        identitySource: 'hotel-dom',
+      },
+      lastRefreshedAt: 200,
+    });
+    const discoverAndCreate = new DiscoverAndCreate(deps);
+
+    await discoverAndCreate.trigger(
+      ctripPartitionName,
+      ctripChannel,
+      'https://ebooking.ctrip.com/hotel/12345',
+      {} as never,
+    );
+
+    expect(deps.credentialRepository.create).not.toHaveBeenCalled();
+    expect(deps.credentialRepository.updateIdentity).toHaveBeenCalledWith(existingCredential.id, {
+      channelAccountId: '12345',
+      credentialExtra: {
+        hotelId: '12345',
+        hotelName: '携程测试酒店',
+        identitySource: 'hotel-dom',
+      },
+      lastRefreshedAt: expect.any(Number),
+    });
+  });
+
+  it('携程多酒店结果不创建 credential 或 account', async () => {
+    const discoverCtrip = vi.fn().mockResolvedValue({
+      kind: 'multiple',
+      hotels: [
+        { otaHotelId: toOtaHotelId('1'), otaHotelName: '门店A', bindExtra: null },
+        { otaHotelId: toOtaHotelId('2'), otaHotelName: '门店B', bindExtra: null },
+      ],
+    });
+    const deps = createDeps({ discoverCtrip });
+    const discoverAndCreate = new DiscoverAndCreate(deps);
+
+    await expect(
+      discoverAndCreate.trigger(
+        ctripPartitionName,
+        ctripChannel,
+        'https://ebooking.ctrip.com/home/mainland',
+        {} as never,
+      ),
+    ).resolves.toBe(false);
+
+    expect(deps.credentialRepository.create).not.toHaveBeenCalled();
+    expect(deps.credentialRepository.updateIdentity).not.toHaveBeenCalled();
+    expect(deps.accountRepository.create).not.toHaveBeenCalled();
   });
 
   it('美团显式发现创建带渠道身份的 credential，并一次保存全部酒店', async () => {

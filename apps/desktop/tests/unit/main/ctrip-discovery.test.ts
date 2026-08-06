@@ -1,123 +1,94 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
-
-const electron = vi.hoisted(() => {
-  const views: MockWebContentsView[] = [];
-
-  class MockWebContentsView {
-    readonly webContents = {
-      close: vi.fn(),
-      executeJavaScript: vi.fn(),
-      isDestroyed: vi.fn(() => false),
-      loadURL: vi.fn(async () => {}),
-    };
-
-    constructor(readonly options: { webPreferences: { session: unknown } }) {
-      views.push(this);
-    }
-  }
-
-  return { MockWebContentsView, views };
-});
-
-vi.mock('electron', () => ({
-  WebContentsView: electron.MockWebContentsView,
-}));
-
-import { CtripDiscoveryProbe } from '../../../src/main/account-discovery/ctrip-discovery';
+import type { WebContents } from 'electron';
+import { describe, expect, it, vi } from 'vitest';
+import { createCtripDiscovery } from '../../../src/main/ota/ctrip/discover-ctrip';
 
 function createLogger() {
   return { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
 }
 
-beforeEach(() => {
-  electron.views.splice(0);
-});
+function createWebContents(url: string, raw: unknown): WebContents {
+  return {
+    getURL: vi.fn(() => url),
+    executeJavaScript: vi.fn().mockResolvedValue(raw),
+    loadURL: vi.fn(),
+    close: vi.fn(),
+  } as unknown as WebContents;
+}
 
-describe('CtripDiscoveryProbe', () => {
-  it('页面解析出一家门店时返回 single', async () => {
-    const logger = createLogger();
-    const sessionForPartition = vi.fn(() => ({ partition: 'stub' }) as never);
-    const probe = new CtripDiscoveryProbe(sessionForPartition, logger);
-
-    electron.views.length = 0;
-    const discoverPromise = probe.discover(
-      'persist:xiaozhi:prod:ctrip:aaa',
-      'https://ebooking.ctrip.com/hotel/12345',
-      {} as never,
-    );
-    const view = electron.views[0];
-    view.webContents.executeJavaScript.mockResolvedValue([
+describe('createCtripDiscovery', () => {
+  it('从当前携程页面发现单酒店并返回 hotel-dom 临时 credential 身份', async () => {
+    const webContents = createWebContents('https://ebooking.ctrip.com/hotel/12345', [
       { hotelId: '12345', hotelName: '测试酒店' },
     ]);
+    const discover = createCtripDiscovery(createLogger());
 
-    const outcome = await discoverPromise;
-
-    expect(sessionForPartition).toHaveBeenCalledWith('persist:xiaozhi:prod:ctrip:aaa');
-    expect(outcome).toEqual({
-      kind: 'single',
-      hotel: { otaHotelId: '12345', otaHotelName: '测试酒店', bindExtra: null },
+    await expect(
+      discover('persist:xiaozhi:prod:ctrip:aaa', webContents.getURL(), webContents),
+    ).resolves.toEqual({
+      kind: 'found',
+      credential: {
+        channelAccountId: '12345',
+        credentialExtra: {
+          hotelId: '12345',
+          hotelName: '测试酒店',
+          identitySource: 'hotel-dom',
+        },
+      },
+      hotels: [{ otaHotelId: '12345', otaHotelName: '测试酒店', bindExtra: null }],
     });
-    expect(view.webContents.close).toHaveBeenCalledOnce();
+    expect(webContents.executeJavaScript).toHaveBeenCalledOnce();
+    expect(webContents.loadURL).not.toHaveBeenCalled();
+    expect(webContents.close).not.toHaveBeenCalled();
   });
 
-  it('页面解析出多家门店时返回 multiple', async () => {
-    const probe = new CtripDiscoveryProbe(() => ({}) as never, createLogger());
-
-    const discoverPromise = probe.discover(
-      'persist:xiaozhi:prod:ctrip:bbb',
-      'https://ebooking.ctrip.com/home/mainland',
-      {} as never,
-    );
-    electron.views[0].webContents.executeJavaScript.mockResolvedValue([
+  it('当前页面发现多家酒店时返回 multiple 且不生成 credential 身份', async () => {
+    const webContents = createWebContents('https://ebooking.ctrip.com/home/mainland', [
       { hotelId: '1', hotelName: '门店A' },
       { hotelId: '2', hotelName: '门店B' },
     ]);
+    const discover = createCtripDiscovery(createLogger());
 
-    const outcome = await discoverPromise;
-    expect(outcome.kind).toBe('multiple');
-    if (outcome.kind === 'multiple') expect(outcome.hotels).toHaveLength(2);
-  });
-
-  it('页面没有解析出任何门店（如 cookie 已过期）时返回 none', async () => {
-    const probe = new CtripDiscoveryProbe(() => ({}) as never, createLogger());
-
-    const discoverPromise = probe.discover(
-      'persist:xiaozhi:prod:ctrip:ccc',
-      'https://ebooking.ctrip.com/home/mainland',
-      {} as never,
+    const result = await discover(
+      'persist:xiaozhi:prod:ctrip:bbb',
+      webContents.getURL(),
+      webContents,
     );
-    electron.views[0].webContents.executeJavaScript.mockResolvedValue([]);
 
-    expect(await discoverPromise).toEqual({ kind: 'none' });
+    expect(result).toEqual({
+      kind: 'multiple',
+      hotels: [
+        { otaHotelId: '1', otaHotelName: '门店A', bindExtra: null },
+        { otaHotelId: '2', otaHotelName: '门店B', bindExtra: null },
+      ],
+    });
   });
 
-  it('页面加载或脚本执行异常时返回 none 并记录日志，不抛出', async () => {
+  it('当前页面不是受信任携程商家后台时拒绝执行脚本', async () => {
     const logger = createLogger();
-    const probe = new CtripDiscoveryProbe(() => ({}) as never, logger);
+    const webContents = createWebContents('https://ebooking.ctrip.com.evil.example/home', []);
+    const discover = createCtripDiscovery(logger);
 
-    const discoverPromise = probe.discover(
-      'persist:xiaozhi:prod:ctrip:ddd',
-      'https://ebooking.ctrip.com/home/mainland',
-      {} as never,
-    );
-    electron.views[0].webContents.executeJavaScript.mockRejectedValue(new Error('boom'));
-
-    expect(await discoverPromise).toEqual({ kind: 'none' });
-    expect(logger.warn).toHaveBeenCalled();
+    await expect(
+      discover('persist:xiaozhi:prod:ctrip:ccc', webContents.getURL(), webContents),
+    ).resolves.toEqual({ kind: 'none' });
+    expect(webContents.executeJavaScript).not.toHaveBeenCalled();
+    expect(logger.warn).toHaveBeenCalledWith('Ctrip discovery rejected untrusted current URL');
   });
 
-  it('探测完成后无论成功失败都会关闭 WebContentsView', async () => {
-    const probe = new CtripDiscoveryProbe(() => ({}) as never, createLogger());
+  it('DOM 结果无效或脚本执行失败时返回 none', async () => {
+    const logger = createLogger();
+    const invalidWebContents = createWebContents('https://ebooking.ctrip.com/home/mainland', [
+      { hotelId: '', hotelName: '无效酒店' },
+    ]);
+    const failedWebContents = createWebContents('https://ebooking.ctrip.com/home/mainland', []);
+    vi.mocked(failedWebContents.executeJavaScript).mockRejectedValue(new Error('boom'));
+    const discover = createCtripDiscovery(logger);
 
-    const discoverPromise = probe.discover(
-      'persist:xiaozhi:prod:ctrip:eee',
-      'https://ebooking.ctrip.com/home/mainland',
-      {} as never,
-    );
-    const view = electron.views[0];
-    view.webContents.executeJavaScript.mockRejectedValue(new Error('boom'));
-    await discoverPromise;
-
-    expect(view.webContents.close).toHaveBeenCalledOnce();
+    await expect(
+      discover('persist:xiaozhi:prod:ctrip:ddd', invalidWebContents.getURL(), invalidWebContents),
+    ).resolves.toEqual({ kind: 'none' });
+    await expect(
+      discover('persist:xiaozhi:prod:ctrip:eee', failedWebContents.getURL(), failedWebContents),
+    ).resolves.toEqual({ kind: 'none' });
   });
 });

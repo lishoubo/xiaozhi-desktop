@@ -8,12 +8,15 @@ import type {
 } from '../../domain/ports/repositories';
 import type { AppLogger } from '../../shared/logging';
 import type { DiscoveredOtaHotel, DiscoveryProbe } from './discovery-probe-port';
+import type { DiscoverCtrip } from '../ota/ctrip/discover-ctrip';
 import type { DiscoverMeituan } from '../ota/meituan/discover-meituan';
 
+const CTRIP_CHANNEL = 'ctrip';
 const MEITUAN_CHANNEL = 'meituan';
 
 export type DiscoverAndCreateDependencies = Readonly<{
   probes: ReadonlyMap<ChannelId, DiscoveryProbe>;
+  discoverCtrip: DiscoverCtrip;
   discoverMeituan: DiscoverMeituan;
   accountRepository: OtaAccountRepository;
   credentialRepository: OtaCredentialRepository;
@@ -38,9 +41,10 @@ export class DiscoverAndCreate {
   ): Promise<boolean> {
     if (this.bound.has(partitionName) || this.inflight.has(partitionName)) return false;
 
+    const isCtrip = channel === CTRIP_CHANNEL;
     const isMeituan = channel === MEITUAN_CHANNEL;
-    const probe = isMeituan ? null : this.deps.probes.get(channel);
-    if (!isMeituan && !probe) {
+    const probe = isCtrip || isMeituan ? null : this.deps.probes.get(channel);
+    if (!isCtrip && !isMeituan && !probe) {
       this.deps.logger.info('Discovery skipped: no probe registered for channel', { channel });
       return false;
     }
@@ -48,11 +52,38 @@ export class DiscoverAndCreate {
     this.deps.logger.info('Discovery triggered', { channel });
     this.inflight.add(partitionName);
     try {
+      if (isCtrip) {
+        const result = await this.deps.discoverCtrip(partitionName, landingUrl, webContents);
+        this.deps.logger.info('Ctrip discovery outcome', { kind: result.kind });
+        if (result.kind === 'none') return false;
+        if (result.kind === 'multiple') {
+          this.deps.logger.info('Ctrip discovery found multiple hotels, awaiting user selection', {
+            count: result.hotels.length,
+          });
+          return false;
+        }
+        await this.persistIdentifiedResult(
+          partitionName,
+          channel,
+          result.credential,
+          result.hotels,
+        );
+        this.bound.add(partitionName);
+        this.deps.logger.info('Ctrip discovery saved hotels', {
+          hotelCount: result.hotels.length,
+        });
+        return true;
+      }
       if (isMeituan) {
         const result = await this.deps.discoverMeituan(partitionName, landingUrl, webContents);
         this.deps.logger.info('Meituan discovery outcome', { kind: result.kind });
         if (result.kind === 'none') return false;
-        await this.persistMeituanResult(partitionName, channel, result.credential, result.hotels);
+        await this.persistIdentifiedResult(
+          partitionName,
+          channel,
+          result.credential,
+          result.hotels,
+        );
         this.bound.add(partitionName);
         this.deps.logger.info('Meituan discovery saved hotels', {
           hotelCount: result.hotels.length,
@@ -127,7 +158,7 @@ export class DiscoverAndCreate {
     return credential;
   }
 
-  private async persistMeituanResult(
+  private async persistIdentifiedResult(
     partitionName: string,
     channel: ChannelId,
     identity: Readonly<{
@@ -141,7 +172,7 @@ export class DiscoverAndCreate {
     let credential: OtaCredential;
     if (existing) {
       if (existing.channel !== channel) {
-        throw new Error('partition 对应 credential 的渠道与美团探测渠道不一致');
+        throw new Error('partition 对应 credential 的渠道与本次身份探测渠道不一致');
       }
       credential = this.deps.credentialRepository.updateIdentity(existing.id, {
         channelAccountId: identity.channelAccountId,
