@@ -40,6 +40,8 @@ describe('BrowserWorkspace', () => {
   const hide = vi.fn();
   const listCredentialsByChannel = vi.fn();
   const openExistingCredential = vi.fn();
+  const getAudioMuted = vi.fn();
+  const setAudioMuted = vi.fn();
 
   function renderWorkspace() {
     return render(BrowserWorkspace);
@@ -83,6 +85,10 @@ describe('BrowserWorkspace', () => {
     activate.mockReset();
     close.mockReset();
     hide.mockReset();
+    getAudioMuted.mockReset();
+    getAudioMuted.mockResolvedValue(false);
+    setAudioMuted.mockReset();
+    setAudioMuted.mockImplementation(async (muted: boolean) => muted);
     listCredentialsByChannel.mockReset();
     listCredentialsByChannel.mockResolvedValue([]);
     openExistingCredential.mockReset();
@@ -96,10 +102,12 @@ describe('BrowserWorkspace', () => {
           close,
           goBack: vi.fn(),
           goForward: vi.fn(),
+          getAudioMuted,
           hide,
           list: vi.fn().mockResolvedValue([]),
           reload: vi.fn(),
           setBounds: vi.fn(),
+          setAudioMuted,
           onStateChanged: vi.fn(() => vi.fn()),
           onRequestIntercepted: vi.fn(() => vi.fn()),
         },
@@ -128,6 +136,14 @@ describe('BrowserWorkspace', () => {
     expect(screen.getByRole('button', { name: '新建标签页' })).toBeDisabled();
     expect(screen.getByRole('button', { name: '切换登录账号' })).toBeEnabled();
     expect(screen.getByLabelText('当前登录账号')).toHaveTextContent('携程酒店 eBooking');
+    const tabRegion = screen.getByRole('group', { name: '页面标签区' });
+    expect(within(tabRegion).getByRole('tablist', { name: '已打开页面' })).toBeInTheDocument();
+    expect(within(tabRegion).getByRole('button', { name: '新建标签页' })).toBeInTheDocument();
+    expect(
+      within(screen.getByRole('tablist', { name: '已打开页面' })).queryByRole('button', {
+        name: '新建标签页',
+      }),
+    ).not.toBeInTheDocument();
     for (const image of container.querySelectorAll('nav img')) {
       expect(image).toHaveAttribute('src', expect.stringMatching(/^data:image\/png;base64,/));
     }
@@ -146,6 +162,21 @@ describe('BrowserWorkspace', () => {
     expect(await screen.findByRole('tab', { name: '携程首页 2' })).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: '携程后台' })).toBeInTheDocument();
     expect(close).not.toHaveBeenCalled();
+  });
+
+  it('toggles the single workspace audio state from the account control', async () => {
+    const user = userEvent.setup();
+    renderWorkspace();
+
+    const muteButton = await screen.findByRole('button', { name: '关闭网页声音' });
+    await waitFor(() => expect(muteButton).toBeEnabled());
+    await user.click(muteButton);
+
+    expect(setAudioMuted).toHaveBeenCalledWith(true);
+    expect(await screen.findByRole('button', { name: '开启网页声音' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
   });
 
   it('switches account by opening the target partition and closing the previous tabs', async () => {

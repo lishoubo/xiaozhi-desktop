@@ -108,8 +108,8 @@
 
 <Button
   variant="outline"
-  size="icon-lg"
-  class="size-10 rounded-[10px] border-[#d9dee7] bg-white shadow-none hover:bg-[#eef1f5]"
+  size="icon"
+  class="size-9 rounded-[10px] border-[#d9dee7] bg-white shadow-none hover:bg-[#eef1f5]"
   aria-label="切换登录账号"
   title="切换登录账号"
   onclick={() => void handleOpenChange(true)}

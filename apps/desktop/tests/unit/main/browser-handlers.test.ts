@@ -58,10 +58,12 @@ function baseManager() {
     createWithAlreadyPartition: vi.fn(),
     goBack: vi.fn(),
     goForward: vi.fn(),
+    getAudioMuted: vi.fn(() => false),
     hide: vi.fn(),
     list: vi.fn(),
     reload: vi.fn(),
     setBounds: vi.fn(),
+    setAudioMuted: vi.fn((muted: boolean) => muted),
   };
 }
 
@@ -100,6 +102,28 @@ function credentialRepository(
     ),
   };
 }
+
+describe('browser audio handlers', () => {
+  it('reads and updates the single workspace audio state with boolean validation', () => {
+    const sender = {};
+    const manager = baseManager();
+    registerBrowserHandlers({
+      window: { webContents: sender },
+      manager,
+      logger: createLogger(),
+      userDataDir: '/tmp/does-not-matter',
+      loginUrlMatchers: new Map(),
+      triggerDiscovery: vi.fn(),
+      otaAccountRepository: { listByChannel: vi.fn(() => []), findById: vi.fn(() => null) },
+      otaCredentialRepository: credentialRepository(),
+    });
+
+    expect(invoke(IPC_CHANNELS.browser.getAudioMuted, sender)).toBe(false);
+    expect(invoke(IPC_CHANNELS.browser.setAudioMuted, sender, true)).toBe(true);
+    expect(manager.setAudioMuted).toHaveBeenCalledWith(true);
+    expect(() => invoke(IPC_CHANNELS.browser.setAudioMuted, sender, 'yes')).toThrow('声音状态无效');
+  });
+});
 
 describe('otaAccount.listByChannel / openExisting handlers', () => {
   it('listByChannel 透传 repository 结果', () => {

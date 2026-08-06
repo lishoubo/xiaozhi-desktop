@@ -8,6 +8,7 @@
   import Import from '@lucide/svelte/icons/import';
   import Plus from '@lucide/svelte/icons/plus';
   import RotateCw from '@lucide/svelte/icons/rotate-cw';
+  import Volume2 from '@lucide/svelte/icons/volume-2';
   import VolumeX from '@lucide/svelte/icons/volume-x';
   import X from '@lucide/svelte/icons/x';
   import type { BrowserTab, OtaCredentialDto } from '../../../shared/browser';
@@ -39,6 +40,9 @@
   let viewport: HTMLElement | undefined;
   let cookiePrompt = $state(false);
   let openingSessionTab = $state(false);
+  let audioMuted = $state(false);
+  let audioStateReady = $state(false);
+  let updatingAudioMuted = $state(false);
   let activeTabs = $derived(tabsByChannel[activeChannelId] ?? []);
   let activeTab = $derived(
     activeTabs.find((tab) => tab.id === activeTabIds[activeChannelId]) ?? activeTabs[0],
@@ -331,8 +335,41 @@
     }
   }
 
+  async function toggleAudioMuted(): Promise<void> {
+    if (updatingAudioMuted) return;
+    updatingAudioMuted = true;
+    try {
+      audioMuted = await window.hotelButler.browser.setAudioMuted(!audioMuted);
+    } catch (error) {
+      reportBrowserFailure(
+        'Browser audio state could not be changed',
+        '网页声音切换失败，请重试',
+        error,
+      );
+    } finally {
+      updatingAudioMuted = false;
+    }
+  }
+
   onMount(() => {
     let mounted = true;
+    void window.hotelButler.browser
+      .getAudioMuted()
+      .then((muted) => {
+        if (mounted) audioMuted = muted;
+      })
+      .catch((error: unknown) => {
+        if (mounted) {
+          reportBrowserFailure(
+            'Browser audio state could not be loaded',
+            '网页声音状态读取失败，请重试',
+            error,
+          );
+        }
+      })
+      .finally(() => {
+        if (mounted) audioStateReady = true;
+      });
     const unsubscribe = window.hotelButler.browser.onStateChanged((tab) => {
       updateTab(tab);
     });
@@ -496,47 +533,53 @@
     </nav>
 
     <div
-      class="flex min-w-0 items-center gap-1 overflow-x-auto"
-      role="tablist"
-      aria-label="已打开页面"
-      use:autoAnimate={LAYOUT_ANIMATION_OPTIONS}
+      class="flex h-10 min-w-0 items-center rounded-xl bg-[#f0f2f5] p-1"
+      role="group"
+      aria-label="页面标签区"
     >
-      {#each activeTabs as tab (tab.id)}
-        <div
-          class={[
-            'group flex h-10 min-w-[132px] max-w-[200px] items-center rounded-lg border text-xs transition-[background-color,border-color,color] duration-150 ease-out motion-reduce:transition-none',
-            activeTab?.id === tab.id
-              ? 'border-[#e2e6ec] bg-white text-[#242936]'
-              : 'border-transparent text-[#5f6673] hover:bg-[#f0f2f5] hover:text-[#242936]',
-          ]}
-        >
-          <button
-            class="flex min-w-0 flex-1 items-center gap-2 self-stretch px-3 text-left"
-            type="button"
-            role="tab"
-            aria-selected={activeTab?.id === tab.id}
-            onclick={() => void selectTab(tab)}
+      <div
+        class="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+        role="tablist"
+        aria-label="已打开页面"
+        use:autoAnimate={LAYOUT_ANIMATION_OPTIONS}
+      >
+        {#each activeTabs as tab (tab.id)}
+          <div
+            class={[
+              'group flex h-8 min-w-[132px] max-w-[200px] items-center rounded-lg border text-xs transition-[background-color,border-color,color,box-shadow] duration-150 ease-out motion-reduce:transition-none',
+              activeTab?.id === tab.id
+                ? 'border-[#e2e6ec] bg-white text-[#242936] shadow-sm'
+                : 'border-transparent text-[#5f6673] hover:bg-[#e8ebef] hover:text-[#242936]',
+            ]}
           >
-            {#if tab.loading}
-              <Spinner class="size-[13px] shrink-0" aria-label={`${tab.title}正在加载`} />
-            {/if}
-            <span class="min-w-0 flex-1 truncate">{tab.title}</span>
-          </button>
-          <button
-            class="mr-1 grid size-6 shrink-0 place-items-center rounded hover:bg-black/10"
-            type="button"
-            aria-label={`关闭 ${tab.title}`}
-            onclick={() => void closeTab(tab)}
-          >
-            <X size={13} />
-          </button>
-        </div>
-      {/each}
+            <button
+              class="flex min-w-0 flex-1 items-center gap-2 self-stretch px-3 text-left"
+              type="button"
+              role="tab"
+              aria-selected={activeTab?.id === tab.id}
+              onclick={() => void selectTab(tab)}
+            >
+              {#if tab.loading}
+                <Spinner class="size-[13px] shrink-0" aria-label={`${tab.title}正在加载`} />
+              {/if}
+              <span class="min-w-0 flex-1 truncate">{tab.title}</span>
+            </button>
+            <button
+              class="mr-1 grid size-6 shrink-0 place-items-center rounded hover:bg-black/10"
+              type="button"
+              aria-label={`关闭 ${tab.title}`}
+              onclick={() => void closeTab(tab)}
+            >
+              <X size={13} />
+            </button>
+          </div>
+        {/each}
+      </div>
 
       <Button
         variant="ghost"
         size="icon-sm"
-        class="shrink-0 text-[#5f6673] hover:bg-[#eef1f5]"
+        class="ml-1 shrink-0 text-[#5f6673] hover:bg-[#e3e7ec]"
         aria-label="新建标签页"
         title={activeCredential ? '新建标签页' : '请先选择登录账号'}
         disabled={!activeCredential || openingSessionTab}
@@ -552,14 +595,28 @@
 
     <div class="flex min-w-0 shrink-0 items-center gap-2" aria-label="当前登录账号">
       <div
-        class="grid h-10 w-[clamp(220px,19vw,300px)] grid-cols-[20px_minmax(0,1fr)_20px] items-center rounded-[10px] border border-primary bg-white px-3 text-sm text-[#242936]"
+        class="grid h-9 w-[clamp(136px,15vw,196px)] grid-cols-[28px_minmax(0,1fr)_28px] items-center rounded-[10px] border border-primary bg-white px-1.5 text-sm text-[#242936]"
         title={activeCredential?.label ?? activeChannel?.name ?? '未选择渠道'}
       >
         <span aria-hidden="true"></span>
         <span class="truncate text-center font-medium">
           {activeCredential?.label ?? activeChannel?.name ?? '未选择渠道'}
         </span>
-        <VolumeX class="justify-self-end text-[#69707d]" size={16} strokeWidth={1.7} />
+        <button
+          class="grid size-7 place-items-center justify-self-end rounded-md text-[#69707d] hover:bg-[#eef1f5] hover:text-[#242936] disabled:opacity-50"
+          type="button"
+          aria-label={audioMuted ? '开启网页声音' : '关闭网页声音'}
+          aria-pressed={audioMuted}
+          title={audioMuted ? '开启网页声音' : '关闭网页声音'}
+          disabled={!audioStateReady || updatingAudioMuted}
+          onclick={() => void toggleAudioMuted()}
+        >
+          {#if audioMuted}
+            <VolumeX size={15} strokeWidth={1.7} />
+          {:else}
+            <Volume2 size={15} strokeWidth={1.7} />
+          {/if}
+        </button>
       </div>
 
       {#if activeChannel}

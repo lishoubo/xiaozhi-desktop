@@ -56,6 +56,7 @@ const electron = vi.hoisted(() => {
         this.handlers.set(event, listener);
       }),
       reload: vi.fn(),
+      setAudioMuted: vi.fn(),
       setWindowOpenHandler: vi.fn((listener: (...args: unknown[]) => unknown) => {
         this.windowOpenHandler.mockImplementation(listener);
       }),
@@ -129,6 +130,48 @@ beforeEach(() => {
 });
 
 describe('BrowserManager', () => {
+  it('applies one audio state to every existing tab and lets new tabs inherit it', () => {
+    const manager = new BrowserManager(createWindow() as never, createLogger());
+    manager.create('ctrip', 'https://ebooking.ctrip.com/');
+    manager.createWithAlreadyPartition(
+      'persist:xiaozhi:prod:douyin:account',
+      'douyin',
+      'https://life.douyin.com/p/home',
+    );
+
+    manager.setAudioMuted(true);
+
+    expect(manager.getAudioMuted()).toBe(true);
+    expect(electron.views[0].webContents.setAudioMuted).toHaveBeenLastCalledWith(true);
+    expect(electron.views[1].webContents.setAudioMuted).toHaveBeenLastCalledWith(true);
+
+    manager.createWithAlreadyPartition(
+      'persist:xiaozhi:prod:meituan:account',
+      'meituan',
+      'https://me.meituan.com/',
+    );
+
+    expect(electron.views[2].webContents.setAudioMuted).toHaveBeenCalledWith(true);
+  });
+
+  it('keeps the global preference and updates remaining tabs when one tab cannot be muted', () => {
+    const logger = createLogger();
+    const manager = new BrowserManager(createWindow() as never, logger);
+    manager.create('ctrip', 'https://ebooking.ctrip.com/');
+    manager.create('douyin', 'https://life.douyin.com/p/home');
+    electron.views[0].webContents.setAudioMuted.mockImplementationOnce(() => {
+      throw new Error('tab unavailable');
+    });
+
+    expect(manager.setAudioMuted(true)).toBe(true);
+
+    expect(electron.views[1].webContents.setAudioMuted).toHaveBeenLastCalledWith(true);
+    expect(logger.warn).toHaveBeenCalledWith('Browser tab audio state could not be changed', {
+      channelId: 'ctrip',
+      errorName: 'Error',
+    });
+  });
+
   it('creates secure managed tabs and releases them explicitly', () => {
     const logger = createLogger();
     const window = createWindow();

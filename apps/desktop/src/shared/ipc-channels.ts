@@ -9,11 +9,13 @@ export const IPC_CHANNELS = {
     create: 'browser:create',
     goBack: 'browser:go-back',
     goForward: 'browser:go-forward',
+    getAudioMuted: 'browser:get-audio-muted',
     hide: 'browser:hide',
     list: 'browser:list',
     reload: 'browser:reload',
     requestIntercepted: 'browser:request-intercepted',
     setBounds: 'browser:set-bounds',
+    setAudioMuted: 'browser:set-audio-muted',
     stateChanged: 'browser:state-changed',
   },
   calendar: {

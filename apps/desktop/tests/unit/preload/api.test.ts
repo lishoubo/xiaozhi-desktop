@@ -46,6 +46,8 @@ describe('createDesktopApi', () => {
         return tab;
       }
       if (channel === IPC_CHANNELS.browser.list) return [tab];
+      if (channel === IPC_CHANNELS.browser.getAudioMuted) return false;
+      if (channel === IPC_CHANNELS.browser.setAudioMuted) return true;
       if (channel === IPC_CHANNELS.cookies.listSources) {
         return [{ id: 'edge', name: 'Microsoft Edge' }];
       }
@@ -64,10 +66,12 @@ describe('createDesktopApi', () => {
     await api.browser.close('tab-1');
     await api.browser.goBack('tab-1');
     await api.browser.goForward('tab-1');
+    await api.browser.getAudioMuted();
     await api.browser.hide();
     await api.browser.list();
     await api.browser.reload('tab-1');
     await api.browser.setBounds({ x: 80, y: 120, width: 800, height: 600 });
+    await api.browser.setAudioMuted(true);
     await api.cookies.listSources();
     await api.cookies.import('edge');
     await api.cookies.listImportedChannels();
@@ -80,10 +84,12 @@ describe('createDesktopApi', () => {
       [IPC_CHANNELS.browser.close, 'tab-1'],
       [IPC_CHANNELS.browser.goBack, 'tab-1'],
       [IPC_CHANNELS.browser.goForward, 'tab-1'],
+      [IPC_CHANNELS.browser.getAudioMuted],
       [IPC_CHANNELS.browser.hide],
       [IPC_CHANNELS.browser.list],
       [IPC_CHANNELS.browser.reload, 'tab-1'],
       [IPC_CHANNELS.browser.setBounds, { x: 80, y: 120, width: 800, height: 600 }],
+      [IPC_CHANNELS.browser.setAudioMuted, true],
       [IPC_CHANNELS.cookies.listSources],
       [IPC_CHANNELS.cookies.import, 'edge'],
       [IPC_CHANNELS.cookies.listImportedChannels],

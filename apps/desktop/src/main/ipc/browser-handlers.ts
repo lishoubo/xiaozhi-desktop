@@ -56,10 +56,12 @@ type RegisterBrowserHandlersOptions = Readonly<{
     >['createWithAlreadyPartition'];
     goBack: (tabId: string) => void;
     goForward: (tabId: string) => void;
+    getAudioMuted: () => boolean;
     hide: () => void;
     list: () => unknown;
     reload: (tabId: string) => void;
     setBounds: (bounds: BrowserBounds) => void;
+    setAudioMuted: (muted: boolean) => boolean;
   }>;
   logger: AppLogger;
   cookieImporter?: Pick<BrowserCookieImporter, 'listSources' | 'readCookies'>;
@@ -159,6 +161,9 @@ export function registerBrowserHandlers({
     '标签标识无效',
     (_event, tabId) => manager.goForward(tabId),
   );
+  handle(IPC_CHANNELS.browser.getAudioMuted, noArgumentsSchema, '请求参数无效', () =>
+    manager.getAudioMuted(),
+  );
   handle(IPC_CHANNELS.browser.hide, noArgumentsSchema, '请求参数无效', () => manager.hide());
   handle(IPC_CHANNELS.browser.list, noArgumentsSchema, '请求参数无效', () => manager.list());
   handle(
@@ -172,6 +177,12 @@ export function registerBrowserHandlers({
     z.tuple([browserBoundsSchema]),
     '浏览器区域尺寸无效',
     (_event, bounds) => manager.setBounds(bounds),
+  );
+  handle(
+    IPC_CHANNELS.browser.setAudioMuted,
+    z.tuple([z.boolean()]),
+    '声音状态无效',
+    (_event, muted) => manager.setAudioMuted(muted),
   );
   handle(IPC_CHANNELS.cookies.listSources, noArgumentsSchema, '请求参数无效', () =>
     cookieImporter.listSources(),

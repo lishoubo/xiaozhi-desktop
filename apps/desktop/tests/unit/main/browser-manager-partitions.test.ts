@@ -22,6 +22,7 @@ const electron = vi.hoisted(() => {
         this.handlers.set(event, listener);
       }),
       reload: vi.fn(),
+      setAudioMuted: vi.fn(),
       setWindowOpenHandler: vi.fn(),
     };
     readonly setBounds = vi.fn();
@@ -95,11 +96,23 @@ describe('BrowserManager — partition-aware tab creation', () => {
       sessionFactory as never,
     );
 
-    manager.createWithAlreadyPartition('persist:xiaozhi:prod:douyin:aaa', 'douyin', 'https://a.example/');
-    manager.createWithAlreadyPartition('persist:xiaozhi:prod:douyin:bbb', 'douyin', 'https://b.example/');
+    manager.createWithAlreadyPartition(
+      'persist:xiaozhi:prod:douyin:aaa',
+      'douyin',
+      'https://a.example/',
+    );
+    manager.createWithAlreadyPartition(
+      'persist:xiaozhi:prod:douyin:bbb',
+      'douyin',
+      'https://b.example/',
+    );
 
-    expect(sessionFactory.sessionForAccount).toHaveBeenCalledWith('persist:xiaozhi:prod:douyin:aaa');
-    expect(sessionFactory.sessionForAccount).toHaveBeenCalledWith('persist:xiaozhi:prod:douyin:bbb');
+    expect(sessionFactory.sessionForAccount).toHaveBeenCalledWith(
+      'persist:xiaozhi:prod:douyin:aaa',
+    );
+    expect(sessionFactory.sessionForAccount).toHaveBeenCalledWith(
+      'persist:xiaozhi:prod:douyin:bbb',
+    );
     expect(electron.views[0].options.webPreferences.session).not.toBe(
       electron.views[1].options.webPreferences.session,
     );
@@ -191,13 +204,21 @@ describe('BrowserManager — partition-aware tab creation', () => {
       isPastLogin: (url: string) => !url.includes('/login/'),
     };
 
-    await manager.createAndNewPartition('prod', toChannelId('ctrip'), 'https://ebooking.ctrip.com/login/', {
-      onUrlPastLogin,
-      loginUrlMatcher,
-    });
+    await manager.createAndNewPartition(
+      'prod',
+      toChannelId('ctrip'),
+      'https://ebooking.ctrip.com/login/',
+      {
+        onUrlPastLogin,
+        loginUrlMatcher,
+      },
+    );
     const view = electron.views[0];
     view.handlers.get('did-navigate')?.({}, 'https://ebooking.ctrip.com/home/mainland');
-    view.handlers.get('did-navigate-in-page')?.({}, 'https://ebooking.ctrip.com/home/mainland?tab=2');
+    view.handlers.get('did-navigate-in-page')?.(
+      {},
+      'https://ebooking.ctrip.com/home/mainland?tab=2',
+    );
 
     expect(onUrlPastLogin).toHaveBeenCalledTimes(1);
   });
@@ -211,9 +232,14 @@ describe('BrowserManager — partition-aware tab creation', () => {
     );
     const onUrlPastLogin = vi.fn();
 
-    await manager.createAndNewPartition('prod', toChannelId('douyin'), 'https://life.douyin.com/p/login', {
-      onUrlPastLogin,
-    });
+    await manager.createAndNewPartition(
+      'prod',
+      toChannelId('douyin'),
+      'https://life.douyin.com/p/login',
+      {
+        onUrlPastLogin,
+      },
+    );
     const view = electron.views[0];
     view.handlers.get('did-navigate')?.({}, 'https://life.douyin.com/dashboard');
 

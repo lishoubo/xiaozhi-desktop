@@ -41,6 +41,7 @@ const browserTabListSchema = z.array(browserTabSchema);
 const browserCookieSourceListSchema = z.array(browserCookieSourceSchema);
 const importedChannelSummaryListSchema = z.array(importedChannelSummarySchema);
 const otaAccountListSchema = z.array(otaAccountSchema);
+const booleanSchema = z.boolean();
 const optionalCtripCheckInResultSchema = ctripCheckInResultSchema.nullable();
 const voidSchema = z.undefined();
 
@@ -60,10 +61,12 @@ export type DesktopApi = Readonly<{
     close: (tabId: string) => Promise<void>;
     goBack: (tabId: string) => Promise<void>;
     goForward: (tabId: string) => Promise<void>;
+    getAudioMuted: () => Promise<boolean>;
     hide: () => Promise<void>;
     list: () => Promise<BrowserTab[]>;
     reload: (tabId: string) => Promise<void>;
     setBounds: (bounds: BrowserBounds) => Promise<void>;
+    setAudioMuted: (muted: boolean) => Promise<boolean>;
     onRequestIntercepted: (listener: (event: BrowserRequestInterception) => void) => () => void;
     onStateChanged: (listener: (tab: BrowserTab) => void) => () => void;
   }>;
@@ -145,11 +148,14 @@ export function createDesktopApi(
     goBack: (tabId: string) => invokeValidated(voidSchema, IPC_CHANNELS.browser.goBack, tabId),
     goForward: (tabId: string) =>
       invokeValidated(voidSchema, IPC_CHANNELS.browser.goForward, tabId),
+    getAudioMuted: () => invokeValidated(booleanSchema, IPC_CHANNELS.browser.getAudioMuted),
     hide: () => invokeValidated(voidSchema, IPC_CHANNELS.browser.hide),
     list: () => invokeValidated(browserTabListSchema, IPC_CHANNELS.browser.list),
     reload: (tabId: string) => invokeValidated(voidSchema, IPC_CHANNELS.browser.reload, tabId),
     setBounds: (bounds: BrowserBounds) =>
       invokeValidated(voidSchema, IPC_CHANNELS.browser.setBounds, bounds),
+    setAudioMuted: (muted: boolean) =>
+      invokeValidated(booleanSchema, IPC_CHANNELS.browser.setAudioMuted, muted),
     onRequestIntercepted: (listener: (event: BrowserRequestInterception) => void) =>
       subscribeValidated(
         browserRequestInterceptionSchema,

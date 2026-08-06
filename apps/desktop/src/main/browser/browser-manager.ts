@@ -67,6 +67,7 @@ export class BrowserManager {
   private readonly tabs = new Map<string, ManagedTab>();
   private readonly retiredPartitions = new Set<string>();
   private readonly managedWebContentsIds = new Set<number>();
+  private audioMuted = false;
   private activeTabId: string | null = null;
   private bounds: Rectangle = { x: 0, y: 0, width: 0, height: 0 };
   private readonly handleShellInput = (event: ElectronEvent, input: Input): void => {
@@ -211,6 +212,7 @@ export class BrowserManager {
       urlPastLoginTriggered: false,
     };
     this.tabs.set(id, tab);
+    view.webContents.setAudioMuted(this.audioMuted);
     this.bindTabEvents(tab);
     this.activate(id);
     this.logger.info('Browser tab created', { channelId, partitionName });
@@ -282,6 +284,27 @@ export class BrowserManager {
 
   reload(tabId: string): void {
     this.getTab(tabId).view.webContents.reload();
+  }
+
+  getAudioMuted(): boolean {
+    return this.audioMuted;
+  }
+
+  setAudioMuted(muted: boolean): boolean {
+    this.audioMuted = muted;
+    for (const tab of this.tabs.values()) {
+      const { webContents } = tab.view;
+      if (webContents.isDestroyed()) continue;
+      try {
+        webContents.setAudioMuted(muted);
+      } catch (error) {
+        this.logger.warn('Browser tab audio state could not be changed', {
+          channelId: tab.channelId,
+          errorName: error instanceof Error ? error.name : 'UnknownError',
+        });
+      }
+    }
+    return this.audioMuted;
   }
 
   hide(): void {
