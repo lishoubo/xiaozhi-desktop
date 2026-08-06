@@ -9,14 +9,17 @@ import type {
 import type { AppLogger } from '../../shared/logging';
 import type { DiscoveredOtaHotel, DiscoveryProbe } from './discovery-probe-port';
 import type { DiscoverCtrip } from '../ota/ctrip/discover-ctrip';
+import type { DiscoverDouyin } from '../ota/douyin/discover-douyin';
 import type { DiscoverMeituan } from '../ota/meituan/discover-meituan';
 
 const CTRIP_CHANNEL = 'ctrip';
+const DOUYIN_CHANNEL = 'douyin';
 const MEITUAN_CHANNEL = 'meituan';
 
 export type DiscoverAndCreateDependencies = Readonly<{
   probes: ReadonlyMap<ChannelId, DiscoveryProbe>;
   discoverCtrip: DiscoverCtrip;
+  discoverDouyin: DiscoverDouyin;
   discoverMeituan: DiscoverMeituan;
   accountRepository: OtaAccountRepository;
   credentialRepository: OtaCredentialRepository;
@@ -42,9 +45,10 @@ export class DiscoverAndCreate {
     if (this.bound.has(partitionName) || this.inflight.has(partitionName)) return false;
 
     const isCtrip = channel === CTRIP_CHANNEL;
+    const isDouyin = channel === DOUYIN_CHANNEL;
     const isMeituan = channel === MEITUAN_CHANNEL;
-    const probe = isCtrip || isMeituan ? null : this.deps.probes.get(channel);
-    if (!isCtrip && !isMeituan && !probe) {
+    const probe = isCtrip || isDouyin || isMeituan ? null : this.deps.probes.get(channel);
+    if (!isCtrip && !isDouyin && !isMeituan && !probe) {
       this.deps.logger.info('Discovery skipped: no probe registered for channel', { channel });
       return false;
     }
@@ -70,6 +74,22 @@ export class DiscoverAndCreate {
         );
         this.bound.add(partitionName);
         this.deps.logger.info('Ctrip discovery saved hotels', {
+          hotelCount: result.hotels.length,
+        });
+        return true;
+      }
+      if (isDouyin) {
+        const result = await this.deps.discoverDouyin(partitionName, landingUrl, webContents);
+        this.deps.logger.info('Douyin discovery outcome', { kind: result.kind });
+        if (result.kind === 'none') return false;
+        await this.persistIdentifiedResult(
+          partitionName,
+          channel,
+          result.credential,
+          result.hotels,
+        );
+        this.bound.add(partitionName);
+        this.deps.logger.info('Douyin discovery saved hotels', {
           hotelCount: result.hotels.length,
         });
         return true;

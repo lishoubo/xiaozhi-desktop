@@ -22,6 +22,7 @@ import { LOGIN_URL_MATCHERS } from './account-discovery/login-url-matcher';
 import { removePendingPartition } from './file-store/pending-partitions-store';
 import { IPC_CHANNELS } from '../shared/ipc-channels';
 import { createCtripDiscovery } from './ota/ctrip/discover-ctrip';
+import { createDouyinDiscovery } from './ota/douyin/discover-douyin';
 import { createMeituanDiscovery } from './ota/meituan/discover-meituan';
 
 let mainWindow: BrowserWindow | null = null;
@@ -105,8 +106,9 @@ function initializeApplication(): void {
   otaAccountRepository = new SqliteOtaAccountRepository(applicationDatabase);
   otaCredentialRepository = new SqliteOtaCredentialRepository(applicationDatabase);
   discoverAndCreate = new DiscoverAndCreate({
-    probes: createDiscoveryProbes(log),
+    probes: createDiscoveryProbes(),
     discoverCtrip: createCtripDiscovery(log),
+    discoverDouyin: createDouyinDiscovery(log),
     discoverMeituan: createMeituanDiscovery(log),
     accountRepository: otaAccountRepository,
     credentialRepository: otaCredentialRepository,

@@ -26,11 +26,14 @@
  * 只是该页面的外壳布局 DSL，不含门店数据——真正需要点击的是"门店管理"。
  */
 import type { WebContents } from 'electron';
-import type { ChannelId } from '../../domain/identity';
-import { toChannelId, toOtaHotelId } from '../../domain/identity';
-import type { AppLogger } from '../../shared/logging';
-import type { DiscoveryOutcome, DiscoveryProbe } from './discovery-probe-port';
-import { douyinBindExtra } from '../../domain/ota-bind-extra';
+import { toOtaHotelId } from '../../../domain/identity';
+import type { JsonObject } from '../../../domain/json';
+import { douyinBindExtra } from '../../../domain/ota-bind-extra';
+import type { AppLogger } from '../../../shared/logging';
+import {
+  parseDouyinAccountIdentity,
+  READ_DOUYIN_ACCOUNT_IDENTITY_EXPRESSION,
+} from './account-identity';
 
 const DSL_GET_PATH = '/life/merchant/manager/v1/dsl/get';
 
@@ -252,9 +255,7 @@ class DslGetResponseCapture {
   }
 }
 
-export class DouyinDiscoveryProbe implements DiscoveryProbe {
-  readonly channel: ChannelId = toChannelId('douyin');
-
+class DouyinDiscovery {
   constructor(private readonly logger: AppLogger) {}
 
   /**
@@ -263,15 +264,34 @@ export class DouyinDiscoveryProbe implements DiscoveryProbe {
    */
   async discover(
     partitionName: string,
-    landingUrl: string,
+    _landingUrl: string,
     webContents: WebContents,
-  ): Promise<DiscoveryOutcome> {
-    const groupId = extractGroupIdFromCurrentUrl(landingUrl);
+  ): Promise<DouyinDiscoveryResult> {
+    const currentUrl = webContents.getURL();
+    if (!isTrustedDouyinUrl(currentUrl)) {
+      this.logger.warn('Douyin discovery rejected untrusted current URL');
+      return { kind: 'none' };
+    }
+
+    const groupId = extractGroupIdFromCurrentUrl(currentUrl);
     if (!groupId) {
       this.logger.warn('Douyin discovery: no groupid on landing URL', {
         partitionName,
-        landingUrl,
+        landingUrl: currentUrl,
       });
+      return { kind: 'none' };
+    }
+
+    let credential: ReturnType<typeof parseDouyinAccountIdentity> = null;
+    for (let attempt = 0; attempt < 20 && !credential; attempt += 1) {
+      const accountRaw: unknown = await webContents.executeJavaScript(
+        READ_DOUYIN_ACCOUNT_IDENTITY_EXPRESSION,
+      );
+      credential = parseDouyinAccountIdentity(accountRaw);
+      if (!credential) await sleep(250);
+    }
+    if (!credential) {
+      this.logger.warn('Douyin discovery: no valid account identity in session storage');
       return { kind: 'none' };
     }
 
@@ -289,12 +309,15 @@ export class DouyinDiscoveryProbe implements DiscoveryProbe {
       }
 
       return {
-        kind: 'single',
-        hotel: {
-          otaHotelId: toOtaHotelId(hotel.hotelId),
-          otaHotelName: hotel.hotelName,
-          bindExtra: douyinBindExtra(groupId),
-        },
+        kind: 'found',
+        credential,
+        hotels: [
+          {
+            otaHotelId: toOtaHotelId(hotel.hotelId),
+            otaHotelName: hotel.hotelName,
+            bindExtra: douyinBindExtra(groupId),
+          },
+        ],
       };
     } catch (error) {
       this.logger.warn('Douyin discovery failed', {
@@ -331,6 +354,44 @@ export class DouyinDiscoveryProbe implements DiscoveryProbe {
       if (ready === true) return true;
       await sleep(MENU_READY_POLL_MS);
     }
+    return false;
+  }
+}
+
+export type DouyinDiscoveryResult =
+  | Readonly<{ kind: 'none' }>
+  | Readonly<{
+      kind: 'found';
+      credential: Readonly<{
+        channelAccountId: string;
+        credentialExtra: JsonObject;
+      }>;
+      hotels: readonly [
+        Readonly<{
+          otaHotelId: ReturnType<typeof toOtaHotelId>;
+          otaHotelName: string;
+          bindExtra: JsonObject | null;
+        }>,
+      ];
+    }>;
+
+export type DiscoverDouyin = (
+  partitionName: string,
+  landingUrl: string,
+  webContents: WebContents,
+) => Promise<DouyinDiscoveryResult>;
+
+export function createDouyinDiscovery(logger: AppLogger): DiscoverDouyin {
+  const discovery = new DouyinDiscovery(logger);
+  return (partitionName, landingUrl, webContents) =>
+    discovery.discover(partitionName, landingUrl, webContents);
+}
+
+function isTrustedDouyinUrl(rawUrl: string): boolean {
+  try {
+    const url = new URL(rawUrl);
+    return url.protocol === 'https:' && url.hostname === 'life.douyin.com';
+  } catch {
     return false;
   }
 }

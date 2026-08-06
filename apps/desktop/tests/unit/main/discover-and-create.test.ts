@@ -11,10 +11,12 @@ import {
   type DiscoverAndCreateDependencies,
 } from '../../../src/main/account-discovery/discover-and-create';
 
-const channel = toChannelId('douyin');
-const partitionName = 'persist:xiaozhi:prod:douyin:aaa';
+const channel = toChannelId('fliggy');
+const partitionName = 'persist:xiaozhi:prod:fliggy:aaa';
 const ctripChannel = toChannelId('ctrip');
 const ctripPartitionName = 'persist:xiaozhi:prod:ctrip:ccc';
+const douyinChannel = toChannelId('douyin');
+const douyinPartitionName = 'persist:xiaozhi:prod:douyin:ddd';
 const meituanChannel = toChannelId('meituan');
 const meituanPartitionName = 'persist:xiaozhi:prod:meituan:bbb';
 
@@ -65,6 +67,7 @@ function createDeps(
   return {
     probes: new Map(),
     discoverCtrip: vi.fn().mockResolvedValue({ kind: 'none' }),
+    discoverDouyin: vi.fn().mockResolvedValue({ kind: 'none' }),
     discoverMeituan: vi.fn().mockResolvedValue({ kind: 'none' }),
     accountRepository,
     credentialRepository,
@@ -130,8 +133,7 @@ describe('DiscoverAndCreate', () => {
   });
 
   it('结构化 bindExtra 原样写入账号', async () => {
-    const douyinChannel = toChannelId('douyin');
-    const probe = singleProbe(douyinChannel);
+    const probe = singleProbe(channel);
     probe.discover.mockResolvedValue({
       kind: 'single',
       hotel: {
@@ -140,12 +142,12 @@ describe('DiscoverAndCreate', () => {
         bindExtra: { merchantGroupId: 'group-1' },
       },
     });
-    const deps = createDeps({ probes: new Map([[douyinChannel, probe]]) });
+    const deps = createDeps({ probes: new Map([[channel, probe]]) });
     const discoverAndCreate = new DiscoverAndCreate(deps);
 
     await discoverAndCreate.trigger(
       partitionName,
-      douyinChannel,
+      channel,
       'https://example.com/landing',
       {} as never,
     );
@@ -440,6 +442,123 @@ describe('DiscoverAndCreate', () => {
         ctripPartitionName,
         ctripChannel,
         'https://ebooking.ctrip.com/home/mainland',
+        {} as never,
+      ),
+    ).resolves.toBe(false);
+
+    expect(deps.credentialRepository.create).not.toHaveBeenCalled();
+    expect(deps.credentialRepository.updateIdentity).not.toHaveBeenCalled();
+    expect(deps.accountRepository.create).not.toHaveBeenCalled();
+  });
+
+  it('抖音发现结果创建带登录用户身份的 credential 并关联酒店', async () => {
+    const discoverDouyin = vi.fn().mockResolvedValue({
+      kind: 'found',
+      credential: {
+        channelAccountId: '104680039472',
+        credentialExtra: {
+          loginId: '104680039472',
+          name: '走进内蒙古',
+          roleName: '商家子账号',
+          roleType: 1,
+        },
+      },
+      hotels: [
+        {
+          otaHotelId: toOtaHotelId('7220335839249696827'),
+          otaHotelName: '抖音测试酒店',
+          bindExtra: { merchantGroupId: '1813179858562059' },
+        },
+      ],
+    });
+    const deps = createDeps({ discoverDouyin });
+    const discoverAndCreate = new DiscoverAndCreate(deps);
+
+    await expect(
+      discoverAndCreate.trigger(
+        douyinPartitionName,
+        douyinChannel,
+        'https://life.douyin.com/p/home?groupid=1813179858562059',
+        {} as never,
+      ),
+    ).resolves.toBe(true);
+
+    expect(deps.credentialRepository.create).toHaveBeenCalledWith({
+      id: toOtaCredentialId('generated-credential-id'),
+      channel: douyinChannel,
+      channelAccountId: '104680039472',
+      partitionName: douyinPartitionName,
+      credentialExtra: expect.objectContaining({ loginId: '104680039472' }),
+      discoveredAt: expect.any(Number),
+      lastRefreshedAt: expect.any(Number),
+    });
+    expect(deps.accountRepository.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        channel: douyinChannel,
+        otaHotelId: toOtaHotelId('7220335839249696827'),
+        bindExtra: { merchantGroupId: '1813179858562059' },
+      }),
+    );
+  });
+
+  it('抖音已有 credential 时刷新登录用户身份', async () => {
+    const existingCredential = credential({
+      channel: douyinChannel,
+      partitionName: douyinPartitionName,
+    });
+    const discoverDouyin = vi.fn().mockResolvedValue({
+      kind: 'found',
+      credential: {
+        channelAccountId: '104680039472',
+        credentialExtra: {
+          loginId: '104680039472',
+          name: '走进内蒙古',
+          roleName: '商家子账号',
+          roleType: 1,
+        },
+      },
+      hotels: [
+        {
+          otaHotelId: toOtaHotelId('7220335839249696827'),
+          otaHotelName: '抖音测试酒店',
+          bindExtra: { merchantGroupId: '1813179858562059' },
+        },
+      ],
+    });
+    const deps = createDeps({ discoverDouyin });
+    vi.mocked(deps.credentialRepository.findByPartitionName).mockReturnValue(existingCredential);
+    vi.mocked(deps.credentialRepository.updateIdentity).mockReturnValue({
+      ...existingCredential,
+      channelAccountId: '104680039472',
+      credentialExtra: { loginId: '104680039472' },
+      lastRefreshedAt: 200,
+    });
+    const discoverAndCreate = new DiscoverAndCreate(deps);
+
+    await discoverAndCreate.trigger(
+      douyinPartitionName,
+      douyinChannel,
+      'https://life.douyin.com/p/home?groupid=1813179858562059',
+      {} as never,
+    );
+
+    expect(deps.credentialRepository.updateIdentity).toHaveBeenCalledWith(existingCredential.id, {
+      channelAccountId: '104680039472',
+      credentialExtra: expect.objectContaining({ loginId: '104680039472' }),
+      lastRefreshedAt: expect.any(Number),
+    });
+  });
+
+  it('抖音身份发现失败时不创建 credential 或 account', async () => {
+    const discoverDouyin = vi.fn().mockResolvedValue({ kind: 'none' });
+    const deps = createDeps({ discoverDouyin });
+    const discoverAndCreate = new DiscoverAndCreate(deps);
+
+    await expect(
+      discoverAndCreate.trigger(
+        douyinPartitionName,
+        douyinChannel,
+        'https://life.douyin.com/p/home?groupid=1813179858562059',
         {} as never,
       ),
     ).resolves.toBe(false);
