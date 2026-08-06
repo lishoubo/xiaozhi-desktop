@@ -26,14 +26,24 @@ function credentialLabel(credential: OtaCredentialDto): string {
 
 export function buildLoginCredentialOptions(
   credentials: readonly OtaCredentialDto[],
+  activePartitionName?: string,
 ): readonly LoginCredentialOption[] {
-  return [...credentials]
-    .sort((a, b) => b.discoveredAt - a.discoveredAt)
-    .map((credential) => ({
-      credential,
-      partitionName: credential.partitionName,
-      label: credentialLabel(credential),
-    }));
+  const credentialsByIdentity = new Map<string, OtaCredentialDto>();
+  for (const credential of [...credentials].sort((a, b) => b.discoveredAt - a.discoveredAt)) {
+    const identity = credential.channelAccountId
+      ? `${credential.channel}:${credential.channelAccountId}`
+      : `partition:${credential.partitionName}`;
+    const selected = credentialsByIdentity.get(identity);
+    if (!selected || credential.partitionName === activePartitionName) {
+      credentialsByIdentity.set(identity, credential);
+    }
+  }
+
+  return [...credentialsByIdentity.values()].map((credential) => ({
+    credential,
+    partitionName: credential.partitionName,
+    label: credentialLabel(credential),
+  }));
 }
 
 export function currentLoginCredential(

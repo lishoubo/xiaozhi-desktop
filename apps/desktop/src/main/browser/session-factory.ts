@@ -41,6 +41,19 @@ export class SessionFactory {
     return { session: this.fromPartitionCached(partitionName), partitionName };
   }
 
+  /**
+   * 清空不再被 credential 引用的持久化 Session。调用方必须先确认没有标签
+   * 使用该 partition；Electron 不提供删除 partition 目录的稳定 API，因此
+   * 只通过公开 Session API 清理登录数据和缓存。
+   */
+  async clearAccountSession(partitionName: string): Promise<void> {
+    const accountSession = this.fromPartitionCached(partitionName);
+    await accountSession.closeAllConnections();
+    await accountSession.clearStorageData();
+    await accountSession.clearCache();
+    this.cache.delete(partitionName);
+  }
+
   private fromPartitionCached(partition: string): Session {
     const cached = this.cache.get(partition);
     if (cached) return cached;

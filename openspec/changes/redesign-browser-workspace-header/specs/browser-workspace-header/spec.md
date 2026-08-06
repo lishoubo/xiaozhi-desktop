@@ -61,6 +61,27 @@
 - **THEN** 系统保留原 credential 的全部标签
 - **AND** 用户关闭账号列表后恢复原活动标签
 
+### Requirement: 账号列表合并重复渠道身份
+
+系统 MUST 在账号选择列表中按渠道与非空 `channelAccountId` 合并重复 credential。默认 MUST 展示最近发现的 credential；当当前活动 partition 属于该身份时 MUST 优先展示当前 credential。没有稳定渠道账号标识的 credential MUST 按 partition 独立展示。
+
+#### Scenario: 同一美团账号被重复导入
+
+- **WHEN** 同一美团 `channelAccountId` 存在多个不同 partition 的 credential
+- **THEN** 账号选择列表只展示一项
+- **AND** 当前正在使用其中一个 partition 时，该项仍表示当前 credential
+
+### Requirement: 重复渠道身份复用原 credential
+
+系统 MUST 在新 partition 探测到已有的渠道与 `channelAccountId` 组合时保留原 credential ID，并将其权威 `partitionName`、身份字段和刷新时间更新为本次探测结果，不得新建同身份 credential。被替换的旧 partition MUST 在没有 BrowserTab 引用后清空 Session 存储；清理失败不得回滚已成功的身份绑定。
+
+#### Scenario: Cookie 导入再次识别同一美团账号
+
+- **WHEN** 新 partition 探测出的美团 `channelAccountId` 已存在
+- **THEN** 系统更新已有 credential 指向新 partition
+- **AND** 已有关联的 `OtaAccount` 继续引用同一 credential ID
+- **AND** 旧 partition 在最后一个引用标签关闭后清空 Session 数据
+
 ### Requirement: 标签关闭保持可预测的活动页面
 
 系统 MUST 在关闭活动标签后激活其相邻标签；关闭当前渠道最后一个标签后 MUST 清除该渠道活动标签，并进入显示渠道名称的空态。关闭非活动标签不得改变当前活动标签。

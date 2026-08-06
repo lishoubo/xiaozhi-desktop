@@ -10,6 +10,9 @@ const electron = vi.hoisted(() => {
       ) => void)
     | null = null;
   const browserSession = {
+    clearCache: vi.fn().mockResolvedValue(undefined),
+    clearStorageData: vi.fn().mockResolvedValue(undefined),
+    closeAllConnections: vi.fn().mockResolvedValue(undefined),
     setPermissionCheckHandler: vi.fn(),
     setPermissionRequestHandler: vi.fn(),
     webRequest: {
@@ -120,6 +123,9 @@ beforeEach(() => {
   electron.browserSession.setPermissionCheckHandler.mockClear();
   electron.browserSession.setPermissionRequestHandler.mockClear();
   electron.browserSession.webRequest.onBeforeRequest.mockClear();
+  electron.browserSession.clearCache.mockClear();
+  electron.browserSession.clearStorageData.mockClear();
+  electron.browserSession.closeAllConnections.mockClear();
 });
 
 describe('BrowserManager', () => {
@@ -142,10 +148,31 @@ describe('BrowserManager', () => {
       },
     });
     expect(logger.info.mock.calls).toEqual([
-      ['Browser tab created', { channelId: 'ctrip', partitionName: 'persist:hotel-butler-browser' }],
+      [
+        'Browser tab created',
+        { channelId: 'ctrip', partitionName: 'persist:hotel-butler-browser' },
+      ],
       ['Browser tab closed', { channelId: 'ctrip' }],
     ]);
     expect(electron.views[0].webContents.close).toHaveBeenCalledOnce();
+  });
+
+  it('退休 partition 仍有标签时延迟到最后一个标签关闭后清空', async () => {
+    const manager = new BrowserManager(createWindow() as never, createLogger());
+    const partitionName = 'persist:xiaozhi:prod:meituan:retired';
+    const tab = manager.createWithAlreadyPartition(
+      partitionName,
+      'meituan',
+      'https://me.meituan.com/',
+    );
+
+    await manager.retirePartition(partitionName);
+    expect(electron.browserSession.clearStorageData).not.toHaveBeenCalled();
+
+    manager.close(tab.id);
+    await vi.waitFor(() => expect(electron.browserSession.clearStorageData).toHaveBeenCalledOnce());
+    expect(electron.browserSession.closeAllConnections).toHaveBeenCalledOnce();
+    expect(electron.browserSession.clearCache).toHaveBeenCalledOnce();
   });
 
   it('reports page load failures without logging the rejected URL or error message', async () => {

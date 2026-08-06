@@ -63,6 +63,7 @@ function createDeps(
     findByPartitionName: vi.fn(() => null),
     findByChannelAndAccountId: vi.fn(() => null),
     updateIdentity: vi.fn(),
+    updatePartitionAndIdentity: vi.fn(),
   };
   return {
     probes: new Map(),
@@ -690,6 +691,108 @@ describe('DiscoverAndCreate', () => {
     });
     expect(deps.accountRepository.create).toHaveBeenCalledWith(
       expect.objectContaining({ credentialId: existingCredential.id }),
+    );
+  });
+
+  it('美团新 partition 识别为已有渠道账号时更新原 credential 并退休旧 partition', async () => {
+    const previousPartitionName = 'persist:xiaozhi:prod:meituan:old';
+    const existingCredential = credential({
+      channel: meituanChannel,
+      channelAccountId: '274615733',
+      partitionName: previousPartitionName,
+    });
+    const discoverMeituan = vi.fn().mockResolvedValue({
+      kind: 'found',
+      credential: {
+        channelAccountId: '274615733',
+        credentialExtra: { partnerId: '4595635', login: 'hotel-login' },
+      },
+      hotels: [
+        {
+          otaHotelId: toOtaHotelId('hotel-1'),
+          otaHotelName: '美团酒店一',
+          bindExtra: null,
+        },
+      ],
+    });
+    const onCredentialPartitionReplaced = vi.fn().mockResolvedValue(undefined);
+    const deps = createDeps({ discoverMeituan, onCredentialPartitionReplaced });
+    vi.mocked(deps.credentialRepository.findByChannelAndAccountId).mockReturnValue(
+      existingCredential,
+    );
+    vi.mocked(deps.credentialRepository.updatePartitionAndIdentity).mockReturnValue({
+      ...existingCredential,
+      partitionName: meituanPartitionName,
+      credentialExtra: { partnerId: '4595635', login: 'hotel-login' },
+      lastRefreshedAt: 200,
+    });
+    const discoverAndCreate = new DiscoverAndCreate(deps);
+
+    await expect(
+      discoverAndCreate.trigger(
+        meituanPartitionName,
+        meituanChannel,
+        'https://me.meituan.com/ebooking/index.html',
+        {} as never,
+      ),
+    ).resolves.toBe(true);
+
+    expect(deps.credentialRepository.create).not.toHaveBeenCalled();
+    expect(deps.credentialRepository.updatePartitionAndIdentity).toHaveBeenCalledWith(
+      existingCredential.id,
+      {
+        partitionName: meituanPartitionName,
+        channelAccountId: '274615733',
+        credentialExtra: { partnerId: '4595635', login: 'hotel-login' },
+        lastRefreshedAt: expect.any(Number),
+      },
+    );
+    expect(deps.accountRepository.create).toHaveBeenCalledWith(
+      expect.objectContaining({ credentialId: existingCredential.id }),
+    );
+    expect(onCredentialPartitionReplaced).toHaveBeenCalledWith(
+      previousPartitionName,
+      meituanPartitionName,
+    );
+  });
+
+  it('旧 partition 清理失败时仍保留已完成的 credential 绑定', async () => {
+    const existingCredential = credential({
+      channel: meituanChannel,
+      channelAccountId: '274615733',
+      partitionName: 'persist:xiaozhi:prod:meituan:old',
+    });
+    const discoverMeituan = vi.fn().mockResolvedValue({
+      kind: 'found',
+      credential: { channelAccountId: '274615733', credentialExtra: null },
+      hotels: [],
+    });
+    const deps = createDeps({
+      discoverMeituan,
+      onCredentialPartitionReplaced: vi.fn().mockRejectedValue(new Error('clear failed')),
+    });
+    vi.mocked(deps.credentialRepository.findByChannelAndAccountId).mockReturnValue(
+      existingCredential,
+    );
+    vi.mocked(deps.credentialRepository.updatePartitionAndIdentity).mockReturnValue({
+      ...existingCredential,
+      partitionName: meituanPartitionName,
+      lastRefreshedAt: 200,
+    });
+    const discoverAndCreate = new DiscoverAndCreate(deps);
+
+    await expect(
+      discoverAndCreate.trigger(
+        meituanPartitionName,
+        meituanChannel,
+        'https://me.meituan.com/ebooking/index.html',
+        {} as never,
+      ),
+    ).resolves.toBe(true);
+    expect(deps.removePendingPartition).toHaveBeenCalledWith(meituanPartitionName);
+    expect(deps.logger.warn).toHaveBeenCalledWith(
+      'Replaced credential partition could not be retired',
+      { channel: meituanChannel, errorName: 'Error' },
     );
   });
 

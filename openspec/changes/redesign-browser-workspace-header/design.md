@@ -178,6 +178,8 @@ OtaCredential
 4. 同一 credential 的所有 BrowserTab 必须使用同一 Session。
 5. 页面关闭只销毁 WebContents，不删除 credential、partition 或 Cookie。
 6. Session 必须在创建 WebContents 时指定，页面开始导航后不再切换 partition。
+7. 新 partition 探测到同渠道同 `channelAccountId` 时复用原 credential ID，并把其权威 `partitionName` 更新为新值。
+8. 被替换 partition 先标记退休；仍有 BrowserTab 引用时延迟处理，最后一个引用关闭后通过 Electron Session API 清空存储与缓存，不直接操作 Chromium 磁盘目录。
 
 ### 2.2 持久化与命名
 
@@ -306,7 +308,8 @@ persist:xiaozhi:prod:douyin:e5f6g7h8
 
 - 只展示当前渠道的 credential，不把其他渠道混入列表。
 - 数据源直接读取当前渠道的 `OtaCredential`；不从 `OtaAccount` 反推 credential。
-- 一个 credential/partition 只展示一项；credential 没有关联门店时也必须展示。
+- 同一非空 `channelAccountId` 的多条 credential 在账号列表合并为一项；默认使用最近发现的 credential，当前活动 partition 属于该身份时优先保留当前 credential。
+- 没有稳定 `channelAccountId` 的 credential 按 partition 独立展示；credential 没有关联门店时也必须展示。
 - 当前渠道任意标签使用该 partition 时，状态为“已打开”。
 - 其他 credential 状态为“未打开”。
 - 主标签优先使用 `credentialExtra` 中经过白名单保存的渠道账号名称，其次使用 `channelAccountId`，最终回退“未识别账号”。
@@ -637,7 +640,8 @@ align-items: center
 - [切换账号会丢失旧标签页面位置] → 保留持久化 Session，重新选择时免登录；跨账号标签恢复另立需求。
 - [账号面板可能被原生 WebContentsView 遮挡] → 打开前 hide，关闭或失败时恢复原 activeTab。
 - [切换目标页面创建成功、关闭旧标签中途失败] → 关闭操作按目标 partition 过滤并允许幂等重试，当前账号始终由 activeTab 派生。
-- [导入 Cookie 重复使用可能生成多份相同登录身份的 partition] → 当前以安全隔离优先；未来可在 credential probe 后提示合并，但不得在注入前猜测身份。
+- [导入 Cookie 重复使用会先生成新的候选 partition] → 不在注入前猜测身份；刺探得到稳定 `channelAccountId` 后复用原 credential、切换到新 partition，并在旧 partition 无标签引用后清空其 Session 数据。
+- [旧 partition 清理失败] → 不回滚已经成功的 credential 身份绑定；保留退休状态供当前进程后续关闭标签时重试，并记录不含凭据内容的告警。
 - [参考界面的删除按钮涉及破坏性生命周期] → 本方案不实现删除；另行设计可恢复性、引用检查和磁盘清理。
 
 ## Implementation Progress

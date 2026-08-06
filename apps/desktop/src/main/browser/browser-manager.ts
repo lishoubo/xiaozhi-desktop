@@ -65,6 +65,7 @@ export class BrowserManager {
   readonly browserSession: Session;
   private readonly sessionFactory: SessionFactory;
   private readonly tabs = new Map<string, ManagedTab>();
+  private readonly retiredPartitions = new Set<string>();
   private readonly managedWebContentsIds = new Set<number>();
   private activeTabId: string | null = null;
   private bounds: Rectangle = { x: 0, y: 0, width: 0, height: 0 };
@@ -250,6 +251,18 @@ export class BrowserManager {
     this.managedWebContentsIds.delete(tab.view.webContents.id);
     tab.view.webContents.close();
     this.logger.info('Browser tab closed', { channelId: tab.channelId });
+    for (const retiredPartition of this.retiredPartitions) {
+      void this.clearRetiredPartitionWhenUnused(retiredPartition).catch(() => {});
+    }
+  }
+
+  /**
+   * credential 已切换到新 partition 后退休旧 Session。若仍有标签引用则延迟
+   * 到最后一个标签关闭；清理失败保留退休标记，允许后续关闭事件再次尝试。
+   */
+  async retirePartition(partitionName: string): Promise<void> {
+    this.retiredPartitions.add(partitionName);
+    await this.clearRetiredPartitionWhenUnused(partitionName);
   }
 
   acknowledgeInterception(): void {
@@ -327,6 +340,21 @@ export class BrowserManager {
         });
       },
     );
+  }
+
+  private async clearRetiredPartitionWhenUnused(partitionName: string): Promise<void> {
+    const stillUsed = [...this.tabs.values()].some((tab) => tab.partitionName === partitionName);
+    if (stillUsed) return;
+    try {
+      await this.sessionFactory.clearAccountSession(partitionName);
+      this.retiredPartitions.delete(partitionName);
+      this.logger.info('Retired browser partition cleared');
+    } catch (error) {
+      this.logger.warn('Retired browser partition could not be cleared', {
+        errorName: error instanceof Error ? error.name : 'UnknownError',
+      });
+      throw error;
+    }
   }
 
   private bindTabEvents(tab: ManagedTab): void {

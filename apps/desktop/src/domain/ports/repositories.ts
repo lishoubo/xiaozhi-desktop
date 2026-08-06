@@ -17,6 +17,7 @@ import type {
   OtaCredential,
   OtaCredentialCreateInput,
   OtaCredentialIdentityUpdate,
+  OtaCredentialPartitionUpdate,
 } from '../ota-credential';
 
 export interface CalendarRepository {
@@ -43,4 +44,8 @@ export interface OtaCredentialRepository {
   findByPartitionName(partitionName: string): OtaCredential | null;
   findByChannelAndAccountId(channel: ChannelId, channelAccountId: string): OtaCredential | null;
   updateIdentity(id: OtaCredentialId, update: OtaCredentialIdentityUpdate): OtaCredential;
+  updatePartitionAndIdentity(
+    id: OtaCredentialId,
+    update: OtaCredentialPartitionUpdate,
+  ): OtaCredential;
 }

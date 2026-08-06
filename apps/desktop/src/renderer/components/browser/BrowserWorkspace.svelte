@@ -45,7 +45,9 @@
   );
   let activeCredentials = $derived(credentialsByChannel[activeChannelId] ?? []);
   let activeChannel = $derived(OTA_CHANNELS.find((item) => item.id === activeChannelId));
-  let activeCredentialOptions = $derived(buildLoginCredentialOptions(activeCredentials));
+  let activeCredentialOptions = $derived(
+    buildLoginCredentialOptions(activeCredentials, activeTab?.partitionName),
+  );
   let activeCredential = $derived(
     currentLoginCredential(activeCredentialOptions, activeTab?.partitionName),
   );

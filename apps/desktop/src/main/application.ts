@@ -115,6 +115,8 @@ function initializeApplication(): void {
     generateAccountId: () => randomUUID(),
     generateCredentialId: () => randomUUID(),
     removePendingPartition: (partitionName) => removePendingPartition(userDataDir, partitionName),
+    onCredentialPartitionReplaced: (previousPartitionName) =>
+      browserManager?.retirePartition(previousPartitionName),
     logger: log,
     onAccountBound: (channel) => {
       if (mainWindow && !mainWindow.isDestroyed()) {

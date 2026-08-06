@@ -26,6 +26,10 @@ export type DiscoverAndCreateDependencies = Readonly<{
   generateAccountId: () => string;
   generateCredentialId: () => string;
   removePendingPartition: (partitionName: string) => Promise<void>;
+  onCredentialPartitionReplaced?: (
+    previousPartitionName: string,
+    nextPartitionName: string,
+  ) => void | Promise<void>;
   logger: AppLogger;
   onAccountBound?: (channel: ChannelId) => void;
 }>;
@@ -189,8 +193,27 @@ export class DiscoverAndCreate {
   ): Promise<void> {
     const now = Date.now();
     const existing = this.deps.credentialRepository.findByPartitionName(partitionName);
+    const identified = this.deps.credentialRepository.findByChannelAndAccountId(
+      channel,
+      identity.channelAccountId,
+    );
     let credential: OtaCredential;
-    if (existing) {
+    let replacedPartitionName: string | null = null;
+    if (identified && identified.id !== existing?.id) {
+      if (identified.channel !== channel) {
+        throw new Error('渠道账号身份对应 credential 的渠道不一致');
+      }
+      if (existing) {
+        throw new Error('新 partition 已关联另一条 credential，无法替换渠道账号登录态');
+      }
+      replacedPartitionName = identified.partitionName;
+      credential = this.deps.credentialRepository.updatePartitionAndIdentity(identified.id, {
+        partitionName,
+        channelAccountId: identity.channelAccountId,
+        credentialExtra: identity.credentialExtra,
+        lastRefreshedAt: now,
+      });
+    } else if (existing) {
       if (existing.channel !== channel) {
         throw new Error('partition 对应 credential 的渠道与本次身份探测渠道不一致');
       }
@@ -213,6 +236,16 @@ export class DiscoverAndCreate {
 
     for (const hotel of hotels) this.upsertAccount(channel, credential, hotel, now);
     await this.deps.removePendingPartition(partitionName);
+    if (replacedPartitionName && replacedPartitionName !== partitionName) {
+      try {
+        await this.deps.onCredentialPartitionReplaced?.(replacedPartitionName, partitionName);
+      } catch (error) {
+        this.deps.logger.warn('Replaced credential partition could not be retired', {
+          channel,
+          errorName: error instanceof Error ? error.name : 'UnknownError',
+        });
+      }
+    }
     this.deps.onAccountBound?.(channel);
   }
 

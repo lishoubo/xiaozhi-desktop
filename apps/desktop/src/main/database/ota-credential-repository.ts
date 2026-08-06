@@ -9,6 +9,7 @@ import {
   type OtaCredential,
   type OtaCredentialCreateInput,
   type OtaCredentialIdentityUpdate,
+  type OtaCredentialPartitionUpdate,
 } from '../../domain/ota-credential';
 import type { OtaCredentialRepository } from '../../domain/ports/repositories';
 import type { ApplicationDatabase } from './application-database';
@@ -133,6 +134,38 @@ export class SqliteOtaCredentialRepository implements OtaCredentialRepository {
       });
     if (result.changes !== 1) {
       throw new Error(`更新 OtaCredential 身份失败：credential 不存在 (${id})`);
+    }
+    return updated;
+  }
+
+  updatePartitionAndIdentity(
+    id: OtaCredentialId,
+    update: OtaCredentialPartitionUpdate,
+  ): OtaCredential {
+    const existing = this.findById(id);
+    if (!existing) {
+      throw new Error(`更新 OtaCredential 登录态失败：credential 不存在 (${id})`);
+    }
+    const updated = createOtaCredential({ ...existing, ...update });
+    const result = this.database
+      .prepare(
+        `UPDATE ota_credential
+         SET partition_name = @partitionName,
+             channel_account_id = @channelAccountId,
+             credential_extra = @credentialExtra,
+             last_refreshed_at = @lastRefreshedAt,
+             updated_at = CURRENT_TIMESTAMP
+         WHERE id = @id`,
+      )
+      .run({
+        id,
+        partitionName: updated.partitionName,
+        channelAccountId: updated.channelAccountId,
+        credentialExtra: serializeJsonObject(updated.credentialExtra),
+        lastRefreshedAt: updated.lastRefreshedAt,
+      });
+    if (result.changes !== 1) {
+      throw new Error(`更新 OtaCredential 登录态失败：credential 不存在 (${id})`);
     }
     return updated;
   }

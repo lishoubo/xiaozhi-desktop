@@ -11,6 +11,9 @@
 - [x] 1.9 梳理标签关闭流程：关闭当前标签后激活相邻标签，关闭最后一个标签后进入当前渠道空态。
 - [x] 1.10 账号列表增加“从 Cookie 导入”，复用现有导入组件，成功后直接使用当前渠道 Cookie 打开工作区。
 - [x] 1.11 保留初始化导入后的设置页复核流程；工作区导入失败时保留原账号标签。
+- [x] 1.12 同一渠道账号被多个 partition 重复发现时，账号列表按 `channelAccountId` 去重，并优先保留当前活动 credential。
+- [x] 1.13 身份探测命中已有 `channelAccountId` 时复用原 credential ID，并更新其 `partitionName` 与身份刷新字段。
+- [x] 1.14 被替换的旧 partition 在无标签引用后通过 Electron Session API 清空；清理失败不回滚 credential 更新。
 
 ## 2. 两层头部布局
 

@@ -17,6 +17,10 @@ export type OtaCredentialIdentityUpdate = Readonly<
   Pick<OtaCredential, 'channelAccountId' | 'credentialExtra' | 'lastRefreshedAt'>
 >;
 
+export type OtaCredentialPartitionUpdate = Readonly<
+  Pick<OtaCredential, 'partitionName' | 'channelAccountId' | 'credentialExtra' | 'lastRefreshedAt'>
+>;
+
 export class InvalidOtaCredentialError extends Error {
   constructor(reason: string) {
     super(`无效的 OtaCredential：${reason}`);

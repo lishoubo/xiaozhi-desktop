@@ -91,6 +91,28 @@ describe('SqliteOtaCredentialRepository', () => {
     expect(repository.findById(created.id)).toEqual(updated);
   });
 
+  it('重复渠道身份刷新时保留 credential ID 并替换 partition', () => {
+    const created = repository.create(
+      input({ channelAccountId: 'account-2', credentialExtra: { login: 'old-login' } }),
+    );
+
+    const updated = repository.updatePartitionAndIdentity(created.id, {
+      partitionName: 'persist:xiaozhi:prod:douyin:short-2',
+      channelAccountId: 'account-2',
+      credentialExtra: { login: 'new-login' },
+      lastRefreshedAt: 1_700_000_000_100,
+    });
+
+    expect(updated).toEqual({
+      ...created,
+      partitionName: 'persist:xiaozhi:prod:douyin:short-2',
+      credentialExtra: { login: 'new-login' },
+      lastRefreshedAt: 1_700_000_000_100,
+    });
+    expect(repository.findById(created.id)).toEqual(updated);
+    expect(repository.findByPartitionName(created.partitionName)).toBeNull();
+  });
+
   it('拒绝写入空白渠道账号 ID，并保留原记录', () => {
     const created = repository.create(input());
 

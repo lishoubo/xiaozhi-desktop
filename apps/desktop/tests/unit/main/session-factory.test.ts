@@ -5,6 +5,9 @@ const electron = vi.hoisted(() => {
   function createMockSession(partition: string) {
     return {
       partition,
+      clearCache: vi.fn().mockResolvedValue(undefined),
+      clearStorageData: vi.fn().mockResolvedValue(undefined),
+      closeAllConnections: vi.fn().mockResolvedValue(undefined),
       setPermissionCheckHandler: vi.fn(),
       setPermissionRequestHandler: vi.fn(),
     };
@@ -62,5 +65,24 @@ describe('SessionFactory', () => {
     const b = factory.sessionForAccount('persist:xiaozhi:prod:douyin:abcd1234');
     expect(a).toBe(b);
     expect(electron.session.fromPartition).toHaveBeenCalledOnce();
+  });
+
+  it('通过 Electron Session API 清空退休 partition 并移出缓存', async () => {
+    const factory = new SessionFactory(createLogger());
+    const partitionName = 'persist:xiaozhi:prod:douyin:retired';
+    factory.sessionForAccount(partitionName);
+    const accountSession = electron.sessions.get(partitionName) as {
+      clearCache: ReturnType<typeof vi.fn>;
+      clearStorageData: ReturnType<typeof vi.fn>;
+      closeAllConnections: ReturnType<typeof vi.fn>;
+    };
+
+    await factory.clearAccountSession(partitionName);
+    factory.sessionForAccount(partitionName);
+
+    expect(accountSession.closeAllConnections).toHaveBeenCalledOnce();
+    expect(accountSession.clearStorageData).toHaveBeenCalledOnce();
+    expect(accountSession.clearCache).toHaveBeenCalledOnce();
+    expect(electron.session.fromPartition).toHaveBeenCalledTimes(2);
   });
 });
