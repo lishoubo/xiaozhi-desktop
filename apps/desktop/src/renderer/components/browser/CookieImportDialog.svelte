@@ -13,11 +13,13 @@
     triggerLabel,
     triggerVariant = 'default',
     triggerSize = 'default',
+    showSuccessNotification = false,
     onComplete = () => undefined,
   }: {
     triggerLabel: string;
     triggerVariant?: ButtonVariant;
     triggerSize?: ButtonSize;
+    showSuccessNotification?: boolean;
     onComplete?: () => void | Promise<void>;
   } = $props();
 
@@ -73,16 +75,18 @@
         });
         return;
       }
-      const sourceName = sources.find((item) => item.id === selectedSourceId)?.name ?? '浏览器';
       open = false;
-      showAppNotification({
-        id: 'cookie-import-success',
-        title: 'Cookie 导入完成',
-        message: `已从 ${sourceName} 导入 ${result.imported} 个 Cookie${
-          result.failed ? `，${result.failed} 个未能导入` : ''
-        }`,
-        tone: 'default',
-      });
+      if (showSuccessNotification) {
+        const sourceName = sources.find((item) => item.id === selectedSourceId)?.name ?? '浏览器';
+        showAppNotification({
+          id: 'cookie-import-success',
+          title: 'Cookie 导入完成',
+          message: `已从 ${sourceName} 导入 ${result.imported} 个 Cookie${
+            result.failed ? `，${result.failed} 个未能导入` : ''
+          }`,
+          tone: 'default',
+        });
+      }
       await tick();
       await onComplete();
     } catch (reason) {

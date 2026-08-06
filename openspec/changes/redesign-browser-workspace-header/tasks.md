@@ -14,6 +14,7 @@
 - [x] 1.12 同一渠道账号被多个 partition 重复发现时，账号列表按 `channelAccountId` 去重，并优先保留当前活动 credential。
 - [x] 1.13 身份探测命中已有 `channelAccountId` 时复用原 credential ID，并更新其 `partitionName` 与身份刷新字段。
 - [x] 1.14 被替换的旧 partition 在无标签引用后通过 Electron Session API 清空；清理失败不回滚 credential 更新。
+- [x] 1.15 Cookie 导入成功通知默认关闭，保留通知实现供后续按需启用；导入失败提示保持不变。
 
 ## 2. 两层头部布局
 
