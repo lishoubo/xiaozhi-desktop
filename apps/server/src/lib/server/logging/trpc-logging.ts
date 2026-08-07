@@ -1,5 +1,5 @@
 import type { TRPCError } from '@trpc/server';
-import { safeErrorType } from './logger';
+import { safeErrorDetails, safeErrorType } from './logger';
 import type { RequestLogger } from './request-logging';
 
 interface TrpcFailure {
@@ -18,7 +18,10 @@ export function logTrpcFailure(logger: RequestLogger, { error, path, type }: Trp
 	};
 
 	if (error.code === 'INTERNAL_SERVER_ERROR') {
-		logger.error(fields, 'tRPC procedure failed');
+		logger.error(
+			{ ...fields, error: safeErrorDetails(error.cause ?? error) },
+			'tRPC procedure failed'
+		);
 	} else {
 		logger.warn(fields, 'tRPC procedure failed');
 	}

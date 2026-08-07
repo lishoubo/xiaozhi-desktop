@@ -15,26 +15,44 @@ const createTab = vi.fn().mockResolvedValue({
 });
 const listCookieSources = vi.fn();
 const importCookies = vi.fn();
+const currentEmployee = {
+  id: '2',
+  orgId: '42',
+  username: 'desktop-demo',
+  fullName: '桌面体验员工',
+  phone: '13800138000',
+  roleCode: 'FRONT_DESK',
+} as const;
+const currentSession = vi.fn();
+const logout = vi.fn();
+const requestPhoneCode = vi.fn();
+const loginWithPhoneCode = vi.fn();
 
 describe('App routing and query integration', () => {
   beforeEach(() => {
     window.location.hash = '';
     clearAppNotifications();
     localStorage.clear();
-    localStorage.setItem(
-      'hotel-butler.auth-session',
-      JSON.stringify({ phone: '13800138000', expiresAt: Date.now() + 60_000 }),
-    );
     localStorage.setItem('hotel-butler.cookie-import-prompted', 'true');
     createTab.mockClear();
     listCookieSources.mockReset();
     importCookies.mockReset();
     listCookieSources.mockResolvedValue([{ id: 'firefox', name: 'Mozilla Firefox' }]);
     importCookies.mockResolvedValue({ imported: 8, failed: 0 });
+    currentSession.mockReset().mockResolvedValue(currentEmployee);
+    logout.mockReset().mockResolvedValue({ success: true });
+    requestPhoneCode.mockReset().mockResolvedValue({ accepted: true, expiresInSeconds: 300 });
+    loginWithPhoneCode.mockReset().mockResolvedValue(currentEmployee);
 
     Object.defineProperty(window, 'hotelButler', {
       configurable: true,
       value: {
+        auth: {
+          currentSession,
+          loginWithPhoneCode,
+          logout,
+          requestPhoneCode,
+        },
         automation: {
           getCtripCheckIn: vi.fn().mockResolvedValue(null),
         },
@@ -55,21 +73,26 @@ describe('App routing and query integration', () => {
           close: vi.fn(),
           goBack: vi.fn(),
           goForward: vi.fn(),
+          getAudioMuted: vi.fn().mockResolvedValue(false),
           hide: vi.fn(),
           list: vi.fn().mockResolvedValue([]),
           reload: vi.fn(),
           setBounds: vi.fn(),
+          setAudioMuted: vi.fn().mockResolvedValue(false),
           onStateChanged: vi.fn(() => vi.fn()),
           onRequestIntercepted: vi.fn(() => vi.fn()),
         },
         cookies: {
           listSources: listCookieSources,
           import: importCookies,
+          listImportedChannels: vi.fn().mockResolvedValue([]),
         },
         otaAccount: {
           startLogin: createTab,
           listByChannel: vi.fn().mockResolvedValue([]),
           openExisting: vi.fn(),
+          createFromCookie: vi.fn(),
+          createFromExistingSession: vi.fn(),
           onAccountBound: vi.fn(() => vi.fn()),
         },
         otaCredential: {
@@ -124,6 +147,7 @@ describe('App routing and query integration', () => {
     const user = userEvent.setup();
     render(App);
 
+    await screen.findByRole('navigation', { name: '应用导航' });
     const navigation = screen.getByRole('navigation', { name: '应用导航' });
     const agentLink = screen.getByRole('link', { name: '小智AI 管家' });
     expect(navigation).not.toHaveTextContent('浏览器');
@@ -144,7 +168,7 @@ describe('App routing and query integration', () => {
     const user = userEvent.setup();
     render(App);
 
-    await user.click(screen.getByRole('link', { name: '日历' }));
+    await user.click(await screen.findByRole('link', { name: '日历' }));
 
     await waitFor(() => expect(window.location.hash).toBe('#/calendar'));
 
@@ -157,7 +181,7 @@ describe('App routing and query integration', () => {
     const user = userEvent.setup();
     render(App);
 
-    await user.click(screen.getByRole('link', { name: '酒店管理' }));
+    await user.click(await screen.findByRole('link', { name: '酒店管理' }));
 
     await waitFor(() => expect(window.location.hash).toBe('#/hotels'));
     expect(await screen.findByRole('heading', { name: '酒店管理' })).toBeInTheDocument();
@@ -168,7 +192,7 @@ describe('App routing and query integration', () => {
     const user = userEvent.setup();
     render(App);
 
-    const toggle = screen.getByRole('button', { name: '收起侧边栏' });
+    const toggle = await screen.findByRole('button', { name: '收起侧边栏' });
     const navigation = screen.getByRole('navigation', { name: '应用导航' });
     const browserLink = screen.getByRole('link', { name: '浏览器' });
     expect(toggle).toHaveAttribute('aria-expanded', 'true');
@@ -192,29 +216,41 @@ describe('App routing and query integration', () => {
     const user = userEvent.setup();
     render(App);
 
-    await user.click(screen.getByRole('link', { name: /用户中心/ }));
+    await user.click(await screen.findByRole('link', { name: /用户中心/ }));
     await user.click(await screen.findByRole('button', { name: '退出登录' }));
 
     const loginHeading = await screen.findByRole('heading', { name: '登录' });
     expect(loginHeading.closest('[data-motion="page"]')).toBeInTheDocument();
+    expect(logout).toHaveBeenCalledOnce();
     expect(localStorage.getItem('hotel-butler.auth-session')).toBeNull();
   });
 
   it('opens the browser workspace after login even when the previous hash was profile', async () => {
-    localStorage.removeItem('hotel-butler.auth-session');
+    currentSession.mockResolvedValue(null);
     window.location.hash = '#/profile';
     const user = userEvent.setup();
     render(App);
 
-    await user.type(screen.getByRole('textbox', { name: '手机号' }), '13800138000');
+    await user.type(await screen.findByRole('textbox', { name: '手机号' }), '13800138000');
     await user.click(screen.getByRole('button', { name: '获取验证码' }));
-    await user.type(screen.getByRole('textbox', { name: '验证码' }), '123456');
+    await user.type(screen.getByRole('textbox', { name: '验证码' }), '654321');
     await user.click(screen.getByRole('checkbox', { name: '我已阅读并同意用户协议与隐私政策' }));
     await user.click(screen.getByRole('button', { name: '登录' }));
 
     expect(await screen.findByRole('button', { name: '携程酒店 eBooking' })).toBeInTheDocument();
     expect(window.location.hash).toBe('#/');
     expect(screen.queryByRole('heading', { name: '用户中心' })).not.toBeInTheDocument();
+    expect(loginWithPhoneCode).toHaveBeenCalledWith('13800138000', '654321');
+  });
+
+  it('shows the login page without an error notification when session restoration fails', async () => {
+    currentSession.mockRejectedValue(new Error('server unavailable'));
+
+    render(App);
+
+    expect(await screen.findByRole('heading', { name: '登录' })).toBeInTheDocument();
+    expect(screen.queryByText('无法验证登录状态')).not.toBeInTheDocument();
+    expect(screen.queryByText('请检查网络连接后重新登录')).not.toBeInTheDocument();
   });
 
   it('allows cookies to be imported again from settings', async () => {

@@ -1,18 +1,66 @@
-# Package Managers
+# Dependencies and tool caches
+node_modules
+**/node_modules
+.cache
+**/.cache
+.vite
+**/.vite
+**/.svelte-kit
+**/*.tsbuildinfo
+
+# Build and package output
+build
+**/build
+dist
+**/dist
+out
+**/out
+.output
+**/.output
+output
+**/output
+
+# Test output
+coverage
+**/coverage
+test-results
+**/test-results
+playwright-report
+**/playwright-report
+.e2e
+**/.e2e
+*.lcov
+*.snap
+
+# Generated database migrations and package-manager state
+apps/server/drizzle
 package-lock.json
 pnpm-lock.yaml
 yarn.lock
 bun.lock
 bun.lockb
 
-# Miscellaneous
-/static/
-/drizzle/
+# Local configuration, certificates, and runtime data
+.env
+.env.*
+**/.env
+**/.env.*
+.cert
+**/.cert
+uploads
+**/uploads
+logs
+**/logs
+*.log
 
-node_modules
-.vite
-out
-dist
-coverage
-package-lock.json
+# Documentation is maintained manually and excluded from workspace formatting
 *.md
+**/*.md
+
+# Operating-system files
+.DS_Store
+**/.DS_Store
+Thumbs.db
+**/Thumbs.db
+__MACOSX
+**/__MACOSX

@@ -81,6 +81,13 @@ CREATE TABLE `employee` (
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
+-- Local development experience employee for desktop phone OTP login
+--
+
+INSERT INTO `employee` (`org_id`,`username`,`password_hash`,`full_name`,`phone`,`role_code`,`status`)
+VALUES (42,'desktop-demo','unused-phone-otp','桌面体验员工','13800138000','FRONT_DESK',1);
+
+--
 -- Table structure for table `feature_module`
 --
 

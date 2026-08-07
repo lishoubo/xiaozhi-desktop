@@ -1,13 +1,14 @@
 import { execFile } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { createConnection } from 'mysql2/promise';
 import { promisify } from 'node:util';
 import { GenericContainer, Wait, type StartedTestContainer } from 'testcontainers';
-import { e2ePostgresHostPort, e2eRmsHostPort } from './ports';
 
 const execFileAsync = promisify(execFile);
 const postgresPort = 5432;
 const rmsPort = 3306;
+const e2ePostgresHostPort = 55432;
+const e2eRmsHostPort = 53316;
+const serverDirectory = fileURLToPath(new URL('../..', import.meta.url));
 const rmsSchemaPath = fileURLToPath(new URL('../../rms-schema.sql', import.meta.url));
 
 function databaseUrl(
@@ -93,20 +94,10 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
 
 		const npmCommand = process.platform === 'win32' ? 'npm.cmd' : 'npm';
 		await execFileAsync(npmCommand, ['run', 'db:initialize'], {
+			cwd: serverDirectory,
 			env: process.env,
 			maxBuffer: 10 * 1024 * 1024
 		});
-		const rmsDatabase = await createConnection(process.env.RMS_DATABASE_URL);
-		try {
-			await rmsDatabase.execute(
-				`INSERT INTO employee (
-					org_id, username, password_hash, full_name, phone, role_code, status
-				) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-				[42, 'desktop-e2e-user', 'unused-e2e-hash', '测试桌面员工', '13800138000', 'FRONT_DESK', 1]
-			);
-		} finally {
-			await rmsDatabase.end();
-		}
 	} catch (error) {
 		try {
 			await stopContainers(containers);

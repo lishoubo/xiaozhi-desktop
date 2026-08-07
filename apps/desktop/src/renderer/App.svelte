@@ -6,31 +6,55 @@
   import AppNotificationCenter from './components/layout/AppNotificationCenter.svelte';
   import StartupAutomationDialog from './components/automation/StartupAutomationDialog.svelte';
   import LoginPage from './pages/LoginPage.svelte';
-  import { clearAuthSession, createAuthSession, readAuthSession, type AuthSession } from './auth';
+  import { clearAuthSession, setAuthSession, type AuthSession } from './auth';
   import { routes } from './routes';
 
-  let session = $state<AuthSession | null>(readAuthSession());
-  const sessionTimer = window.setInterval(() => {
-    if (session && !readAuthSession()) session = null;
-  }, 60_000);
-  const logout = (): void => {
-    clearAuthSession();
-    session = null;
-    log.info('User session cleared');
+  let session = $state<AuthSession | null>(null);
+  let restoringSession = $state(true);
+
+  const restoreSession = async (): Promise<void> => {
+    try {
+      session = await window.hotelButler.auth.currentSession();
+      if (session) setAuthSession(session);
+      else clearAuthSession();
+    } catch {
+      clearAuthSession();
+      session = null;
+    } finally {
+      restoringSession = false;
+    }
   };
-  const login = async (phone: string): Promise<void> => {
+
+  const logout = async (): Promise<void> => {
+    try {
+      await window.hotelButler.auth.logout();
+    } catch {
+      log.warn('Remote user session could not be revoked');
+    } finally {
+      clearAuthSession();
+      session = null;
+      log.info('User session cleared');
+    }
+  };
+  const login = async (employee: AuthSession): Promise<void> => {
     await replace('/');
-    session = createAuthSession(phone);
+    setAuthSession(employee);
+    session = employee;
     log.info('User session created');
   };
-  window.addEventListener('hotel-butler:logout', logout);
+  const handleLogout = (): void => void logout();
+  window.addEventListener('hotel-butler:logout', handleLogout);
+  void restoreSession();
   onDestroy(() => {
-    window.clearInterval(sessionTimer);
-    window.removeEventListener('hotel-butler:logout', logout);
+    window.removeEventListener('hotel-butler:logout', handleLogout);
   });
 </script>
 
-{#if session}
+{#if restoringSession}
+  <main class="grid h-full place-items-center bg-background" aria-label="正在验证登录状态">
+    <p class="text-sm text-muted-foreground">正在验证登录状态…</p>
+  </main>
+{:else if session}
   <StartupAutomationDialog />
   <AppFrame>
     <Router {routes} />

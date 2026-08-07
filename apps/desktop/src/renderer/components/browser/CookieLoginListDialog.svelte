@@ -61,7 +61,12 @@
     log.warn('Cookie login list action failed', {
       errorName: reason instanceof Error ? reason.name : 'UnknownError',
     });
-    showAppNotification({ id: 'cookie-login-list-error', title: '登录账号失败', message, tone: 'error' });
+    showAppNotification({
+      id: 'cookie-login-list-error',
+      title: '登录账号失败',
+      message,
+      tone: 'error',
+    });
   }
 
   async function loginWithCookie(channelId: string): Promise<void> {
@@ -98,6 +103,7 @@
         triggerLabel="导入 Cookie"
         triggerVariant="outline"
         triggerSize="sm"
+        showSuccessNotification
         onComplete={refreshList}
       />
     </div>
@@ -114,10 +120,14 @@
     {:else}
       <ul class="grid gap-2">
         {#each summaries as summary (summary.channel)}
-          <li class="flex items-center justify-between gap-3 rounded-md border border-border px-4 py-3">
+          <li
+            class="flex items-center justify-between gap-3 rounded-md border border-border px-4 py-3"
+          >
             <div class="min-w-0">
               <p class="truncate text-sm font-medium">{channelName(summary.channel)}</p>
-              <p class="text-xs text-muted-foreground">导入于 {formatImportedAt(summary.importedAt)}</p>
+              <p class="text-xs text-muted-foreground">
+                导入于 {formatImportedAt(summary.importedAt)}
+              </p>
             </div>
             <Button
               size="sm"

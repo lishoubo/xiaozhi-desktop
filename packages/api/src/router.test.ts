@@ -14,6 +14,9 @@ describe('appRouter', () => {
 
   function createCaller({
     findActiveByPhone = vi.fn().mockResolvedValue(null),
+    currentEmployee = vi.fn().mockResolvedValue(null),
+    issue = vi.fn().mockResolvedValue(undefined),
+    revoke = vi.fn().mockResolvedValue(undefined),
     requestCode = vi.fn().mockResolvedValue({ expiresInSeconds: 300 }),
     verifyCode = vi.fn().mockResolvedValue(true),
     logger = {
@@ -24,7 +27,8 @@ describe('appRouter', () => {
     },
   } = {}) {
     return appRouter.createCaller({
-      employeeDirectory: { findActiveByPhone },
+      employeeDirectory: { findActiveById: vi.fn().mockResolvedValue(null), findActiveByPhone },
+      desktopSession: { currentEmployee, issue, revoke },
       phoneOtp: { requestCode, verifyCode },
       logger,
       requestId: 'request-123',
@@ -34,7 +38,15 @@ describe('appRouter', () => {
   it('reports the server transport as healthy', async () => {
     const debug = vi.fn();
     const caller = appRouter.createCaller({
-      employeeDirectory: { findActiveByPhone: vi.fn().mockResolvedValue(null) },
+      employeeDirectory: {
+        findActiveById: vi.fn().mockResolvedValue(null),
+        findActiveByPhone: vi.fn().mockResolvedValue(null),
+      },
+      desktopSession: {
+        currentEmployee: vi.fn().mockResolvedValue(null),
+        issue: vi.fn().mockResolvedValue(undefined),
+        revoke: vi.fn().mockResolvedValue(undefined),
+      },
       phoneOtp: {
         requestCode: vi.fn().mockResolvedValue({ expiresInSeconds: 300 }),
         verifyCode: vi.fn().mockResolvedValue(true),
@@ -63,28 +75,65 @@ describe('appRouter', () => {
 
   it('accepts a phone-code request without consulting the employee directory', async () => {
     const findActiveByPhone = vi.fn().mockResolvedValue(null);
+    const currentEmployee = vi.fn().mockRejectedValue(new Error('session must not be consulted'));
     const requestCode = vi.fn().mockResolvedValue({ expiresInSeconds: 300 });
-    const caller = createCaller({ findActiveByPhone, requestCode });
+    const caller = createCaller({ currentEmployee, findActiveByPhone, requestCode });
 
     await expect(caller.auth.requestPhoneCode({ phone: '13800138000' })).resolves.toEqual({
       accepted: true,
       expiresInSeconds: 300,
     });
     expect(requestCode).toHaveBeenCalledWith('13800138000');
+    expect(currentEmployee).not.toHaveBeenCalled();
     expect(findActiveByPhone).not.toHaveBeenCalled();
   });
 
   it('returns a safe active RMS employee identity after OTP verification', async () => {
     const findActiveByPhone = vi.fn().mockResolvedValue(activeEmployee);
+    const issue = vi.fn().mockResolvedValue(undefined);
     const verifyCode = vi.fn().mockResolvedValue(true);
-    const caller = createCaller({ findActiveByPhone, verifyCode });
+    const caller = createCaller({ findActiveByPhone, issue, verifyCode });
 
     await expect(
       caller.auth.loginWithPhoneCode({ phone: '13800138000', code: '654321' }),
     ).resolves.toEqual(activeEmployee);
     expect(verifyCode).toHaveBeenCalledWith('13800138000', '654321');
     expect(findActiveByPhone).toHaveBeenCalledWith('13800138000');
+    expect(issue).toHaveBeenCalledWith(activeEmployee);
     expect(JSON.stringify(activeEmployee)).not.toContain('password');
+  });
+
+  it('restores the current employee and returns null without a valid session', async () => {
+    const currentEmployee = vi
+      .fn()
+      .mockResolvedValueOnce(activeEmployee)
+      .mockResolvedValueOnce(null);
+    const caller = createCaller({ currentEmployee });
+
+    await expect(caller.auth.currentSession()).resolves.toEqual(activeEmployee);
+    await expect(caller.auth.currentSession()).resolves.toBeNull();
+    expect(currentEmployee).toHaveBeenCalledTimes(2);
+  });
+
+  it('revokes the current desktop session on logout', async () => {
+    const revoke = vi.fn().mockResolvedValue(undefined);
+    const currentEmployee = vi.fn().mockResolvedValue(activeEmployee);
+    const caller = createCaller({ currentEmployee, revoke });
+
+    await expect(caller.auth.logout()).resolves.toEqual({ success: true });
+    expect(currentEmployee).toHaveBeenCalledOnce();
+    expect(revoke).toHaveBeenCalledOnce();
+  });
+
+  it('rejects protected procedures without a desktop session', async () => {
+    const revoke = vi.fn().mockResolvedValue(undefined);
+    const caller = createCaller({ revoke });
+
+    await expect(caller.auth.logout()).rejects.toMatchObject({
+      code: 'UNAUTHORIZED',
+      message: '请先登录',
+    });
+    expect(revoke).not.toHaveBeenCalled();
   });
 
   it('uses the same unauthenticated failure for a rejected code and unavailable employee', async () => {
@@ -157,6 +206,41 @@ describe('appRouter', () => {
       code: 'INTERNAL_SERVER_ERROR',
       message: '登录服务暂时不可用，请稍后重试',
       cause: directoryFailure,
+    });
+  });
+
+  it('converts desktop-session failures to fixed public messages', async () => {
+    const issueFailure = new Error('token=raw-login-token');
+    const currentFailure = new Error('cookie=raw-session-cookie');
+    const revokeFailure = new Error('digest=private-session-digest');
+    const loginCaller = createCaller({
+      findActiveByPhone: vi.fn().mockResolvedValue(activeEmployee),
+      issue: vi.fn().mockRejectedValue(issueFailure),
+    });
+    const currentCaller = createCaller({
+      currentEmployee: vi.fn().mockRejectedValue(currentFailure),
+    });
+    const logoutCaller = createCaller({
+      currentEmployee: vi.fn().mockResolvedValue(activeEmployee),
+      revoke: vi.fn().mockRejectedValue(revokeFailure),
+    });
+
+    await expect(
+      loginCaller.auth.loginWithPhoneCode({ phone: '13800138000', code: '654321' }),
+    ).rejects.toMatchObject({
+      code: 'INTERNAL_SERVER_ERROR',
+      message: '登录服务暂时不可用，请稍后重试',
+      cause: issueFailure,
+    });
+    await expect(currentCaller.auth.currentSession()).rejects.toMatchObject({
+      code: 'INTERNAL_SERVER_ERROR',
+      message: '会话服务暂时不可用，请稍后重试',
+      cause: currentFailure,
+    });
+    await expect(logoutCaller.auth.logout()).rejects.toMatchObject({
+      code: 'INTERNAL_SERVER_ERROR',
+      message: '退出登录暂时不可用，请稍后重试',
+      cause: revokeFailure,
     });
   });
 });

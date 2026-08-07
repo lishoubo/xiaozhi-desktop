@@ -1,5 +1,5 @@
 import { defineConfig } from '@playwright/test';
-import { e2ePostgresHostPort, e2eRmsHostPort } from './tests/e2e/ports';
+import { e2ePostgresHostPort, e2eRmsHostPort } from './tests/e2e/ports.ts';
 
 const baseURL = 'https://localhost:4173';
 

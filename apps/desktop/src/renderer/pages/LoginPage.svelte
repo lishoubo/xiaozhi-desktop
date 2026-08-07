@@ -1,12 +1,13 @@
 <script lang="ts">
+  import type { EmployeeIdentity } from '@hotel-butler/api';
   import { onDestroy } from 'svelte';
   import { enter, PAGE_ENTER_OPTIONS } from '../motion';
-  import { CODE_DURATION_MS, MOCK_CODE, MOCK_PHONE } from '../auth';
+  import { EXPERIENCE_PHONE } from '../auth';
   import AgentAvatar from '../components/agent/AgentAvatar.svelte';
   import * as Dialog from '$lib/components/ui/dialog';
   import { dismissAppNotification, showAppNotification } from '../notifications';
 
-  let { onLogin }: { onLogin: (phone: string) => void } = $props();
+  let { onLogin }: { onLogin: (employee: EmployeeIdentity) => void | Promise<void> } = $props();
 
   let phone = $state('');
   let code = $state('');
@@ -15,6 +16,8 @@
   let now = $state(Date.now());
   let policy = $state<'agreement' | 'privacy' | null>(null);
   let policyOpen = $state(false);
+  let requestingCode = $state(false);
+  let loggingIn = $state(false);
   let remainingSeconds = $derived(Math.max(0, Math.ceil((codeExpiresAt - now) / 1000)));
   const timer = window.setInterval(() => {
     now = Date.now();
@@ -27,17 +30,25 @@
     policyOpen = true;
   }
 
-  function requestCode(): void {
+  async function requestCode(): Promise<void> {
     if (!/^1\d{10}$/.test(phone)) {
       showLoginError('请输入正确的 11 位手机号');
       return;
     }
     dismissAppNotification('login-error');
-    codeExpiresAt = Date.now() + CODE_DURATION_MS;
-    now = Date.now();
+    requestingCode = true;
+    try {
+      const result = await window.hotelButler.auth.requestPhoneCode(phone);
+      codeExpiresAt = Date.now() + result.expiresInSeconds * 1000;
+      now = Date.now();
+    } catch {
+      showLoginError('验证码发送失败，请重试');
+    } finally {
+      requestingCode = false;
+    }
   }
 
-  function submit(): void {
+  async function submit(): Promise<void> {
     if (!/^1\d{10}$/.test(phone)) {
       showLoginError('请输入正确的 11 位手机号');
       return;
@@ -50,16 +61,20 @@
       showLoginError('验证码已过期，请重新获取');
       return;
     }
-    if (phone !== MOCK_PHONE || code !== MOCK_CODE) {
-      showLoginError('手机号或验证码不正确');
-      return;
-    }
     if (!agreed) {
       showLoginError('请先阅读并同意用户协议与隐私政策');
       return;
     }
     dismissAppNotification('login-error');
-    onLogin(phone);
+    loggingIn = true;
+    try {
+      const employee = await window.hotelButler.auth.loginWithPhoneCode(phone, code);
+      await onLogin(employee);
+    } catch {
+      showLoginError('登录失败，请检查手机号和验证码');
+    } finally {
+      loggingIn = false;
+    }
   }
 
   function showLoginError(message: string): void {
@@ -129,7 +144,7 @@
       class="relative z-10 w-full max-w-[440px] rounded-2xl border border-border bg-card p-9 shadow-xl"
       onsubmit={(event) => {
         event.preventDefault();
-        submit();
+        void submit();
       }}
     >
       <h2 class="sr-only">登录</h2>
@@ -162,10 +177,14 @@
               remainingSeconds > 0 ? 'text-[11px]' : 'text-sm',
             ]}
             type="button"
-            disabled={remainingSeconds > 0}
-            onclick={requestCode}
+            disabled={remainingSeconds > 0 || requestingCode}
+            onclick={() => void requestCode()}
           >
-            {remainingSeconds > 0 ? `${remainingSeconds} 秒后重新获取` : '获取验证码'}
+            {requestingCode
+              ? '正在发送…'
+              : remainingSeconds > 0
+                ? `${remainingSeconds} 秒后重新获取`
+                : '获取验证码'}
           </button>
         </div>
       </label>
@@ -196,11 +215,12 @@
       <button
         class="mt-6 h-11 w-full rounded-md bg-primary text-sm font-medium text-primary-foreground transition-colors duration-150 ease-out hover:bg-[#4534b3] motion-reduce:transition-none"
         type="submit"
+        disabled={loggingIn}
       >
-        登录
+        {loggingIn ? '正在登录…' : '登录'}
       </button>
       <p class="mt-4 text-center text-xs text-muted-foreground">
-        体验账号：13800138000，验证码：123456
+        体验账号：{EXPERIENCE_PHONE}，临时阶段任意 6 位验证码
       </p>
     </form>
   </section>
@@ -235,12 +255,13 @@
       {:else}
         <div class="space-y-4 text-sm leading-7 text-secondary-foreground">
           <p>
-            我们遵循合法、正当、必要和诚信原则处理个人信息。当前版本仅在本机保存登录手机号、会话到期时间、应用偏好及您主动导入的
-            Cookie，不向我们的服务器上传。
+            我们遵循合法、正当、必要和诚信原则处理个人信息。登录时，手机号和验证码会发送至小智酒店管家服务端，用于校验您是否为有效的
+            RMS 员工；应用偏好及您主动导入的第三方 Cookie 保存在本机。
           </p>
           <p>
-            手机号用于识别登录账号；会话信息用于维持登录状态；Cookie
-            存储在客户端的独立浏览器会话中，仅在对应第三方网站请求时自动携带。您可通过退出登录清除应用登录状态，并可在系统数据目录中清理客户端数据。
+            手机号用于识别登录账号；应用登录会话使用服务端可撤销的安全
+            Cookie，并存储在客户端独立、加密的浏览器会话中。第三方平台 Cookie
+            仅在对应网站请求时自动携带。您可通过退出登录清除应用登录状态，并可在系统数据目录中清理客户端数据。
           </p>
           <p>
             客户端不会在未经操作时读取其他浏览器的 Cookie

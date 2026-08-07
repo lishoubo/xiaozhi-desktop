@@ -1,3 +1,11 @@
+/* eslint-disable import/no-unresolved -- ESLint's legacy resolver does not read this workspace package subpath export. */
+import {
+  employeeIdentitySchema,
+  logoutResponseSchema,
+  phoneCodeRequestResponseSchema,
+  type EmployeeIdentity,
+} from '@hotel-butler/api/contracts';
+/* eslint-enable import/no-unresolved */
 import { z, type ZodType } from 'zod';
 import { ctripCheckInResultSchema, type CtripCheckInResult } from '../shared/automation';
 import {
@@ -43,6 +51,14 @@ const optionalCtripCheckInResultSchema = ctripCheckInResultSchema.nullable();
 const voidSchema = z.undefined();
 
 export type DesktopApi = Readonly<{
+  auth: Readonly<{
+    currentSession: () => Promise<EmployeeIdentity | null>;
+    loginWithPhoneCode: (phone: string, code: string) => Promise<EmployeeIdentity>;
+    logout: () => Promise<Readonly<{ success: true }>>;
+    requestPhoneCode: (
+      phone: string,
+    ) => Promise<Readonly<{ accepted: true; expiresInSeconds: number }>>;
+  }>;
   automation: Readonly<{
     getCtripCheckIn: () => Promise<CtripCheckInResult | null>;
   }>;
@@ -129,6 +145,15 @@ export function createDesktopApi(
     getCtripCheckIn: () =>
       invokeValidated(optionalCtripCheckInResultSchema, IPC_CHANNELS.automation.getCtripCheckIn),
   });
+  const auth = Object.freeze({
+    currentSession: () =>
+      invokeValidated(employeeIdentitySchema.nullable(), IPC_CHANNELS.auth.currentSession),
+    loginWithPhoneCode: (phone: string, code: string) =>
+      invokeValidated(employeeIdentitySchema, IPC_CHANNELS.auth.loginWithPhoneCode, phone, code),
+    logout: () => invokeValidated(logoutResponseSchema, IPC_CHANNELS.auth.logout),
+    requestPhoneCode: (phone: string) =>
+      invokeValidated(phoneCodeRequestResponseSchema, IPC_CHANNELS.auth.requestPhoneCode, phone),
+  });
   const browser = Object.freeze({
     acknowledgeInterception: () =>
       invokeValidated(voidSchema, IPC_CHANNELS.browser.acknowledgeInterception),
@@ -202,6 +227,7 @@ export function createDesktopApi(
 
   return Object.freeze({
     automation,
+    auth,
     versions: Object.freeze({
       chrome: versions.chrome,
       electron: versions.electron,

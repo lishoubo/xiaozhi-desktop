@@ -4,14 +4,19 @@ import ProfilePage from '../../src/renderer/pages/ProfilePage.svelte';
 import SettingsPage from '../../src/renderer/pages/SettingsPage.svelte';
 import AppNotificationCenter from '../../src/renderer/components/layout/AppNotificationCenter.svelte';
 import { clearAppNotifications } from '../../src/renderer/notifications';
+import { setAuthSession } from '../../src/renderer/auth';
 
 beforeEach(() => {
   localStorage.clear();
   clearAppNotifications();
-  localStorage.setItem(
-    'hotel-butler.auth-session',
-    JSON.stringify({ phone: '13800138000', expiresAt: Date.now() + 60_000 }),
-  );
+  setAuthSession({
+    id: '2',
+    orgId: '42',
+    username: 'desktop-demo',
+    fullName: '桌面体验员工',
+    phone: '13800138000',
+    roleCode: 'FRONT_DESK',
+  });
   Object.defineProperty(window, 'hotelButler', {
     configurable: true,
     value: {

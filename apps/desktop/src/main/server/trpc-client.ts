@@ -1,6 +1,6 @@
 import type { AppRouter } from '@hotel-butler/api';
 import { createTRPCClient, httpLink, type TRPCClient } from '@trpc/client';
-import { net } from 'electron';
+import { net, type Session } from 'electron';
 
 export interface ServerTrpcClientOptions {
   baseUrl: string;
@@ -23,6 +23,16 @@ export function serverTrpcEndpoint(baseUrl: string): string {
 
 export const electronNetFetch: typeof globalThis.fetch = (input, init) =>
   net.fetch(input instanceof URL ? input.toString() : input, init);
+
+export function createElectronSessionFetch(
+  apiSession: Pick<Session, 'fetch'>,
+): typeof globalThis.fetch {
+  return (input, init) =>
+    apiSession.fetch(input instanceof URL ? input.toString() : input, {
+      ...init,
+      credentials: 'include',
+    });
+}
 
 export function createServerTrpcClient(options: ServerTrpcClientOptions): TRPCClient<AppRouter> {
   return createTRPCClient<AppRouter>({

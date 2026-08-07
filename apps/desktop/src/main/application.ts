@@ -31,6 +31,10 @@ import type { HotelProbe } from './features/ota-hotel-prob/hotel-prob-port';
 import { removePendingPartition } from './file-store/pending-partitions-store';
 import { IPC_CHANNELS } from '../shared/ipc-channels';
 import { toChannelId, type ChannelId } from '../domain/identity';
+import { SessionFactory } from './browser/session-factory';
+import { createElectronSessionFetch, createServerTrpcClient } from './server/trpc-client';
+import { resolveServerOrigin } from './server/config';
+import { registerAuthHandlers } from './ipc/auth-handlers';
 
 let mainWindow: BrowserWindow | null = null;
 let browserManager: BrowserManager | null = null;
@@ -41,9 +45,11 @@ let unregisterAutomationHandlers: (() => void) | null = null;
 let applicationDatabase: ApplicationDatabase | null = null;
 let calendarRepository: SqliteCalendarRepository | null = null;
 let unregisterCalendarHandlers: (() => void) | null = null;
+let unregisterAuthHandlers: (() => void) | null = null;
 let discoverAndCreate: DiscoverAndCreate | null = null;
 let otaCredentialRepository: SqliteOtaCredentialRepository | null = null;
 let otaHotelProbRepository: SqliteOtaHotelProbRepository | null = null;
+let sessionFactory: SessionFactory | null = null;
 
 configureNetworkPrivacy(app.commandLine);
 configureMainLogging(log, {
@@ -56,10 +62,11 @@ function openMainWindow(): void {
   if (!calendarRepository) throw new Error('Calendar repository is not initialized');
   if (!otaCredentialRepository) throw new Error('OtaCredential repository is not initialized');
   if (!otaHotelProbRepository) throw new Error('OtaHotelProb repository is not initialized');
+  if (!sessionFactory) throw new Error('Session factory is not initialized');
   mainWindow = createMainWindow();
   log.info('Main window created');
   tabEventBus = new TabEventBus();
-  browserManager = new BrowserManager(mainWindow, log, undefined, tabEventBus);
+  browserManager = new BrowserManager(mainWindow, log, sessionFactory, tabEventBus);
   ctripAutomation = isStartupAutomationEnabled(process.env)
     ? new CtripCheckInAutomation(browserManager.browserSession, log)
     : null;
@@ -99,7 +106,21 @@ function openMainWindow(): void {
     repository: calendarRepository,
     logger: log,
   });
+  const serverOrigin = resolveServerOrigin(process.env);
+  const apiSession = sessionFactory.sessionForServerApi();
+  unregisterAuthHandlers = registerAuthHandlers({
+    apiSession,
+    client: createServerTrpcClient({
+      baseUrl: serverOrigin,
+      fetch: createElectronSessionFetch(apiSession),
+    }),
+    logger: log,
+    serverOrigin,
+    window: mainWindow,
+  });
   mainWindow.once('closed', () => {
+    unregisterAuthHandlers?.();
+    unregisterAuthHandlers = null;
     unregisterCalendarHandlers?.();
     unregisterCalendarHandlers = null;
     unregisterAutomationHandlers?.();
@@ -117,6 +138,7 @@ function openMainWindow(): void {
 
 function initializeApplication(): void {
   log.info('Application initialization started');
+  sessionFactory = new SessionFactory(log);
   applicationDatabase = openApplicationDatabase(
     path.join(app.getPath('userData'), 'hotel-butler.sqlite'),
     log,
@@ -181,6 +203,7 @@ app.on('activate', () => {
 
 app.once('will-quit', () => {
   log.info('Application shutdown started');
+  unregisterAuthHandlers?.();
   unregisterCalendarHandlers?.();
   unregisterBrowserHandlers?.();
   unregisterAutomationHandlers?.();
@@ -194,5 +217,6 @@ app.once('will-quit', () => {
   otaCredentialRepository = null;
   otaHotelProbRepository = null;
   tabEventBus = null;
+  sessionFactory = null;
   log.info('Application shutdown completed');
 });

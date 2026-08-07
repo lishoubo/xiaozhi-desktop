@@ -3,6 +3,9 @@ import { env } from '$env/dynamic/private';
 import pino, { type DestinationStream, type Logger } from 'pino';
 
 const LOG_LEVELS = new Set(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']);
+const REDACTED = '[Redacted]';
+const SENSITIVE_ASSIGNMENT_PATTERN =
+	/(\b(?:access[_-]?token|refresh[_-]?token|id[_-]?token|password|passwd|passcode|secret|token|authorization|cookie|credential|session[_-]?id|api[_-]?key|phone|phone[_-]?number)\b\s*[:=]\s*)(?:"[^"]*"|'[^']*'|[^\s,;]+)/gi;
 const REDACTED_FIELDS = [
 	'authorization',
 	'cookie',
@@ -44,6 +47,42 @@ export function resolveLogLevel(
 export function safeErrorType(error: unknown): string {
 	if (!(error instanceof Error)) return 'UnknownError';
 	return /^[A-Za-z][A-Za-z0-9]{0,63}$/.test(error.name) ? error.name : 'Error';
+}
+
+export type SafeErrorDetails = Readonly<{
+	name: string;
+	message: string;
+	stack?: string;
+	cause?: SafeErrorDetails;
+}>;
+
+function redactSensitiveText(value: string): string {
+	return value
+		.replace(/\bBearer\s+[^\s,;]+/gi, `Bearer ${REDACTED}`)
+		.replace(SENSITIVE_ASSIGNMENT_PATTERN, `$1${REDACTED}`)
+		.replace(/\b1\d{10}\b/g, REDACTED)
+		.replace(/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi, REDACTED);
+}
+
+export function safeErrorDetails(
+	error: unknown,
+	seen: ReadonlySet<Error> = new Set()
+): SafeErrorDetails {
+	if (!(error instanceof Error)) {
+		return { name: 'UnknownError', message: redactSensitiveText(String(error)) };
+	}
+
+	const nextSeen = new Set(seen);
+	nextSeen.add(error);
+	const cause = error.cause;
+	return {
+		name: safeErrorType(error),
+		message: redactSensitiveText(error.message),
+		...(error.stack ? { stack: redactSensitiveText(error.stack) } : {}),
+		...(cause instanceof Error && !nextSeen.has(cause)
+			? { cause: safeErrorDetails(cause, nextSeen) }
+			: {})
+	};
 }
 
 export function createServerLogger(options: ServerLoggerOptions = {}): Logger {

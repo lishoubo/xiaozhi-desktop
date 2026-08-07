@@ -6,6 +6,7 @@
   "main": ".vite/build/main.js",
   "private": true,
   "scripts": {
+    "predev": "npm run https:setup --workspace @hotel-butler/server",
     "dev": "electron-forge start",
     "package": "electron-forge package",
     "make": "electron-forge make",

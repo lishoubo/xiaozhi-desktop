@@ -1,6 +1,10 @@
 import { appRouter, type ApiContext } from '@hotel-butler/api';
 import { fetchRequestHandler } from '@trpc/server/adapters/fetch';
+import { randomBytes, randomUUID } from 'node:crypto';
+import { db } from '$lib/server/db';
 import { rmsClient } from '$lib/server/db/rms';
+import { createDesktopSessionGateway } from '$lib/server/desktop-session';
+import { DrizzleDesktopSessionRepository } from '$lib/server/desktop-session-repository';
 import { createEmployeeIdentityDirectory } from '$lib/server/employee-identity-directory';
 import { logTrpcFailure } from '$lib/server/logging/trpc-logging';
 import { serverLogger } from '$lib/server/logging/logger';
@@ -12,13 +16,23 @@ const employeeDirectory = createEmployeeIdentityDirectory({
 	execute: (sql, values) => rmsClient.execute(sql, values)
 });
 const phoneOtp = createTemporaryPhoneOtpGateway(serverLogger);
+const desktopSessionRepository = new DrizzleDesktopSessionRepository(db);
 
 const handleTrpcRequest: RequestHandler = ({ locals, request }) =>
 	fetchRequestHandler({
 		endpoint,
 		req: request,
 		router: appRouter,
-		createContext: (): ApiContext => ({
+		createContext: ({ req, resHeaders }): ApiContext => ({
+			desktopSession: createDesktopSessionGateway({
+				employeeDirectory,
+				generateId: randomUUID,
+				generateToken: () => randomBytes(32).toString('base64url'),
+				now: () => new Date(),
+				repository: desktopSessionRepository,
+				requestHeaders: req.headers,
+				responseHeaders: resHeaders
+			}),
 			employeeDirectory,
 			phoneOtp,
 			logger: locals.logger,
