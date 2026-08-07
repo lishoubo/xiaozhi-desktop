@@ -5,39 +5,22 @@ import {
   browserCookieSourceIdSchema,
   browserCreateInputSchema,
   browserTabIdSchema,
-  createFromExistingSessionInputSchema,
-  otaAccountChannelSchema,
-  otaAccountIdSchema,
   otaCredentialChannelSchema,
   otaCredentialIdSchema,
   startLoginInputSchema,
   type BrowserBounds,
   type SystemPreferences,
 } from '../../shared/browser';
-import {
-  toChannelId,
-  toOtaAccountId,
-  toOtaCredentialId,
-  type ChannelId,
-} from '../../domain/identity';
+import { toChannelId, toOtaCredentialId, type ChannelId } from '../../domain/identity';
 import type { LoginUrlMatcher } from '../../domain/ports/discovery';
-import type {
-  OtaAccountRepository,
-  OtaCredentialRepository,
-} from '../../domain/ports/repositories';
-import {
-  otaAccountLandingUrl,
-  otaChannelLandingUrl,
-} from '../../domain/policy/ota-account-landing-url-policy';
+import type { OtaCredentialRepository } from '../../domain/ports/repositories';
+import { otaChannelLandingUrl } from '../../domain/policy/ota-account-landing-url-policy';
 import { IPC_CHANNELS } from '../../shared/ipc-channels';
 import type { AppLogger } from '../../shared/logging';
 import { BrowserCookieImporter } from '../cookie-import/browser-cookie-importer';
 import { friendlyCookieImportMessage } from '../cookie-import/cookie-import';
 import { listImportedChannels, writeImportedCookies } from '../cookie-import/store';
-import { LoginTabOpener } from '../features/ota-account/login-tab-opener';
-import { OtaAccountReadService } from '../features/ota-account/ota-account-read-service';
-
-const DOUYIN_CHANNEL_ID = toChannelId('douyin');
+import { LoginTabOpener } from '../features/ota-credential/login-tab-opener';
 
 const noArgumentsSchema = z.tuple([]);
 
@@ -73,7 +56,6 @@ type RegisterBrowserHandlersOptions = Readonly<{
     landingUrl: string,
     webContents: WebContents,
   ) => Promise<boolean>;
-  otaAccountRepository: Pick<OtaAccountRepository, 'listByChannel' | 'findById'>;
   otaCredentialRepository: Pick<OtaCredentialRepository, 'findById' | 'listByChannel'>;
 }>;
 
@@ -92,7 +74,6 @@ export function registerBrowserHandlers({
   userDataDir,
   loginUrlMatchers,
   triggerDiscovery,
-  otaAccountRepository,
   otaCredentialRepository,
 }: RegisterBrowserHandlersOptions): () => void {
   const loginTabOpener = new LoginTabOpener({
@@ -101,10 +82,6 @@ export function registerBrowserHandlers({
     loginUrlMatchers,
     triggerDiscovery,
   });
-  const otaAccountReadService = new OtaAccountReadService(
-    otaAccountRepository,
-    otaCredentialRepository,
-  );
   const assertTrusted = (event: IpcMainInvokeEvent, channel: string): void => {
     if (event.sender !== window.webContents) {
       logger.warn('Rejected untrusted IPC request', { channel });
@@ -191,65 +168,18 @@ export function registerBrowserHandlers({
     listImportedChannels(userDataDir),
   );
   handle(
-    IPC_CHANNELS.otaAccount.startLogin,
+    IPC_CHANNELS.otaCredential.openForNewLogin,
     z.tuple([startLoginInputSchema]),
     '登录参数无效',
     (_event, { channelId, environment, url }) =>
       loginTabOpener.open(environment, toChannelId(channelId), url),
   );
   handle(
-    IPC_CHANNELS.otaAccount.listByChannel,
-    z.tuple([otaAccountChannelSchema]),
-    '渠道标识无效',
-    (_event, channelId) => otaAccountReadService.listByChannel(toChannelId(channelId)),
-  );
-  handle(
-    IPC_CHANNELS.otaAccount.createFromCookie,
+    IPC_CHANNELS.otaCredential.openWithImportedCookie,
     z.tuple([startLoginInputSchema]),
     '登录参数无效',
     (_event, { channelId, environment, url }) =>
       loginTabOpener.createFromCookie(environment, toChannelId(channelId), url),
-  );
-  handle(
-    IPC_CHANNELS.otaAccount.createFromExistingSession,
-    z.tuple([createFromExistingSessionInputSchema]),
-    '账号标识无效',
-    (_event, { accountId }) => {
-      const resolved = otaAccountReadService.findById(toOtaAccountId(accountId));
-      if (!resolved) throw new Error('未找到该账号');
-      const { account, credential } = resolved;
-      if (account.channel !== DOUYIN_CHANNEL_ID) {
-        throw new Error('该渠道不支持从其他登录态创建账号');
-      }
-      const url = otaAccountLandingUrl({ channel: account.channel, bindExtra: null });
-      logger.info('Creating account from existing session', {
-        accountId,
-        channel: account.channel,
-      });
-      return manager.createWithAlreadyPartition(credential.partitionName, account.channel, url, {
-        loginUrlMatcher: loginUrlMatchers.get(account.channel),
-        onUrlPastLogin: (boundPartitionName, landingUrl, webContents) => {
-          void triggerDiscovery(boundPartitionName, account.channel, landingUrl, webContents);
-        },
-      });
-    },
-  );
-  handle(
-    IPC_CHANNELS.otaAccount.openExisting,
-    z.tuple([otaAccountIdSchema]),
-    '账号标识无效',
-    (_event, accountId) => {
-      const resolved = otaAccountReadService.findById(toOtaAccountId(accountId));
-      if (!resolved) throw new Error('未找到该账号');
-      const { account, credential } = resolved;
-      const url = otaAccountLandingUrl(account);
-      logger.info('Opening existing OTA account', {
-        accountId,
-        channel: account.channel,
-        url,
-      });
-      return manager.createWithAlreadyPartition(credential.partitionName, account.channel, url);
-    },
   );
   handle(
     IPC_CHANNELS.otaCredential.listByChannel,
@@ -332,10 +262,9 @@ export function registerBrowserHandlers({
         channel !== IPC_CHANNELS.browser.requestIntercepted,
     ),
     ...Object.values(IPC_CHANNELS.cookies),
-    ...Object.values(IPC_CHANNELS.otaAccount).filter(
-      (channel) => channel !== IPC_CHANNELS.otaAccount.accountBound,
+    ...Object.values(IPC_CHANNELS.otaCredential).filter(
+      (channel) => channel !== IPC_CHANNELS.otaCredential.discoveryCompleted,
     ),
-    ...Object.values(IPC_CHANNELS.otaCredential),
     ...Object.values(IPC_CHANNELS.system),
   ];
   return () => {

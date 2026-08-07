@@ -6,9 +6,8 @@ import {
   browserTabSchema,
   cookieImportResultSchema,
   importedChannelSummarySchema,
-  otaAccountBoundEventSchema,
-  otaAccountSchema,
   otaCredentialListSchema,
+  otaDiscoveryCompletedEventSchema,
   systemPreferencesSchema,
   type BrowserBounds,
   type BrowserCookieSource,
@@ -17,9 +16,8 @@ import {
   type BrowserTab,
   type CookieImportResult,
   type ImportedChannelSummary,
-  type OtaAccountBoundEvent,
-  type OtaAccountDto,
   type OtaCredentialDto,
+  type OtaDiscoveryCompletedEvent,
   type StartLoginInput,
   type SystemPreferences,
 } from '../shared/browser';
@@ -40,7 +38,6 @@ import {
 const browserTabListSchema = z.array(browserTabSchema);
 const browserCookieSourceListSchema = z.array(browserCookieSourceSchema);
 const importedChannelSummaryListSchema = z.array(importedChannelSummarySchema);
-const otaAccountListSchema = z.array(otaAccountSchema);
 const booleanSchema = z.boolean();
 const optionalCtripCheckInResultSchema = ctripCheckInResultSchema.nullable();
 const voidSchema = z.undefined();
@@ -81,17 +78,12 @@ export type DesktopApi = Readonly<{
     import: (sourceId: BrowserCookieSourceId) => Promise<CookieImportResult>;
     listImportedChannels: () => Promise<ImportedChannelSummary[]>;
   }>;
-  otaAccount: Readonly<{
-    startLogin: (input: StartLoginInput) => Promise<BrowserTab>;
-    listByChannel: (channelId: string) => Promise<OtaAccountDto[]>;
-    openExisting: (accountId: string) => Promise<BrowserTab>;
-    createFromCookie: (input: StartLoginInput) => Promise<BrowserTab>;
-    createFromExistingSession: (accountId: string) => Promise<BrowserTab>;
-    onAccountBound: (listener: (event: OtaAccountBoundEvent) => void) => () => void;
-  }>;
   otaCredential: Readonly<{
     listByChannel: (channelId: string) => Promise<OtaCredentialDto[]>;
     openExisting: (credentialId: string) => Promise<BrowserTab>;
+    openForNewLogin: (input: StartLoginInput) => Promise<BrowserTab>;
+    openWithImportedCookie: (input: StartLoginInput) => Promise<BrowserTab>;
+    onDiscoveryCompleted: (listener: (event: OtaDiscoveryCompletedEvent) => void) => () => void;
   }>;
   system: Readonly<{
     getPreferences: () => Promise<SystemPreferences>;
@@ -173,33 +165,25 @@ export function createDesktopApi(
     listImportedChannels: () =>
       invokeValidated(importedChannelSummaryListSchema, IPC_CHANNELS.cookies.listImportedChannels),
   });
-  const otaAccount = Object.freeze({
-    startLogin: (input: StartLoginInput) =>
-      invokeValidated(browserTabSchema, IPC_CHANNELS.otaAccount.startLogin, input),
-    listByChannel: (channelId: string) =>
-      invokeValidated(otaAccountListSchema, IPC_CHANNELS.otaAccount.listByChannel, channelId),
-    openExisting: (accountId: string) =>
-      invokeValidated(browserTabSchema, IPC_CHANNELS.otaAccount.openExisting, accountId),
-    createFromCookie: (input: StartLoginInput) =>
-      invokeValidated(browserTabSchema, IPC_CHANNELS.otaAccount.createFromCookie, input),
-    createFromExistingSession: (accountId: string) =>
-      invokeValidated(
-        browserTabSchema,
-        IPC_CHANNELS.otaAccount.createFromExistingSession,
-        accountId,
-      ),
-    onAccountBound: (listener: (event: OtaAccountBoundEvent) => void) =>
-      subscribeValidated(
-        otaAccountBoundEventSchema,
-        IPC_CHANNELS.otaAccount.accountBound,
-        listener,
-      ),
-  });
   const otaCredential = Object.freeze({
     listByChannel: (channelId: string) =>
       invokeValidated(otaCredentialListSchema, IPC_CHANNELS.otaCredential.listByChannel, channelId),
     openExisting: (credentialId: string) =>
       invokeValidated(browserTabSchema, IPC_CHANNELS.otaCredential.openExisting, credentialId),
+    openForNewLogin: (input: StartLoginInput) =>
+      invokeValidated(browserTabSchema, IPC_CHANNELS.otaCredential.openForNewLogin, input),
+    openWithImportedCookie: (input: StartLoginInput) =>
+      invokeValidated(
+        browserTabSchema,
+        IPC_CHANNELS.otaCredential.openWithImportedCookie,
+        input,
+      ),
+    onDiscoveryCompleted: (listener: (event: OtaDiscoveryCompletedEvent) => void) =>
+      subscribeValidated(
+        otaDiscoveryCompletedEventSchema,
+        IPC_CHANNELS.otaCredential.discoveryCompleted,
+        listener,
+      ),
   });
   const calendar = Object.freeze({
     load: () => invokeValidated(calendarSnapshotSchema, IPC_CHANNELS.calendar.load),
@@ -226,7 +210,6 @@ export function createDesktopApi(
     browser,
     calendar,
     cookies,
-    otaAccount,
     otaCredential,
     system,
   });

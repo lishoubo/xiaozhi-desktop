@@ -94,7 +94,6 @@ describe('IPC operational logging', () => {
       userDataDir: temporaryUserDataDir(),
       loginUrlMatchers: new Map(),
       triggerDiscovery: vi.fn(),
-      otaAccountRepository: { listByChannel: vi.fn(() => []), findById: vi.fn(() => null) },
       otaCredentialRepository: {
         listByChannel: vi.fn(() => []),
         findById: vi.fn(() => null),
@@ -147,7 +146,6 @@ describe('IPC operational logging', () => {
       userDataDir: temporaryUserDataDir(),
       loginUrlMatchers: new Map(),
       triggerDiscovery: vi.fn(),
-      otaAccountRepository: { listByChannel: vi.fn(() => []), findById: vi.fn(() => null) },
       otaCredentialRepository: {
         listByChannel: vi.fn(() => []),
         findById: vi.fn(() => null),
@@ -193,7 +191,6 @@ describe('IPC operational logging', () => {
       userDataDir: temporaryUserDataDir(),
       loginUrlMatchers: new Map(),
       triggerDiscovery: vi.fn(),
-      otaAccountRepository: { listByChannel: vi.fn(() => []), findById: vi.fn(() => null) },
       otaCredentialRepository: {
         listByChannel: vi.fn(() => []),
         findById: vi.fn(() => null),

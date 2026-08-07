@@ -65,7 +65,6 @@ function openMainWindow(): void {
     triggerDiscovery: (partitionName, channel, landingUrl, webContents) =>
       discoverAndCreate?.trigger(partitionName, channel, landingUrl, webContents) ??
       Promise.resolve(false),
-    otaAccountRepository,
     otaCredentialRepository,
   });
   unregisterAutomationHandlers = registerAutomationHandlers({
@@ -120,7 +119,7 @@ function initializeApplication(): void {
     logger: log,
     onAccountBound: (channel) => {
       if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.webContents.send(IPC_CHANNELS.otaAccount.accountBound, { channel });
+        mainWindow.webContents.send(IPC_CHANNELS.otaCredential.discoveryCompleted, { channel });
       }
     },
   });

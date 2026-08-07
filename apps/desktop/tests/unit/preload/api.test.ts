@@ -197,42 +197,6 @@ describe('createDesktopApi', () => {
     await expect(api.system.getPreferences()).rejects.toThrow('主进程返回的数据格式无效');
   });
 
-  it('maps otaAccount actions to fixed IPC channels', async () => {
-    const account = {
-      id: 'a1',
-      credentialId: 'credential-1',
-      channel: 'douyin',
-      otaHotelId: 'dy-1',
-      otaHotelName: '门店A',
-      partitionName: 'persist:xiaozhi:prod:douyin:short',
-      bindExtra: { merchantGroupId: 'group-1' },
-      discoveredAt: 1000,
-    };
-    const tab = {
-      id: 'tab-1',
-      channelId: 'douyin',
-      title: '抖音来客',
-      url: 'https://life.douyin.com/p/home?groupid=group-1',
-      canGoBack: false,
-      canGoForward: false,
-      loading: false,
-      partitionName: 'persist:xiaozhi:prod:douyin:short',
-    };
-    const invoke = vi.fn(async (channel: string) => {
-      if (channel === IPC_CHANNELS.otaAccount.listByChannel) return [account];
-      if (channel === IPC_CHANNELS.otaAccount.openExisting) return tab;
-      return undefined;
-    });
-    const api = createDesktopApi({ chrome: '1', electron: '2', node: '3' }, invoke);
-
-    await expect(api.otaAccount.listByChannel('douyin')).resolves.toEqual([account]);
-    await expect(api.otaAccount.openExisting('a1')).resolves.toEqual(tab);
-    expect(invoke.mock.calls).toEqual([
-      [IPC_CHANNELS.otaAccount.listByChannel, 'douyin'],
-      [IPC_CHANNELS.otaAccount.openExisting, 'a1'],
-    ]);
-  });
-
   it('maps otaCredential reads and opens to fixed IPC channels', async () => {
     const credential = {
       id: 'credential-1',
@@ -268,17 +232,17 @@ describe('createDesktopApi', () => {
     ]);
   });
 
-  it('subscribes to sanitized ota-account bound events', () => {
+  it('subscribes to sanitized ota-credential discovery-completed events', () => {
     const subscribe = vi.fn();
     const listener = vi.fn();
     const api = createDesktopApi({ chrome: '1', electron: '2', node: '3' }, vi.fn(), subscribe);
 
-    api.otaAccount.onAccountBound(listener);
+    api.otaCredential.onDiscoveryCompleted(listener);
     const subscription = subscribe.mock.calls[0][1] as (value: unknown) => void;
     subscription({ channel: 'douyin' });
 
     expect(subscribe).toHaveBeenCalledWith(
-      IPC_CHANNELS.otaAccount.accountBound,
+      IPC_CHANNELS.otaCredential.discoveryCompleted,
       expect.any(Function),
     );
     expect(listener).toHaveBeenCalledWith({ channel: 'douyin' });

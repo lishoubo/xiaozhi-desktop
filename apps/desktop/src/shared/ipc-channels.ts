@@ -24,17 +24,12 @@ export const IPC_CHANNELS = {
     updateEvent: 'calendar:update-event',
     deleteEvent: 'calendar:delete-event',
   },
-  otaAccount: {
-    startLogin: 'ota-account:start-login',
-    listByChannel: 'ota-account:list-by-channel',
-    openExisting: 'ota-account:open-existing',
-    accountBound: 'ota-account:account-bound',
-    createFromCookie: 'ota-account:create-from-cookie',
-    createFromExistingSession: 'ota-account:create-from-existing-session',
-  },
   otaCredential: {
     listByChannel: 'ota-credential:list-by-channel',
     openExisting: 'ota-credential:open-existing',
+    openForNewLogin: 'ota-credential:open-for-new-login',
+    openWithImportedCookie: 'ota-credential:open-with-imported-cookie',
+    discoveryCompleted: 'ota-credential:discovery-completed',
   },
   cookies: {
     import: 'cookies:import',

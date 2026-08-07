@@ -68,7 +68,7 @@
     dismissAppNotification('cookie-login-list-error');
     busyChannel = channelId;
     try {
-      const tab = await window.hotelButler.otaAccount.createFromCookie({
+      const tab = await window.hotelButler.otaCredential.openWithImportedCookie({
         channelId,
         environment: 'prod',
         url: channelUrl(channelId),

@@ -3,7 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { toChannelId } from '../../../src/domain/identity';
-import { LoginTabOpener } from '../../../src/main/features/ota-account/login-tab-opener';
+import { LoginTabOpener } from '../../../src/main/features/ota-credential/login-tab-opener';
 import { readImportedCookies, writeImportedCookies } from '../../../src/main/cookie-import/store';
 
 const temporaryDirectories: string[] = [];

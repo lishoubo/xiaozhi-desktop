@@ -91,10 +91,6 @@ export const startLoginInputSchema = z.strictObject({
 
 export type StartLoginInput = Readonly<z.infer<typeof startLoginInputSchema>>;
 
-export const otaAccountChannelSchema = nonEmptyStringSchema;
-
-export const otaAccountIdSchema = nonEmptyStringSchema;
-
 const jsonValueSchema: z.ZodType<JsonValue> = z.lazy(() =>
   z.union([
     z.string(),
@@ -107,27 +103,6 @@ const jsonValueSchema: z.ZodType<JsonValue> = z.lazy(() =>
 );
 
 const jsonObjectSchema: z.ZodType<JsonObject> = z.record(z.string(), jsonValueSchema);
-
-export const createFromExistingSessionInputSchema = z.strictObject({
-  accountId: nonEmptyStringSchema,
-});
-
-export type CreateFromExistingSessionInput = Readonly<
-  z.infer<typeof createFromExistingSessionInputSchema>
->;
-
-export const otaAccountSchema = z.strictObject({
-  id: nonEmptyStringSchema,
-  credentialId: nonEmptyStringSchema,
-  channel: nonEmptyStringSchema,
-  otaHotelId: nonEmptyStringSchema,
-  otaHotelName: z.string().nullable(),
-  partitionName: nonEmptyStringSchema,
-  bindExtra: jsonObjectSchema.nullable(),
-  discoveredAt: z.number(),
-});
-
-export type OtaAccountDto = Readonly<z.infer<typeof otaAccountSchema>>;
 
 export const otaCredentialSchema = z.strictObject({
   id: nonEmptyStringSchema,
@@ -147,11 +122,13 @@ export const otaCredentialChannelSchema = nonEmptyStringSchema;
 
 export const otaCredentialIdSchema = nonEmptyStringSchema;
 
-export const otaAccountBoundEventSchema = z.strictObject({
+export const otaDiscoveryCompletedEventSchema = z.strictObject({
   channel: nonEmptyStringSchema,
 });
 
-export type OtaAccountBoundEvent = Readonly<z.infer<typeof otaAccountBoundEventSchema>>;
+export type OtaDiscoveryCompletedEvent = Readonly<
+  z.infer<typeof otaDiscoveryCompletedEventSchema>
+>;
 
 export const systemPreferencesSchema = z.strictObject({
   autoLaunch: z.boolean(),

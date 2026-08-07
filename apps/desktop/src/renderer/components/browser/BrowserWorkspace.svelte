@@ -79,7 +79,7 @@
   async function createTab(channel: OtaChannel, url = channel.url): Promise<BrowserTab | null> {
     try {
       dismissAppNotification('browser-operation-error');
-      const tab = await window.hotelButler.otaAccount.startLogin({
+      const tab = await window.hotelButler.otaCredential.openForNewLogin({
         channelId: channel.id,
         environment: 'prod',
         url,
@@ -225,7 +225,7 @@
     const previousTabs = [...activeTabs];
     dismissAppNotification('browser-operation-error');
     try {
-      const tab = await window.hotelButler.otaAccount.createFromCookie({
+      const tab = await window.hotelButler.otaCredential.openWithImportedCookie({
         channelId: channel.id,
         environment: 'prod',
         url: channel.url,
@@ -381,9 +381,11 @@
         tone: 'default',
       });
     });
-    const unsubscribeAccountBound = window.hotelButler.otaAccount.onAccountBound(({ channel }) => {
-      if (channel === activeChannelId) void loadCredentials(channel);
-    });
+    const unsubscribeDiscoveryCompleted = window.hotelButler.otaCredential.onDiscoveryCompleted(
+      ({ channel }) => {
+        if (channel === activeChannelId) void loadCredentials(channel);
+      },
+    );
     const observer = new ResizeObserver(() => void syncBounds());
     if (viewport) observer.observe(viewport);
     window.addEventListener('resize', syncBounds);
@@ -443,7 +445,7 @@
       });
       unsubscribe();
       unsubscribeInterception();
-      unsubscribeAccountBound();
+      unsubscribeDiscoveryCompleted();
       observer.disconnect();
       window.removeEventListener('resize', syncBounds);
     };
