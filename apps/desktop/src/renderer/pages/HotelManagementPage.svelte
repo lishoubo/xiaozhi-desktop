@@ -9,7 +9,6 @@
   import * as Dialog from '$lib/components/ui/dialog';
   import * as AlertDialog from '$lib/components/ui/alert-dialog';
   import BoundOtaAccountCard from '../components/hotel/BoundOtaAccountCard.svelte';
-  import { desktopHotelManagementDataSource } from '../hotel-management/hotel-management-data-source';
   import { groupOtaAccountsByHotelId, type OtaAccountAction } from '../hotel-management/model';
   import type { RmsHotelDto, RmsOtaAccountDto } from '../../shared/hotel-management';
   import { enter, PAGE_ENTER_OPTIONS } from '../motion';
@@ -43,7 +42,7 @@
     loading = true;
     loadError = false;
     try {
-      const snapshot = await desktopHotelManagementDataSource.load();
+      const snapshot = await window.hotelButler.hotelManagement.load();
       hotels = snapshot.hotels;
       otaAccounts = snapshot.otaAccounts;
       dismissAppNotification('hotel-management-load-error');
@@ -70,7 +69,7 @@
     if (!createName.trim() || creating) return;
     creating = true;
     try {
-      await desktopHotelManagementDataSource.createHotel({ name: createName.trim() });
+      await window.hotelButler.hotelManagement.createHotel({ name: createName.trim() });
       createOpen = false;
       await loadHotelManagement();
     } catch (reason) {
@@ -93,7 +92,7 @@
     if (!target || deleting) return;
     deleting = true;
     try {
-      await desktopHotelManagementDataSource.deleteHotel(target.id);
+      await window.hotelButler.hotelManagement.deleteHotel(target.id);
       deleteTarget = null;
       await loadHotelManagement();
     } catch (reason) {
@@ -116,7 +115,7 @@
     if (!target || unbinding) return;
     unbinding = true;
     try {
-      await desktopHotelManagementDataSource.unbindOtaAccount(target.account.id);
+      await window.hotelButler.hotelManagement.unbindOtaAccount(target.account.id);
       unbindTarget = null;
       await loadHotelManagement();
     } catch (reason) {
