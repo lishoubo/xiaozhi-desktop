@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   parseMeituanAccountDetail,
   parseMeituanAccountIdentityCandidates,
-} from '../../../src/main/ota/meituan/account-identity';
+} from '../../../src/main/features/ota-credential/ota/meituan/account-identity';
 
 describe('parseMeituanAccountDetail', () => {
   it('校验 bizAcctId 并只返回账号白名单字段', () => {

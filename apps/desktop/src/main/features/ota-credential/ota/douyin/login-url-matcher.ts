@@ -7,8 +7,8 @@
  * rms-rpa-worker/rms_rpa_worker/adapters/douyin/session.py:81-90。
  * 只判 `/p/home` 不判 groupid 会在"停在选公司页"这个中间态误判为已登录。
  */
-import type { LoginUrlMatcher } from '../../domain/ports/discovery';
-import { toChannelId } from '../../domain/identity';
+import type { LoginUrlMatcher } from '../../../../../domain/ports/discovery';
+import { toChannelId } from '../../../../../domain/identity';
 
 const HOME_PATH = '/p/home';
 const GROUP_ID_PARAM = 'groupid';

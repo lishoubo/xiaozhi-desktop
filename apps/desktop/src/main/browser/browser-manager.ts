@@ -13,10 +13,18 @@ import { randomUUID } from 'node:crypto';
 import type { ChannelId } from '../../domain/identity';
 import { LEGACY_SHARED_PARTITION } from '../../domain/policy/partition-policy';
 import type { LoginUrlMatcher } from '../../domain/ports/discovery';
+import type { OtaCredential } from '../../domain/ota-credential';
 import { IPC_CHANNELS } from '../../shared/ipc-channels';
 import { browserWebUrlSchema, type BrowserTab } from '../../shared/browser';
 import type { AppLogger } from '../../shared/logging';
 import { SessionFactory } from './session-factory';
+import { TabEventBus } from './tab-event-bus';
+
+type OnUrlPastLogin = (
+  partitionName: string,
+  landingUrl: string,
+  webContents: WebContents,
+) => Promise<OtaCredential | null>;
 
 type ManagedTab = {
   id: string;
@@ -32,7 +40,7 @@ type ManagedTab = {
    * 命中判定那一刻的完整 URL——部分渠道（如抖音）的门店身份参数只存在
    * 于这个 URL 里，探测层需要它才能定位到正确的门店。
    */
-  onUrlPastLogin?: (partitionName: string, landingUrl: string, webContents: WebContents) => void;
+  onUrlPastLogin?: OnUrlPastLogin;
   /** 该渠道的登录页 URL 判据；未注册时不参与 URL 触发。 */
   loginUrlMatcher?: LoginUrlMatcher;
   /** 本次登录标签页是否已经触发过探测——命中一次后不再重复调用。 */
@@ -82,6 +90,7 @@ export class BrowserManager {
     private readonly window: BrowserWindow,
     private readonly logger: AppLogger,
     sessionFactory: SessionFactory = new SessionFactory(logger),
+    private readonly tabEventBus: TabEventBus = new TabEventBus(),
   ) {
     this.sessionFactory = sessionFactory;
     this.browserSession = this.sessionFactory.sessionForAccount(LEGACY_SHARED_PARTITION);
@@ -106,11 +115,7 @@ export class BrowserManager {
     channelId: string,
     url: string,
     options: Readonly<{
-      onUrlPastLogin?: (
-        partitionName: string,
-        landingUrl: string,
-        webContents: WebContents,
-      ) => void;
+      onUrlPastLogin?: OnUrlPastLogin;
       loginUrlMatcher?: LoginUrlMatcher;
     }> = {},
   ): BrowserTab {
@@ -128,16 +133,10 @@ export class BrowserManager {
 
   /**
    * 走登录流程：新建一份 partition，若调用方注入了 cookie 则先写入，
-   * 再加载渠道后台页面。
-   *
-   * 两种探测触发方式二选一（互斥，不同时传）：
-   * - `onUrlPastLogin`/`loginUrlMatcher`：等待用户手动登录交互，URL 判定
-   *   命中登录成功时触发（design.md 决策 8）——"新建账号"与抖音"从cookie
-   *   创建"/"从其他登录态创建"用这条
-   * - `onLoadFinished`：不等待用户交互，页面首次加载完成（无论是否登录
-   *   成功）即触发一次，由调用方自行判断落地结果——携程"从cookie创建"
-   *   静默判定用这条（add-account-flow-per-channel/design.md §3，携程
-   *   cookie 有效直接落地，无效会被重定向回登录页，交给探测层区分）
+   * 再加载渠道后台页面。`onUrlPastLogin`/`loginUrlMatcher` 判定何时算
+   * 登录成功（design.md 决策 8）——cookie 有效直接跳出登录页、失效被
+   * 重定向回登录页，所有渠道统一走这条 URL 判据，不再区分"等待用户
+   * 交互"和"页面加载完静默判定"两种触发方式。
    */
   async createAndNewPartition(
     environment: 'prod' | 'dev',
@@ -145,17 +144,8 @@ export class BrowserManager {
     url: string,
     options: Readonly<{
       importedCookies?: readonly CookiesSetDetails[];
-      onUrlPastLogin?: (
-        partitionName: string,
-        landingUrl: string,
-        webContents: WebContents,
-      ) => void;
+      onUrlPastLogin?: OnUrlPastLogin;
       loginUrlMatcher?: LoginUrlMatcher;
-      onLoadFinished?: (
-        partitionName: string,
-        landingUrl: string,
-        webContents: WebContents,
-      ) => void;
     }> = {},
   ): Promise<Readonly<{ tab: BrowserTab; partitionName: string }>> {
     const { session: tabSession, partitionName } = this.sessionFactory.sessionForLogin(
@@ -172,7 +162,6 @@ export class BrowserManager {
       tabSession,
       options.onUrlPastLogin,
       options.loginUrlMatcher,
-      options.onLoadFinished,
     );
     return { tab: this.snapshot(tab), partitionName };
   }
@@ -182,9 +171,8 @@ export class BrowserManager {
     url: string,
     partitionName: string,
     tabSession: Session,
-    onUrlPastLogin?: (partitionName: string, landingUrl: string, webContents: WebContents) => void,
+    onUrlPastLogin?: OnUrlPastLogin,
     loginUrlMatcher?: LoginUrlMatcher,
-    onLoadFinished?: (partitionName: string, landingUrl: string, webContents: WebContents) => void,
   ): ManagedTab {
     assertWebUrl(url);
     if (!channelId.trim()) throw new Error('渠道标识不能为空');
@@ -218,7 +206,6 @@ export class BrowserManager {
     this.logger.info('Browser tab created', { channelId, partitionName });
     void view.webContents
       .loadURL(url)
-      .then(() => onLoadFinished?.(partitionName, view.webContents.getURL(), view.webContents))
       .catch((error: unknown) => {
         tab.loading = false;
         tab.title = '页面加载失败';
@@ -417,12 +404,12 @@ export class BrowserManager {
     });
     webContents.on('did-navigate', (_event, url) => {
       tab.url = url;
-      this.checkUrlPastLogin(tab, url);
+      void this.checkUrlPastLogin(tab, url, webContents);
       this.emit(tab);
     });
     webContents.on('did-navigate-in-page', (_event, url) => {
       tab.url = url;
-      this.checkUrlPastLogin(tab, url);
+      void this.checkUrlPastLogin(tab, url, webContents);
       this.emit(tab);
     });
     webContents.on('page-title-updated', (_event, title) => {
@@ -435,21 +422,55 @@ export class BrowserManager {
    * URL 触发探测（design.md 决策 8）：命中一次即把 `urlPastLoginTriggered`
    * 置位，此后同一标签页的任何后续导航都在这里短路返回——不会重复创建
    * 探测用的 `WebContentsView`、不会重复请求渠道接口。防重入/查重创建
-   * 属于探测层自己的职责（见 `main/account-discovery/discover-and-create.ts`），
+   * 属于探测层自己的职责（见 `main/features/ota-credential/discover-and-create.ts`），
    * 这里只保证"每个标签页最多调用一次 `onUrlPastLogin`"。
+   *
+   * `tab:credential-checked` 广播时机：不需要处理（已触发过/未挂业务回调/
+   * URL 未命中登录后页面）时立刻广播；确实需要处理时，等 `onUrlPastLogin`
+   * 跑完、credential 已经真实写入数据库后才广播——避免下游订阅者
+   * （如 `OtaHotelProbFeature`）在 credential 还没写完时查询到 null，
+   * 永久错过这次探测机会（尤其标签页只导航一次、没有第二次机会的场景）。
    */
-  private checkUrlPastLogin(tab: ManagedTab, url: string): void {
-    if (tab.urlPastLoginTriggered) return;
-    if (!tab.loginUrlMatcher || !tab.onUrlPastLogin) return;
+  private async checkUrlPastLogin(
+    tab: ManagedTab,
+    url: string,
+    webContents: WebContents,
+  ): Promise<void> {
+    const baseEvent = {
+      tabId: tab.id,
+      partitionName: tab.partitionName,
+      channel: tab.channelId,
+      url,
+      webContents,
+    };
+
+    if (tab.urlPastLoginTriggered) {
+      this.tabEventBus.emitCredentialChecked({ ...baseEvent, outcome: { kind: 'not-applicable' } });
+      return;
+    }
+    if (!tab.loginUrlMatcher || !tab.onUrlPastLogin) {
+      this.tabEventBus.emitCredentialChecked({ ...baseEvent, outcome: { kind: 'not-applicable' } });
+      return;
+    }
     const isPastLogin = tab.loginUrlMatcher.isPastLogin(url);
     this.logger.info('Login URL matcher checked', {
       channelId: tab.channelId,
       isPastLogin,
     });
-    if (!isPastLogin) return;
+    if (!isPastLogin) {
+      this.tabEventBus.emitCredentialChecked({
+        ...baseEvent,
+        outcome: { kind: 'not-yet-past-login' },
+      });
+      return;
+    }
 
     tab.urlPastLoginTriggered = true;
-    tab.onUrlPastLogin(tab.partitionName, url, tab.view.webContents);
+    const credential = await tab.onUrlPastLogin(tab.partitionName, url, tab.view.webContents);
+    this.tabEventBus.emitCredentialChecked({
+      ...baseEvent,
+      outcome: { kind: 'checked', credential },
+    });
   }
 
   private emit(tab: ManagedTab): void {

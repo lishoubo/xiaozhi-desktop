@@ -89,14 +89,15 @@ describe('LoginTabOpener', () => {
       );
     });
 
-    it('携程：注入 cookie，页面加载完成后静默触发探测，成功后不删除该渠道 cookie（允许反复登录）', async () => {
+    it('携程：注入 cookie，挂 onUrlPastLogin/loginUrlMatcher（cookie 有效即跳出登录页），不删除该渠道 cookie（允许反复登录）', async () => {
       const channel = toChannelId('ctrip');
       const userDataDir = tempUserDataDir();
       await writeImportedCookies(userDataDir, channel, [{ name: 'a', value: '1' } as never], {
         importedAt: '2026-08-04T00:00:00.000Z',
         sourceId: 'chrome',
       });
-      const triggerDiscovery = vi.fn().mockResolvedValue(true);
+      const matcher = { channel, isPastLogin: (url: string) => !url.includes('/login/') };
+      const triggerDiscovery = vi.fn().mockResolvedValue(null);
       const createAndNewPartition = vi.fn().mockResolvedValue({
         tab: { id: 'tab-1' },
         partitionName: 'persist:xiaozhi:prod:ctrip:aaa',
@@ -105,7 +106,7 @@ describe('LoginTabOpener', () => {
       const opener = new LoginTabOpener({
         userDataDir,
         browser: { createAndNewPartition },
-        loginUrlMatchers: new Map(),
+        loginUrlMatchers: new Map([[channel, matcher]]),
         triggerDiscovery,
       });
 
@@ -113,19 +114,15 @@ describe('LoginTabOpener', () => {
 
       const options = createAndNewPartition.mock.calls[0][3];
       expect(options.importedCookies).toEqual([{ name: 'a', value: '1' }]);
-      expect(options.onUrlPastLogin).toBeUndefined();
-      expect(typeof options.onLoadFinished).toBe('function');
+      expect(options.loginUrlMatcher).toBe(matcher);
+      expect(typeof options.onUrlPastLogin).toBe('function');
 
       const webContents = {} as never;
-      options.onLoadFinished(
+      options.onUrlPastLogin(
         'persist:xiaozhi:prod:ctrip:aaa',
         'https://ebooking.ctrip.com/home/mainland',
         webContents,
       );
-      // `onLoadFinished` 内部用 `void triggerDiscovery(...)` 触发，不等待其完成——
-      // 用一次微任务队列刷新等待 mock 的 resolved promise 落地。
-      await Promise.resolve();
-
       expect(triggerDiscovery).toHaveBeenCalledExactlyOnceWith(
         'persist:xiaozhi:prod:ctrip:aaa',
         channel,
@@ -161,7 +158,6 @@ describe('LoginTabOpener', () => {
       const options = createAndNewPartition.mock.calls[0][3];
       expect(options.importedCookies).toEqual([{ name: 'sid', value: 'x' }]);
       expect(options.loginUrlMatcher).toBe(matcher);
-      expect(options.onLoadFinished).toBeUndefined();
       expect(typeof options.onUrlPastLogin).toBe('function');
     });
   });

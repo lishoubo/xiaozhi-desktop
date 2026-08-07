@@ -1,7 +1,7 @@
 import { z } from 'zod';
-import { toOtaHotelId, type OtaHotelId } from '../../../domain/identity';
-import type { JsonObject } from '../../../domain/json';
-import { meituanBindExtra } from '../../../domain/ota-bind-extra';
+import { toOtaHotelId, type OtaHotelId } from '../../../../../domain/identity';
+import type { JsonObject } from '../../../../../domain/json';
+import { meituanBindExtra } from '../../../../../domain/ota-bind-extra';
 
 const MEITUAN_SUCCESS_CODE = 10000;
 const ME_API_APPKEY = 'fe_com.sankuai.fetalos.web.hotelfeme';

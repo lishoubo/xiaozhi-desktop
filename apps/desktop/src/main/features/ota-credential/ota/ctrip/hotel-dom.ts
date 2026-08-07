@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { toOtaHotelId, type OtaHotelId } from '../../../domain/identity';
+import { toOtaHotelId, type OtaHotelId } from '../../../../../domain/identity';
 
 const parsedHotelSchema = z.array(
   z.object({

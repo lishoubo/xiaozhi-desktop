@@ -5,6 +5,7 @@ import log from 'electron-log/main';
 import started from 'electron-squirrel-startup';
 import { registerBrowserHandlers } from './ipc/browser-handlers';
 import { BrowserManager } from './browser/browser-manager';
+import { TabEventBus } from './browser/tab-event-bus';
 import { configureNetworkPrivacy } from './security/network-privacy';
 import { createMainWindow } from './windows/main-window';
 import { configureMainLogging } from './logging/configure-main-logging';
@@ -14,19 +15,26 @@ import { openApplicationDatabase, type ApplicationDatabase } from './database/ap
 import { SqliteCalendarRepository } from './calendar/calendar-repository';
 import { registerCalendarHandlers } from './ipc/calendar-handlers';
 import { isStartupAutomationEnabled } from '../domain/policy/startup-automation-policy';
-import { SqliteOtaAccountRepository } from './database/ota-account-repository';
 import { SqliteOtaCredentialRepository } from './database/ota-credential-repository';
-import { DiscoverAndCreate } from './account-discovery/discover-and-create';
-import { createDiscoveryProbes } from './account-discovery/discovery-probe';
-import { LOGIN_URL_MATCHERS } from './account-discovery/login-url-matcher';
+import { SqliteOtaHotelProbRepository } from './database/ota-hotel-prob-repository';
+import { DiscoverAndCreate } from './features/ota-credential/discover-and-create';
+import { createDiscoveryProbes } from './features/ota-credential/discovery-probe';
+import { LOGIN_URL_MATCHERS } from './features/ota-credential/login-url-matcher';
+import { createCtripDiscovery } from './features/ota-credential/ota/ctrip/discover-ctrip';
+import { createDouyinDiscovery } from './features/ota-credential/ota/douyin/discover-douyin';
+import { createMeituanDiscovery } from './features/ota-credential/ota/meituan/discover-meituan';
+import { OtaHotelProbFeature } from './features/ota-hotel-prob/ota-hotel-prob-feature';
+import { ctripHotelProbe } from './features/ota-hotel-prob/ota/ctrip/hotel-prob';
+import { createDouyinHotelProbe } from './features/ota-hotel-prob/ota/douyin/hotel-prob';
+import { meituanHotelProbe } from './features/ota-hotel-prob/ota/meituan/hotel-prob';
+import type { HotelProbe } from './features/ota-hotel-prob/hotel-prob-port';
 import { removePendingPartition } from './file-store/pending-partitions-store';
 import { IPC_CHANNELS } from '../shared/ipc-channels';
-import { createCtripDiscovery } from './ota/ctrip/discover-ctrip';
-import { createDouyinDiscovery } from './ota/douyin/discover-douyin';
-import { createMeituanDiscovery } from './ota/meituan/discover-meituan';
+import { toChannelId, type ChannelId } from '../domain/identity';
 
 let mainWindow: BrowserWindow | null = null;
 let browserManager: BrowserManager | null = null;
+let tabEventBus: TabEventBus | null = null;
 let unregisterBrowserHandlers: (() => void) | null = null;
 let ctripAutomation: CtripCheckInAutomation | null = null;
 let unregisterAutomationHandlers: (() => void) | null = null;
@@ -34,8 +42,8 @@ let applicationDatabase: ApplicationDatabase | null = null;
 let calendarRepository: SqliteCalendarRepository | null = null;
 let unregisterCalendarHandlers: (() => void) | null = null;
 let discoverAndCreate: DiscoverAndCreate | null = null;
-let otaAccountRepository: SqliteOtaAccountRepository | null = null;
 let otaCredentialRepository: SqliteOtaCredentialRepository | null = null;
+let otaHotelProbRepository: SqliteOtaHotelProbRepository | null = null;
 
 configureNetworkPrivacy(app.commandLine);
 configureMainLogging(log, {
@@ -46,16 +54,30 @@ configureMainLogging(log, {
 
 function openMainWindow(): void {
   if (!calendarRepository) throw new Error('Calendar repository is not initialized');
+  if (!otaCredentialRepository) throw new Error('OtaCredential repository is not initialized');
+  if (!otaHotelProbRepository) throw new Error('OtaHotelProb repository is not initialized');
   mainWindow = createMainWindow();
   log.info('Main window created');
-  browserManager = new BrowserManager(mainWindow, log);
+  tabEventBus = new TabEventBus();
+  browserManager = new BrowserManager(mainWindow, log, undefined, tabEventBus);
   ctripAutomation = isStartupAutomationEnabled(process.env)
     ? new CtripCheckInAutomation(browserManager.browserSession, log)
     : null;
   const ctripResult = ctripAutomation?.start() ?? null;
   if (!discoverAndCreate) throw new Error('Discovery pipeline is not initialized');
-  if (!otaAccountRepository) throw new Error('OtaAccount repository is not initialized');
-  if (!otaCredentialRepository) throw new Error('OtaCredential repository is not initialized');
+  const hotelProbes: ReadonlyMap<ChannelId, HotelProbe> = new Map([
+    [toChannelId('ctrip'), ctripHotelProbe],
+    [toChannelId('douyin'), createDouyinHotelProbe(log)],
+    [toChannelId('meituan'), meituanHotelProbe],
+  ]);
+  // 构造函数内部完成 tabEventBus 订阅；订阅回调闭包持有 this 引用，只要
+  // tabEventBus 存活这个 Feature 实例就不会被 GC，不需要模块级变量持有它。
+  new OtaHotelProbFeature({
+    tabEventBus,
+    probes: hotelProbes,
+    repository: otaHotelProbRepository,
+    logger: log,
+  });
   unregisterBrowserHandlers = registerBrowserHandlers({
     window: mainWindow,
     manager: browserManager,
@@ -64,7 +86,7 @@ function openMainWindow(): void {
     loginUrlMatchers: LOGIN_URL_MATCHERS,
     triggerDiscovery: (partitionName, channel, landingUrl, webContents) =>
       discoverAndCreate?.trigger(partitionName, channel, landingUrl, webContents) ??
-      Promise.resolve(false),
+      Promise.resolve(null),
     otaCredentialRepository,
   });
   unregisterAutomationHandlers = registerAutomationHandlers({
@@ -102,16 +124,14 @@ function initializeApplication(): void {
   );
   calendarRepository = new SqliteCalendarRepository(applicationDatabase);
   const userDataDir = app.getPath('userData');
-  otaAccountRepository = new SqliteOtaAccountRepository(applicationDatabase);
   otaCredentialRepository = new SqliteOtaCredentialRepository(applicationDatabase);
+  otaHotelProbRepository = new SqliteOtaHotelProbRepository(applicationDatabase);
   discoverAndCreate = new DiscoverAndCreate({
     probes: createDiscoveryProbes(),
     discoverCtrip: createCtripDiscovery(log),
     discoverDouyin: createDouyinDiscovery(log),
     discoverMeituan: createMeituanDiscovery(log),
-    accountRepository: otaAccountRepository,
     credentialRepository: otaCredentialRepository,
-    generateAccountId: () => randomUUID(),
     generateCredentialId: () => randomUUID(),
     removePendingPartition: (partitionName) => removePendingPartition(userDataDir, partitionName),
     onCredentialPartitionReplaced: (previousPartitionName) =>
@@ -171,7 +191,8 @@ app.once('will-quit', () => {
   applicationDatabase = null;
   calendarRepository = null;
   discoverAndCreate = null;
-  otaAccountRepository = null;
   otaCredentialRepository = null;
+  otaHotelProbRepository = null;
+  tabEventBus = null;
   log.info('Application shutdown completed');
 });

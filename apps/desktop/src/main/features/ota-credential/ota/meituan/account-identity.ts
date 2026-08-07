@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import type { JsonObject } from '../../../domain/json';
+import type { JsonObject } from '../../../../../domain/json';
 
 const MEITUAN_SUCCESS_CODE = 10000;
 const ME_API_APPKEY = 'fe_com.sankuai.fetalos.web.hotelfeme';

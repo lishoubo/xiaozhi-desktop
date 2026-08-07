@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   parseDouyinAccountIdentity,
   READ_DOUYIN_ACCOUNT_IDENTITY_EXPRESSION,
-} from '../../../src/main/ota/douyin/account-identity';
+} from '../../../src/main/features/ota-credential/ota/douyin/account-identity';
 
 describe('parseDouyinAccountIdentity', () => {
   it('使用 user_id 作为渠道账号 ID 并只保留白名单字段', () => {

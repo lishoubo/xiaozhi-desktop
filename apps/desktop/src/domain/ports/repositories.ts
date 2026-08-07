@@ -19,6 +19,11 @@ import type {
   OtaCredentialIdentityUpdate,
   OtaCredentialPartitionUpdate,
 } from '../ota-credential';
+import type {
+  OtaHotelProb,
+  OtaHotelProbCreateInput,
+  OtaHotelProbDiscoveryUpdate,
+} from '../ota-hotel-prob';
 
 export interface CalendarRepository {
   load(): CalendarSnapshot;
@@ -35,6 +40,13 @@ export interface OtaAccountRepository {
   listByChannel(channel: ChannelId): readonly OtaAccount[];
   /** 账号二级导航用：点击某一项打开时按 id 反查完整账号信息。 */
   findById(id: OtaAccount['id']): OtaAccount | null;
+}
+
+export interface OtaHotelProbRepository {
+  create(input: OtaHotelProbCreateInput): OtaHotelProb;
+  findByChannelAndHotelId(channel: ChannelId, otaHotelId: OtaHotelId): OtaHotelProb | null;
+  findByCredentialId(credentialId: OtaCredentialId): OtaHotelProb | null;
+  updateDiscovery(id: OtaHotelProb['id'], update: OtaHotelProbDiscoveryUpdate): OtaHotelProb;
 }
 
 export interface OtaCredentialRepository {

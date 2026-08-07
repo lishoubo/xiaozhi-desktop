@@ -1,11 +1,14 @@
 import type { WebContents } from 'electron';
-import type { JsonObject } from '../../../domain/json';
-import type { AppLogger } from '../../../shared/logging';
+import type { JsonObject } from '../../../../../domain/json';
+import type { AppLogger } from '../../../../../shared/logging';
+import { isTrustedHotelUrl } from '../../../common/ota/trusted-hotel-url';
 import {
   parseCtripHotelDom,
   READ_CTRIP_HOTELS_EXPRESSION,
   type CtripDiscoveredHotel,
 } from './hotel-dom';
+
+const CTRIP_HOTEL_HOSTNAME = 'ebooking.ctrip.com';
 
 export type CtripDiscoveryResult =
   | Readonly<{ kind: 'none' }>
@@ -25,18 +28,9 @@ export type DiscoverCtrip = (
   webContents: WebContents,
 ) => Promise<CtripDiscoveryResult>;
 
-function isTrustedCurrentUrl(currentUrl: string): boolean {
-  try {
-    const url = new URL(currentUrl);
-    return url.protocol === 'https:' && url.hostname === 'ebooking.ctrip.com';
-  } catch {
-    return false;
-  }
-}
-
 export function createCtripDiscovery(logger: AppLogger): DiscoverCtrip {
   return async (_partitionName, _landingUrl, webContents) => {
-    if (!isTrustedCurrentUrl(webContents.getURL())) {
+    if (!isTrustedHotelUrl(webContents.getURL(), CTRIP_HOTEL_HOSTNAME)) {
       logger.warn('Ctrip discovery rejected untrusted current URL');
       return { kind: 'none' };
     }

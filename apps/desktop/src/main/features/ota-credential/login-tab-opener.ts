@@ -11,19 +11,22 @@
  * §10）：
  * - `open()`：添加账号面板"新建账号"，不注入 cookie，等待用户手动登录
  * - `createFromCookie()`：设置页"已登录 Cookie 列表"里的"登录账号"，
- *   注入已导入的 cookie；携程静默判定落地结果，抖音打开页面等待用户选公司
+ *   注入已导入的 cookie；所有渠道统一走 `loginUrlMatcher` 判定登录结果——
+ *   携程 cookie 有效会直接跳出登录页、失效会被重定向回登录页，跟其他渠道
+ *   同一套 URL 判据即可覆盖，不需要单独的"页面加载完成即判定"通道
+ *   （历史上有过 `onLoadFinished` 专用路径，因为不经过 `checkUrlPastLogin`
+ *   / `TabEventBus` 广播，酒店探测会被静默跳过，已删除）
  */
 import type { WebContents } from 'electron';
-import { toChannelId, type ChannelId } from '../../../domain/identity';
+import type { ChannelId } from '../../../domain/identity';
 import type { LoginUrlMatcher } from '../../../domain/ports/discovery';
+import type { OtaCredential } from '../../../domain/ota-credential';
 import type { BrowserTab } from '../../../shared/browser';
 import { readImportedCookies } from '../../cookie-import/store';
 import {
   addPendingPartition,
   type PendingPartition,
 } from '../../file-store/pending-partitions-store';
-
-const CTRIP_CHANNEL_ID = toChannelId('ctrip');
 
 export type LoginTabOpenerDependencies = Readonly<{
   userDataDir: string;
@@ -32,13 +35,18 @@ export type LoginTabOpenerDependencies = Readonly<{
     'createAndNewPartition'
   >;
   loginUrlMatchers: ReadonlyMap<ChannelId, LoginUrlMatcher>;
-  /** 返回值：这次触发是否让某个 OtaAccount 完成了建号（携程静默判定需要）。 */
+  /**
+   * 返回值：这次触发最终确认的 OtaCredential（没有则为 null）。
+   * `open()`/`createFromCookie()` 把这个返回值原样透传给 `BrowserManager`，
+   * 由它在 credential 真正写入数据库之后才广播
+   * `tab:credential-checked`（见 `main/browser/tab-event-bus.ts`）。
+   */
   triggerDiscovery: (
     partitionName: string,
     channel: ChannelId,
     landingUrl: string,
     webContents: WebContents,
-  ) => Promise<boolean>;
+  ) => Promise<OtaCredential | null>;
 }>;
 
 export class LoginTabOpener {
@@ -52,9 +60,8 @@ export class LoginTabOpener {
     const { userDataDir, browser, loginUrlMatchers, triggerDiscovery } = this.deps;
     const { tab, partitionName } = await browser.createAndNewPartition(environment, channel, url, {
       loginUrlMatcher: loginUrlMatchers.get(channel),
-      onUrlPastLogin: (boundPartitionName, landingUrl, webContents) => {
-        void triggerDiscovery(boundPartitionName, channel, landingUrl, webContents);
-      },
+      onUrlPastLogin: (boundPartitionName, landingUrl, webContents) =>
+        triggerDiscovery(boundPartitionName, channel, landingUrl, webContents),
     });
     await addPendingPartition(userDataDir, {
       partitionName,
@@ -80,32 +87,14 @@ export class LoginTabOpener {
     const imported = await readImportedCookies(userDataDir, channel);
     if (!imported) throw new Error('该渠道尚未导入 Cookie');
 
-    if (channel === CTRIP_CHANNEL_ID) {
-      // 携程：不等待用户交互，页面加载完成即静默判定（design.md 决策3）；
-      // cookie 不删除，允许同一份 cookie 反复登录/重建（design.md §10.2）。
-      const { tab, partitionName } = await browser.createAndNewPartition(environment, channel, url, {
-        importedCookies: imported.cookies,
-        onLoadFinished: (boundPartitionName, landingUrl, webContents) => {
-          void triggerDiscovery(boundPartitionName, channel, landingUrl, webContents);
-        },
-      });
-      await addPendingPartition(userDataDir, {
-        partitionName,
-        channel,
-        environment,
-        createdAt: new Date().toISOString(),
-      });
-      return tab;
-    }
-
-    // 抖音等其他渠道：注入 cookie 后打开可见页面，用户在页面内选择/切换
-    // 公司，行为与 `open()` 一致，只是预注入了 cookie（design.md 决策4）。
+    // 注入 cookie 后打开页面，用 loginUrlMatcher 判定是否已跳出登录页
+    // （cookie 有效直接落地、失效被重定向回登录页，携程与抖音同一判据）；
+    // cookie 不删除，允许同一份 cookie 反复登录/重建（design.md §10.2）。
     const { tab, partitionName } = await browser.createAndNewPartition(environment, channel, url, {
       importedCookies: imported.cookies,
       loginUrlMatcher: loginUrlMatchers.get(channel),
-      onUrlPastLogin: (boundPartitionName, landingUrl, webContents) => {
-        void triggerDiscovery(boundPartitionName, channel, landingUrl, webContents);
-      },
+      onUrlPastLogin: (boundPartitionName, landingUrl, webContents) =>
+        triggerDiscovery(boundPartitionName, channel, landingUrl, webContents),
     });
     await addPendingPartition(userDataDir, {
       partitionName,

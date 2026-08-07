@@ -9,8 +9,8 @@
  * 相关的概念，不满足 domain 层零框架依赖的约束。
  */
 import type { WebContents } from 'electron';
-import type { ChannelId, OtaHotelId } from '../../domain/identity';
-import type { JsonObject } from '../../domain/json';
+import type { ChannelId, OtaHotelId } from '../../../domain/identity';
+import type { JsonObject } from '../../../domain/json';
 
 export type DiscoveredOtaHotel = Readonly<{
   otaHotelId: OtaHotelId;

@@ -1,4 +1,4 @@
-import type { ChannelId } from '../../domain/identity';
+import type { ChannelId } from '../../../domain/identity';
 import type { DiscoveryProbe } from './discovery-probe-port';
 
 /** channel → DiscoveryProbe registry。查不到的渠道视为不支持探测。 */

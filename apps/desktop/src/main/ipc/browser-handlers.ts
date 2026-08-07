@@ -13,6 +13,7 @@ import {
 } from '../../shared/browser';
 import { toChannelId, toOtaCredentialId, type ChannelId } from '../../domain/identity';
 import type { LoginUrlMatcher } from '../../domain/ports/discovery';
+import type { OtaCredential } from '../../domain/ota-credential';
 import type { OtaCredentialRepository } from '../../domain/ports/repositories';
 import { otaChannelLandingUrl } from '../../domain/policy/ota-account-landing-url-policy';
 import { IPC_CHANNELS } from '../../shared/ipc-channels';
@@ -55,7 +56,7 @@ type RegisterBrowserHandlersOptions = Readonly<{
     channel: ChannelId,
     landingUrl: string,
     webContents: WebContents,
-  ) => Promise<boolean>;
+  ) => Promise<OtaCredential | null>;
   otaCredentialRepository: Pick<OtaCredentialRepository, 'findById' | 'listByChannel'>;
 }>;
 

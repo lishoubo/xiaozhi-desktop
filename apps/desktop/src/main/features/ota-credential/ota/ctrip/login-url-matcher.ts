@@ -4,8 +4,8 @@
  * 判据抄自已实测验证过的 RPA 实现：
  * rms-rpa-worker/rms_rpa_worker/adapters/ctrip/login.py:30。
  */
-import type { LoginUrlMatcher } from '../../domain/ports/discovery';
-import { toChannelId } from '../../domain/identity';
+import type { LoginUrlMatcher } from '../../../../../domain/ports/discovery';
+import { toChannelId } from '../../../../../domain/identity';
 
 const LOGIN_URL_KEYWORD = '/login/';
 

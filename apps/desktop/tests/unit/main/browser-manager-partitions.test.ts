@@ -316,26 +316,4 @@ describe('BrowserManager — partition-aware tab creation', () => {
     );
   });
 
-  it('createAndNewPartition 传入 onLoadFinished 时，页面加载完成后触发（携程"从cookie创建"静默判定用），不依赖 loginUrlMatcher', async () => {
-    const sessionFactory = createSessionFactoryStub();
-    const manager = new BrowserManager(
-      createWindow() as never,
-      createLogger(),
-      sessionFactory as never,
-    );
-    const onLoadFinished = vi.fn();
-
-    const { partitionName } = await manager.createAndNewPartition(
-      'prod',
-      toChannelId('ctrip'),
-      'https://ebooking.ctrip.com/home/mainland',
-      { onLoadFinished },
-    );
-
-    expect(onLoadFinished).toHaveBeenCalledExactlyOnceWith(
-      partitionName,
-      'https://example.com/',
-      expect.anything(),
-    );
-  });
 });

@@ -2,8 +2,8 @@
  * 美团登录页 URL 判据。仅命中已验证的 ebooking 入口才视为登录成功，避免页面尚未换票时
  * 提前触发账号发现。
  */
-import { toChannelId } from '../../../domain/identity';
-import type { LoginUrlMatcher } from '../../../domain/ports/discovery';
+import { toChannelId } from '../../../../../domain/identity';
+import type { LoginUrlMatcher } from '../../../../../domain/ports/discovery';
 
 const LOGIN_SUCCESS_URL_KEYWORDS = ['/ebooking/merchant/ebIframe', '/ebooking/index.html'];
 

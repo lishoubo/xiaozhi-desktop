@@ -173,6 +173,28 @@ const migrations: readonly Migration[] = [
       `);
     },
   },
+  {
+    version: 8,
+    name: 'create-ota-hotel-prob',
+    apply(database) {
+      database.exec(`
+        CREATE TABLE ota_hotel_prob (
+          id TEXT PRIMARY KEY,
+          credential_id TEXT NOT NULL REFERENCES ota_credential(id) ON UPDATE CASCADE ON DELETE RESTRICT,
+          channel TEXT NOT NULL,
+          ota_hotel_id TEXT NOT NULL,
+          ota_hotel_name TEXT,
+          bind_extra TEXT,
+          discovered_at INTEGER NOT NULL,
+          created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE UNIQUE INDEX ota_hotel_prob_channel_hotel_idx ON ota_hotel_prob(channel, ota_hotel_id);
+        CREATE INDEX ota_hotel_prob_credential_idx ON ota_hotel_prob(credential_id);
+      `);
+    },
+  },
 ];
 
 function migrate(database: ApplicationDatabase): number {

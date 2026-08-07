@@ -1,6 +1,6 @@
 import type { WebContents } from 'electron';
 import { describe, expect, it, vi } from 'vitest';
-import { createDouyinDiscovery } from '../../../src/main/ota/douyin/discover-douyin';
+import { createDouyinDiscovery } from '../../../src/main/features/ota-credential/ota/douyin/discover-douyin';
 
 describe('createDouyinDiscovery', () => {
   it('当前 View 不是受信任抖音来客页面时不读取 Session Storage', async () => {

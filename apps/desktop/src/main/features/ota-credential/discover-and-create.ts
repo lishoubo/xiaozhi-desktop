@@ -1,16 +1,26 @@
+/**
+ * 本文件只处理登录判定和身份归并（渠道账号识别、OtaCredential 归并）。不代替
+ * 上层判断任何业务动作是否该发生——上层 Feature（如
+ * `main/features/ota-hotel-prob/`）要感知处理结果，去订阅
+ * `main/browser/tab-event-bus.ts` 广播的 `tab:credential-checked` 事件，不要
+ * 自己再查一次数据库。`trigger()` 的返回值就是这次处理最终确认的
+ * `OtaCredential`（没有则为 null），由 `BrowserManager` 负责在这个返回值确定
+ * 之后才广播，保证下游订阅者收到事件时 credential 已经真实写入数据库。
+ *
+ * 不再写 OtaAccount（酒店信息）——酒店探测已独立成
+ * `main/features/ota-hotel-prob/`，见
+ * openspec/changes/split-ota-hotel-prob-feature/design.md 决策 7。
+ */
 import type { WebContents } from 'electron';
-import type { ChannelId } from '../../domain/identity';
-import { toOtaAccountId, toOtaCredentialId } from '../../domain/identity';
-import type { OtaCredential } from '../../domain/ota-credential';
-import type {
-  OtaAccountRepository,
-  OtaCredentialRepository,
-} from '../../domain/ports/repositories';
-import type { AppLogger } from '../../shared/logging';
+import type { ChannelId } from '../../../domain/identity';
+import { toOtaCredentialId } from '../../../domain/identity';
+import type { OtaCredential } from '../../../domain/ota-credential';
+import type { OtaCredentialRepository } from '../../../domain/ports/repositories';
+import type { AppLogger } from '../../../shared/logging';
 import type { DiscoveredOtaHotel, DiscoveryProbe } from './discovery-probe-port';
-import type { DiscoverCtrip } from '../ota/ctrip/discover-ctrip';
-import type { DiscoverDouyin } from '../ota/douyin/discover-douyin';
-import type { DiscoverMeituan } from '../ota/meituan/discover-meituan';
+import type { DiscoverCtrip } from './ota/ctrip/discover-ctrip';
+import type { DiscoverDouyin } from './ota/douyin/discover-douyin';
+import type { DiscoverMeituan } from './ota/meituan/discover-meituan';
 
 const CTRIP_CHANNEL = 'ctrip';
 const DOUYIN_CHANNEL = 'douyin';
@@ -21,9 +31,7 @@ export type DiscoverAndCreateDependencies = Readonly<{
   discoverCtrip: DiscoverCtrip;
   discoverDouyin: DiscoverDouyin;
   discoverMeituan: DiscoverMeituan;
-  accountRepository: OtaAccountRepository;
   credentialRepository: OtaCredentialRepository;
-  generateAccountId: () => string;
   generateCredentialId: () => string;
   removePendingPartition: (partitionName: string) => Promise<void>;
   onCredentialPartitionReplaced?: (
@@ -45,8 +53,8 @@ export class DiscoverAndCreate {
     channel: ChannelId,
     landingUrl: string,
     webContents: WebContents,
-  ): Promise<boolean> {
-    if (this.bound.has(partitionName) || this.inflight.has(partitionName)) return false;
+  ): Promise<OtaCredential | null> {
+    if (this.bound.has(partitionName) || this.inflight.has(partitionName)) return null;
 
     const isCtrip = channel === CTRIP_CHANNEL;
     const isDouyin = channel === DOUYIN_CHANNEL;
@@ -54,7 +62,7 @@ export class DiscoverAndCreate {
     const probe = isCtrip || isDouyin || isMeituan ? null : this.deps.probes.get(channel);
     if (!isCtrip && !isDouyin && !isMeituan && !probe) {
       this.deps.logger.info('Discovery skipped: no probe registered for channel', { channel });
-      return false;
+      return null;
     }
 
     this.deps.logger.info('Discovery triggered', { channel });
@@ -63,101 +71,96 @@ export class DiscoverAndCreate {
       if (isCtrip) {
         const result = await this.deps.discoverCtrip(partitionName, landingUrl, webContents);
         this.deps.logger.info('Ctrip discovery outcome', { kind: result.kind });
-        if (result.kind === 'none') return false;
+        if (result.kind === 'none') return null;
         if (result.kind === 'multiple') {
           this.deps.logger.info('Ctrip discovery found multiple hotels, awaiting user selection', {
             count: result.hotels.length,
           });
-          return false;
+          return null;
         }
-        await this.persistIdentifiedResult(
+        const credential = await this.persistIdentifiedResult(
           partitionName,
           channel,
           result.credential,
-          result.hotels,
         );
         this.bound.add(partitionName);
-        this.deps.logger.info('Ctrip discovery saved hotels', {
-          hotelCount: result.hotels.length,
-        });
-        return true;
+        this.deps.logger.info('Ctrip discovery saved credential', { channel });
+        return credential;
       }
       if (isDouyin) {
         const result = await this.deps.discoverDouyin(partitionName, landingUrl, webContents);
         this.deps.logger.info('Douyin discovery outcome', { kind: result.kind });
-        if (result.kind === 'none') return false;
-        await this.persistIdentifiedResult(
+        if (result.kind === 'none') return null;
+        const credential = await this.persistIdentifiedResult(
           partitionName,
           channel,
           result.credential,
-          result.hotels,
         );
         this.bound.add(partitionName);
-        this.deps.logger.info('Douyin discovery saved hotels', {
-          hotelCount: result.hotels.length,
-        });
-        return true;
+        this.deps.logger.info('Douyin discovery saved credential', { channel });
+        return credential;
       }
       if (isMeituan) {
         const result = await this.deps.discoverMeituan(partitionName, landingUrl, webContents);
         this.deps.logger.info('Meituan discovery outcome', { kind: result.kind });
-        if (result.kind === 'none') return false;
-        await this.persistIdentifiedResult(
+        if (result.kind === 'none') return null;
+        const credential = await this.persistIdentifiedResult(
           partitionName,
           channel,
           result.credential,
-          result.hotels,
         );
         this.bound.add(partitionName);
-        this.deps.logger.info('Meituan discovery saved hotels', {
-          hotelCount: result.hotels.length,
-        });
-        return true;
+        this.deps.logger.info('Meituan discovery saved credential', { channel });
+        return credential;
       }
-      if (!probe) return false;
+      if (!probe) return null;
       const outcome = await probe.discover(partitionName, landingUrl, webContents);
       this.deps.logger.info('Discovery outcome', { channel, kind: outcome.kind });
       switch (outcome.kind) {
         case 'unsupported':
         case 'none':
-          return false;
-        case 'single':
-          await this.createOrUpdate(partitionName, channel, outcome.hotel);
+          return null;
+        case 'single': {
+          const credential = await this.createCredentialFromHotel(
+            partitionName,
+            channel,
+            outcome.hotel,
+          );
           this.bound.add(partitionName);
-          this.deps.logger.info('Discovery bound OtaAccount', {
+          this.deps.logger.info('Discovery bound credential', {
             channel,
             otaHotelId: outcome.hotel.otaHotelId,
           });
-          return true;
+          return credential;
+        }
         case 'multiple':
           this.deps.logger.info('Discovery found multiple hotels, awaiting user selection', {
             channel,
             count: outcome.hotels.length,
           });
-          return false;
+          return null;
       }
     } catch (error) {
       this.deps.logger.warn('Discovery failed', {
         channel,
         errorName: error instanceof Error ? error.name : 'UnknownError',
       });
-      return false;
+      return null;
     } finally {
       this.inflight.delete(partitionName);
     }
   }
 
-  private async createOrUpdate(
+  private async createCredentialFromHotel(
     partitionName: string,
     channel: ChannelId,
-    hotel: DiscoveredOtaHotel,
-  ): Promise<void> {
+    _hotel: DiscoveredOtaHotel,
+  ): Promise<OtaCredential> {
     const now = Date.now();
     const credential = this.findOrCreateCredential(partitionName, channel, now);
-
-    this.upsertAccount(channel, credential, hotel, now);
     await this.deps.removePendingPartition(partitionName);
     this.deps.onAccountBound?.(channel);
+    return credential;
   }
 
   private findOrCreateCredential(
@@ -189,8 +192,7 @@ export class DiscoverAndCreate {
       channelAccountId: string;
       credentialExtra: OtaCredential['credentialExtra'];
     }>,
-    hotels: readonly DiscoveredOtaHotel[],
-  ): Promise<void> {
+  ): Promise<OtaCredential> {
     const now = Date.now();
     const existing = this.deps.credentialRepository.findByPartitionName(partitionName);
     const identified = this.deps.credentialRepository.findByChannelAndAccountId(
@@ -234,7 +236,6 @@ export class DiscoverAndCreate {
       });
     }
 
-    for (const hotel of hotels) this.upsertAccount(channel, credential, hotel, now);
     await this.deps.removePendingPartition(partitionName);
     if (replacedPartitionName && replacedPartitionName !== partitionName) {
       try {
@@ -247,32 +248,6 @@ export class DiscoverAndCreate {
       }
     }
     this.deps.onAccountBound?.(channel);
-  }
-
-  private upsertAccount(
-    channel: ChannelId,
-    credential: OtaCredential,
-    hotel: DiscoveredOtaHotel,
-    now: number,
-  ): void {
-    const existing = this.deps.accountRepository.findByChannelAndHotelId(channel, hotel.otaHotelId);
-    if (existing) {
-      this.deps.accountRepository.updateDiscovery(existing.id, {
-        credentialId: credential.id,
-        otaHotelName: hotel.otaHotelName,
-        bindExtra: hotel.bindExtra,
-        discoveredAt: now,
-      });
-    } else {
-      this.deps.accountRepository.create({
-        id: toOtaAccountId(this.deps.generateAccountId()),
-        credentialId: credential.id,
-        channel,
-        otaHotelId: hotel.otaHotelId,
-        otaHotelName: hotel.otaHotelName,
-        bindExtra: hotel.bindExtra,
-        discoveredAt: now,
-      });
-    }
+    return credential;
   }
 }

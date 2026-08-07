@@ -1,15 +1,18 @@
+/**
+ * 美团渠道账号身份读取。只读账号身份接口，不再读门店列表——门店/酒店探测已
+ * 整体移入 `main/features/ota-hotel-prob/ota/meituan/hotel-prob.ts`，见
+ * openspec/changes/split-ota-hotel-prob-feature/design.md 决策 3。
+ */
 import type { WebContents } from 'electron';
-import type { JsonObject } from '../../../domain/json';
-import type { AppLogger } from '../../../shared/logging';
+import type { JsonObject } from '../../../../../domain/json';
+import type { AppLogger } from '../../../../../shared/logging';
+import { isTrustedHotelUrl } from '../../../common/ota/trusted-hotel-url';
 import {
   FETCH_MEITUAN_ACCOUNT_IDENTITY_EXPRESSION,
   parseMeituanAccountIdentityCandidates,
 } from './account-identity';
-import {
-  FETCH_MEITUAN_POI_INFOS_EXPRESSION,
-  parseMeituanPoiInfos,
-  type MeituanDiscoveredHotel,
-} from './poi-infos';
+
+const MEITUAN_HOTEL_HOSTNAME = 'me.meituan.com';
 
 export type MeituanDiscoveryResult =
   | Readonly<{ kind: 'none' }>
@@ -19,7 +22,6 @@ export type MeituanDiscoveryResult =
         channelAccountId: string;
         credentialExtra: JsonObject;
       }>;
-      hotels: readonly MeituanDiscoveredHotel[];
     }>;
 
 export type DiscoverMeituan = (
@@ -28,18 +30,9 @@ export type DiscoverMeituan = (
   webContents: WebContents,
 ) => Promise<MeituanDiscoveryResult>;
 
-function isTrustedLandingUrl(landingUrl: string): boolean {
-  try {
-    const url = new URL(landingUrl);
-    return url.protocol === 'https:' && url.hostname === 'me.meituan.com';
-  } catch {
-    return false;
-  }
-}
-
 export function createMeituanDiscovery(logger: AppLogger): DiscoverMeituan {
   return async (_partitionName, _landingUrl, webContents) => {
-    if (!isTrustedLandingUrl(webContents.getURL())) {
+    if (!isTrustedHotelUrl(webContents.getURL(), MEITUAN_HOTEL_HOSTNAME)) {
       logger.warn('Meituan discovery rejected untrusted current URL');
       return { kind: 'none' };
     }
@@ -54,17 +47,7 @@ export function createMeituanDiscovery(logger: AppLogger): DiscoverMeituan {
         return { kind: 'none' };
       }
 
-      const rawPois: unknown = await webContents.executeJavaScript(
-        FETCH_MEITUAN_POI_INFOS_EXPRESSION,
-      );
-      const hotels = parseMeituanPoiInfos(rawPois);
-      if (!hotels || hotels.length === 0) {
-        logger.warn('Meituan hotel discovery returned no valid hotels');
-        return { kind: 'none' };
-      }
-
-      logger.info('Meituan discovery completed', { hotelCount: hotels.length });
-      return { kind: 'found', credential: identity, hotels };
+      return { kind: 'found', credential: identity };
     } catch (error) {
       logger.warn('Meituan discovery failed', {
         errorName: error instanceof Error ? error.name : 'UnknownError',

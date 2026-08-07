@@ -1,15 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
-import {
-  toChannelId,
-  toOtaAccountId,
-  toOtaCredentialId,
-  toOtaHotelId,
-} from '../../../src/domain/identity';
+import { toChannelId, toOtaCredentialId, toOtaHotelId } from '../../../src/domain/identity';
 import type { OtaCredential } from '../../../src/domain/ota-credential';
 import {
   DiscoverAndCreate,
   type DiscoverAndCreateDependencies,
-} from '../../../src/main/account-discovery/discover-and-create';
+} from '../../../src/main/features/ota-credential/discover-and-create';
 
 const channel = toChannelId('fliggy');
 const partitionName = 'persist:xiaozhi:prod:fliggy:aaa';
@@ -50,13 +45,6 @@ function singleProbe(probeChannel = channel) {
 function createDeps(
   overrides: Partial<DiscoverAndCreateDependencies> = {},
 ): DiscoverAndCreateDependencies {
-  const accountRepository = {
-    create: vi.fn((input) => input),
-    findByChannelAndHotelId: vi.fn(() => null),
-    updateDiscovery: vi.fn(),
-    listByChannel: vi.fn(() => []),
-    findById: vi.fn(() => null),
-  };
   const credentialRepository = {
     create: vi.fn((input) => input),
     findById: vi.fn(() => null),
@@ -70,9 +58,7 @@ function createDeps(
     discoverCtrip: vi.fn().mockResolvedValue({ kind: 'none' }),
     discoverDouyin: vi.fn().mockResolvedValue({ kind: 'none' }),
     discoverMeituan: vi.fn().mockResolvedValue({ kind: 'none' }),
-    accountRepository,
     credentialRepository,
-    generateAccountId: vi.fn(() => 'generated-account-id'),
     generateCredentialId: vi.fn(() => 'generated-credential-id'),
     removePendingPartition: vi.fn().mockResolvedValue(undefined),
     logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
@@ -81,7 +67,7 @@ function createDeps(
 }
 
 describe('DiscoverAndCreate', () => {
-  it('single 结果先创建 credential，再创建引用它的账号', async () => {
+  it('single 结果创建 credential', async () => {
     const probe = singleProbe();
     const deps = createDeps({ probes: new Map([[channel, probe]]) });
     const discoverAndCreate = new DiscoverAndCreate(deps);
@@ -102,15 +88,6 @@ describe('DiscoverAndCreate', () => {
       discoveredAt: expect.any(Number),
       lastRefreshedAt: null,
     });
-    expect(deps.accountRepository.create).toHaveBeenCalledWith({
-      id: toOtaAccountId('generated-account-id'),
-      credentialId: toOtaCredentialId('generated-credential-id'),
-      channel,
-      otaHotelId: toOtaHotelId('12345'),
-      otaHotelName: '测试酒店',
-      bindExtra: null,
-      discoveredAt: expect.any(Number),
-    });
     expect(deps.removePendingPartition).toHaveBeenCalledWith(partitionName);
   });
 
@@ -128,68 +105,9 @@ describe('DiscoverAndCreate', () => {
     );
 
     expect(deps.credentialRepository.create).not.toHaveBeenCalled();
-    expect(deps.accountRepository.create).toHaveBeenCalledWith(
-      expect.objectContaining({ credentialId: existingCredential.id }),
-    );
   });
 
-  it('结构化 bindExtra 原样写入账号', async () => {
-    const probe = singleProbe(channel);
-    probe.discover.mockResolvedValue({
-      kind: 'single',
-      hotel: {
-        otaHotelId: toOtaHotelId('dy-1'),
-        otaHotelName: '抖音门店',
-        bindExtra: { merchantGroupId: 'group-1' },
-      },
-    });
-    const deps = createDeps({ probes: new Map([[channel, probe]]) });
-    const discoverAndCreate = new DiscoverAndCreate(deps);
-
-    await discoverAndCreate.trigger(
-      partitionName,
-      channel,
-      'https://example.com/landing',
-      {} as never,
-    );
-
-    expect(deps.accountRepository.create).toHaveBeenCalledWith(
-      expect.objectContaining({ bindExtra: { merchantGroupId: 'group-1' } }),
-    );
-  });
-
-  it('同一酒店已存在时改为引用新 credential，不删除旧 credential 或 partition', async () => {
-    const existing = {
-      id: toOtaAccountId('existing-id'),
-      credentialId: toOtaCredentialId('old-credential'),
-      channel,
-      otaHotelId: toOtaHotelId('12345'),
-      otaHotelName: '旧酒店名',
-      bindExtra: null,
-      discoveredAt: 1,
-    };
-    const deps = createDeps({ probes: new Map([[channel, singleProbe()]]) });
-    vi.mocked(deps.accountRepository.findByChannelAndHotelId).mockReturnValue(existing);
-    const discoverAndCreate = new DiscoverAndCreate(deps);
-
-    await discoverAndCreate.trigger(
-      partitionName,
-      channel,
-      'https://example.com/landing',
-      {} as never,
-    );
-
-    expect(deps.accountRepository.create).not.toHaveBeenCalled();
-    expect(deps.accountRepository.updateDiscovery).toHaveBeenCalledWith(existing.id, {
-      credentialId: toOtaCredentialId('generated-credential-id'),
-      otaHotelName: '测试酒店',
-      bindExtra: null,
-      discoveredAt: expect.any(Number),
-    });
-    expect(deps.credentialRepository).not.toHaveProperty('delete');
-  });
-
-  it('credential 落库失败时不更新账号并返回 false', async () => {
+  it('credential 落库失败时返回 false', async () => {
     const deps = createDeps({ probes: new Map([[channel, singleProbe()]]) });
     vi.mocked(deps.credentialRepository.create).mockImplementation(() => {
       throw new Error('database failed');
@@ -198,9 +116,7 @@ describe('DiscoverAndCreate', () => {
 
     await expect(
       discoverAndCreate.trigger(partitionName, channel, 'https://example.com/landing', {} as never),
-    ).resolves.toBe(false);
-    expect(deps.accountRepository.create).not.toHaveBeenCalled();
-    expect(deps.accountRepository.updateDiscovery).not.toHaveBeenCalled();
+    ).resolves.toBeNull();
     expect(deps.removePendingPartition).not.toHaveBeenCalled();
   });
 
@@ -241,7 +157,6 @@ describe('DiscoverAndCreate', () => {
     );
 
     expect(deps.credentialRepository.create).not.toHaveBeenCalled();
-    expect(deps.accountRepository.create).not.toHaveBeenCalled();
     expect(onAccountBound).not.toHaveBeenCalled();
   });
 
@@ -282,7 +197,7 @@ describe('DiscoverAndCreate', () => {
 
     await expect(
       discoverAndCreate.trigger(partitionName, channel, 'https://example.com/landing', {} as never),
-    ).resolves.toBe(false);
+    ).resolves.toBeNull();
     expect(deps.credentialRepository.create).not.toHaveBeenCalled();
   });
 
@@ -346,7 +261,7 @@ describe('DiscoverAndCreate', () => {
         'https://ebooking.ctrip.com/hotel/12345',
         {} as never,
       ),
-    ).resolves.toBe(true);
+    ).resolves.not.toBeNull();
 
     expect(discoverCtrip).toHaveBeenCalledOnce();
     expect(deps.credentialRepository.create).toHaveBeenCalledWith({
@@ -362,13 +277,6 @@ describe('DiscoverAndCreate', () => {
       discoveredAt: expect.any(Number),
       lastRefreshedAt: expect.any(Number),
     });
-    expect(deps.accountRepository.create).toHaveBeenCalledWith(
-      expect.objectContaining({
-        credentialId: toOtaCredentialId('generated-credential-id'),
-        channel: ctripChannel,
-        otaHotelId: toOtaHotelId('12345'),
-      }),
-    );
   });
 
   it('携程已有 credential 时刷新 hotel-dom 临时身份', async () => {
@@ -427,7 +335,7 @@ describe('DiscoverAndCreate', () => {
     });
   });
 
-  it('携程多酒店结果不创建 credential 或 account', async () => {
+  it('携程多酒店结果不创建 credential', async () => {
     const discoverCtrip = vi.fn().mockResolvedValue({
       kind: 'multiple',
       hotels: [
@@ -445,14 +353,13 @@ describe('DiscoverAndCreate', () => {
         'https://ebooking.ctrip.com/home/mainland',
         {} as never,
       ),
-    ).resolves.toBe(false);
+    ).resolves.toBeNull();
 
     expect(deps.credentialRepository.create).not.toHaveBeenCalled();
     expect(deps.credentialRepository.updateIdentity).not.toHaveBeenCalled();
-    expect(deps.accountRepository.create).not.toHaveBeenCalled();
   });
 
-  it('抖音发现结果创建带登录用户身份的 credential 并关联酒店', async () => {
+  it('抖音发现结果创建带登录用户身份的 credential', async () => {
     const discoverDouyin = vi.fn().mockResolvedValue({
       kind: 'found',
       credential: {
@@ -464,13 +371,6 @@ describe('DiscoverAndCreate', () => {
           roleType: 1,
         },
       },
-      hotels: [
-        {
-          otaHotelId: toOtaHotelId('7220335839249696827'),
-          otaHotelName: '抖音测试酒店',
-          bindExtra: { merchantGroupId: '1813179858562059' },
-        },
-      ],
     });
     const deps = createDeps({ discoverDouyin });
     const discoverAndCreate = new DiscoverAndCreate(deps);
@@ -482,7 +382,7 @@ describe('DiscoverAndCreate', () => {
         'https://life.douyin.com/p/home?groupid=1813179858562059',
         {} as never,
       ),
-    ).resolves.toBe(true);
+    ).resolves.not.toBeNull();
 
     expect(deps.credentialRepository.create).toHaveBeenCalledWith({
       id: toOtaCredentialId('generated-credential-id'),
@@ -493,13 +393,6 @@ describe('DiscoverAndCreate', () => {
       discoveredAt: expect.any(Number),
       lastRefreshedAt: expect.any(Number),
     });
-    expect(deps.accountRepository.create).toHaveBeenCalledWith(
-      expect.objectContaining({
-        channel: douyinChannel,
-        otaHotelId: toOtaHotelId('7220335839249696827'),
-        bindExtra: { merchantGroupId: '1813179858562059' },
-      }),
-    );
   });
 
   it('抖音已有 credential 时刷新登录用户身份', async () => {
@@ -518,13 +411,6 @@ describe('DiscoverAndCreate', () => {
           roleType: 1,
         },
       },
-      hotels: [
-        {
-          otaHotelId: toOtaHotelId('7220335839249696827'),
-          otaHotelName: '抖音测试酒店',
-          bindExtra: { merchantGroupId: '1813179858562059' },
-        },
-      ],
     });
     const deps = createDeps({ discoverDouyin });
     vi.mocked(deps.credentialRepository.findByPartitionName).mockReturnValue(existingCredential);
@@ -550,7 +436,7 @@ describe('DiscoverAndCreate', () => {
     });
   });
 
-  it('抖音身份发现失败时不创建 credential 或 account', async () => {
+  it('抖音身份发现失败时不创建 credential', async () => {
     const discoverDouyin = vi.fn().mockResolvedValue({ kind: 'none' });
     const deps = createDeps({ discoverDouyin });
     const discoverAndCreate = new DiscoverAndCreate(deps);
@@ -562,14 +448,13 @@ describe('DiscoverAndCreate', () => {
         'https://life.douyin.com/p/home?groupid=1813179858562059',
         {} as never,
       ),
-    ).resolves.toBe(false);
+    ).resolves.toBeNull();
 
     expect(deps.credentialRepository.create).not.toHaveBeenCalled();
     expect(deps.credentialRepository.updateIdentity).not.toHaveBeenCalled();
-    expect(deps.accountRepository.create).not.toHaveBeenCalled();
   });
 
-  it('美团显式发现创建带渠道身份的 credential，并一次保存全部酒店', async () => {
+  it('美团显式发现创建带渠道身份的 credential', async () => {
     const discoverMeituan = vi.fn().mockResolvedValue({
       kind: 'found',
       credential: {
@@ -582,26 +467,10 @@ describe('DiscoverAndCreate', () => {
           maskedPhone: '138****1234',
         },
       },
-      hotels: [
-        {
-          otaHotelId: toOtaHotelId('hotel-1'),
-          otaHotelName: '美团酒店一',
-          bindExtra: { otaPartnerId: 'partner-1', otaPartnerName: '合作方一' },
-        },
-        {
-          otaHotelId: toOtaHotelId('hotel-2'),
-          otaHotelName: '美团酒店二',
-          bindExtra: null,
-        },
-      ],
     });
     const onAccountBound = vi.fn();
     const deps = createDeps({
       discoverMeituan,
-      generateAccountId: vi
-        .fn()
-        .mockReturnValueOnce('generated-account-1')
-        .mockReturnValueOnce('generated-account-2'),
       onAccountBound,
     });
     const discoverAndCreate = new DiscoverAndCreate(deps);
@@ -613,7 +482,7 @@ describe('DiscoverAndCreate', () => {
         'https://me.meituan.com/ebooking/index.html',
         {} as never,
       ),
-    ).resolves.toBe(true);
+    ).resolves.not.toBeNull();
 
     expect(discoverMeituan).toHaveBeenCalledTimes(1);
     expect(deps.credentialRepository.create).toHaveBeenCalledWith({
@@ -625,23 +494,6 @@ describe('DiscoverAndCreate', () => {
       discoveredAt: expect.any(Number),
       lastRefreshedAt: expect.any(Number),
     });
-    expect(deps.accountRepository.create).toHaveBeenCalledTimes(2);
-    expect(deps.accountRepository.create).toHaveBeenNthCalledWith(
-      1,
-      expect.objectContaining({
-        id: toOtaAccountId('generated-account-1'),
-        credentialId: toOtaCredentialId('generated-credential-id'),
-        otaHotelId: toOtaHotelId('hotel-1'),
-      }),
-    );
-    expect(deps.accountRepository.create).toHaveBeenNthCalledWith(
-      2,
-      expect.objectContaining({
-        id: toOtaAccountId('generated-account-2'),
-        credentialId: toOtaCredentialId('generated-credential-id'),
-        otaHotelId: toOtaHotelId('hotel-2'),
-      }),
-    );
     expect(deps.removePendingPartition).toHaveBeenCalledTimes(1);
     expect(onAccountBound).toHaveBeenCalledTimes(1);
     expect(onAccountBound).toHaveBeenCalledWith(meituanChannel);
@@ -658,13 +510,6 @@ describe('DiscoverAndCreate', () => {
         channelAccountId: '274615733',
         credentialExtra: { partnerId: '4595635' },
       },
-      hotels: [
-        {
-          otaHotelId: toOtaHotelId('hotel-1'),
-          otaHotelName: '美团酒店一',
-          bindExtra: null,
-        },
-      ],
     });
     const deps = createDeps({ discoverMeituan });
     vi.mocked(deps.credentialRepository.findByPartitionName).mockReturnValue(existingCredential);
@@ -689,9 +534,6 @@ describe('DiscoverAndCreate', () => {
       credentialExtra: { partnerId: '4595635' },
       lastRefreshedAt: expect.any(Number),
     });
-    expect(deps.accountRepository.create).toHaveBeenCalledWith(
-      expect.objectContaining({ credentialId: existingCredential.id }),
-    );
   });
 
   it('美团新 partition 识别为已有渠道账号时更新原 credential 并退休旧 partition', async () => {
@@ -707,13 +549,6 @@ describe('DiscoverAndCreate', () => {
         channelAccountId: '274615733',
         credentialExtra: { partnerId: '4595635', login: 'hotel-login' },
       },
-      hotels: [
-        {
-          otaHotelId: toOtaHotelId('hotel-1'),
-          otaHotelName: '美团酒店一',
-          bindExtra: null,
-        },
-      ],
     });
     const onCredentialPartitionReplaced = vi.fn().mockResolvedValue(undefined);
     const deps = createDeps({ discoverMeituan, onCredentialPartitionReplaced });
@@ -735,7 +570,7 @@ describe('DiscoverAndCreate', () => {
         'https://me.meituan.com/ebooking/index.html',
         {} as never,
       ),
-    ).resolves.toBe(true);
+    ).resolves.not.toBeNull();
 
     expect(deps.credentialRepository.create).not.toHaveBeenCalled();
     expect(deps.credentialRepository.updatePartitionAndIdentity).toHaveBeenCalledWith(
@@ -746,9 +581,6 @@ describe('DiscoverAndCreate', () => {
         credentialExtra: { partnerId: '4595635', login: 'hotel-login' },
         lastRefreshedAt: expect.any(Number),
       },
-    );
-    expect(deps.accountRepository.create).toHaveBeenCalledWith(
-      expect.objectContaining({ credentialId: existingCredential.id }),
     );
     expect(onCredentialPartitionReplaced).toHaveBeenCalledWith(
       previousPartitionName,
@@ -765,7 +597,6 @@ describe('DiscoverAndCreate', () => {
     const discoverMeituan = vi.fn().mockResolvedValue({
       kind: 'found',
       credential: { channelAccountId: '274615733', credentialExtra: null },
-      hotels: [],
     });
     const deps = createDeps({
       discoverMeituan,
@@ -788,7 +619,7 @@ describe('DiscoverAndCreate', () => {
         'https://me.meituan.com/ebooking/index.html',
         {} as never,
       ),
-    ).resolves.toBe(true);
+    ).resolves.not.toBeNull();
     expect(deps.removePendingPartition).toHaveBeenCalledWith(meituanPartitionName);
     expect(deps.logger.warn).toHaveBeenCalledWith(
       'Replaced credential partition could not be retired',
@@ -796,7 +627,7 @@ describe('DiscoverAndCreate', () => {
     );
   });
 
-  it('美团身份发现失败时保留已有 credential 和账号', async () => {
+  it('美团身份发现失败时保留已有 credential', async () => {
     const discoverMeituan = vi.fn().mockResolvedValue({ kind: 'none' });
     const deps = createDeps({ discoverMeituan });
     const discoverAndCreate = new DiscoverAndCreate(deps);
@@ -808,12 +639,10 @@ describe('DiscoverAndCreate', () => {
         'https://me.meituan.com/ebooking/index.html',
         {} as never,
       ),
-    ).resolves.toBe(false);
+    ).resolves.toBeNull();
 
     expect(deps.credentialRepository.create).not.toHaveBeenCalled();
     expect(deps.credentialRepository.updateIdentity).not.toHaveBeenCalled();
-    expect(deps.accountRepository.create).not.toHaveBeenCalled();
-    expect(deps.accountRepository.updateDiscovery).not.toHaveBeenCalled();
     expect(deps.removePendingPartition).not.toHaveBeenCalled();
   });
 });

@@ -1,6 +1,6 @@
 import type { WebContents } from 'electron';
 import { describe, expect, it, vi } from 'vitest';
-import { createCtripDiscovery } from '../../../src/main/ota/ctrip/discover-ctrip';
+import { createCtripDiscovery } from '../../../src/main/features/ota-credential/ota/ctrip/discover-ctrip';
 
 function createLogger() {
   return { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
