@@ -1,18 +1,85 @@
+# Version control, editor, and agent metadata
 .git
+.gitignore
 .github
+**/.github
 .agents
 .codex
+.history
+.vscode
+**/.vscode
+
+# Workspaces and project material not used by the server image
+apps/desktop
+docs
+openspec
+output
+scripts
+tests
+AGENTS.md
+CLAUDE.md
+DESIGN.md
+**/*.md
+
+# Dependencies and tool caches
 node_modules
 **/node_modules
+.npm
+**/.npm
+.cache
+**/.cache
+.vite
+**/.vite
 **/.svelte-kit
-**/.cert
+**/*.tsbuildinfo
+
+# Build and package output
+build
 **/build
+dist
+**/dist
+out
+**/out
+.output
+**/.output
+*.tgz
+
+# Test output
+coverage
 **/coverage
+test-results
 **/test-results
+playwright-report
 **/playwright-report
+.e2e
+**/.e2e
+*.lcov
+
+# Local configuration, certificates, and runtime data
+.env
+.env.*
 **/.env
 **/.env.*
-!**/.env.example
-!**/.env.production.example
-apps/desktop/out
-output
+.cert
+**/.cert
+uploads
+**/uploads
+logs
+**/logs
+*.log
+*.pid
+*.pid.lock
+
+# Lockfiles for package managers not used by this npm workspace
+pnpm-lock.yaml
+yarn.lock
+bun.lock
+bun.lockb
+
+# Operating-system files
+.DS_Store
+**/.DS_Store
+Thumbs.db
+**/Thumbs.db
+__MACOSX
+**/__MACOSX
