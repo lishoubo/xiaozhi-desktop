@@ -98,6 +98,16 @@ describe('App routing and query integration', () => {
         otaCredential: {
           listByChannel: vi.fn().mockResolvedValue([]),
           openExisting: vi.fn(),
+          onDiscoveryCompleted: vi.fn(() => vi.fn()),
+        },
+        hotelManagement: {
+          load: vi.fn().mockResolvedValue({
+            hotels: [{ id: 1001, name: '上海云栖酒店', status: 1 }],
+            otaAccounts: [],
+          }),
+          createHotel: vi.fn(),
+          deleteHotel: vi.fn(),
+          unbindOtaAccount: vi.fn(),
         },
         calendar: {
           load: vi.fn().mockResolvedValue({

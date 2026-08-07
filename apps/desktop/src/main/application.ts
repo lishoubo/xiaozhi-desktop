@@ -24,6 +24,10 @@ import { createCtripDiscovery } from './features/ota-credential/ota/ctrip/discov
 import { createDouyinDiscovery } from './features/ota-credential/ota/douyin/discover-douyin';
 import { createMeituanDiscovery } from './features/ota-credential/ota/meituan/discover-meituan';
 import { OtaHotelProbFeature } from './features/ota-hotel-prob/ota-hotel-prob-feature';
+import { HotelManagementFeature } from './features/hotel-management/hotel-management-feature';
+import { MockRmsHotelGateway } from './features/hotel-management/rms-hotel-gateway-mock';
+import { MockRmsOtaAccountGateway } from './features/hotel-management/rms-ota-account-gateway-mock';
+import { registerHotelManagementHandlers } from './ipc/hotel-management-handlers';
 import { ctripHotelProbe } from './features/ota-hotel-prob/ota/ctrip/hotel-prob';
 import { createDouyinHotelProbe } from './features/ota-hotel-prob/ota/douyin/hotel-prob';
 import { meituanHotelProbe } from './features/ota-hotel-prob/ota/meituan/hotel-prob';
@@ -50,6 +54,8 @@ let discoverAndCreate: DiscoverAndCreate | null = null;
 let otaCredentialRepository: SqliteOtaCredentialRepository | null = null;
 let otaHotelProbRepository: SqliteOtaHotelProbRepository | null = null;
 let sessionFactory: SessionFactory | null = null;
+let hotelManagementFeature: HotelManagementFeature | null = null;
+let unregisterHotelManagementHandlers: (() => void) | null = null;
 
 configureNetworkPrivacy(app.commandLine);
 configureMainLogging(log, {
@@ -63,6 +69,7 @@ function openMainWindow(): void {
   if (!otaCredentialRepository) throw new Error('OtaCredential repository is not initialized');
   if (!otaHotelProbRepository) throw new Error('OtaHotelProb repository is not initialized');
   if (!sessionFactory) throw new Error('Session factory is not initialized');
+  if (!hotelManagementFeature) throw new Error('Hotel management feature is not initialized');
   mainWindow = createMainWindow();
   log.info('Main window created');
   tabEventBus = new TabEventBus();
@@ -106,6 +113,11 @@ function openMainWindow(): void {
     repository: calendarRepository,
     logger: log,
   });
+  unregisterHotelManagementHandlers = registerHotelManagementHandlers({
+    window: mainWindow,
+    feature: hotelManagementFeature,
+    logger: log,
+  });
   const serverOrigin = resolveServerOrigin(process.env);
   const apiSession = sessionFactory.sessionForServerApi();
   unregisterAuthHandlers = registerAuthHandlers({
@@ -121,6 +133,8 @@ function openMainWindow(): void {
   mainWindow.once('closed', () => {
     unregisterAuthHandlers?.();
     unregisterAuthHandlers = null;
+    unregisterHotelManagementHandlers?.();
+    unregisterHotelManagementHandlers = null;
     unregisterCalendarHandlers?.();
     unregisterCalendarHandlers = null;
     unregisterAutomationHandlers?.();
@@ -148,6 +162,10 @@ function initializeApplication(): void {
   const userDataDir = app.getPath('userData');
   otaCredentialRepository = new SqliteOtaCredentialRepository(applicationDatabase);
   otaHotelProbRepository = new SqliteOtaHotelProbRepository(applicationDatabase);
+  hotelManagementFeature = new HotelManagementFeature(
+    new MockRmsHotelGateway(),
+    new MockRmsOtaAccountGateway(),
+  );
   discoverAndCreate = new DiscoverAndCreate({
     probes: createDiscoveryProbes(),
     discoverCtrip: createCtripDiscovery(log),
@@ -204,6 +222,7 @@ app.on('activate', () => {
 app.once('will-quit', () => {
   log.info('Application shutdown started');
   unregisterAuthHandlers?.();
+  unregisterHotelManagementHandlers?.();
   unregisterCalendarHandlers?.();
   unregisterBrowserHandlers?.();
   unregisterAutomationHandlers?.();
@@ -216,6 +235,7 @@ app.once('will-quit', () => {
   discoverAndCreate = null;
   otaCredentialRepository = null;
   otaHotelProbRepository = null;
+  hotelManagementFeature = null;
   tabEventBus = null;
   sessionFactory = null;
   log.info('Application shutdown completed');

@@ -8,19 +8,19 @@
 
 ## 2. RMS models and Gateway ports
 
-- [ ] 2.1 Add focused schema tests for the minimal `RmsHotel` and `RmsOtaAccount` projections and rejection of extra, credential-bearing or malformed IPC values.
-- [ ] 2.2 Define framework-free `RmsHotel { id, name, status }`, `RmsOtaAccount { id, hotelId, otaHotelId, otaHotelName, status, source, bindExtra }`, create-hotel, bind, unbind and Cookie snapshot domain types.
-- [ ] 2.3 Define `RmsHotelGateway` and `RmsOtaAccountGateway` ports with explicit list/create/delete/bind/unbind semantics.
-- [ ] 2.4 Implement deterministic stateful mock Gateways, including duplicate channel binding, missing account ID and remote deletion failure cases.
+- [x] 2.1 Add focused schema tests for the minimal `RmsHotel` and `RmsOtaAccount` projections and rejection of extra, credential-bearing or malformed IPC values.
+- [x] 2.2 Define framework-free `RmsHotel { id, name, status }`, `RmsOtaAccount { id, hotelId, otaHotelId, otaHotelName, status, source, bindExtra }`, create-hotel, bind, unbind and Cookie snapshot domain types.
+- [x] 2.3 Define `RmsHotelGateway` and `RmsOtaAccountGateway` ports with explicit list/create/delete/bind/unbind semantics.
+- [x] 2.4 Implement deterministic stateful mock Gateways, including duplicate channel binding, missing account ID and remote deletion failure cases.
 
 ## 3. Hotel management data path and CRUD
 
-- [ ] 3.1 Add focused main/preload tests for trusted sender checks, strict inputs, safe outputs and remote error propagation.
-- [ ] 3.2 Add shared hotel-management IPC schemas, channels, main handlers and the preload `hotelManagement` namespace, keeping credential option queries in the common `otaCredential` namespace.
-- [ ] 3.3 Replace renderer static imports with asynchronous snapshot loading, retry, empty and failure states while retaining the compact layout.
-- [ ] 3.4 Add the RMS hotel creation dialog and refresh only after Gateway success.
-- [ ] 3.5 Add confirmed RMS hotel deletion through `deleteHotel`, without desktop-side cascade or simulated success.
-- [ ] 3.6 Add confirmed OTA binding deletion through `unbind(otaAccountId)`, preserving local credentials, partitions and hotel probes.
+- [x] 3.1 Add focused main/preload tests for trusted sender checks, strict inputs, safe outputs and remote error propagation.
+- [x] 3.2 Add shared hotel-management IPC schemas, channels, main handlers and the preload `hotelManagement` namespace, keeping credential option queries in the common `otaCredential` namespace.
+- [x] 3.3 Replace renderer static imports with asynchronous snapshot loading, retry, empty and failure states while retaining the compact layout.
+- [x] 3.4 Add the RMS hotel creation dialog and refresh only after Gateway success.
+- [x] 3.5 Add confirmed RMS hotel deletion through `deleteHotel`, without desktop-side cascade or simulated success.
+- [x] 3.6 Add confirmed OTA binding deletion through `unbind(otaAccountId)`, preserving local credentials, partitions and hotel probes.
 
 ## 4. Existing credential selection for binding
 
@@ -53,7 +53,7 @@
 
 ## 8. Verification and quality gates
 
-- [ ] 8.1 Run focused tests during implementation, including existing credential discovery and hotel probe regression tests.
-- [ ] 8.2 Run the completion-scope desktop and shared-package type/Svelte checks and tests once, recording exact results in `verification.md`.
+- [x] 8.1 Run focused tests during implementation, including existing credential discovery and hotel probe regression tests. (covers Part A scope: sections 2–3)
+- [x] 8.2 Run the completion-scope desktop and shared-package type/Svelte checks and tests once, recording exact results in `verification.md`. (covers Part A scope: sections 2–3)
 - [ ] 8.3 Perform a separate UI verification pass for load/error/CRUD, credential selection, candidate confirmation, cancellation and binding success/failure; record screenshot evidence in `verification.md`.
 - [ ] 8.4 Perform a separate code-review pass for domain boundaries, IPC trust, Cookie privacy, intent isolation, idempotency, accessibility and regressions; record findings in `verification.md`.

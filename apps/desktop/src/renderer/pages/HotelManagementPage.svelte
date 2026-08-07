@@ -1,39 +1,142 @@
 <script lang="ts">
   import Building2 from '@lucide/svelte/icons/building-2';
   import Plus from '@lucide/svelte/icons/plus';
-  import Settings2 from '@lucide/svelte/icons/settings-2';
+  import Trash2 from '@lucide/svelte/icons/trash-2';
+  import log from 'electron-log/renderer';
+  import { onMount } from 'svelte';
   import { Button } from '$lib/components/ui/button';
+  import { Spinner } from '$lib/components/ui/spinner';
+  import * as Dialog from '$lib/components/ui/dialog';
+  import * as AlertDialog from '$lib/components/ui/alert-dialog';
   import BoundOtaAccountCard from '../components/hotel/BoundOtaAccountCard.svelte';
-  import { MOCK_MANAGED_HOTELS } from '../hotel-management/mock-hotels';
-  import type { BoundOtaAccount, OtaAccountAction } from '../hotel-management/model';
+  import { desktopHotelManagementDataSource } from '../hotel-management/hotel-management-data-source';
+  import { groupOtaAccountsByHotelId, type OtaAccountAction } from '../hotel-management/model';
+  import type { RmsHotelDto, RmsOtaAccountDto } from '../../shared/hotel-management';
   import { enter, PAGE_ENTER_OPTIONS } from '../motion';
-  import { showAppNotification } from '../notifications';
+  import { dismissAppNotification, showAppNotification } from '../notifications';
 
-  const hotels = MOCK_MANAGED_HOTELS;
-  const totalAccounts = hotels.reduce((sum, hotel) => sum + hotel.otaAccounts.length, 0);
-  const attentionAccounts = hotels.reduce(
-    (sum, hotel) =>
-      sum +
-      hotel.otaAccounts.filter((account) =>
-        ['LOGIN_FAILED', 'LOGIN_EXPIRED', 'INIT_FAILED', 'HOTEL_NAME_MISMATCH'].includes(
-          account.status,
-        ),
-      ).length,
-    0,
+  let loading = $state(true);
+  let loadError = $state(false);
+  let hotels = $state<readonly RmsHotelDto[]>([]);
+  let otaAccounts = $state<readonly RmsOtaAccountDto[]>([]);
+  const accountsByHotelId = $derived(groupOtaAccountsByHotelId(otaAccounts));
+  const totalAccounts = $derived(otaAccounts.length);
+  const attentionAccounts = $derived(
+    otaAccounts.filter((account) =>
+      ['LOGIN_FAILED', 'LOGIN_EXPIRED', 'INIT_FAILED', 'HOTEL_NAME_MISMATCH'].includes(
+        account.status,
+      ),
+    ).length,
   );
 
-  function showHotelAction(action: 'add' | 'manage', hotelName: string): void {
-    showAppNotification({
-      id: `hotel-${action}`,
-      title: '设计预览',
-      message: `${hotelName}的${action === 'add' ? '新增绑定账号' : '绑定账号管理'}入口暂未连接服务端。`,
-      tone: 'default',
-    });
+  let createOpen = $state(false);
+  let createName = $state('');
+  let creating = $state(false);
+
+  let deleteTarget = $state<RmsHotelDto | null>(null);
+  let deleting = $state(false);
+
+  let unbindTarget = $state<{ account: RmsOtaAccountDto; channelName: string } | null>(null);
+  let unbinding = $state(false);
+
+  async function loadHotelManagement(): Promise<void> {
+    loading = true;
+    loadError = false;
+    try {
+      const snapshot = await desktopHotelManagementDataSource.load();
+      hotels = snapshot.hotels;
+      otaAccounts = snapshot.otaAccounts;
+      dismissAppNotification('hotel-management-load-error');
+    } catch (reason) {
+      log.warn('Hotel management data could not be loaded', {
+        errorName: reason instanceof Error ? reason.name : 'UnknownError',
+      });
+      loadError = true;
+    } finally {
+      loading = false;
+    }
+  }
+
+  onMount(() => {
+    void loadHotelManagement();
+  });
+
+  function openCreateDialog(): void {
+    createName = '';
+    createOpen = true;
+  }
+
+  async function submitCreateHotel(): Promise<void> {
+    if (!createName.trim() || creating) return;
+    creating = true;
+    try {
+      await desktopHotelManagementDataSource.createHotel({ name: createName.trim() });
+      createOpen = false;
+      await loadHotelManagement();
+    } catch (reason) {
+      log.warn('Hotel creation failed', {
+        errorName: reason instanceof Error ? reason.name : 'UnknownError',
+      });
+      showAppNotification({
+        id: 'hotel-create-error',
+        title: '新增酒店失败',
+        message: '未能创建酒店，请检查后重试。',
+        tone: 'error',
+      });
+    } finally {
+      creating = false;
+    }
+  }
+
+  async function confirmDeleteHotel(): Promise<void> {
+    const target = deleteTarget;
+    if (!target || deleting) return;
+    deleting = true;
+    try {
+      await desktopHotelManagementDataSource.deleteHotel(target.id);
+      deleteTarget = null;
+      await loadHotelManagement();
+    } catch (reason) {
+      log.warn('Hotel deletion failed', {
+        errorName: reason instanceof Error ? reason.name : 'UnknownError',
+      });
+      showAppNotification({
+        id: 'hotel-delete-error',
+        title: '删除酒店失败',
+        message: '远端拒绝了此次删除，请稍后重试。',
+        tone: 'error',
+      });
+    } finally {
+      deleting = false;
+    }
+  }
+
+  async function confirmUnbind(): Promise<void> {
+    const target = unbindTarget;
+    if (!target || unbinding) return;
+    unbinding = true;
+    try {
+      await desktopHotelManagementDataSource.unbindOtaAccount(target.account.id);
+      unbindTarget = null;
+      await loadHotelManagement();
+    } catch (reason) {
+      log.warn('OTA account unbind failed', {
+        errorName: reason instanceof Error ? reason.name : 'UnknownError',
+      });
+      showAppNotification({
+        id: 'hotel-unbind-error',
+        title: '解绑失败',
+        message: '远端拒绝了此次解绑，请稍后重试。',
+        tone: 'error',
+      });
+    } finally {
+      unbinding = false;
+    }
   }
 
   function showAccountAction(
     action: OtaAccountAction,
-    account: BoundOtaAccount,
+    account: RmsOtaAccountDto,
     channelName: string,
   ): void {
     const actionName =
@@ -41,7 +144,16 @@
     showAppNotification({
       id: `ota-${account.id}-${action}`,
       title: `${channelName} · ${actionName}`,
-      message: `${actionName}流程暂未连接服务端，当前仅展示页面设计。`,
+      message: `${actionName}流程暂未实现。`,
+      tone: 'default',
+    });
+  }
+
+  function showAddBindingPlaceholder(hotelName: string): void {
+    showAppNotification({
+      id: 'hotel-add-binding',
+      title: '设计预览',
+      message: `${hotelName}的新增绑定账号入口暂未实现。`,
       tone: 'default',
     });
   }
@@ -61,88 +173,195 @@
         </div>
         <h1 class="m-0 text-xl font-semibold tracking-[-0.02em]">酒店管理</h1>
       </div>
-      <div
-        class="flex items-center gap-2 text-[11px] text-muted-foreground"
-        aria-label="酒店绑定概览"
-      >
-        <span>{hotels.length} 家酒店</span>
-        <span aria-hidden="true">·</span>
-        <span>{totalAccounts} 个账号</span>
-        {#if attentionAccounts > 0}
-          <span class="rounded-full bg-[#fde9e7] px-2 py-0.5 font-medium text-[#a8342d]">
-            {attentionAccounts} 个待处理
-          </span>
+      <div class="flex items-center gap-3">
+        {#if !loading && !loadError}
+          <div
+            class="flex items-center gap-2 text-[11px] text-muted-foreground"
+            aria-label="酒店绑定概览"
+          >
+            <span>{hotels.length} 家酒店</span>
+            <span aria-hidden="true">·</span>
+            <span>{totalAccounts} 个账号</span>
+            {#if attentionAccounts > 0}
+              <span class="rounded-full bg-[#fde9e7] px-2 py-0.5 font-medium text-[#a8342d]">
+                {attentionAccounts} 个待处理
+              </span>
+            {/if}
+          </div>
         {/if}
+        <Button size="sm" onclick={openCreateDialog}>
+          <Plus />
+          新增酒店
+        </Button>
       </div>
     </header>
 
-    <div
-      class="mt-4 overflow-visible rounded-lg border border-border bg-card shadow-[0_1px_3px_rgba(20,20,20,0.035)]"
-    >
-      <div
-        class="grid grid-cols-[minmax(180px,0.8fr)_minmax(360px,2fr)_88px] items-center gap-4 border-b border-border bg-muted/40 px-4 py-2 text-[11px] font-medium text-muted-foreground"
-        aria-hidden="true"
-      >
-        <span>酒店</span>
-        <span>绑定的 OTA 账号</span>
-        <span class="text-right">操作</span>
+    {#if loading}
+      <div class="mt-8 flex items-center justify-center gap-2 py-16 text-muted-foreground">
+        <Spinner class="size-[18px]" aria-label="正在加载酒店数据" />
+        <span>正在加载酒店数据…</span>
       </div>
-
-      {#each hotels as hotel}
-        <section
-          class="grid min-h-16 grid-cols-[minmax(180px,0.8fr)_minmax(360px,2fr)_88px] items-center gap-4 border-b border-border px-4 py-2 last:border-b-0"
-          data-testid="managed-hotel"
-          data-layout="single-row"
-          aria-labelledby={`hotel-${hotel.id}`}
+    {:else if loadError}
+      <div
+        class="mt-8 flex flex-col items-center gap-3 rounded-lg border border-border bg-card py-16 text-center"
+      >
+        <p class="m-0 text-sm text-muted-foreground">未能读取酒店管理数据，请重试。</p>
+        <Button size="sm" variant="outline" onclick={() => void loadHotelManagement()}
+          >重新加载</Button
         >
-          <div class="min-w-0">
-            <h2 id={`hotel-${hotel.id}`} class="m-0 truncate text-sm font-semibold">
-              {hotel.name}
-            </h2>
-            <p class="mt-1 mb-0 truncate text-[11px] text-muted-foreground">
-              <span>{hotel.city}</span>
-              <span aria-hidden="true"> · </span>
-              <span>{hotel.otaAccounts.length} 个账号</span>
-            </p>
-          </div>
+      </div>
+    {:else}
+      <div
+        class="mt-4 overflow-visible rounded-lg border border-border bg-card shadow-[0_1px_3px_rgba(20,20,20,0.035)]"
+      >
+        <div
+          class="grid grid-cols-[minmax(180px,0.8fr)_minmax(360px,2fr)_88px] items-center gap-4 border-b border-border bg-muted/40 px-4 py-2 text-[11px] font-medium text-muted-foreground"
+          aria-hidden="true"
+        >
+          <span>酒店</span>
+          <span>绑定的 OTA 账号</span>
+          <span class="text-right">操作</span>
+        </div>
 
-          <div class="flex min-w-0 items-center gap-2 overflow-visible">
-            {#if hotel.otaAccounts.length > 0}
-              {#each hotel.otaAccounts.slice(0, 3) as account}
-                <BoundOtaAccountCard {account} onAction={showAccountAction} />
-              {/each}
-              {#if hotel.otaAccounts.length > 3}
-                <span class="shrink-0 text-[11px] text-muted-foreground">
-                  +{hotel.otaAccounts.length - 3}
-                </span>
+        {#each hotels as hotel}
+          {@const accounts = accountsByHotelId.get(hotel.id) ?? []}
+          <section
+            class="grid min-h-16 grid-cols-[minmax(180px,0.8fr)_minmax(360px,2fr)_88px] items-center gap-4 border-b border-border px-4 py-2 last:border-b-0"
+            data-testid="managed-hotel"
+            data-layout="single-row"
+            aria-labelledby={`hotel-${hotel.id}`}
+          >
+            <div class="min-w-0">
+              <h2 id={`hotel-${hotel.id}`} class="m-0 truncate text-sm font-semibold">
+                {hotel.name}
+              </h2>
+              <p class="mt-1 mb-0 truncate text-[11px] text-muted-foreground">
+                <span>{accounts.length} 个账号</span>
+              </p>
+            </div>
+
+            <div class="flex min-w-0 items-center gap-2 overflow-visible">
+              {#if accounts.length > 0}
+                {#each accounts.slice(0, 3) as account}
+                  <BoundOtaAccountCard
+                    {account}
+                    onAction={showAccountAction}
+                    onUnbind={(target, channelName) =>
+                      (unbindTarget = { account: target, channelName })}
+                  />
+                {/each}
+                {#if accounts.length > 3}
+                  <span class="shrink-0 text-[11px] text-muted-foreground">
+                    +{accounts.length - 3}
+                  </span>
+                {/if}
+              {:else}
+                <span class="text-xs text-muted-foreground">暂未绑定</span>
               {/if}
-            {:else}
-              <span class="text-xs text-muted-foreground">暂未绑定</span>
-            {/if}
-          </div>
+            </div>
 
-          <div class="flex justify-end gap-1">
-            <Button
-              size="icon-sm"
-              variant="ghost"
-              title="绑定账号管理"
-              aria-label={`绑定账号管理 - ${hotel.name}`}
-              onclick={() => showHotelAction('manage', hotel.name)}
-            >
-              <Settings2 />
-            </Button>
-            <Button
-              size="icon-sm"
-              variant="ghost"
-              title="新增绑定账号"
-              aria-label={`新增绑定账号 - ${hotel.name}`}
-              onclick={() => showHotelAction('add', hotel.name)}
-            >
-              <Plus />
-            </Button>
-          </div>
-        </section>
-      {/each}
-    </div>
+            <div class="flex justify-end gap-1">
+              <Button
+                size="icon-sm"
+                variant="ghost"
+                title="新增绑定账号"
+                aria-label={`新增绑定账号 - ${hotel.name}`}
+                onclick={() => showAddBindingPlaceholder(hotel.name)}
+              >
+                <Plus />
+              </Button>
+              <Button
+                size="icon-sm"
+                variant="ghost"
+                title="删除酒店"
+                aria-label={`删除酒店 - ${hotel.name}`}
+                onclick={() => (deleteTarget = hotel)}
+              >
+                <Trash2 />
+              </Button>
+            </div>
+          </section>
+        {/each}
+      </div>
+    {/if}
   </div>
 </main>
+
+<Dialog.Root bind:open={createOpen}>
+  <Dialog.Content class="sm:max-w-md">
+    <Dialog.Header>
+      <Dialog.Title class="text-lg">新增酒店</Dialog.Title>
+      <Dialog.Description>创建成功后将自动刷新酒店列表。</Dialog.Description>
+    </Dialog.Header>
+    <label class="grid gap-1.5 text-sm">
+      <span class="font-medium">酒店名称</span>
+      <input
+        class="rounded-md border border-border bg-background px-3 py-2 text-sm"
+        bind:value={createName}
+        disabled={creating}
+        placeholder="请输入酒店名称"
+      />
+    </label>
+    <Dialog.Footer>
+      <Button variant="ghost" disabled={creating} onclick={() => (createOpen = false)}>取消</Button>
+      <Button disabled={!createName.trim() || creating} onclick={() => void submitCreateHotel()}>
+        {#if creating}
+          <Spinner aria-label="正在创建" />
+          正在创建
+        {:else}
+          创建
+        {/if}
+      </Button>
+    </Dialog.Footer>
+  </Dialog.Content>
+</Dialog.Root>
+
+<AlertDialog.Root
+  open={deleteTarget !== null}
+  onOpenChange={(next) => !next && (deleteTarget = null)}
+>
+  <AlertDialog.Content>
+    <AlertDialog.Header>
+      <AlertDialog.Title>删除酒店</AlertDialog.Title>
+      <AlertDialog.Description>
+        确认删除「{deleteTarget?.name}」？此操作依赖远端结果，删除后无法在此撤销。
+      </AlertDialog.Description>
+    </AlertDialog.Header>
+    <AlertDialog.Footer>
+      <AlertDialog.Cancel disabled={deleting}>取消</AlertDialog.Cancel>
+      <AlertDialog.Action disabled={deleting} onclick={() => void confirmDeleteHotel()}>
+        {#if deleting}
+          <Spinner aria-label="正在删除" />
+          正在删除
+        {:else}
+          确认删除
+        {/if}
+      </AlertDialog.Action>
+    </AlertDialog.Footer>
+  </AlertDialog.Content>
+</AlertDialog.Root>
+
+<AlertDialog.Root
+  open={unbindTarget !== null}
+  onOpenChange={(next) => !next && (unbindTarget = null)}
+>
+  <AlertDialog.Content>
+    <AlertDialog.Header>
+      <AlertDialog.Title>解绑 OTA 账号</AlertDialog.Title>
+      <AlertDialog.Description>
+        确认解绑「{unbindTarget?.channelName}」账号？本地登录态和探测记录将被保留。
+      </AlertDialog.Description>
+    </AlertDialog.Header>
+    <AlertDialog.Footer>
+      <AlertDialog.Cancel disabled={unbinding}>取消</AlertDialog.Cancel>
+      <AlertDialog.Action disabled={unbinding} onclick={() => void confirmUnbind()}>
+        {#if unbinding}
+          <Spinner aria-label="正在解绑" />
+          正在解绑
+        {:else}
+          确认解绑
+        {/if}
+      </AlertDialog.Action>
+    </AlertDialog.Footer>
+  </AlertDialog.Content>
+</AlertDialog.Root>

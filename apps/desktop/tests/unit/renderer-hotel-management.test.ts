@@ -1,5 +1,4 @@
 import { describe, expect, it } from 'vitest';
-import { MOCK_MANAGED_HOTELS } from '../../src/renderer/hotel-management/mock-hotels';
 import {
   getOtaAccountBindDetails,
   getOtaAccountPresentation,
@@ -33,40 +32,14 @@ describe('hotel management OTA account presentation', () => {
     });
   });
 
-  it('uses only server OtaAccount non-credential fields in mock accounts', () => {
-    const account = MOCK_MANAGED_HOTELS[0]?.otaAccounts[0];
-
-    expect(Object.keys(account ?? {}).sort()).toEqual(
-      [
-        'id',
-        'hotelId',
-        'orgId',
-        'source',
-        'username',
-        'otaHotelId',
-        'otaHotelName',
-        'status',
-        'lastLoginAt',
-        'lastInitAt',
-        'createdAt',
-        'updatedAt',
-        'deletedAt',
-        'bindError',
-        'bindExtra',
-      ].sort(),
-    );
-  });
-
-  it('derives labeled channel details from server bindExtra keys', () => {
+  it('derives labeled channel details from structured bindExtra keys', () => {
     expect(
-      getOtaAccountBindDetails(
-        JSON.stringify({
-          merchantGroupId: '7129084416',
-          otaPartnerId: 'MT-883720',
-          loginMethod: 'SMS',
-          loginPhone: '180****2468',
-        }),
-      ),
+      getOtaAccountBindDetails({
+        merchantGroupId: '7129084416',
+        otaPartnerId: 'MT-883720',
+        loginMethod: 'SMS',
+        loginPhone: '180****2468',
+      }),
     ).toEqual([
       { label: '抖音商户 ID', value: '7129084416' },
       { label: '美团 Partner ID', value: 'MT-883720' },
@@ -75,8 +48,8 @@ describe('hotel management OTA account presentation', () => {
     ]);
   });
 
-  it('ignores malformed or unknown bindExtra content', () => {
-    expect(getOtaAccountBindDetails('{invalid')).toEqual([]);
-    expect(getOtaAccountBindDetails(JSON.stringify({ unknown: 'value' }))).toEqual([]);
+  it('ignores null or unknown bindExtra content', () => {
+    expect(getOtaAccountBindDetails(null)).toEqual([]);
+    expect(getOtaAccountBindDetails({ unknown: 'value' })).toEqual([]);
   });
 });

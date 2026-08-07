@@ -1,32 +1,32 @@
 <script lang="ts">
   import ArrowUpRight from '@lucide/svelte/icons/arrow-up-right';
-  import Clock3 from '@lucide/svelte/icons/clock-3';
   import RotateCcw from '@lucide/svelte/icons/rotate-ccw';
+  import Unlink from '@lucide/svelte/icons/unlink';
   import X from '@lucide/svelte/icons/x';
   import { Button } from '$lib/components/ui/button';
   import { OTA_CHANNELS } from '../../data/ota-channels';
   import {
     getOtaAccountBindDetails,
     getOtaAccountPresentation,
-    type BoundOtaAccount,
     type OtaAccountAction,
     type OtaAccountTone,
   } from '../../hotel-management/model';
+  import type { RmsOtaAccountDto } from '../../../shared/hotel-management';
 
   let {
     account,
     onAction,
+    onUnbind,
   }: {
-    account: BoundOtaAccount;
-    onAction: (action: OtaAccountAction, account: BoundOtaAccount, channelName: string) => void;
+    account: RmsOtaAccountDto;
+    onAction: (action: OtaAccountAction, account: RmsOtaAccountDto, channelName: string) => void;
+    onUnbind: (account: RmsOtaAccountDto, channelName: string) => void;
   } = $props();
 
   let open = $state(false);
   const presentation = $derived(getOtaAccountPresentation(account.status));
   const bindDetails = $derived(getOtaAccountBindDetails(account.bindExtra));
-  const channel = $derived(
-    OTA_CHANNELS.find((candidate) => candidate.id === account.source.toLowerCase()),
-  );
+  const channel = $derived(OTA_CHANNELS.find((candidate) => candidate.id === account.source));
   const channelName = $derived(channel?.name ?? account.source);
   const actionLabel = $derived(
     presentation.action === 'login'
@@ -46,20 +46,14 @@
     return 'bg-muted-foreground';
   }
 
-  function formatTime(value: string | null): string {
-    if (!value) return '暂无记录';
-    return new Intl.DateTimeFormat('zh-CN', {
-      month: 'numeric',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-      hour12: false,
-    }).format(new Date(value));
-  }
-
   function runAction(): void {
     const action = presentation.action;
     if (action) onAction(action, account, channelName);
+  }
+
+  function runUnbind(): void {
+    open = false;
+    onUnbind(account, channelName);
   }
 </script>
 
@@ -91,7 +85,7 @@
         <div class="min-w-0">
           <p class="m-0 text-sm font-semibold">{channelName}</p>
           <p class="mt-0.5 mb-0 truncate text-[11px] text-muted-foreground">
-            账号 {account.username} · {presentation.description}
+            {presentation.description}
           </p>
         </div>
         <button
@@ -121,25 +115,18 @@
             <dd class="mt-0.5 mb-0 truncate text-xs font-medium">{field.value}</dd>
           </div>
         {/each}
-        <div class="min-w-0">
-          <dt class="text-[10px] text-muted-foreground">最近登录</dt>
-          <dd class="mt-0.5 mb-0 truncate text-xs font-medium">
-            {formatTime(account.lastLoginAt)}
-          </dd>
-        </div>
-        <div class="min-w-0">
-          <dt class="text-[10px] text-muted-foreground">最近初始化</dt>
-          <dd class="mt-0.5 mb-0 truncate text-xs font-medium">
-            {formatTime(account.lastInitAt)}
-          </dd>
-        </div>
       </dl>
 
-      <div class="mt-3 flex items-center justify-between gap-3 border-t border-border pt-3">
-        <span class="flex min-w-0 items-center gap-1 text-[10px] text-muted-foreground">
-          <Clock3 size={12} />
-          更新时间 {formatTime(account.updatedAt)}
-        </span>
+      <div class="mt-3 flex items-center justify-between gap-2 border-t border-border pt-3">
+        <Button
+          size="xs"
+          variant="outline"
+          aria-label={`解绑${channelName}账号`}
+          onclick={runUnbind}
+        >
+          <Unlink />
+          解绑
+        </Button>
         {#if presentation.action}
           <Button
             size="xs"

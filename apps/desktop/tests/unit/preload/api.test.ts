@@ -282,4 +282,50 @@ describe('createDesktopApi', () => {
     );
     expect(listener).toHaveBeenCalledWith({ channel: 'douyin' });
   });
+
+  it('maps hotel management reads and mutations to fixed IPC channels', async () => {
+    const snapshot = {
+      hotels: [{ id: 1, name: '示例酒店', status: 1 }],
+      otaAccounts: [
+        {
+          id: 30101,
+          hotelId: 1,
+          otaHotelId: 'ota-1',
+          otaHotelName: '示例 OTA 酒店',
+          status: 'BOUND',
+          source: 'douyin',
+          bindExtra: null,
+        },
+      ],
+    };
+    const createdHotel = { id: 2, name: '新酒店', status: 1 };
+    const invoke = vi.fn(async (channel: string) => {
+      if (channel === IPC_CHANNELS.hotelManagement.load) return snapshot;
+      if (channel === IPC_CHANNELS.hotelManagement.createHotel) return createdHotel;
+      return undefined;
+    });
+    const api = createDesktopApi({ chrome: '1', electron: '2', node: '3' }, invoke);
+
+    await expect(api.hotelManagement.load()).resolves.toEqual(snapshot);
+    await expect(api.hotelManagement.createHotel({ name: '新酒店' })).resolves.toEqual(
+      createdHotel,
+    );
+    await expect(api.hotelManagement.deleteHotel(1)).resolves.toBeUndefined();
+    await expect(api.hotelManagement.unbindOtaAccount(30101)).resolves.toBeUndefined();
+    expect(invoke.mock.calls).toEqual([
+      [IPC_CHANNELS.hotelManagement.load],
+      [IPC_CHANNELS.hotelManagement.createHotel, { name: '新酒店' }],
+      [IPC_CHANNELS.hotelManagement.deleteHotel, 1],
+      [IPC_CHANNELS.hotelManagement.unbindOtaAccount, 30101],
+    ]);
+  });
+
+  it('rejects malformed hotel management snapshots before returning them to the renderer', async () => {
+    const api = createDesktopApi(
+      { chrome: '1', electron: '2', node: '3' },
+      vi.fn().mockResolvedValue({ hotels: [{ id: 1, name: '示例酒店' }], otaAccounts: [] }),
+    );
+
+    await expect(api.hotelManagement.load()).rejects.toThrow('主进程返回的数据格式无效');
+  });
 });

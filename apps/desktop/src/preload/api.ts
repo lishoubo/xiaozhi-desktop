@@ -38,6 +38,13 @@ import {
   type CalendarEventUpdateInput,
   type CalendarSnapshot,
 } from '../shared/calendar';
+import {
+  rmsHotelOtaAccountsDtoSchema,
+  rmsHotelSchema,
+  type RmsHotelCreateInputDto,
+  type RmsHotelDto,
+  type RmsHotelOtaAccountsDto,
+} from '../shared/hotel-management';
 
 /*
  * IPC types protect compile-time callers; these schemas protect the renderer from
@@ -88,6 +95,12 @@ export type DesktopApi = Readonly<{
     createEvent: (input: CalendarEventCreateInput) => Promise<CalendarEventRecord>;
     updateEvent: (input: CalendarEventUpdateInput) => Promise<CalendarEventRecord>;
     deleteEvent: (id: string) => Promise<void>;
+  }>;
+  hotelManagement: Readonly<{
+    load: () => Promise<RmsHotelOtaAccountsDto>;
+    createHotel: (input: RmsHotelCreateInputDto) => Promise<RmsHotelDto>;
+    deleteHotel: (hotelId: number) => Promise<void>;
+    unbindOtaAccount: (otaAccountId: number) => Promise<void>;
   }>;
   cookies: Readonly<{
     listSources: () => Promise<BrowserCookieSource[]>;
@@ -224,6 +237,15 @@ export function createDesktopApi(
     setAutoLaunch: (enabled: boolean) =>
       invokeValidated(systemPreferencesSchema, IPC_CHANNELS.system.setAutoLaunch, enabled),
   });
+  const hotelManagement = Object.freeze({
+    load: () => invokeValidated(rmsHotelOtaAccountsDtoSchema, IPC_CHANNELS.hotelManagement.load),
+    createHotel: (input: RmsHotelCreateInputDto) =>
+      invokeValidated(rmsHotelSchema, IPC_CHANNELS.hotelManagement.createHotel, input),
+    deleteHotel: (hotelId: number) =>
+      invokeValidated(voidSchema, IPC_CHANNELS.hotelManagement.deleteHotel, hotelId),
+    unbindOtaAccount: (otaAccountId: number) =>
+      invokeValidated(voidSchema, IPC_CHANNELS.hotelManagement.unbindOtaAccount, otaAccountId),
+  });
 
   return Object.freeze({
     automation,
@@ -238,5 +260,6 @@ export function createDesktopApi(
     cookies,
     otaCredential,
     system,
+    hotelManagement,
   });
 }

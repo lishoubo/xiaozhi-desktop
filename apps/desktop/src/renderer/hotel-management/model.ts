@@ -1,40 +1,19 @@
-export type OtaAccountStatus =
-  | 'PENDING_LOGIN'
-  | 'IN_PROGRESS'
-  | 'WAITING_CAPTCHA'
-  | 'BOUND'
-  | 'LOGIN_FAILED'
-  | 'LOGIN_EXPIRED'
-  | 'HOTEL_NAME_MISMATCH'
-  | 'HOTEL_NAME_AMBIGUOUS'
-  | 'INIT_FAILED'
-  | 'UNBOUND';
+import type { RmsOtaAccountDto } from '../../shared/hotel-management';
 
-export type BoundOtaAccount = Readonly<{
-  id: number;
-  hotelId: number;
-  orgId: number;
-  source: string;
-  username: string;
-  otaHotelId: string | null;
-  otaHotelName: string | null;
-  status: OtaAccountStatus | string;
-  lastLoginAt: string | null;
-  lastInitAt: string | null;
-  createdAt: string | null;
-  updatedAt: string | null;
-  deletedAt: string | null;
-  bindError: string | null;
-  bindExtra: string | null;
-}>;
-
-export type ManagedHotel = Readonly<{
-  id: number;
-  name: string;
-  city: string;
-  address: string;
-  otaAccounts: readonly BoundOtaAccount[];
-}>;
+export function groupOtaAccountsByHotelId(
+  otaAccounts: readonly RmsOtaAccountDto[],
+): ReadonlyMap<number, readonly RmsOtaAccountDto[]> {
+  const grouped = new Map<number, RmsOtaAccountDto[]>();
+  for (const account of otaAccounts) {
+    const existing = grouped.get(account.hotelId);
+    if (existing) {
+      existing.push(account);
+    } else {
+      grouped.set(account.hotelId, [account]);
+    }
+  }
+  return grouped;
+}
 
 export type OtaAccountAction = 'login' | 'retry' | 'resolve';
 export type OtaAccountTone = 'healthy' | 'warning' | 'progress' | 'error' | 'neutral';
@@ -130,36 +109,31 @@ function readNonBlankString(value: unknown): string | null {
   return typeof value === 'string' && value.trim() ? value : null;
 }
 
-export function getOtaAccountBindDetails(bindExtra: string | null): OtaAccountBindDetail[] {
-  if (!bindExtra?.trim()) return [];
+export function getOtaAccountBindDetails(
+  bindExtra: Readonly<Record<string, unknown>> | null,
+): OtaAccountBindDetail[] {
+  if (!bindExtra || !isRecord(bindExtra)) return [];
 
-  try {
-    const parsed: unknown = JSON.parse(bindExtra);
-    if (!isRecord(parsed)) return [];
+  const details: OtaAccountBindDetail[] = [];
+  const merchantGroupId = readNonBlankString(bindExtra.merchantGroupId);
+  const otaPartnerId = readNonBlankString(bindExtra.otaPartnerId);
+  const loginMethod = readNonBlankString(bindExtra.loginMethod);
+  const loginPhone = readNonBlankString(bindExtra.loginPhone);
 
-    const details: OtaAccountBindDetail[] = [];
-    const merchantGroupId = readNonBlankString(parsed.merchantGroupId);
-    const otaPartnerId = readNonBlankString(parsed.otaPartnerId);
-    const loginMethod = readNonBlankString(parsed.loginMethod);
-    const loginPhone = readNonBlankString(parsed.loginPhone);
-
-    if (merchantGroupId) details.push({ label: '抖音商户 ID', value: merchantGroupId });
-    if (otaPartnerId) details.push({ label: '美团 Partner ID', value: otaPartnerId });
-    if (loginMethod) {
-      details.push({
-        label: '登录方式',
-        value:
-          loginMethod === 'SMS'
-            ? '短信验证码'
-            : loginMethod === 'PASSWORD'
-              ? '账号密码'
-              : loginMethod,
-      });
-    }
-    if (loginPhone) details.push({ label: '登录手机号', value: loginPhone });
-
-    return details;
-  } catch {
-    return [];
+  if (merchantGroupId) details.push({ label: '抖音商户 ID', value: merchantGroupId });
+  if (otaPartnerId) details.push({ label: '美团 Partner ID', value: otaPartnerId });
+  if (loginMethod) {
+    details.push({
+      label: '登录方式',
+      value:
+        loginMethod === 'SMS'
+          ? '短信验证码'
+          : loginMethod === 'PASSWORD'
+            ? '账号密码'
+            : loginMethod,
+    });
   }
+  if (loginPhone) details.push({ label: '登录手机号', value: loginPhone });
+
+  return details;
 }

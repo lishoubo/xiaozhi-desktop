@@ -42,6 +42,12 @@ export const IPC_CHANNELS = {
     listSources: 'cookies:list-sources',
     listImportedChannels: 'cookies:list-imported-channels',
   },
+  hotelManagement: {
+    load: 'hotel-management:load',
+    createHotel: 'hotel-management:create-hotel',
+    deleteHotel: 'hotel-management:delete-hotel',
+    unbindOtaAccount: 'hotel-management:unbind-ota-account',
+  },
   system: {
     getPreferences: 'system:get-preferences',
     setAutoLaunch: 'system:set-auto-launch',
