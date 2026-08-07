@@ -7,12 +7,29 @@
   import StartupAutomationDialog from './components/automation/StartupAutomationDialog.svelte';
   import LoginPage from './pages/LoginPage.svelte';
   import { clearAuthSession, setAuthSession, type AuthSession } from './auth';
+  import { isFeatureOff } from './version-features';
   import { routes } from './routes';
 
-  let session = $state<AuthSession | null>(null);
-  let restoringSession = $state(true);
+  // 'auth' 特性关闭时跳过远端手机验证码登录门禁，用本地假身份直接进入
+  // 主界面。仅用于本地不起 server 时的开发联调，见 version-features.ts。
+  const skipAuth = isFeatureOff('auth');
+  const DEV_BYPASS_SESSION: AuthSession = {
+    id: '0',
+    orgId: '0',
+    username: 'lishoubo-dev',
+    fullName: '本地开发（跳过登录）',
+    phone: '13800138000',
+    roleCode: 'FRONT_DESK',
+  };
+
+  let session = $state<AuthSession | null>(skipAuth ? DEV_BYPASS_SESSION : null);
+  let restoringSession = $state(!skipAuth);
 
   const restoreSession = async (): Promise<void> => {
+    if (skipAuth) {
+      setAuthSession(DEV_BYPASS_SESSION);
+      return;
+    }
     try {
       session = await window.hotelButler.auth.currentSession();
       if (session) setAuthSession(session);
