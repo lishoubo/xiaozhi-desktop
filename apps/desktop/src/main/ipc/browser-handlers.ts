@@ -1,27 +1,20 @@
-import { app, ipcMain, type IpcMainInvokeEvent, type WebContents } from 'electron';
+import { app, ipcMain, type IpcMainInvokeEvent } from 'electron';
 import { z, type ZodType } from 'zod';
 import {
   browserBoundsSchema,
   browserCookieSourceIdSchema,
-  browserCreateInputSchema,
   browserTabIdSchema,
   otaCredentialChannelSchema,
-  otaCredentialIdSchema,
-  startLoginInputSchema,
   type BrowserBounds,
   type SystemPreferences,
 } from '../../shared/browser';
-import { toChannelId, toOtaCredentialId, type ChannelId } from '../../domain/identity';
-import type { LoginUrlMatcher } from '../../domain/ports/discovery';
-import type { OtaCredential } from '../../domain/ota-credential';
+import { toChannelId } from '../../domain/identity';
 import type { OtaCredentialRepository } from '../../domain/ports/repositories';
-import { otaChannelLandingUrl } from '../../domain/policy/ota-channel-landing-url-policy';
 import { IPC_CHANNELS } from '../../shared/ipc-channels';
 import type { AppLogger } from '../../shared/logging';
 import { BrowserCookieImporter } from '../cookie-import/browser-cookie-importer';
 import { friendlyCookieImportMessage } from '../cookie-import/cookie-import';
 import { listImportedChannels, writeImportedCookies } from '../cookie-import/store';
-import { LoginTabOpener } from '../features/ota-credential/login-tab-opener';
 
 const noArgumentsSchema = z.tuple([]);
 
@@ -31,13 +24,6 @@ type RegisterBrowserHandlersOptions = Readonly<{
     acknowledgeInterception: () => void;
     activate: (tabId: string) => unknown;
     close: (tabId: string) => void;
-    create: (channelId: string, url: string) => unknown;
-    createAndNewPartition: InstanceType<
-      typeof import('../browser/browser-manager').BrowserManager
-    >['createAndNewPartition'];
-    createWithAlreadyPartition: InstanceType<
-      typeof import('../browser/browser-manager').BrowserManager
-    >['createWithAlreadyPartition'];
     goBack: (tabId: string) => void;
     goForward: (tabId: string) => void;
     getAudioMuted: () => boolean;
@@ -50,14 +36,7 @@ type RegisterBrowserHandlersOptions = Readonly<{
   logger: AppLogger;
   cookieImporter?: Pick<BrowserCookieImporter, 'listSources' | 'readCookies'>;
   userDataDir: string;
-  loginUrlMatchers: ReadonlyMap<ChannelId, LoginUrlMatcher>;
-  triggerDiscovery: (
-    partitionName: string,
-    channel: ChannelId,
-    landingUrl: string,
-    webContents: WebContents,
-  ) => Promise<OtaCredential | null>;
-  otaCredentialRepository: Pick<OtaCredentialRepository, 'findById' | 'listByChannel'>;
+  otaCredentialRepository: Pick<OtaCredentialRepository, 'listByChannel'>;
 }>;
 
 function systemPreferences(): SystemPreferences {
@@ -73,16 +52,8 @@ export function registerBrowserHandlers({
   logger,
   cookieImporter = new BrowserCookieImporter(logger),
   userDataDir,
-  loginUrlMatchers,
-  triggerDiscovery,
   otaCredentialRepository,
 }: RegisterBrowserHandlersOptions): () => void {
-  const loginTabOpener = new LoginTabOpener({
-    userDataDir,
-    browser: manager,
-    loginUrlMatchers,
-    triggerDiscovery,
-  });
   const assertTrusted = (event: IpcMainInvokeEvent, channel: string): void => {
     if (event.sender !== window.webContents) {
       logger.warn('Rejected untrusted IPC request', { channel });
@@ -106,12 +77,6 @@ export function registerBrowserHandlers({
     });
   };
 
-  handle(
-    IPC_CHANNELS.browser.create,
-    z.tuple([browserCreateInputSchema]),
-    '浏览器参数无效',
-    (_event, { channelId, url }) => manager.create(channelId, url),
-  );
   handle(IPC_CHANNELS.browser.acknowledgeInterception, noArgumentsSchema, '请求参数无效', () =>
     manager.acknowledgeInterception(),
   );
@@ -169,40 +134,10 @@ export function registerBrowserHandlers({
     listImportedChannels(userDataDir),
   );
   handle(
-    IPC_CHANNELS.otaCredential.openForNewLogin,
-    z.tuple([startLoginInputSchema]),
-    '登录参数无效',
-    (_event, { channelId, environment, url }) =>
-      loginTabOpener.open(environment, toChannelId(channelId), url),
-  );
-  handle(
-    IPC_CHANNELS.otaCredential.openWithImportedCookie,
-    z.tuple([startLoginInputSchema]),
-    '登录参数无效',
-    (_event, { channelId, environment, url }) =>
-      loginTabOpener.createFromCookie(environment, toChannelId(channelId), url),
-  );
-  handle(
     IPC_CHANNELS.otaCredential.listByChannel,
     z.tuple([otaCredentialChannelSchema]),
     '渠道标识无效',
     (_event, channelId) => otaCredentialRepository.listByChannel(toChannelId(channelId)),
-  );
-  handle(
-    IPC_CHANNELS.otaCredential.openExisting,
-    z.tuple([otaCredentialIdSchema]),
-    '登录凭据标识无效',
-    (_event, credentialId) => {
-      const credential = otaCredentialRepository.findById(toOtaCredentialId(credentialId));
-      if (!credential) throw new Error('未找到该登录凭据');
-      const url = otaChannelLandingUrl(credential.channel);
-      logger.info('Opening existing OTA credential', {
-        credentialId,
-        channel: credential.channel,
-        url,
-      });
-      return manager.createWithAlreadyPartition(credential.partitionName, credential.channel, url);
-    },
   );
   handle(
     IPC_CHANNELS.cookies.import,

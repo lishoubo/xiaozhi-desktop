@@ -41,7 +41,7 @@ vi.mock('electron', () => ({
 }));
 
 import { toChannelId } from '../../../src/domain/identity';
-import { BrowserManager } from '../../../src/main/browser/browser-manager';
+import { BrowserManager, type TabNavigatedEvent } from '../../../src/main/browser/browser-manager';
 
 function createLogger() {
   return { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
@@ -161,159 +161,99 @@ describe('BrowserManager — partition-aware tab creation', () => {
     expect(tabSession?.cookies.set).toHaveBeenCalledWith(importedCookies[0]);
     expect(tabSession?.cookies.set).toHaveBeenCalledWith(importedCookies[1]);
   });
+});
 
-  it('URL 判定登录成功（loginUrlMatcher 命中）时触发 onUrlPastLogin，并带上这份登录态的 partitionName', async () => {
+describe('BrowserManager — tab:navigated / tab:closed 事件广播', () => {
+  it('did-navigate 时广播 tab:navigated，带上 tabId/partitionName/channelId/url/webContents', async () => {
     const sessionFactory = createSessionFactoryStub();
     const manager = new BrowserManager(
       createWindow() as never,
       createLogger(),
       sessionFactory as never,
     );
-    const onUrlPastLogin = vi.fn();
-    const loginUrlMatcher = {
-      channel: toChannelId('ctrip'),
-      isPastLogin: (url: string) => !url.includes('/login/'),
-    };
+    const listener = vi.fn();
+    manager.on('tab:navigated', listener);
 
-    const { partitionName } = await manager.createAndNewPartition(
+    const { tab, partitionName } = await manager.createAndNewPartition(
       'prod',
       toChannelId('ctrip'),
       'https://ebooking.ctrip.com/login/',
-      { onUrlPastLogin, loginUrlMatcher },
     );
     const view = electron.views[0];
     view.handlers.get('did-navigate')?.({}, 'https://ebooking.ctrip.com/home/mainland');
 
-    expect(onUrlPastLogin).toHaveBeenCalledExactlyOnceWith(
+    expect(listener).toHaveBeenCalledExactlyOnceWith({
+      tabId: tab.id,
       partitionName,
-      'https://ebooking.ctrip.com/home/mainland',
-      expect.anything(),
-    );
+      channelId: 'ctrip',
+      url: 'https://ebooking.ctrip.com/home/mainland',
+      webContents: view.webContents,
+    } as unknown as TabNavigatedEvent);
   });
 
-  it('URL 判定命中后再次导航不重复触发 onUrlPastLogin', async () => {
+  it('did-navigate-in-page 同样广播 tab:navigated', async () => {
     const sessionFactory = createSessionFactoryStub();
     const manager = new BrowserManager(
       createWindow() as never,
       createLogger(),
       sessionFactory as never,
     );
-    const onUrlPastLogin = vi.fn();
-    const loginUrlMatcher = {
-      channel: toChannelId('ctrip'),
-      isPastLogin: (url: string) => !url.includes('/login/'),
-    };
+    const listener = vi.fn();
+    manager.on('tab:navigated', listener);
 
-    await manager.createAndNewPartition(
-      'prod',
-      toChannelId('ctrip'),
-      'https://ebooking.ctrip.com/login/',
-      {
-        onUrlPastLogin,
-        loginUrlMatcher,
-      },
-    );
+    await manager.createAndNewPartition('prod', toChannelId('douyin'), 'https://life.douyin.com/p/login');
     const view = electron.views[0];
-    view.handlers.get('did-navigate')?.({}, 'https://ebooking.ctrip.com/home/mainland');
-    view.handlers.get('did-navigate-in-page')?.(
-      {},
-      'https://ebooking.ctrip.com/home/mainland?tab=2',
-    );
+    view.handlers.get('did-navigate-in-page')?.({}, 'https://life.douyin.com/p/home?groupid=123');
 
-    expect(onUrlPastLogin).toHaveBeenCalledTimes(1);
+    expect(listener).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({ url: 'https://life.douyin.com/p/home?groupid=123' }),
+    );
   });
 
-  it('未注册 loginUrlMatcher 的渠道，URL 导航不触发探测', async () => {
+  it('close(tabId) 时广播 tab:closed', () => {
     const sessionFactory = createSessionFactoryStub();
     const manager = new BrowserManager(
       createWindow() as never,
       createLogger(),
       sessionFactory as never,
     );
-    const onUrlPastLogin = vi.fn();
-
-    await manager.createAndNewPartition(
-      'prod',
-      toChannelId('douyin'),
-      'https://life.douyin.com/p/login',
-      {
-        onUrlPastLogin,
-      },
-    );
-    const view = electron.views[0];
-    view.handlers.get('did-navigate')?.({}, 'https://life.douyin.com/dashboard');
-
-    expect(onUrlPastLogin).not.toHaveBeenCalled();
-  });
-
-  it('标签页关闭不再触发探测（onUrlPastLogin 只由 URL 判定驱动）', async () => {
-    const sessionFactory = createSessionFactoryStub();
-    const manager = new BrowserManager(
-      createWindow() as never,
-      createLogger(),
-      sessionFactory as never,
-    );
-    const onUrlPastLogin = vi.fn();
-    const loginUrlMatcher = {
-      channel: toChannelId('ctrip'),
-      isPastLogin: (url: string) => !url.includes('/login/'),
-    };
-
-    const { tab } = await manager.createAndNewPartition(
-      'prod',
-      toChannelId('ctrip'),
-      'https://ebooking.ctrip.com/login/',
-      { onUrlPastLogin, loginUrlMatcher },
-    );
-    manager.close(tab.id);
-
-    expect(onUrlPastLogin).not.toHaveBeenCalled();
-  });
-
-  it('createWithAlreadyPartition 打开的标签页关闭时不触发探测（没有 onUrlPastLogin）', () => {
-    const sessionFactory = createSessionFactoryStub();
-    const manager = new BrowserManager(
-      createWindow() as never,
-      createLogger(),
-      sessionFactory as never,
-    );
+    const listener = vi.fn();
+    manager.on('tab:closed', listener);
 
     const tab = manager.createWithAlreadyPartition(
       'persist:xiaozhi:prod:douyin:aaa',
       'douyin',
       'https://a.example/',
     );
+    manager.close(tab.id);
 
-    expect(() => manager.close(tab.id)).not.toThrow();
+    expect(listener).toHaveBeenCalledExactlyOnceWith({ tabId: tab.id });
   });
 
-  it('createWithAlreadyPartition 传入 onUrlPastLogin/loginUrlMatcher 时，URL 判定命中也能触发探测（"从其他登录态创建"用）', () => {
+  it('createWithAlreadyPartition 打开的标签页也广播 tab:navigated（不区分是否登录场景）', () => {
     const sessionFactory = createSessionFactoryStub();
     const manager = new BrowserManager(
       createWindow() as never,
       createLogger(),
       sessionFactory as never,
     );
-    const onUrlPastLogin = vi.fn();
-    const loginUrlMatcher = {
-      channel: toChannelId('douyin'),
-      isPastLogin: (url: string) => url.includes('groupid='),
-    };
+    const listener = vi.fn();
+    manager.on('tab:navigated', listener);
 
     manager.createWithAlreadyPartition(
       'persist:xiaozhi:prod:douyin:aaa',
       'douyin',
       'https://life.douyin.com/p/home',
-      { onUrlPastLogin, loginUrlMatcher },
     );
     const view = electron.views[0];
     view.handlers.get('did-navigate')?.({}, 'https://life.douyin.com/p/home?groupid=123');
 
-    expect(onUrlPastLogin).toHaveBeenCalledExactlyOnceWith(
-      'persist:xiaozhi:prod:douyin:aaa',
-      'https://life.douyin.com/p/home?groupid=123',
-      expect.anything(),
+    expect(listener).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({
+        partitionName: 'persist:xiaozhi:prod:douyin:aaa',
+        channelId: 'douyin',
+        url: 'https://life.douyin.com/p/home?groupid=123',
+      }),
     );
   });
-
 });

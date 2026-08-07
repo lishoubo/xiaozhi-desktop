@@ -79,7 +79,7 @@
   async function createTab(channel: OtaChannel, url = channel.url): Promise<BrowserTab | null> {
     try {
       dismissAppNotification('browser-operation-error');
-      const tab = await window.hotelButler.otaCredential.openForNewLogin({
+      const tab = await window.hotelButler.otaTab.openForNewLogin({
         channelId: channel.id,
         environment: 'prod',
         url,
@@ -131,7 +131,7 @@
   ): Promise<BrowserTab | null> {
     dismissAppNotification('browser-operation-error');
     try {
-      const tab = await window.hotelButler.otaCredential.openExisting(credential.id);
+      const tab = await window.hotelButler.otaTab.openExisting(credential.id);
       updateTab(tab);
       activeTabIds[credential.channel] = tab.id;
       await syncBounds();
@@ -225,7 +225,7 @@
     const previousTabs = [...activeTabs];
     dismissAppNotification('browser-operation-error');
     try {
-      const tab = await window.hotelButler.otaCredential.openWithImportedCookie({
+      const tab = await window.hotelButler.otaTab.openWithImportedCookie({
         channelId: channel.id,
         environment: 'prod',
         url: channel.url,

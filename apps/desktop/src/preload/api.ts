@@ -76,7 +76,6 @@ export type DesktopApi = Readonly<{
   }>;
   browser: Readonly<{
     acknowledgeInterception: () => Promise<void>;
-    create: (channelId: string, url: string) => Promise<BrowserTab>;
     activate: (tabId: string) => Promise<BrowserTab>;
     close: (tabId: string) => Promise<void>;
     goBack: (tabId: string) => Promise<void>;
@@ -109,10 +108,13 @@ export type DesktopApi = Readonly<{
   }>;
   otaCredential: Readonly<{
     listByChannel: (channelId: string) => Promise<OtaCredentialDto[]>;
+    onDiscoveryCompleted: (listener: (event: OtaDiscoveryCompletedEvent) => void) => () => void;
+  }>;
+  otaTab: Readonly<{
     openExisting: (credentialId: string) => Promise<BrowserTab>;
     openForNewLogin: (input: StartLoginInput) => Promise<BrowserTab>;
     openWithImportedCookie: (input: StartLoginInput) => Promise<BrowserTab>;
-    onDiscoveryCompleted: (listener: (event: OtaDiscoveryCompletedEvent) => void) => () => void;
+    openView: (channelId: string, url: string) => Promise<BrowserTab>;
   }>;
   system: Readonly<{
     getPreferences: () => Promise<SystemPreferences>;
@@ -170,8 +172,6 @@ export function createDesktopApi(
   const browser = Object.freeze({
     acknowledgeInterception: () =>
       invokeValidated(voidSchema, IPC_CHANNELS.browser.acknowledgeInterception),
-    create: (channelId: string, url: string) =>
-      invokeValidated(browserTabSchema, IPC_CHANNELS.browser.create, { channelId, url }),
     activate: (tabId: string) =>
       invokeValidated(browserTabSchema, IPC_CHANNELS.browser.activate, tabId),
     close: (tabId: string) => invokeValidated(voidSchema, IPC_CHANNELS.browser.close, tabId),
@@ -206,22 +206,22 @@ export function createDesktopApi(
   const otaCredential = Object.freeze({
     listByChannel: (channelId: string) =>
       invokeValidated(otaCredentialListSchema, IPC_CHANNELS.otaCredential.listByChannel, channelId),
-    openExisting: (credentialId: string) =>
-      invokeValidated(browserTabSchema, IPC_CHANNELS.otaCredential.openExisting, credentialId),
-    openForNewLogin: (input: StartLoginInput) =>
-      invokeValidated(browserTabSchema, IPC_CHANNELS.otaCredential.openForNewLogin, input),
-    openWithImportedCookie: (input: StartLoginInput) =>
-      invokeValidated(
-        browserTabSchema,
-        IPC_CHANNELS.otaCredential.openWithImportedCookie,
-        input,
-      ),
     onDiscoveryCompleted: (listener: (event: OtaDiscoveryCompletedEvent) => void) =>
       subscribeValidated(
         otaDiscoveryCompletedEventSchema,
         IPC_CHANNELS.otaCredential.discoveryCompleted,
         listener,
       ),
+  });
+  const otaTab = Object.freeze({
+    openExisting: (credentialId: string) =>
+      invokeValidated(browserTabSchema, IPC_CHANNELS.otaTab.openExisting, credentialId),
+    openForNewLogin: (input: StartLoginInput) =>
+      invokeValidated(browserTabSchema, IPC_CHANNELS.otaTab.openForNewLogin, input),
+    openWithImportedCookie: (input: StartLoginInput) =>
+      invokeValidated(browserTabSchema, IPC_CHANNELS.otaTab.openWithImportedCookie, input),
+    openView: (channelId: string, url: string) =>
+      invokeValidated(browserTabSchema, IPC_CHANNELS.otaTab.openView, { channelId, url }),
   });
   const calendar = Object.freeze({
     load: () => invokeValidated(calendarSnapshotSchema, IPC_CHANNELS.calendar.load),
@@ -259,6 +259,7 @@ export function createDesktopApi(
     calendar,
     cookies,
     otaCredential,
+    otaTab,
     system,
     hotelManagement,
   });

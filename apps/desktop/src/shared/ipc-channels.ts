@@ -32,10 +32,13 @@ export const IPC_CHANNELS = {
   },
   otaCredential: {
     listByChannel: 'ota-credential:list-by-channel',
-    openExisting: 'ota-credential:open-existing',
-    openForNewLogin: 'ota-credential:open-for-new-login',
-    openWithImportedCookie: 'ota-credential:open-with-imported-cookie',
     discoveryCompleted: 'ota-credential:discovery-completed',
+  },
+  otaTab: {
+    openExisting: 'ota-tab:open-existing',
+    openForNewLogin: 'ota-tab:open-for-new-login',
+    openWithImportedCookie: 'ota-tab:open-with-imported-cookie',
+    openView: 'ota-tab:open-view',
   },
   cookies: {
     import: 'cookies:import',

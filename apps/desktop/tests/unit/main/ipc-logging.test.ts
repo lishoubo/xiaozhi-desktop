@@ -77,9 +77,6 @@ describe('IPC operational logging', () => {
         acknowledgeInterception,
         activate: vi.fn(),
         close: vi.fn(),
-        create: vi.fn(),
-        createAndNewPartition: vi.fn(),
-        createWithAlreadyPartition: vi.fn(),
         goBack: vi.fn(),
         goForward: vi.fn(),
         getAudioMuted: vi.fn(() => false),
@@ -92,19 +89,16 @@ describe('IPC operational logging', () => {
       cookieImporter: { listSources: vi.fn(), readCookies: vi.fn() },
       logger,
       userDataDir: temporaryUserDataDir(),
-      loginUrlMatchers: new Map(),
-      triggerDiscovery: vi.fn(),
       otaCredentialRepository: {
         listByChannel: vi.fn(() => []),
-        findById: vi.fn(() => null),
       },
     });
 
     expect(() =>
-      invoke(IPC_CHANNELS.browser.create, {}, { channelId: 'ctrip', url: 'secret-value' }),
+      invoke(IPC_CHANNELS.browser.setBounds, {}, { x: 0, y: 0, width: 1, height: 1, secret: 'secret-value' }),
     ).toThrow('拒绝来自非主应用窗口的请求');
     expect(logger.warn).toHaveBeenCalledWith('Rejected untrusted IPC request', {
-      channel: IPC_CHANNELS.browser.create,
+      channel: IPC_CHANNELS.browser.setBounds,
     });
     expect(JSON.stringify(logger.warn.mock.calls)).not.toContain('secret-value');
 
@@ -121,9 +115,6 @@ describe('IPC operational logging', () => {
         acknowledgeInterception: vi.fn(),
         activate: vi.fn(),
         close: vi.fn(),
-        create: vi.fn(),
-        createAndNewPartition: vi.fn(),
-        createWithAlreadyPartition: vi.fn(),
         goBack: vi.fn(),
         goForward: vi.fn(),
         getAudioMuted: vi.fn(() => false),
@@ -144,11 +135,8 @@ describe('IPC operational logging', () => {
       },
       logger,
       userDataDir: temporaryUserDataDir(),
-      loginUrlMatchers: new Map(),
-      triggerDiscovery: vi.fn(),
       otaCredentialRepository: {
         listByChannel: vi.fn(() => []),
-        findById: vi.fn(() => null),
       },
     });
 
@@ -165,7 +153,7 @@ describe('IPC operational logging', () => {
   it('rejects malformed trusted IPC input without exposing its payload or calling the manager', async () => {
     const logger = createLogger();
     const sender = {};
-    const create = vi.fn();
+    const close = vi.fn();
     const setBounds = vi.fn();
     const readCookies = vi.fn();
     registerBrowserHandlers({
@@ -173,10 +161,7 @@ describe('IPC operational logging', () => {
       manager: {
         acknowledgeInterception: vi.fn(),
         activate: vi.fn(),
-        close: vi.fn(),
-        create,
-        createAndNewPartition: vi.fn(),
-        createWithAlreadyPartition: vi.fn(),
+        close,
         goBack: vi.fn(),
         goForward: vi.fn(),
         getAudioMuted: vi.fn(() => false),
@@ -189,20 +174,12 @@ describe('IPC operational logging', () => {
       cookieImporter: { listSources: vi.fn(), readCookies },
       logger,
       userDataDir: temporaryUserDataDir(),
-      loginUrlMatchers: new Map(),
-      triggerDiscovery: vi.fn(),
       otaCredentialRepository: {
         listByChannel: vi.fn(() => []),
-        findById: vi.fn(() => null),
       },
     });
 
-    expect(() =>
-      invoke(IPC_CHANNELS.browser.create, sender, {
-        channelId: '',
-        url: 'javascript:secret-value',
-      }),
-    ).toThrow('浏览器参数无效');
+    expect(() => invoke(IPC_CHANNELS.browser.close, sender, '')).toThrow('标签标识无效');
     expect(() =>
       invoke(IPC_CHANNELS.browser.setBounds, sender, {
         x: 0,
@@ -215,15 +192,14 @@ describe('IPC operational logging', () => {
       '浏览器类型无效',
     );
 
-    expect(create).not.toHaveBeenCalled();
+    expect(close).not.toHaveBeenCalled();
     expect(setBounds).not.toHaveBeenCalled();
     expect(readCookies).not.toHaveBeenCalled();
     expect(logger.warn.mock.calls).toEqual([
-      ['Rejected invalid IPC request', { channel: IPC_CHANNELS.browser.create }],
+      ['Rejected invalid IPC request', { channel: IPC_CHANNELS.browser.close }],
       ['Rejected invalid IPC request', { channel: IPC_CHANNELS.browser.setBounds }],
       ['Rejected invalid IPC request', { channel: IPC_CHANNELS.cookies.import }],
     ]);
-    expect(JSON.stringify(logger.warn.mock.calls)).not.toContain('secret-value');
     expect(JSON.stringify(logger.warn.mock.calls)).not.toContain('unknown-browser');
   });
 });

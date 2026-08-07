@@ -77,7 +77,7 @@ describe('createDesktopApi', () => {
       partitionName: 'persist:xiaozhi:prod:ctrip:short',
     };
     const invoke = vi.fn(async (channel: string) => {
-      if (channel === IPC_CHANNELS.browser.create || channel === IPC_CHANNELS.browser.activate) {
+      if (channel === IPC_CHANNELS.otaTab.openView || channel === IPC_CHANNELS.browser.activate) {
         return tab;
       }
       if (channel === IPC_CHANNELS.browser.list) return [tab];
@@ -96,7 +96,7 @@ describe('createDesktopApi', () => {
     const api = createDesktopApi({ chrome: '1', electron: '2', node: '3' }, invoke);
 
     await api.browser.acknowledgeInterception();
-    await api.browser.create('ctrip', 'https://ebooking.ctrip.com/');
+    await api.otaTab.openView('ctrip', 'https://ebooking.ctrip.com/');
     await api.browser.activate('tab-1');
     await api.browser.close('tab-1');
     await api.browser.goBack('tab-1');
@@ -114,7 +114,7 @@ describe('createDesktopApi', () => {
 
     expect(invoke.mock.calls).toEqual([
       [IPC_CHANNELS.browser.acknowledgeInterception],
-      [IPC_CHANNELS.browser.create, { channelId: 'ctrip', url: 'https://ebooking.ctrip.com/' }],
+      [IPC_CHANNELS.otaTab.openView, { channelId: 'ctrip', url: 'https://ebooking.ctrip.com/' }],
       [IPC_CHANNELS.browser.activate, 'tab-1'],
       [IPC_CHANNELS.browser.close, 'tab-1'],
       [IPC_CHANNELS.browser.goBack, 'tab-1'],
@@ -254,16 +254,16 @@ describe('createDesktopApi', () => {
     };
     const invoke = vi.fn(async (channel: string) => {
       if (channel === IPC_CHANNELS.otaCredential.listByChannel) return [credential];
-      if (channel === IPC_CHANNELS.otaCredential.openExisting) return tab;
+      if (channel === IPC_CHANNELS.otaTab.openExisting) return tab;
       return undefined;
     });
     const api = createDesktopApi({ chrome: '1', electron: '2', node: '3' }, invoke);
 
     await expect(api.otaCredential.listByChannel('douyin')).resolves.toEqual([credential]);
-    await expect(api.otaCredential.openExisting('credential-1')).resolves.toEqual(tab);
+    await expect(api.otaTab.openExisting('credential-1')).resolves.toEqual(tab);
     expect(invoke.mock.calls).toEqual([
       [IPC_CHANNELS.otaCredential.listByChannel, 'douyin'],
-      [IPC_CHANNELS.otaCredential.openExisting, 'credential-1'],
+      [IPC_CHANNELS.otaTab.openExisting, 'credential-1'],
     ]);
   });
 

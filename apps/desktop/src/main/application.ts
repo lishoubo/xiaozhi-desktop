@@ -4,6 +4,7 @@ import path from 'node:path';
 import log from 'electron-log/main';
 import started from 'electron-squirrel-startup';
 import { registerBrowserHandlers } from './ipc/browser-handlers';
+import { registerOtaTabHandlers } from './ipc/ota-tab-handlers';
 import { BrowserManager } from './browser/browser-manager';
 import { TabEventBus } from './browser/tab-event-bus';
 import { configureNetworkPrivacy } from './security/network-privacy';
@@ -19,7 +20,8 @@ import { SqliteOtaCredentialRepository } from './database/ota-credential-reposit
 import { SqliteOtaHotelProbRepository } from './database/ota-hotel-prob-repository';
 import { DiscoverAndCreate } from './features/ota-credential/discover-and-create';
 import { createDiscoveryProbes } from './features/ota-credential/discovery-probe';
-import { LOGIN_URL_MATCHERS } from './features/ota-credential/login-url-matcher';
+import { OtaTabOpener } from './features/ota-tab-opener/ota-tab-opener';
+import { LOGIN_URL_MATCHERS } from './features/ota-tab-opener/login-url-matcher';
 import { createCtripDiscovery } from './features/ota-credential/ota/ctrip/discover-ctrip';
 import { createDouyinDiscovery } from './features/ota-credential/ota/douyin/discover-douyin';
 import { createMeituanDiscovery } from './features/ota-credential/ota/meituan/discover-meituan';
@@ -43,7 +45,9 @@ import { registerAuthHandlers } from './ipc/auth-handlers';
 let mainWindow: BrowserWindow | null = null;
 let browserManager: BrowserManager | null = null;
 let tabEventBus: TabEventBus | null = null;
+let otaTabOpener: OtaTabOpener | null = null;
 let unregisterBrowserHandlers: (() => void) | null = null;
+let unregisterOtaTabHandlers: (() => void) | null = null;
 let ctripAutomation: CtripCheckInAutomation | null = null;
 let unregisterAutomationHandlers: (() => void) | null = null;
 let applicationDatabase: ApplicationDatabase | null = null;
@@ -73,7 +77,7 @@ function openMainWindow(): void {
   mainWindow = createMainWindow();
   log.info('Main window created');
   tabEventBus = new TabEventBus();
-  browserManager = new BrowserManager(mainWindow, log, sessionFactory, tabEventBus);
+  browserManager = new BrowserManager(mainWindow, log, sessionFactory);
   ctripAutomation = isStartupAutomationEnabled(process.env)
     ? new CtripCheckInAutomation(browserManager.browserSession, log)
     : null;
@@ -92,16 +96,27 @@ function openMainWindow(): void {
     repository: otaHotelProbRepository,
     logger: log,
   });
+  otaTabOpener = new OtaTabOpener({
+    userDataDir: app.getPath('userData'),
+    browserManager,
+    tabEventBus,
+    loginUrlMatchers: LOGIN_URL_MATCHERS,
+    otaCredentialRepository,
+    triggerDiscovery: (partitionName, channel, landingUrl, webContents) =>
+      discoverAndCreate?.trigger(partitionName, channel, landingUrl, webContents) ??
+      Promise.resolve(null),
+  });
   unregisterBrowserHandlers = registerBrowserHandlers({
     window: mainWindow,
     manager: browserManager,
     logger: log,
     userDataDir: app.getPath('userData'),
-    loginUrlMatchers: LOGIN_URL_MATCHERS,
-    triggerDiscovery: (partitionName, channel, landingUrl, webContents) =>
-      discoverAndCreate?.trigger(partitionName, channel, landingUrl, webContents) ??
-      Promise.resolve(null),
     otaCredentialRepository,
+  });
+  unregisterOtaTabHandlers = registerOtaTabHandlers({
+    window: mainWindow,
+    otaTabOpener,
+    logger: log,
   });
   unregisterAutomationHandlers = registerAutomationHandlers({
     window: mainWindow,
@@ -141,10 +156,13 @@ function openMainWindow(): void {
     unregisterAutomationHandlers = null;
     ctripAutomation?.destroy();
     ctripAutomation = null;
+    unregisterOtaTabHandlers?.();
+    unregisterOtaTabHandlers = null;
     unregisterBrowserHandlers?.();
     unregisterBrowserHandlers = null;
     browserManager?.destroy();
     browserManager = null;
+    otaTabOpener = null;
     mainWindow = null;
     log.info('Main window closed');
   });
@@ -224,6 +242,7 @@ app.once('will-quit', () => {
   unregisterAuthHandlers?.();
   unregisterHotelManagementHandlers?.();
   unregisterCalendarHandlers?.();
+  unregisterOtaTabHandlers?.();
   unregisterBrowserHandlers?.();
   unregisterAutomationHandlers?.();
   ctripAutomation?.destroy();
@@ -237,6 +256,7 @@ app.once('will-quit', () => {
   otaHotelProbRepository = null;
   hotelManagementFeature = null;
   tabEventBus = null;
+  otaTabOpener = null;
   sessionFactory = null;
   log.info('Application shutdown completed');
 });

@@ -48,9 +48,6 @@ function baseManager() {
     acknowledgeInterception: vi.fn(),
     activate: vi.fn(),
     close: vi.fn(),
-    create: vi.fn(),
-    createAndNewPartition: vi.fn(),
-    createWithAlreadyPartition: vi.fn(),
     goBack: vi.fn(),
     goForward: vi.fn(),
     getAudioMuted: vi.fn(() => false),
@@ -82,19 +79,6 @@ function credentialRepository(
           ]
         : [],
     ),
-    findById: vi.fn((id) =>
-      id === toOtaCredentialId('credential-1')
-        ? {
-            id: toOtaCredentialId('credential-1'),
-            channel,
-            channelAccountId: null,
-            partitionName,
-            credentialExtra: null,
-            discoveredAt: 1,
-            lastRefreshedAt: null,
-          }
-        : null,
-    ),
   };
 }
 
@@ -107,8 +91,6 @@ describe('browser audio handlers', () => {
       manager,
       logger: createLogger(),
       userDataDir: '/tmp/does-not-matter',
-      loginUrlMatchers: new Map(),
-      triggerDiscovery: vi.fn(),
       otaCredentialRepository: credentialRepository(),
     });
 
@@ -119,8 +101,8 @@ describe('browser audio handlers', () => {
   });
 });
 
-describe('otaCredential.listByChannel / openExisting handlers', () => {
-  it('lists credentials without requiring linked OTA accounts and opens the default channel URL', () => {
+describe('otaCredential.listByChannel handler', () => {
+  it('lists credentials without requiring linked OTA accounts', () => {
     const sender = {};
     const manager = baseManager();
     const otaCredentialRepository = credentialRepository(
@@ -132,21 +114,12 @@ describe('otaCredential.listByChannel / openExisting handlers', () => {
       manager,
       logger: createLogger(),
       userDataDir: '/tmp/does-not-matter',
-      loginUrlMatchers: new Map(),
-      triggerDiscovery: vi.fn(),
       otaCredentialRepository,
     });
 
     expect(invoke(IPC_CHANNELS.otaCredential.listByChannel, sender, 'ctrip')).toEqual([
       expect.objectContaining({ id: 'credential-1', channel: 'ctrip' }),
     ]);
-    invoke(IPC_CHANNELS.otaCredential.openExisting, sender, 'credential-1');
-
-    expect(manager.createWithAlreadyPartition).toHaveBeenCalledWith(
-      'persist:xiaozhi:prod:ctrip:credential-only',
-      'ctrip',
-      'https://ebooking.ctrip.com/home/mainland',
-    );
   });
 });
 
@@ -182,8 +155,6 @@ describe('cookies.listImportedChannels handler', () => {
       manager: baseManager(),
       logger: createLogger(),
       userDataDir,
-      loginUrlMatchers: new Map(),
-      triggerDiscovery: vi.fn(),
       otaCredentialRepository: credentialRepository(),
     });
 
