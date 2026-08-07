@@ -36,10 +36,12 @@ export function configureMainLogging(logger: MainLoggingTarget, options: MainLog
   logger.transports.ipc.level = false;
   logger.transports.remote.level = false;
 
-  logger.hooks.push((message: LogMessageData) => ({
-    ...message,
-    data: redactLogData(message.data),
-  }));
+  if (options.isPackaged) {
+    logger.hooks.push((message: LogMessageData) => ({
+      ...message,
+      data: redactLogData(message.data),
+    }));
+  }
 
   logger.initialize({
     includeFutureSessions: true,

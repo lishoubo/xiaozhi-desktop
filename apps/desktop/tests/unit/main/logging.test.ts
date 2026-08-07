@@ -111,6 +111,18 @@ describe('configureMainLogging', () => {
       data: [{ refreshToken: '[REDACTED]', safe: 'value' }],
     });
   });
+
+  it('skips the redaction hook during development so full error detail reaches the log file', () => {
+    const logger = createLogger();
+
+    configureMainLogging(logger, {
+      appVersion: '1.2.3',
+      isPackaged: false,
+      platform: 'darwin',
+    });
+
+    expect(logger.hooks).toHaveLength(0);
+  });
 });
 
 function createLogger() {
