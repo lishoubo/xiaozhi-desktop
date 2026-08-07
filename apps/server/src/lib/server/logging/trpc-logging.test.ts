@@ -34,10 +34,13 @@ describe('tRPC failure logging', () => {
 		expect(JSON.stringify(logger.warn.mock.calls)).not.toContain('operator@example.com');
 	});
 
-	it('logs unexpected server failures as errors using only the cause type', () => {
+	it('logs unexpected server failures with a redacted cause stack', () => {
 		const logger = createLogger();
+		const cause = new TypeError('password=private phone=13800138000');
+		cause.stack =
+			'TypeError: password=private phone=13800138000\n    at queryEmployee (/app/employee.ts:42:7)';
 		const error = new TRPCError({
-			cause: new TypeError('password=private'),
+			cause,
 			code: 'INTERNAL_SERVER_ERROR'
 		});
 
@@ -45,6 +48,11 @@ describe('tRPC failure logging', () => {
 
 		expect(logger.error).toHaveBeenCalledWith(
 			expect.objectContaining({
+				error: {
+					message: 'password=[Redacted] phone=[Redacted]',
+					name: 'TypeError',
+					stack: expect.stringContaining('at queryEmployee (/app/employee.ts:42:7)')
+				},
 				errorCode: 'INTERNAL_SERVER_ERROR',
 				errorType: 'TypeError',
 				procedure: 'unknown'
@@ -52,5 +60,6 @@ describe('tRPC failure logging', () => {
 			'tRPC procedure failed'
 		);
 		expect(JSON.stringify(logger.error.mock.calls)).not.toContain('password=private');
+		expect(JSON.stringify(logger.error.mock.calls)).not.toContain('13800138000');
 	});
 });

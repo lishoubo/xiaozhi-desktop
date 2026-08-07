@@ -24,6 +24,10 @@ import { IPC_CHANNELS } from '../shared/ipc-channels';
 import { createCtripDiscovery } from './ota/ctrip/discover-ctrip';
 import { createDouyinDiscovery } from './ota/douyin/discover-douyin';
 import { createMeituanDiscovery } from './ota/meituan/discover-meituan';
+import { SessionFactory } from './browser/session-factory';
+import { createElectronSessionFetch, createServerTrpcClient } from './server/trpc-client';
+import { resolveServerOrigin } from './server/config';
+import { registerAuthHandlers } from './ipc/auth-handlers';
 
 let mainWindow: BrowserWindow | null = null;
 let browserManager: BrowserManager | null = null;
@@ -33,9 +37,11 @@ let unregisterAutomationHandlers: (() => void) | null = null;
 let applicationDatabase: ApplicationDatabase | null = null;
 let calendarRepository: SqliteCalendarRepository | null = null;
 let unregisterCalendarHandlers: (() => void) | null = null;
+let unregisterAuthHandlers: (() => void) | null = null;
 let discoverAndCreate: DiscoverAndCreate | null = null;
 let otaAccountRepository: SqliteOtaAccountRepository | null = null;
 let otaCredentialRepository: SqliteOtaCredentialRepository | null = null;
+let sessionFactory: SessionFactory | null = null;
 
 configureNetworkPrivacy(app.commandLine);
 configureMainLogging(log, {
@@ -46,9 +52,10 @@ configureMainLogging(log, {
 
 function openMainWindow(): void {
   if (!calendarRepository) throw new Error('Calendar repository is not initialized');
+  if (!sessionFactory) throw new Error('Session factory is not initialized');
   mainWindow = createMainWindow();
   log.info('Main window created');
-  browserManager = new BrowserManager(mainWindow, log);
+  browserManager = new BrowserManager(mainWindow, log, sessionFactory);
   ctripAutomation = isStartupAutomationEnabled(process.env)
     ? new CtripCheckInAutomation(browserManager.browserSession, log)
     : null;
@@ -77,7 +84,21 @@ function openMainWindow(): void {
     repository: calendarRepository,
     logger: log,
   });
+  const serverOrigin = resolveServerOrigin(process.env);
+  const apiSession = sessionFactory.sessionForServerApi();
+  unregisterAuthHandlers = registerAuthHandlers({
+    apiSession,
+    client: createServerTrpcClient({
+      baseUrl: serverOrigin,
+      fetch: createElectronSessionFetch(apiSession),
+    }),
+    logger: log,
+    serverOrigin,
+    window: mainWindow,
+  });
   mainWindow.once('closed', () => {
+    unregisterAuthHandlers?.();
+    unregisterAuthHandlers = null;
     unregisterCalendarHandlers?.();
     unregisterCalendarHandlers = null;
     unregisterAutomationHandlers?.();
@@ -95,6 +116,7 @@ function openMainWindow(): void {
 
 function initializeApplication(): void {
   log.info('Application initialization started');
+  sessionFactory = new SessionFactory(log);
   applicationDatabase = openApplicationDatabase(
     path.join(app.getPath('userData'), 'hotel-butler.sqlite'),
     log,
@@ -161,6 +183,7 @@ app.on('activate', () => {
 
 app.once('will-quit', () => {
   log.info('Application shutdown started');
+  unregisterAuthHandlers?.();
   unregisterCalendarHandlers?.();
   unregisterBrowserHandlers?.();
   unregisterAutomationHandlers?.();
@@ -173,5 +196,6 @@ app.once('will-quit', () => {
   discoverAndCreate = null;
   otaAccountRepository = null;
   otaCredentialRepository = null;
+  sessionFactory = null;
   log.info('Application shutdown completed');
 });

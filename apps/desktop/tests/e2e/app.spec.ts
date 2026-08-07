@@ -29,6 +29,7 @@ test.beforeEach(async () => {
     env: {
       ...launchEnvironment,
       ELECTRON_DISABLE_SECURITY_WARNINGS: 'true',
+      HOTEL_BUTLER_SERVER_URL: 'https://localhost:4173',
       // 开机自动化默认关闭（opt-in），e2e 不设 HOTEL_BUTLER_ENABLE_STARTUP_AUTOMATION 即不会运行
     },
   });
@@ -43,9 +44,10 @@ test.afterEach(async () => {
 async function login(): Promise<void> {
   await page.getByRole('textbox', { name: '手机号' }).fill('13800138000');
   await page.getByRole('button', { name: '获取验证码' }).click();
+  await expect(page.getByRole('button', { name: /秒后重新获取/ })).toBeDisabled();
   await page.getByRole('textbox', { name: '验证码' }).fill('123456');
   await page.getByRole('checkbox', { name: /我已阅读并同意/ }).check();
-  await page.getByRole('button', { name: '登录' }).click();
+  await page.getByRole('button', { name: '登录', exact: true }).click();
 }
 
 test('animates Xiaozhi ambiently and honors reduced-motion preferences', async () => {
@@ -69,10 +71,35 @@ test('animates Xiaozhi ambiently and honors reduced-motion preferences', async (
   ).toBe('none');
 });
 
-test('logs in with the local phone verification flow', async () => {
+test('logs in through the server and stores a hardened persistent session cookie', async () => {
   await login();
 
   await expect(page.getByRole('button', { name: '携程酒店 eBooking' })).toBeVisible();
+  const sessionCookies = await electronApp.evaluate(async ({ session }) => {
+    const cookies = await session
+      .fromPartition('persist:xiaozhi:server-api')
+      .cookies.get({ name: '__Host-xiaozhi_desktop_session' });
+    return cookies.map(({ httpOnly, name, sameSite, secure, session: isSessionCookie }) => ({
+      httpOnly,
+      name,
+      sameSite,
+      secure,
+      isSessionCookie,
+    }));
+  });
+  expect(sessionCookies).toEqual([
+    {
+      httpOnly: true,
+      name: '__Host-xiaozhi_desktop_session',
+      sameSite: 'strict',
+      secure: true,
+      isSessionCookie: false,
+    },
+  ]);
+  expect(await page.evaluate(() => window.hotelButler.auth.currentSession())).toMatchObject({
+    phone: '13800138000',
+    username: 'desktop-demo',
+  });
   await expect(page.getByText('导入已有浏览器 Cookie')).toBeVisible();
   await page.getByRole('button', { name: '导入 Cookie' }).click();
   await expect(page.getByRole('dialog', { name: '从浏览器导入 Cookie' })).toBeVisible();
@@ -96,7 +123,9 @@ test('starts the Electron window with the Svelte browser shell', async () => {
   expect(versions.name).toBeTruthy();
 });
 
-test('uses credential-backed account switching and shared-session tabs', async (_fixtures, testInfo) => {
+test('uses credential-backed account switching and shared-session tabs', async ({
+  browserName: _browserName,
+}, testInfo) => {
   await login();
   await page.getByRole('button', { name: '暂不导入' }).click();
 

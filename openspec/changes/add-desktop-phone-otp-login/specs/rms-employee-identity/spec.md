@@ -4,43 +4,59 @@
 
 ### Requirement: RMS employee is the desktop identity source
 
-The system SHALL resolve desktop user identity from the RMS `employee` table after the phone OTP gateway accepts the login and SHALL NOT maintain a PostgreSQL desktop-user copy.
+The system SHALL issue a desktop session only after phone OTP acceptance resolves an active RMS employee and SHALL re-resolve that active employee from RMS when restoring a session. It SHALL NOT maintain a PostgreSQL desktop-user profile copy.
 
-#### Scenario: Resolve an active employee after OTP
+#### Scenario: Login an active employee
 
-- **WHEN** the OTP gateway accepts a phone and six-digit code belonging to an active RMS employee
-- **THEN** the phone-code login mutation returns that employee's safe identity fields
+- **WHEN** the temporary OTP gateway accepts a six-digit code and the phone belongs to an active RMS employee
+- **THEN** the server issues a revocable desktop session and returns only the employee's safe identity
 
-#### Scenario: OTP or employee is unavailable
+#### Scenario: Phone is unavailable
 
-- **WHEN** the OTP gateway rejects the code, or the phone does not belong to an active RMS employee
-- **THEN** the phone-code login mutation fails with the same unauthenticated response
+- **WHEN** the phone does not belong to an active RMS employee
+- **THEN** login fails with the generic unauthenticated response
+- **AND** no desktop session is issued
+
+#### Scenario: Restore an active employee session
+
+- **WHEN** an unexpired desktop session references an employee that remains active in RMS
+- **THEN** current-session returns the current safe RMS employee identity
+
+#### Scenario: Employee becomes unavailable
+
+- **WHEN** a desktop session references a missing or disabled RMS employee
+- **THEN** the session is revoked and current-session returns no identity
 
 ## ADDED Requirements
 
-### Requirement: Phone OTP uses a replaceable gateway
+### Requirement: Desktop session is opaque and revocable
 
-The shared API SHALL expose provider-neutral phone-code request and login mutations, and the server SHALL inject SMS delivery and verification through a gateway that does not expose provider SDK types in the shared contract.
+The server SHALL generate a cryptographically random desktop session token, store only its SHA-256 digest with the RMS employee ID and expiry in PostgreSQL, and support server-side validation and logout revocation.
 
-#### Scenario: Request a phone code
+#### Scenario: Issue a session
 
-- **WHEN** a caller requests a code for a schema-valid phone
-- **THEN** the API returns the same accepted response regardless of employee existence
-- **AND** it does not return the verification code
+- **WHEN** desktop login succeeds
+- **THEN** the raw token is returned only as a Secure, HttpOnly, SameSite=Strict host cookie
+- **AND** PostgreSQL contains only the token digest
 
-#### Scenario: Use the temporary gateway before provider selection
+#### Scenario: Session expires or is revoked
 
-- **WHEN** no SMS provider has been selected
-- **THEN** the server's explicitly temporary gateway accepts every schema-valid six-digit code
-- **AND** replacing that gateway does not require changing the shared tRPC procedures
+- **WHEN** a cookie references an expired, missing, or logged-out session
+- **THEN** current-session returns no identity and clears the cookie
 
-### Requirement: Employee lookup cannot bypass OTP
+### Requirement: Renderer cannot access the session credential
 
-The public tRPC router SHALL NOT expose a direct employee-by-phone lookup.
+The desktop SHALL keep the server session cookie in a dedicated persistent Electron session partition and SHALL expose only safe employee identity through preload IPC.
 
-#### Scenario: Resolve desktop identity
+#### Scenario: Persist login across restart
 
-- **WHEN** a desktop caller needs an employee identity
-- **THEN** it uses the phone-code login mutation
-- **AND** identity lookup occurs only after the OTP gateway accepts the input
+- **WHEN** desktop restarts with a valid API-session cookie
+- **THEN** main validates it with the server and renderer receives the safe employee identity
+- **AND** renderer cannot read the opaque cookie value
+
+#### Scenario: Logout while server is unavailable
+
+- **WHEN** the user logs out and remote revocation fails
+- **THEN** desktop still removes the local API-session cookie
+- **AND** OTA account sessions remain unchanged
 

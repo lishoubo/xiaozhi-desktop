@@ -1,5 +1,6 @@
 import { BrowserWindow } from 'electron';
 import path from 'node:path';
+import { resolveRendererDevServerUrl } from './renderer-dev-server-url';
 import { createMainWindowOptions } from './window-options';
 
 export function createMainWindow(): BrowserWindow {
@@ -12,7 +13,7 @@ export function createMainWindow(): BrowserWindow {
   mainWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
 
   if (MAIN_WINDOW_VITE_DEV_SERVER_URL) {
-    void mainWindow.loadURL(MAIN_WINDOW_VITE_DEV_SERVER_URL);
+    void mainWindow.loadURL(resolveRendererDevServerUrl(MAIN_WINDOW_VITE_DEV_SERVER_URL));
     mainWindow.webContents.openDevTools();
   } else {
     void mainWindow.loadFile(

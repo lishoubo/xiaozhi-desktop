@@ -5,15 +5,15 @@ services:
     image: pgvector/pgvector:0.8.5-pg18
     restart: unless-stopped
     ports:
-      - '5432:5432'
+      - '${POSTGRES_HOST_PORT:?Set POSTGRES_HOST_PORT}:5432'
     environment:
-      POSTGRES_USER: root
-      POSTGRES_PASSWORD: mysecretpassword
-      POSTGRES_DB: local
+      POSTGRES_USER: ${POSTGRES_USER:?Set POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:?Set POSTGRES_DB}
     volumes:
       - pgdata:/var/lib/postgresql
     healthcheck:
-      test: ['CMD-SHELL', 'pg_isready -U root -d local']
+      test: ['CMD-SHELL', 'pg_isready -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"']
       interval: 5s
       timeout: 5s
       retries: 10
@@ -22,13 +22,13 @@ services:
     image: mysql:8.4
     restart: unless-stopped
     ports:
-      - '3306:3306'
+      - '${RMS_HOST_PORT:?Set RMS_HOST_PORT}:3306'
     environment:
-      TZ: Asia/Shanghai
-      MYSQL_ROOT_PASSWORD: rootsecretpassword
-      MYSQL_DATABASE: rms
-      MYSQL_USER: hotel_butler
-      MYSQL_PASSWORD: mysecretpassword
+      TZ: ${TZ:?Set TZ}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?Set MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${MYSQL_DATABASE:?Set MYSQL_DATABASE}
+      MYSQL_USER: ${MYSQL_USER:?Set MYSQL_USER}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:?Set MYSQL_PASSWORD}
     command: ['--character-set-server=utf8mb4', '--collation-server=utf8mb4_0900_ai_ci']
     volumes:
       - rmsdata:/var/lib/mysql
@@ -42,12 +42,11 @@ services:
   database-init:
     image: hotel-butler-server:local
     restart: 'no'
+    env_file:
+      - .env
     environment:
       NODE_ENV: development
-      DATABASE_URL: postgres://root:mysecretpassword@db:5432/local
-      INITIAL_ADMIN_NAME: ${INITIAL_ADMIN_NAME:-本地管理员}
-      INITIAL_ADMIN_PASSWORD: ${INITIAL_ADMIN_PASSWORD:-admin123}
-      INITIAL_ADMIN_USERNAME: ${INITIAL_ADMIN_USERNAME:-admin}
+      DATABASE_URL: ${COMPOSE_DATABASE_URL:?Set COMPOSE_DATABASE_URL}
     depends_on:
       db:
         condition: service_healthy
@@ -63,14 +62,12 @@ services:
     env_file:
       - .env
     environment:
-      DATABASE_URL: postgres://root:mysecretpassword@db:5432/local
-      RMS_DATABASE_URL: mysql://hotel_butler:mysecretpassword@rms:3306/rms
+      DATABASE_URL: ${COMPOSE_DATABASE_URL:?Set COMPOSE_DATABASE_URL}
+      RMS_DATABASE_URL: ${COMPOSE_RMS_DATABASE_URL:?Set COMPOSE_RMS_DATABASE_URL}
       ORIGIN: https://localhost:${SERVER_HTTPS_PORT:-4173}
       LOCAL_HTTPS_CERT_DIR: /certs
       NODE_EXTRA_CA_CERTS: /certs/rootCA.pem
       SHOW_LOCAL_ADMIN_CREDENTIALS: 'true'
-      INITIAL_ADMIN_PASSWORD: ${INITIAL_ADMIN_PASSWORD:-admin123}
-      INITIAL_ADMIN_USERNAME: ${INITIAL_ADMIN_USERNAME:-admin}
     ports:
       - '${SERVER_HTTPS_PORT:-4173}:4173'
     volumes:
@@ -92,9 +89,11 @@ services:
   connectivity-test:
     image: hotel-butler-server:local
     profiles: ['test']
+    env_file:
+      - .env
     environment:
-      DATABASE_URL: postgres://root:mysecretpassword@db:5432/local
-      RMS_DATABASE_URL: mysql://hotel_butler:mysecretpassword@rms:3306/rms
+      DATABASE_URL: ${COMPOSE_DATABASE_URL:?Set COMPOSE_DATABASE_URL}
+      RMS_DATABASE_URL: ${COMPOSE_RMS_DATABASE_URL:?Set COMPOSE_RMS_DATABASE_URL}
       SERVER_URL: https://server:4173
       NODE_EXTRA_CA_CERTS: /certs/rootCA.pem
     volumes:

@@ -67,6 +67,17 @@ describe('SessionFactory', () => {
     expect(electron.session.fromPartition).toHaveBeenCalledOnce();
   });
 
+  it('uses one dedicated persistent partition for the server API cookie jar', () => {
+    const factory = new SessionFactory(createLogger());
+
+    const first = factory.sessionForServerApi();
+    const second = factory.sessionForServerApi();
+
+    expect(first).toBe(second);
+    expect(electron.session.fromPartition).toHaveBeenCalledOnce();
+    expect(electron.session.fromPartition).toHaveBeenCalledWith('persist:xiaozhi:server-api');
+  });
+
   it('通过 Electron Session API 清空退休 partition 并移出缓存', async () => {
     const factory = new SessionFactory(createLogger());
     const partitionName = 'persist:xiaozhi:prod:douyin:retired';

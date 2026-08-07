@@ -1,4 +1,10 @@
 export const IPC_CHANNELS = {
+  auth: {
+    currentSession: 'auth:current-session',
+    loginWithPhoneCode: 'auth:login-with-phone-code',
+    logout: 'auth:logout',
+    requestPhoneCode: 'auth:request-phone-code',
+  },
   automation: {
     getCtripCheckIn: 'automation:get-ctrip-check-in',
   },

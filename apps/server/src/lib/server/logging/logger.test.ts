@@ -1,6 +1,11 @@
 import type { DestinationStream } from 'pino';
 import { describe, expect, it } from 'vitest';
-import { createServerLogger, resolveLogLevel, safeErrorType } from './logger';
+import {
+	createServerLogger,
+	resolveLogLevel,
+	safeErrorDetails,
+	safeErrorType
+} from './logger';
 
 describe('server logger', () => {
 	it('redacts accidental credential and personal-data fields', () => {
@@ -43,5 +48,19 @@ describe('server logger', () => {
 	it('classifies errors without exposing their message', () => {
 		expect(safeErrorType(new TypeError('password=secret'))).toBe('TypeError');
 		expect(safeErrorType('password=secret')).toBe('UnknownError');
+	});
+
+	it('preserves stack frames while redacting sensitive values', () => {
+		const error = new Error('cookie: session=private phone=13800138000 operator@example.com');
+		error.stack =
+			'Error: cookie: session=private phone=13800138000 operator@example.com\n    at loadSession (/app/session.ts:12:3)';
+
+		const details = safeErrorDetails(error);
+
+		expect(details.name).toBe('Error');
+		expect(details.stack).toContain('at loadSession (/app/session.ts:12:3)');
+		expect(JSON.stringify(details)).not.toContain('private');
+		expect(JSON.stringify(details)).not.toContain('13800138000');
+		expect(JSON.stringify(details)).not.toContain('operator@example.com');
 	});
 });

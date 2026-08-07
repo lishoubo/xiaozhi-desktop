@@ -27,6 +27,22 @@ Desktop-to-server communication SHALL use tRPC over `/api/trpc`, and the desktop
 - **THEN** Electron main uses the shared tRPC contract
 - **AND** renderer does not import or call the server implementation directly
 
+#### Scenario: Desktop performs authentication operations
+
+- **WHEN** renderer requests login or session operations
+- **THEN** renderer uses preload IPC, main uses the shared typed tRPC client over HTTPS, and credentials stay in the main-process Electron session
+
+### Requirement: Local development uses HTTPS
+
+Local desktop and server development endpoints SHALL use the host-trusted mkcert certificate prepared by the repository HTTPS setup command.
+
+#### Scenario: Start desktop development
+
+- **WHEN** a developer starts the desktop application through the repository npm entry point
+- **THEN** certificate setup runs before Electron Forge starts
+- **AND** Electron loads the renderer from `https://localhost:5174`
+- **AND** the desktop main process connects to the local server at `https://localhost:5173` by default
+
 ### Requirement: Local data remains explicit
 
 Desktop-local browser sessions, cookies, automation state and local SQLite data SHALL NOT be implicitly synchronized to the server.
@@ -48,7 +64,7 @@ Server persistence implementations SHALL NOT be imported by desktop or the share
 
 ### Requirement: Database identity boundaries
 
-The server SHALL use PostgreSQL for management-backend administrator identity and system-owned data, while desktop employee identity SHALL be read from the external RMS MySQL `employee` table without a PostgreSQL user copy.
+The server SHALL use PostgreSQL Better Auth models for management administrators, RMS MySQL for desktop employee profiles, and a separate PostgreSQL desktop-session table containing no employee profile copy.
 
 #### Scenario: Resolve identities for each application surface
 
@@ -57,3 +73,9 @@ The server SHALL use PostgreSQL for management-backend administrator identity an
 
 - **WHEN** desktop resolves an authenticated employee after phone OTP
 - **THEN** it reads the active employee identity from RMS MySQL
+
+#### Scenario: Desktop authenticates
+
+- **WHEN** an active RMS employee completes phone OTP login
+- **THEN** PostgreSQL stores only the desktop session's token digest, RMS employee ID, and lifecycle timestamps
+- **AND** administrator Better Auth tables are not used or modified for desktop identity

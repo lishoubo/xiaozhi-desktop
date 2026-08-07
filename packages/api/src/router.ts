@@ -1,5 +1,22 @@
 import { initTRPC, TRPCError } from '@trpc/server';
 import { z } from 'zod';
+import {
+  employeeIdentitySchema,
+  logoutResponseSchema,
+  phoneCodeRequestResponseSchema,
+  phoneCodeSchema,
+  phoneNumberSchema,
+  type EmployeeIdentity,
+} from './contracts';
+
+export {
+  employeeIdentitySchema,
+  logoutResponseSchema,
+  phoneCodeRequestResponseSchema,
+  phoneCodeSchema,
+  phoneNumberSchema,
+  type EmployeeIdentity,
+} from './contracts';
 
 type ApiLogFields = Record<string, string | number | boolean | null | undefined>;
 // eslint-disable-next-line no-unused-vars -- parameter names document the structural logger contract.
@@ -12,18 +29,9 @@ export interface ApiLogger {
   error: ApiLogMethod;
 }
 
-export const employeeIdentitySchema = z.strictObject({
-  id: z.string().regex(/^\d+$/),
-  orgId: z.string().regex(/^\d+$/),
-  username: z.string().min(1),
-  fullName: z.string().nullable(),
-  phone: z.string().regex(/^1\d{10}$/),
-  roleCode: z.string().min(1),
-});
-
-export type EmployeeIdentity = Readonly<z.infer<typeof employeeIdentitySchema>>;
-
 export interface EmployeeIdentityDirectory {
+  // eslint-disable-next-line no-unused-vars -- parameter name documents the directory contract.
+  findActiveById(id: string): Promise<EmployeeIdentity | null>;
   // eslint-disable-next-line no-unused-vars -- parameter name documents the directory contract.
   findActiveByPhone(phone: string): Promise<EmployeeIdentity | null>;
 }
@@ -35,7 +43,15 @@ export interface PhoneOtpGateway {
   verifyCode(phone: string, code: string): Promise<boolean>;
 }
 
+export interface DesktopSessionGateway {
+  currentEmployee(): Promise<EmployeeIdentity | null>;
+  // eslint-disable-next-line no-unused-vars -- parameter name documents the session contract.
+  issue(employee: EmployeeIdentity): Promise<void>;
+  revoke(): Promise<void>;
+}
+
 export interface ApiContext {
+  desktopSession: DesktopSessionGateway;
   employeeDirectory: EmployeeIdentityDirectory;
   phoneOtp: PhoneOtpGateway;
   logger: ApiLogger;
@@ -43,6 +59,14 @@ export interface ApiContext {
 }
 
 const t = initTRPC.context<ApiContext>().create();
+
+const serviceUnavailableError = (message: string, cause: unknown): TRPCError =>
+  new TRPCError({
+    code: 'INTERNAL_SERVER_ERROR',
+    message,
+    cause,
+  });
+
 const publicProcedure = t.procedure.use(async ({ ctx, next, path, type }) => {
   const startedAt = performance.now();
   const result = await next();
@@ -63,29 +87,29 @@ const publicProcedure = t.procedure.use(async ({ ctx, next, path, type }) => {
   return result;
 });
 
-const healthResponseSchema = z.object({
-  status: z.literal('ok'),
+const protectedProcedure = publicProcedure.use(async ({ ctx, next }) => {
+  let employee: EmployeeIdentity | null;
+  try {
+    employee = await ctx.desktopSession.currentEmployee();
+  } catch (cause) {
+    throw serviceUnavailableError('会话服务暂时不可用，请稍后重试', cause);
+  }
+
+  if (!employee) {
+    throw new TRPCError({ code: 'UNAUTHORIZED', message: '请先登录' });
+  }
+
+  return next({ ctx: { ...ctx, employee } });
 });
 
-export const phoneNumberSchema = z.string().regex(/^1\d{10}$/);
-export const phoneCodeSchema = z.string().regex(/^\d{6}$/);
-
-const phoneCodeRequestResponseSchema = z.strictObject({
-  accepted: z.literal(true),
-  expiresInSeconds: z.number().int().positive(),
+const healthResponseSchema = z.object({
+  status: z.literal('ok'),
 });
 
 const invalidPhoneCodeError = (): TRPCError =>
   new TRPCError({
     code: 'UNAUTHORIZED',
     message: '手机号或验证码不正确',
-  });
-
-const serviceUnavailableError = (message: string, cause: unknown): TRPCError =>
-  new TRPCError({
-    code: 'INTERNAL_SERVER_ERROR',
-    message,
-    cause,
   });
 
 export const appRouter = t.router({
@@ -120,8 +144,30 @@ export const appRouter = t.router({
           throw serviceUnavailableError('登录服务暂时不可用，请稍后重试', cause);
         }
         if (!employee) throw invalidPhoneCodeError();
+        try {
+          await ctx.desktopSession.issue(employee);
+        } catch (cause) {
+          throw serviceUnavailableError('登录服务暂时不可用，请稍后重试', cause);
+        }
         return employee;
       }),
+    currentSession: publicProcedure
+      .output(employeeIdentitySchema.nullable())
+      .query(async ({ ctx }) => {
+        try {
+          return await ctx.desktopSession.currentEmployee();
+        } catch (cause) {
+          throw serviceUnavailableError('会话服务暂时不可用，请稍后重试', cause);
+        }
+      }),
+    logout: protectedProcedure.output(logoutResponseSchema).mutation(async ({ ctx }) => {
+      try {
+        await ctx.desktopSession.revoke();
+      } catch (cause) {
+        throw serviceUnavailableError('退出登录暂时不可用，请稍后重试', cause);
+      }
+      return { success: true };
+    }),
   }),
   system: t.router({
     health: publicProcedure.output(healthResponseSchema).query(() => ({ status: 'ok' })),

@@ -1,29 +1,35 @@
-# Proposal: Add desktop phone OTP login API
+# Proposal: Complete desktop phone OTP login
 
 ## Why
 
-The desktop login screen is still backed by a local fixed phone/code mock. The server can read a safe active employee identity from RMS, but its public phone lookup is not protected by an OTP boundary and can be used to enumerate employee phone numbers. An SMS provider has not been selected yet, so provider-specific delivery cannot be implemented without coupling the contract to a guess.
+The desktop login screen still accepts a fixed phone/code entirely in the renderer and stores a self-asserted seven-day identity in `localStorage`. The server already exposes provider-neutral phone OTP procedures and resolves active identities from RMS, but desktop does not call them and successful login does not create a revocable server session. This is not an authentication boundary.
+
+An SMS provider has not been selected. The temporary provider behavior must therefore remain explicit and replaceable, while every other part of the login and session lifecycle follows the production path now.
 
 ## Outcome
 
-- Add a shared tRPC phone-code request mutation for the desktop.
-- Add a shared tRPC phone-code login mutation that returns the safe active RMS employee identity only after OTP verification succeeds.
-- Put SMS delivery and verification behind an injected server port.
-- Use an explicit temporary implementation that accepts every schema-valid request/code until a provider is selected.
-- Remove the public employee-by-phone query so callers cannot bypass the OTP boundary.
+- Connect the desktop login UI to the server phone-code request and login mutations through main/preload IPC.
+- Keep the temporary OTP gateway that accepts every schema-valid six-digit code; do not hard-code a special code in desktop.
+- Permit login only when the phone belongs to an active RMS `employee`.
+- Add one deterministic active RMS development employee to the checked-in local schema bootstrap and show that phone as the desktop experience account.
+- Issue a random opaque desktop session after login, store only its SHA-256 digest and RMS employee ID in PostgreSQL, and support validation, expiry, and logout revocation.
+- Persist the server cookie only in a dedicated encrypted Electron session partition. Renderer receives employee identity but never the session credential.
+- Remove the renderer `localStorage` auth session and fixed mock credentials.
 
 ## Non-goals
 
 - Selecting or integrating an SMS provider.
-- Issuing access/refresh tokens or introducing a server-side desktop session model.
-- Connecting the existing desktop renderer mock to the new API in this change.
-- Writing employee or OTP data to RMS MySQL or PostgreSQL.
+- Adding refresh tokens, multi-device session management UI, or administrator control of desktop sessions.
+- Copying RMS employee profiles into PostgreSQL.
+- Coupling desktop application logout to third-party OTA account cookies.
 
 ## Success criteria
 
-- A valid phone-code request returns a provider-neutral accepted response without disclosing whether the employee exists.
-- A valid six-digit code reaches the temporary OTP gateway and then resolves only an active RMS employee.
-- Invalid OTP and unavailable employees produce the same unauthenticated login failure.
-- The shared router no longer exposes a direct public employee lookup.
-- Focused contract and server tests prove the temporary behavior and the replaceable provider boundary.
+- Requesting a code from desktop reaches the server and starts the countdown only after acceptance.
+- Any six-digit code can pass the temporary OTP gateway, but login succeeds only for an active RMS employee phone.
+- Successful login sets a secure server session cookie, survives desktop restart, and restores identity through server validation.
+- Expired, missing, malformed, revoked, or RMS-disabled sessions return the desktop to login.
+- Logout revokes the server record and removes the local cookie even when the remote revocation request fails.
+- Neither renderer APIs nor logs expose the opaque session token, phone code, or full phone number.
+- Fresh local RMS initialization contains the displayed experience employee.
 

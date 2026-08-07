@@ -9,6 +9,8 @@ import {
 import { denyEmbeddedPagePermissions } from '../security/session-permissions';
 import type { AppLogger } from '../../shared/logging';
 
+const SERVER_API_PARTITION = 'persist:xiaozhi:server-api';
+
 /**
  * 把 partition 名字兑换成 Electron 的 `Session`。
  *
@@ -24,6 +26,11 @@ export class SessionFactory {
   /** 已有 credential：直接用它的 `partitionName`，不重新拼接。 */
   sessionForAccount(partitionName: string): Session {
     return this.fromPartitionCached(partitionName);
+  }
+
+  /** Desktop backend API cookie jar, isolated from every OTA browsing session. */
+  sessionForServerApi(): Session {
+    return this.fromPartitionCached(SERVER_API_PARTITION);
   }
 
   /**

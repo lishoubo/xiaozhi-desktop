@@ -1,6 +1,7 @@
 import { net } from 'electron';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+  createElectronSessionFetch,
   createServerTrpcClient,
   electronNetFetch,
   serverTrpcEndpoint,
@@ -42,5 +43,20 @@ describe('serverTrpcEndpoint', () => {
       expect.objectContaining({ method: 'GET' }),
     );
     expect(electronNetFetch).toBeTypeOf('function');
+  });
+
+  it('includes the dedicated Electron session cookie jar on every request', async () => {
+    const fetch = vi.fn().mockResolvedValue(new Response(null, { status: 204 }));
+    const sessionFetch = createElectronSessionFetch({ fetch });
+
+    await sessionFetch('https://rms.example.com/api/trpc/auth.currentSession', {
+      method: 'GET',
+      credentials: 'omit',
+    });
+
+    expect(fetch).toHaveBeenCalledWith(
+      'https://rms.example.com/api/trpc/auth.currentSession',
+      expect.objectContaining({ method: 'GET', credentials: 'include' }),
+    );
   });
 });
