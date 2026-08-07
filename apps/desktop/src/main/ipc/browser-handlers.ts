@@ -15,7 +15,7 @@ import { toChannelId, toOtaCredentialId, type ChannelId } from '../../domain/ide
 import type { LoginUrlMatcher } from '../../domain/ports/discovery';
 import type { OtaCredential } from '../../domain/ota-credential';
 import type { OtaCredentialRepository } from '../../domain/ports/repositories';
-import { otaChannelLandingUrl } from '../../domain/policy/ota-account-landing-url-policy';
+import { otaChannelLandingUrl } from '../../domain/policy/ota-channel-landing-url-policy';
 import { IPC_CHANNELS } from '../../shared/ipc-channels';
 import type { AppLogger } from '../../shared/logging';
 import { BrowserCookieImporter } from '../cookie-import/browser-cookie-importer';

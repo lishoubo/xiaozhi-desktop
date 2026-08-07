@@ -3,7 +3,6 @@ import {
   InvalidIdentifierError,
   parseChannelId,
   toChannelId,
-  toOtaAccountId,
   toOtaCredentialId,
 } from '../../../src/domain/identity';
 
@@ -49,16 +48,6 @@ describe('parseChannelId', () => {
     expect(parseChannelId(42)).toBeNull();
     expect(parseChannelId(null)).toBeNull();
     expect(parseChannelId(undefined)).toBeNull();
-  });
-});
-
-describe('toOtaAccountId', () => {
-  it('接受账号标识', () => {
-    expect(toOtaAccountId('ctrip-account-1')).toBe('ctrip-account-1');
-  });
-
-  it('与 ChannelId 用同一套校验', () => {
-    expect(() => toOtaAccountId('')).toThrow(InvalidIdentifierError);
   });
 });
 

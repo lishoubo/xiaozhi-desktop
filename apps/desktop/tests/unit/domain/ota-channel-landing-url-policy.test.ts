@@ -3,7 +3,7 @@ import { toChannelId } from '../../../src/domain/identity';
 import {
   otaChannelLandingUrl,
   UnsupportedChannelForLandingUrlError,
-} from '../../../src/domain/policy/ota-account-landing-url-policy';
+} from '../../../src/domain/policy/ota-channel-landing-url-policy';
 
 describe('otaChannelLandingUrl', () => {
   it('携程场景：返回渠道默认 URL', () => {

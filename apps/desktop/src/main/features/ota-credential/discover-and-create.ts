@@ -7,8 +7,7 @@
  * `OtaCredential`（没有则为 null），由 `BrowserManager` 负责在这个返回值确定
  * 之后才广播，保证下游订阅者收到事件时 credential 已经真实写入数据库。
  *
- * 不再写 OtaAccount（酒店信息）——酒店探测已独立成
- * `main/features/ota-hotel-prob/`，见
+ * 不写酒店信息——酒店探测已独立成 `main/features/ota-hotel-prob/`，见
  * openspec/changes/split-ota-hotel-prob-feature/design.md 决策 7。
  */
 import type { WebContents } from 'electron';

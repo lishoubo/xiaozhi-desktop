@@ -92,48 +92,9 @@ const migrations: readonly Migration[] = [
   },
   {
     version: 3,
-    name: 'create-ota-account',
+    name: 'create-ota-credential',
     apply(database) {
       database.exec(`
-        CREATE TABLE ota_account (
-          id TEXT PRIMARY KEY,
-          channel TEXT NOT NULL,
-          ota_hotel_id TEXT NOT NULL,
-          display_name TEXT,
-          partition_name TEXT NOT NULL,
-          created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-          updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-        );
-
-        CREATE UNIQUE INDEX ota_account_channel_hotel_idx ON ota_account(channel, ota_hotel_id);
-      `);
-    },
-  },
-  {
-    version: 4,
-    name: 'rename-ota-account-display-name',
-    apply(database) {
-      database.exec(`ALTER TABLE ota_account RENAME COLUMN display_name TO ota_hotel_name;`);
-    },
-  },
-  {
-    version: 5,
-    name: 'add-ota-account-channel-context-and-discovered-at',
-    apply(database) {
-      database.exec(`
-        ALTER TABLE ota_account ADD COLUMN channel_context TEXT;
-        ALTER TABLE ota_account ADD COLUMN discovered_at INTEGER NOT NULL DEFAULT 0;
-        UPDATE ota_account SET discovered_at = CAST(strftime('%s', created_at) AS INTEGER) * 1000;
-      `);
-    },
-  },
-  {
-    version: 6,
-    name: 'split-ota-credential-from-account',
-    apply(database) {
-      database.exec(`
-        DROP TABLE ota_account;
-
         CREATE TABLE ota_credential (
           id TEXT PRIMARY KEY,
           channel TEXT NOT NULL,
@@ -144,26 +105,11 @@ const migrations: readonly Migration[] = [
           created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
           updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         );
-
-        CREATE TABLE ota_account (
-          id TEXT PRIMARY KEY,
-          credential_id TEXT NOT NULL REFERENCES ota_credential(id) ON UPDATE CASCADE ON DELETE RESTRICT,
-          channel TEXT NOT NULL,
-          ota_hotel_id TEXT NOT NULL,
-          ota_hotel_name TEXT,
-          bind_extra TEXT,
-          discovered_at INTEGER NOT NULL,
-          created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-          updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-        );
-
-        CREATE UNIQUE INDEX ota_account_channel_hotel_idx ON ota_account(channel, ota_hotel_id);
-        CREATE INDEX ota_account_credential_idx ON ota_account(credential_id);
       `);
     },
   },
   {
-    version: 7,
+    version: 4,
     name: 'add-ota-credential-channel-account-id',
     apply(database) {
       database.exec(`
@@ -174,7 +120,7 @@ const migrations: readonly Migration[] = [
     },
   },
   {
-    version: 8,
+    version: 5,
     name: 'create-ota-hotel-prob',
     apply(database) {
       database.exec(`

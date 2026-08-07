@@ -1,5 +1,5 @@
 /**
- * 记录"新建了 partition、但还没被任何 OtaAccount 认领"的登录态——
+ * 记录"新建了 partition、但还没被任何 OtaCredential 认领"的登录态——
  * `<userData>/pending-partitions.json`。
  *
  * 为什么不写进 partition 自己的磁盘目录：那是 Electron/Chromium 管理的

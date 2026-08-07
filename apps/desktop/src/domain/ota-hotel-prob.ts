@@ -1,9 +1,4 @@
-/**
- * 一个 credential 名下探测出的一家可操作渠道酒店。与 OtaCredential 的关系、字段
- * 语义均对齐 OtaAccount；OtaHotelProb 是独立探测流程的持久化目标，不是
- * OtaAccount 的替代别名——两者当前并存（见
- * openspec/changes/split-ota-hotel-prob-feature/design.md 决策 7）。
- */
+/** 一个 credential 名下探测出的一家可操作渠道酒店。 */
 import type { ChannelId, OtaCredentialId, OtaHotelId, OtaHotelProbId } from './identity';
 import type { JsonObject } from './json';
 
