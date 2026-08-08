@@ -127,6 +127,8 @@
         newLoginChannel: { channelId: channel.id, url: channel.url },
         rmsHotelId: target.account.hotelId,
         rmsHotelName: target.rmsHotelName,
+        // 这家酒店在本渠道已有绑定：换成别的门店必须先解绑，确认前就要拦住。
+        replacingOtaHotelId: target.account.otaHotelId,
       });
       onClose();
       await push('/');

@@ -19,6 +19,12 @@ export const hotelBindingWaiting = createNavigationIntent<{
   newLoginChannel?: { channelId: string; url: string };
   rmsHotelId: number;
   rmsHotelName: string;
+  /**
+   * 从「重新登录」里点新登录账号时带上：该酒店在这个渠道**已有**绑定，绑的是这家
+   * OTA 门店。新账号探测出的门店与它不一致时不能直接绑——远端只允许一个活跃绑定，
+   * 提交必被拒。带上它是为了在确认前就说清楚，而不是让用户走完全程再失败。
+   */
+  replacingOtaHotelId?: string | null;
 }>();
 
 /**

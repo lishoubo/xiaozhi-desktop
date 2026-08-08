@@ -8,6 +8,21 @@ import { isActiveBinding } from './account-status';
  * 整体**排除，不是只排除已绑定的那一个账号——同渠道的其他账号选了也会被远端拒绝。
  */
 /**
+ * 「这次绑定需要先解绑吗」——从「重新登录」点新登录账号时，该酒店在本渠道已经有一
+ * 条绑定；换成别的门店远端必拒（只允许一个活跃绑定），所以在确认前就要拦住。
+ *
+ * `replacing` 为 null 表示这不是替换场景（普通新增绑定），永远不需要解绑。
+ * 选中的就是原来那家门店时也不需要——那等于重新绑同一家，远端不会冲突。
+ */
+export function requiresUnbindBeforeBinding(
+  replacing: string | null,
+  selectedOtaHotelId: string | undefined,
+): boolean {
+  if (replacing === null || selectedOtaHotelId === undefined) return false;
+  return selectedOtaHotelId !== replacing;
+}
+
+/**
  * 列表翻页的派生值。`safePage` 会把越界页码夹回有效范围——删到最后一页空了、或
  * 重新加载后总数变少时，页码若不回退就会停在空白页。
  */

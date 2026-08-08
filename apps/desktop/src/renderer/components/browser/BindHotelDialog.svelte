@@ -10,6 +10,7 @@
   import log from 'electron-log/renderer';
   import type { ProbedHotelDto } from '../../../shared/types/ui-waiting-result-types';
   import { hotelBindingWaiting } from '../../hotel-management/cross-route-intents';
+  import { requiresUnbindBeforeBinding } from '../../hotel-management/model';
   import { dismissAppNotification, showAppNotification } from '../../notifications';
   import { createWaitingUiResult } from '../../waiting-ui-result';
   import { bindingFailureMessage } from './binding-failure-message';
@@ -27,7 +28,17 @@
   let credentialId = $state<string | undefined>(undefined);
   let rmsHotelId = $state<number | undefined>(undefined);
   let rmsHotelName = $state('');
+  /** 非 null 表示这次是「替换已有绑定」，值是原绑定的 OTA 门店。 */
+  let replacingOtaHotelId = $state<string | null>(null);
   let cancelWaiting: (() => void) | undefined;
+
+  /**
+   * 选中的门店与原绑定不是同一家——远端只允许一个活跃绑定，这么提交必被拒。
+   * 在确认前就拦住，别让用户登录、选门店走完全程才失败。
+   */
+  const requiresUnbindFirst = $derived(
+    requiresUnbindBeforeBinding(replacingOtaHotelId, selectedOtaHotelId),
+  );
 
   const waiting = createWaitingUiResult(
     (listener) => window.hotelButler.hotelManagement.onWaitingResult(listener),
@@ -45,6 +56,7 @@
     if (!pending) return;
     rmsHotelId = pending.rmsHotelId;
     rmsHotelName = pending.rmsHotelName;
+    replacingOtaHotelId = pending.replacingOtaHotelId ?? null;
 
     log.info('Binding waiting registered', { requestId: pending.requestId });
     // 先登记等待再开标签页：探测发生在导航之后，但先登记不会错过任何结果。
@@ -106,6 +118,8 @@
   async function confirmBinding(): Promise<void> {
     const hotel = candidates.find((item) => item.otaHotelId === selectedOtaHotelId);
     if (!hotel || rmsHotelId === undefined || !credentialId) return;
+    // 按钮已经禁用了，这里是第二道：远端必拒，不值得发出去。
+    if (requiresUnbindFirst) return;
     dismissAppNotification(NOTIFICATION_ID);
     submitting = true;
     try {
@@ -154,6 +168,7 @@
     closeDialog();
     candidates = [];
     selectedOtaHotelId = undefined;
+    replacingOtaHotelId = null;
   }}
 >
   <Dialog.Content
@@ -186,9 +201,21 @@
       {/each}
     </ul>
 
+    {#if requiresUnbindFirst}
+      <p
+        class="m-0 rounded-md bg-[#fde9e7] px-3 py-2 text-xs text-[#a8342d]"
+        role="alert"
+      >
+        「{rmsHotelName}」在该渠道已绑定另一家门店，需要先解绑才能改绑。请回到酒店管理页解绑后重试。
+      </p>
+    {/if}
+
     <Dialog.Footer>
       <Button variant="ghost" disabled={submitting} onclick={closeDialog}>都不是</Button>
-      <Button disabled={!selectedOtaHotelId || submitting} onclick={() => void confirmBinding()}>
+      <Button
+        disabled={!selectedOtaHotelId || submitting || requiresUnbindFirst}
+        onclick={() => void confirmBinding()}
+      >
         {#if submitting}
           <Spinner aria-label="正在绑定" />
           正在绑定

@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { boundChannelsOfHotel } from '../../src/renderer/hotel-management/model';
+import {
+  boundChannelsOfHotel,
+  requiresUnbindBeforeBinding,
+} from '../../src/renderer/hotel-management/model';
 import type { RmsOtaAccountDto } from '../../src/shared/hotel-management';
 
 function account(overrides: Partial<RmsOtaAccountDto> = {}): RmsOtaAccountDto {
@@ -59,5 +62,26 @@ describe('boundChannelsOfHotel', () => {
     ]);
 
     expect(bound).toEqual(new Set(['ctrip']));
+  });
+});
+
+describe('requiresUnbindBeforeBinding', () => {
+  /** 普通新增绑定：该渠道本来就没绑，永远不需要解绑。 */
+  it('不是替换场景时永远不需要解绑', () => {
+    expect(requiresUnbindBeforeBinding(null, 'dy-999')).toBe(false);
+  });
+
+  it('还没选门店时不提示', () => {
+    expect(requiresUnbindBeforeBinding('dy-111', undefined)).toBe(false);
+  });
+
+  /** 换成别的门店 → 远端只允许一个活跃绑定，提交必被拒。 */
+  it('选中的门店与原绑定不同时需要先解绑', () => {
+    expect(requiresUnbindBeforeBinding('dy-111', 'dy-222')).toBe(true);
+  });
+
+  /** 重新绑同一家不冲突——用户换了账号但门店没变，属于正常路径。 */
+  it('选中的就是原来那家门店时不需要解绑', () => {
+    expect(requiresUnbindBeforeBinding('dy-111', 'dy-111')).toBe(false);
   });
 });
