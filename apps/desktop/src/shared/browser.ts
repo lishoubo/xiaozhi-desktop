@@ -124,6 +124,55 @@ export type OtaDiscoveryCompletedEvent = Readonly<
   z.infer<typeof otaDiscoveryCompletedEventSchema>
 >;
 
+/** 探测出的候选酒店，尚未保存。 */
+export const probedHotelSchema = z.strictObject({
+  otaHotelId: nonEmptyStringSchema,
+  otaHotelName: z.string().nullable(),
+  bindExtra: jsonObjectSchema.nullable(),
+});
+
+/**
+ * 打开 OTA 标签页时携带的意图。目前只有绑定酒店一种：带上它，探测出候选后才会
+ * 向 UI 发通知；不带则只是普通打开，探测照跑但无人接收。
+ */
+export const bindHotelIntentSchema = z.strictObject({
+  kind: z.literal('bind-hotel'),
+  requestId: nonEmptyStringSchema,
+});
+
+export const otaTabIntentSchema = bindHotelIntentSchema;
+
+export type OtaTabIntentDto = Readonly<z.infer<typeof otaTabIntentSchema>>;
+
+/** 「UI 在等的结果送达了」——信封形状见 `shared/types/ui-waiting-result-types.ts`。 */
+export const uiWaitingResultEnvelopeSchema = z.strictObject({
+  requestId: nonEmptyStringSchema,
+  kind: z.literal('bind-hotel'),
+  payload: z.strictObject({
+    credentialId: nonEmptyStringSchema,
+    hotels: z.array(probedHotelSchema),
+  }),
+});
+
+export const startBindingInputSchema = z.strictObject({
+  credentialId: nonEmptyStringSchema,
+  rmsHotelId: z.number().int().positive(),
+});
+
+export type StartBindingInput = Readonly<z.infer<typeof startBindingInputSchema>>;
+
+export const startBindingResultSchema = z.strictObject({
+  requestId: nonEmptyStringSchema,
+});
+
+export const confirmBindingInputSchema = z.strictObject({
+  credentialId: nonEmptyStringSchema,
+  rmsHotelId: z.number().int().positive(),
+  hotel: probedHotelSchema,
+});
+
+export type ConfirmBindingInput = Readonly<z.infer<typeof confirmBindingInputSchema>>;
+
 export const systemPreferencesSchema = z.strictObject({
   autoLaunch: z.boolean(),
   version: nonEmptyStringSchema,

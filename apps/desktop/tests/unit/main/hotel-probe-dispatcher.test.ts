@@ -51,14 +51,18 @@ function foundProbe(): HotelProbe {
 }
 
 /** 只允许覆盖 probes：logger 与 tabEventBus 需要在用例里断言，保持具体类型。 */
+/** 只允许覆盖 probes：logger/tabEventBus/notify 需要在用例里断言，保持具体类型。 */
 function createDeps(overrides: Pick<Partial<HotelProbeDispatcherDependencies>, 'probes'> = {}) {
   return {
     tabEventBus: new TabEventBus(),
     probes: new Map([[toChannelId('douyin'), foundProbe()]]),
     logger: createLogger(),
+    notify: vi.fn(),
     ...overrides,
   } satisfies HotelProbeDispatcherDependencies;
 }
+
+const BIND_INTENT = { kind: 'bind-hotel', requestId: 'req-1' } as const;
 
 async function flushMicrotasks(): Promise<void> {
   await new Promise((resolve) => setImmediate(resolve));
@@ -157,6 +161,61 @@ describe('HotelProbeDispatcher', () => {
       expect.objectContaining({ channel: 'douyin' }),
     );
     expect(deps.logger.info).not.toHaveBeenCalled();
+  });
+
+  it('带 bind-hotel 意图时通知 UI，信封内容正确', async () => {
+    const deps = createDeps();
+    new HotelProbeDispatcher(deps);
+
+    deps.tabEventBus.emitCredentialChecked(
+      fakeEvent({
+        intent: BIND_INTENT,
+        webContents: { isDestroyed: () => false } as never,
+      }),
+    );
+    await flushMicrotasks();
+
+    expect(deps.notify).toHaveBeenCalledWith({
+      requestId: 'req-1',
+      kind: 'bind-hotel',
+      payload: {
+        credentialId: 'credential-1',
+        hotels: [{ otaHotelId: 'dy-111', otaHotelName: '测试酒店', bindExtra: null }],
+      },
+    });
+  });
+
+  it('无绑定意图时不通知 UI，只记候选日志', async () => {
+    const deps = createDeps();
+    new HotelProbeDispatcher(deps);
+
+    deps.tabEventBus.emitCredentialChecked(fakeEvent());
+    await flushMicrotasks();
+
+    expect(deps.logger.info).toHaveBeenCalledWith(
+      'Hotel probe found candidates',
+      expect.objectContaining({ hotelCount: 1 }),
+    );
+    expect(deps.notify).not.toHaveBeenCalled();
+  });
+
+  it('标签页在探测期间被关闭时丢弃候选，不通知', async () => {
+    const deps = createDeps();
+    new HotelProbeDispatcher(deps);
+
+    deps.tabEventBus.emitCredentialChecked(
+      fakeEvent({
+        intent: BIND_INTENT,
+        webContents: { isDestroyed: () => true } as never,
+      }),
+    );
+    await flushMicrotasks();
+
+    expect(deps.notify).not.toHaveBeenCalled();
+    expect(deps.logger.info).toHaveBeenCalledWith(
+      'Hotel probe candidates discarded: tab closed',
+      expect.objectContaining({ channel: 'douyin' }),
+    );
   });
 
   it('probe 返回 none 时不产出候选', async () => {

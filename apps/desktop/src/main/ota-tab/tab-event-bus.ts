@@ -25,6 +25,7 @@
 import { EventEmitter } from 'node:events';
 import type { WebContents } from 'electron';
 import type { OtaCredential } from '../../shared/types/ota-credential';
+import type { OtaTabIntent } from './intent';
 
 export type CredentialCheckOutcome =
   | Readonly<{ kind: 'not-applicable' }>
@@ -38,6 +39,11 @@ export type TabCredentialCheckedEvent = Readonly<{
   url: string;
   webContents: WebContents;
   outcome: CredentialCheckOutcome;
+  /**
+   * 这个标签页是为什么打开的（`OtaTabService.openExisting` 的调用方给的）。
+   * 订阅方据此决定要不要把结果送回 UI——广播的仍然是事实，不是指令。
+   */
+  intent?: OtaTabIntent;
 }>;
 
 export class TabEventBus extends EventEmitter {

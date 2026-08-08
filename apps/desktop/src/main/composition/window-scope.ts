@@ -66,6 +66,12 @@ export function createWindowScope(scope: AppScope): WindowScope {
     tabEventBus,
     probes: hotelProbes(scope.channelRegistry),
     logger,
+    // dispatcher 在 channels/，不认识 electron 与 ipc；这里把它接到窗口上。
+    notify: (envelope) => {
+      if (!window.isDestroyed()) {
+        window.webContents.send(IPC_CHANNELS.uiWaitingResult.delivered, envelope);
+      }
+    },
   });
 
   const loginDetector = new LoginDetector({
@@ -81,6 +87,9 @@ export function createWindowScope(scope: AppScope): WindowScope {
     loginDetector,
     otaCredentialRepository: scope.otaCredentialRepository,
   });
+  // 绑定流程要开标签页，而 OtaTabService 依赖窗口级的 BrowserManager。
+  scope.setBindingTabOpener(otaTabService);
+  onDispose(() => scope.setBindingTabOpener(null));
 
   const serverOrigin = resolveServerOrigin(process.env);
   const apiSession = scope.sessionFactory.sessionForServerApi();

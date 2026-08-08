@@ -17,6 +17,7 @@ import type { ChannelId } from '../ids';
 import type { LoginUrlMatcher } from '../channels/types';
 import type { OtaCredential } from '../../shared/types/ota-credential';
 import { TabEventBus } from './tab-event-bus';
+import type { OtaTabIntent } from './intent';
 
 /** 架构约束：不 import `browser-manager` 实现，用类型查询表达结构依赖。 */
 type TabNavigatedEvent = import('../browser/browser-manager').TabNavigatedEvent;
@@ -25,6 +26,8 @@ type TabClosedEvent = import('../browser/browser-manager').TabClosedEvent;
 type LoginTabState = Readonly<{
   channel: ChannelId;
   loginUrlMatcher: LoginUrlMatcher;
+  /** 这次打开的意图，随广播带给下游；tab 关闭时随本记录一起消失。 */
+  intent?: OtaTabIntent;
 }>;
 
 export type LoginDetectorDependencies = Readonly<{
@@ -57,11 +60,14 @@ export class LoginDetector {
     });
   }
 
-  /** 登记「这个标签页需要登录判定」。渠道未注册 matcher 时不参与 URL 触发。 */
-  register(tabId: string, channel: ChannelId): void {
+  /**
+   * 登记「这个标签页需要登录判定」。渠道未注册 matcher 时不参与 URL 触发。
+   * `intent` 说明这次打开是为了做什么，会随广播带给下游订阅者。
+   */
+  register(tabId: string, channel: ChannelId, intent?: OtaTabIntent): void {
     const loginUrlMatcher = this.deps.loginUrlMatchers.get(channel);
     if (!loginUrlMatcher) return;
-    this.loginTabs.set(tabId, { channel, loginUrlMatcher });
+    this.loginTabs.set(tabId, { channel, loginUrlMatcher, intent });
   }
 
   private async handleTabNavigated(event: TabNavigatedEvent): Promise<void> {
@@ -72,6 +78,7 @@ export class LoginDetector {
       channel: event.channelId,
       url: event.url,
       webContents: event.webContents,
+      intent: state?.intent,
     };
 
     if (!state || this.triggered.has(event.tabId)) {

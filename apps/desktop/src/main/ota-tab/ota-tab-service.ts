@@ -13,6 +13,7 @@ import type { BrowserTab } from '../../shared/browser';
 import { readImportedCookies } from '../cookie-import/store';
 import { addPendingPartition, type PendingPartition } from '../file-store/pending-partitions-store';
 import type { LoginDetector } from './login-detector';
+import type { OtaTabIntent } from './intent';
 
 /** 架构约束：不 import `browser-manager` 实现，用类型查询表达结构依赖。 */
 type BrowserManagerTabOpener = Pick<
@@ -72,11 +73,12 @@ export class OtaTabService {
   }
 
   /**
-   * 打开已有账号（流程B）。`intent` 目前只是类型占位（不消费具体语义），
-   * 传入非 undefined 值即视为"这次打开需要登录判定"——具体 intent union
-   * 由后续"酒店绑定探测流程"变更定义。不传维持现状行为：只开 tab，不判定。
+   * 打开已有账号（流程B）。`intent` 说明"这次打开是为了做什么"：带上它，登录
+   * 判定完成后探测出的候选会通知到 UI；不带则只开 tab 并做判定，候选无人接收。
+   * intent 由 `LoginDetector` 保管（挂在 tab 记录上，随 tab 关闭一起消失），
+   * 并随 `tab:credential-checked` 广播带给下游。
    */
-  openExisting(credentialId: string, intent?: unknown): BrowserTab {
+  openExisting(credentialId: string, intent?: OtaTabIntent): BrowserTab {
     const credential = this.deps.otaCredentialRepository.findById(toOtaCredentialId(credentialId));
     if (!credential) throw new Error('未找到该登录凭据');
     const url = otaChannelLandingUrl(credential.channel);
@@ -85,7 +87,7 @@ export class OtaTabService {
       credential.channel,
       url,
     );
-    if (intent !== undefined) this.deps.loginDetector.register(tab.id, credential.channel);
+    this.deps.loginDetector.register(tab.id, credential.channel, intent);
     return tab;
   }
 

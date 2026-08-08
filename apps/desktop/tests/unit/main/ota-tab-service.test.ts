@@ -75,7 +75,7 @@ describe('OtaTabService', () => {
     await expect(readImportedCookies(userDataDir, CTRIP)).resolves.not.toBeNull();
   });
 
-  it('openExisting() 复用凭据的 partition；不传 intent 时不登记登录判定', () => {
+  it('openExisting() 复用凭据的 partition；不传 intent 也照常登记登录判定', () => {
     const { service, browserManager, loginDetector } = setup({
       id: toOtaCredentialId('credential-1'),
       channel: CTRIP,
@@ -89,19 +89,23 @@ describe('OtaTabService', () => {
       CTRIP,
       expect.any(String),
     );
-    expect(loginDetector.register).not.toHaveBeenCalled();
+    // 登录判定与意图无关：不带意图也要判定，只是探测出的候选无人接收。
+    expect(loginDetector.register).toHaveBeenCalledWith('tab-1', CTRIP, undefined);
   });
 
-  it('openExisting() 传 intent 时登记登录判定', () => {
+  it('openExisting() 把 intent 透传给登录判定', () => {
     const { service, loginDetector } = setup({
       id: toOtaCredentialId('credential-1'),
       channel: CTRIP,
       partitionName: 'persist:existing',
     });
 
-    service.openExisting('credential-1', { kind: 'bind-hotel' });
+    service.openExisting('credential-1', { kind: 'bind-hotel', requestId: 'req-1' });
 
-    expect(loginDetector.register).toHaveBeenCalledWith('tab-1', CTRIP);
+    expect(loginDetector.register).toHaveBeenCalledWith('tab-1', CTRIP, {
+      kind: 'bind-hotel',
+      requestId: 'req-1',
+    });
   });
 
   it('openExisting() 找不到凭据时报错', () => {

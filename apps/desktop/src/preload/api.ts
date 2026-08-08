@@ -39,7 +39,7 @@ export function createDesktopApi(
     browser: createBrowserApi(validatedInvoke, validatedSubscribe),
     calendar: createCalendarApi(validatedInvoke),
     cookies: createCookiesApi(validatedInvoke),
-    hotelManagement: createHotelManagementApi(validatedInvoke),
+    hotelManagement: createHotelManagementApi(validatedInvoke, validatedSubscribe),
     otaCredential: createOtaCredentialApi(validatedInvoke, validatedSubscribe),
     otaTab: createOtaTabApi(validatedInvoke),
     system: createSystemApi(validatedInvoke),

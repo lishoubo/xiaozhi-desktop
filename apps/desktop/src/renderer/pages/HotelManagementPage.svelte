@@ -8,6 +8,7 @@
   import { Spinner } from '$lib/components/ui/spinner';
   import * as Dialog from '$lib/components/ui/dialog';
   import * as AlertDialog from '$lib/components/ui/alert-dialog';
+  import AddOtaBindingDialog from '../components/hotel/AddOtaBindingDialog.svelte';
   import BoundOtaAccountCard from '../components/hotel/BoundOtaAccountCard.svelte';
   import { groupOtaAccountsByHotelId, type OtaAccountAction } from '../hotel-management/model';
   import type { RmsHotelDto, RmsOtaAccountDto } from '../../shared/hotel-management';
@@ -148,14 +149,7 @@
     });
   }
 
-  function showAddBindingPlaceholder(hotelName: string): void {
-    showAppNotification({
-      id: 'hotel-add-binding',
-      title: '设计预览',
-      message: `${hotelName}的新增绑定账号入口暂未实现。`,
-      tone: 'default',
-    });
-  }
+  let addBindingTarget = $state<RmsHotelDto | null>(null);
 </script>
 
 <main
@@ -265,7 +259,7 @@
                 variant="ghost"
                 title="新增绑定账号"
                 aria-label={`新增绑定账号 - ${hotel.name}`}
-                onclick={() => showAddBindingPlaceholder(hotel.name)}
+                onclick={() => (addBindingTarget = hotel)}
               >
                 <Plus />
               </Button>
@@ -285,6 +279,8 @@
     {/if}
   </div>
 </main>
+
+<AddOtaBindingDialog hotel={addBindingTarget} onClose={() => (addBindingTarget = null)} />
 
 <Dialog.Root bind:open={createOpen}>
   <Dialog.Content class="sm:max-w-md">

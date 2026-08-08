@@ -24,12 +24,18 @@
 import { toChannelId, type ChannelId } from '../ids';
 import type { AppLogger } from '../../shared/logging';
 import type { TabCredentialCheckedEvent, TabEventBus } from '../ota-tab';
+import type { UiWaitingResultEnvelope } from '../../shared/types/ui-waiting-result-types';
 import type { HotelProbe } from './types';
 
 export type HotelProbeDispatcherDependencies = Readonly<{
   tabEventBus: TabEventBus;
   probes: ReadonlyMap<ChannelId, HotelProbe>;
   logger: AppLogger;
+  /**
+   * 把 UI 在等的结果送出去。窄回调而非直接 send —— `channels/` 不认识 electron
+   * 与 ipc，composition root 负责把它接到 `webContents.send`。
+   */
+  notify: (envelope: UiWaitingResultEnvelope) => void;
 }>;
 
 export class HotelProbeDispatcher {
@@ -62,6 +68,31 @@ export class HotelProbeDispatcher {
     this.deps.logger.info('Hotel probe found candidates', {
       channel: event.channel,
       hotelCount: outcome.hotels.length,
+    });
+
+    // 没有绑定意图就没有等待方：探测照跑，结果无人接收。
+    if (event.intent?.kind !== 'bind-hotel') return;
+
+    // 标签页已经关了说明用户已放弃，候选没有意义。这个判断必须在 probe() 之后
+    // ——探测期间用户随时可能关闭。
+    if (event.webContents.isDestroyed()) {
+      this.deps.logger.info('Hotel probe candidates discarded: tab closed', {
+        channel: event.channel,
+      });
+      return;
+    }
+
+    this.deps.notify({
+      requestId: event.intent.requestId,
+      kind: 'bind-hotel',
+      payload: {
+        credentialId: credential.id,
+        hotels: outcome.hotels.map((hotel) => ({
+          otaHotelId: hotel.otaHotelId,
+          otaHotelName: hotel.otaHotelName,
+          bindExtra: hotel.bindExtra,
+        })),
+      },
     });
   }
 }

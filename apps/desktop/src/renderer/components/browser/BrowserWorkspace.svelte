@@ -24,6 +24,7 @@
   import { Button } from '$lib/components/ui/button';
   import { Spinner } from '$lib/components/ui/spinner';
   import AccountSwitcherDialog from './AccountSwitcherDialog.svelte';
+  import BindHotelDialog from './BindHotelDialog.svelte';
   import CookieImportDialog from './CookieImportDialog.svelte';
   import {
     buildLoginCredentialOptions,
@@ -636,6 +637,8 @@
     {/if}
   </section>
 </main>
+
+<BindHotelDialog />
 
 {#if cookiePrompt}
   <aside

@@ -49,6 +49,29 @@ function setup(options: { isPastLogin?: (url: string) => boolean; registered?: b
 }
 
 describe('LoginDetector', () => {
+  it('register 传入的 intent 随广播带出', async () => {
+    const { detector, checked, navigate } = setup();
+
+    detector.register('tab-1', CTRIP, { kind: 'bind-hotel', requestId: 'req-1' });
+    navigate('https://ebooking.ctrip.com/home');
+    await flush();
+
+    expect(checked).toEqual([
+      expect.objectContaining({ intent: { kind: 'bind-hotel', requestId: 'req-1' } }),
+    ]);
+  });
+
+  it('tab 关闭后 intent 随记录一起消失，后续广播不再带出', async () => {
+    const { detector, browserManager, checked, navigate } = setup();
+
+    detector.register('tab-1', CTRIP, { kind: 'bind-hotel', requestId: 'req-1' });
+    browserManager.emit('tab:closed', { tabId: 'tab-1' });
+    navigate('https://ebooking.ctrip.com/home');
+    await flush();
+
+    expect(checked).toEqual([expect.objectContaining({ intent: undefined })]);
+  });
+
   it('登记后导航命中登录判据即触发 discovery 并广播 checked', async () => {
     const { detector, triggerDiscovery, checked, navigate } = setup();
 

@@ -43,6 +43,11 @@ export const IPC_CHANNELS = {
     createHotel: 'hotel-management:create-hotel',
     deleteHotel: 'hotel-management:delete-hotel',
     unbindOtaAccount: 'hotel-management:unbind-ota-account',
+    startBinding: 'hotel-management:start-binding',
+    confirmBinding: 'hotel-management:confirm-binding',
+  },
+  uiWaitingResult: {
+    delivered: 'ui-waiting-result:delivered',
   },
   system: {
     getPreferences: 'system:get-preferences',

@@ -4,6 +4,13 @@ import {
   rmsHotelIdSchema,
   rmsOtaAccountIdSchema,
 } from '../../shared/hotel-management';
+import {
+  confirmBindingInputSchema,
+  startBindingInputSchema,
+  type ConfirmBindingInput,
+  type StartBindingInput,
+} from '../../shared/browser';
+import type { RmsOtaAccount } from '../../shared/types/rms-ota-account';
 import { IPC_CHANNELS } from '../../shared/ipc-channels';
 import type { AppLogger } from '../../shared/logging';
 import type { RmsHotelCreateInput, RmsHotel } from '../../shared/types/rms-hotel';
@@ -15,6 +22,8 @@ export interface HotelManagementOrchestrator {
   createHotel(input: RmsHotelCreateInput): Promise<RmsHotel>;
   deleteHotel(hotelId: number): Promise<void>;
   unbindOtaAccount(otaAccountId: number): Promise<void>;
+  startBinding(input: StartBindingInput): Readonly<{ requestId: string }>;
+  confirmBinding(input: ConfirmBindingInput): Promise<RmsOtaAccount>;
 }
 
 type RegisterHotelManagementHandlersOptions = Readonly<{
@@ -65,6 +74,20 @@ export function registerHotelManagementHandlers({
       logFailure(IPC_CHANNELS.hotelManagement.unbindOtaAccount, () =>
         feature.unbindOtaAccount(otaAccountId),
       ),
+  );
+
+  registry.handle(
+    IPC_CHANNELS.hotelManagement.startBinding,
+    z.tuple([startBindingInputSchema]),
+    '绑定参数无效',
+    (input) => Promise.resolve(feature.startBinding(input)),
+  );
+  registry.handle(
+    IPC_CHANNELS.hotelManagement.confirmBinding,
+    z.tuple([confirmBindingInputSchema]),
+    '绑定参数无效',
+    (input) =>
+      logFailure(IPC_CHANNELS.hotelManagement.confirmBinding, () => feature.confirmBinding(input)),
   );
 
   return () => registry.dispose();
