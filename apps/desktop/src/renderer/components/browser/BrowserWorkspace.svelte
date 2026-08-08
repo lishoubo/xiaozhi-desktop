@@ -20,8 +20,7 @@
   } from '../../motion';
   import { OTA_CHANNELS, type OtaChannel } from '../../data/ota-channels';
   import { dismissAppNotification, showAppNotification } from '../../notifications';
-  import { consumePendingTabActivation } from '../../pending-tab-activation';
-  import { requestCookieListAutoOpen } from '../../pending-cookie-list-open';
+  import { cookieListAutoOpen, tabActivation } from './cross-route-intents';
   import { Button } from '$lib/components/ui/button';
   import { Spinner } from '$lib/components/ui/spinner';
   import AccountSwitcherDialog from './AccountSwitcherDialog.svelte';
@@ -322,7 +321,7 @@
 
   async function finishCookiePromptAndReviewImports(): Promise<void> {
     finishCookiePrompt();
-    requestCookieListAutoOpen();
+    cookieListAutoOpen.set(true);
     await push('/settings');
   }
 
@@ -381,7 +380,7 @@
     const observer = new ResizeObserver(() => void syncBounds());
     if (viewport) observer.observe(viewport);
     window.addEventListener('resize', syncBounds);
-    const pendingTab = consumePendingTabActivation();
+    const pendingTab = tabActivation.consume();
     if (pendingTab) {
       updateTab(pendingTab);
       activeChannelId = pendingTab.channelId;

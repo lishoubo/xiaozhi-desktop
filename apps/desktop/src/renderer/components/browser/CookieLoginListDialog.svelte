@@ -5,8 +5,7 @@
   import type { ImportedChannelSummary } from '../../../shared/browser';
   import { OTA_CHANNELS } from '../../data/ota-channels';
   import { dismissAppNotification, showAppNotification } from '../../notifications';
-  import { setPendingTabActivation } from '../../pending-tab-activation';
-  import { consumeCookieListAutoOpen } from '../../pending-cookie-list-open';
+  import { cookieListAutoOpen, tabActivation } from './cross-route-intents';
   import { Button } from '$lib/components/ui/button';
   import { Spinner } from '$lib/components/ui/spinner';
   import * as Dialog from '$lib/components/ui/dialog';
@@ -54,7 +53,7 @@
   }
 
   onMount(() => {
-    if (consumeCookieListAutoOpen()) void openDialog();
+    if (cookieListAutoOpen.consume()) void openDialog();
   });
 
   function reportFailure(message: string, reason: unknown): void {
@@ -78,7 +77,7 @@
         environment: 'prod',
         url: channelUrl(channelId),
       });
-      setPendingTabActivation(tab);
+      tabActivation.set(tab);
       open = false;
       await push('/');
     } catch (reason) {
