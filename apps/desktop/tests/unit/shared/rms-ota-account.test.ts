@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { toChannelId } from '../../../src/domain/identity';
+import { toChannelId } from '../../../src/main/ids';
 import {
   createRmsOtaAccount,
   InvalidRmsOtaAccountError,
-} from '../../../src/domain/rms-ota-account';
+} from '../../../src/shared/types/rms-ota-account';
 
 function input(overrides: Partial<Parameters<typeof createRmsOtaAccount>[0]> = {}) {
   return {

@@ -3,15 +3,15 @@ import {
   toOtaCredentialId,
   type ChannelId,
   type OtaCredentialId,
-} from '../../domain/identity';
+} from '../ids';
 import {
   createOtaCredential,
   type OtaCredential,
   type OtaCredentialCreateInput,
   type OtaCredentialIdentityUpdate,
   type OtaCredentialPartitionUpdate,
-} from '../../domain/ota-credential';
-import type { OtaCredentialRepository } from '../../domain/ports/repositories';
+} from '../../shared/types/ota-credential';
+import type { OtaCredentialRepository } from '../repositories';
 import type { ApplicationDatabase } from './application-database';
 import { parseJsonObject, serializeJsonObject } from './json-storage';
 

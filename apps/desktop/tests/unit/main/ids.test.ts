@@ -4,7 +4,7 @@ import {
   parseChannelId,
   toChannelId,
   toOtaCredentialId,
-} from '../../../src/domain/identity';
+} from '../../../src/main/ids';
 
 describe('toChannelId', () => {
   it('接受合法的渠道标识', () => {

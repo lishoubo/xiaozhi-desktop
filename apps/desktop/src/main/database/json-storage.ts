@@ -1,4 +1,4 @@
-import type { JsonObject, JsonValue } from '../../domain/json';
+import type { JsonObject, JsonValue } from '../../shared/types/json';
 
 function isJsonValue(value: unknown): value is JsonValue {
   if (value === null) return true;

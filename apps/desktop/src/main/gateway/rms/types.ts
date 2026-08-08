@@ -6,10 +6,10 @@
  * 本期由 main composition root 注入有状态 mock；真实接入时替换成调用
  * `apps/server` adapter 的实现，接口不变。
  */
-import type { ChannelId } from '../../../domain/identity';
-import type { JsonObject } from '../../../domain/json';
-import type { RmsHotel, RmsHotelCreateInput } from '../../../domain/rms-hotel';
-import type { RmsOtaAccount } from '../../../domain/rms-ota-account';
+import type { ChannelId } from '../../ids';
+import type { JsonObject } from '../../../shared/types/json';
+import type { RmsHotel, RmsHotelCreateInput } from '../../../shared/types/rms-hotel';
+import type { RmsOtaAccount } from '../../../shared/types/rms-ota-account';
 
 export interface RmsHotelGateway {
   listHotels(): Promise<readonly RmsHotel[]>;

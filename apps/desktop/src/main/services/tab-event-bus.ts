@@ -21,7 +21,7 @@
  */
 import { EventEmitter } from 'node:events';
 import type { WebContents } from 'electron';
-import type { OtaCredential } from '../../domain/ota-credential';
+import type { OtaCredential } from '../../shared/types/ota-credential';
 
 export type CredentialCheckOutcome =
   | Readonly<{ kind: 'not-applicable' }>

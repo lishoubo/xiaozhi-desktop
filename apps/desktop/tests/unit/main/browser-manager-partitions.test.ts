@@ -40,7 +40,7 @@ vi.mock('electron', () => ({
   WebContentsView: electron.MockWebContentsView,
 }));
 
-import { toChannelId } from '../../../src/domain/identity';
+import { toChannelId } from '../../../src/main/ids';
 import { BrowserManager, type TabNavigatedEvent } from '../../../src/main/browser/browser-manager';
 
 function createLogger() {

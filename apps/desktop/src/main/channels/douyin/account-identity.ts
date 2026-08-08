@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import type { JsonObject } from '../../../domain/json';
+import type { JsonObject } from '../../../shared/types/json';
 
 const stringLikeSchema = z.union([z.string(), z.number()]);
 const numberLikeSchema = z.union([z.number(), z.string()]);

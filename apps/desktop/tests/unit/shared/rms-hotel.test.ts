@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { createRmsHotel, InvalidRmsHotelError } from '../../../src/domain/rms-hotel';
+import { createRmsHotel, InvalidRmsHotelError } from '../../../src/shared/types/rms-hotel';
 
 function input(overrides: Partial<{ id: number; name: string; status: number }> = {}) {
   return {

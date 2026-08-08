@@ -1,11 +1,11 @@
 import { randomUUID } from 'node:crypto';
 import { session, type Session } from 'electron';
-import type { ChannelId } from '../../domain/identity';
+import type { ChannelId } from '../ids';
 import {
   isCurrentLayoutPartition,
   LEGACY_SHARED_PARTITION,
   toPartitionName,
-} from '../../domain/policy/partition-policy';
+} from '../browser/partition';
 import { denyEmbeddedPagePermissions } from '../security/session-permissions';
 import type { AppLogger } from '../../shared/logging';
 

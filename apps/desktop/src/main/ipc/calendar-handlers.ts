@@ -4,7 +4,7 @@ import type {
   CalendarEventRecord,
   CalendarEventUpdateInput,
   CalendarSnapshot,
-} from '../../domain/calendar';
+} from '../../shared/types/calendar';
 import type { AppLogger } from '../../shared/logging';
 import {
   calendarEventCreateInputSchema,

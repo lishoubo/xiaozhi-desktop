@@ -5,7 +5,7 @@
  * rms-rpa-worker/rms_rpa_worker/adapters/ctrip/login.py:30。
  */
 import type { LoginUrlMatcher } from '../types';
-import { toChannelId } from '../../../domain/identity';
+import { toChannelId } from '../../ids';
 
 const LOGIN_URL_KEYWORD = '/login/';
 

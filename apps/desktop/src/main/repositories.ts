@@ -10,15 +10,15 @@ import type {
   CalendarEventRecord,
   CalendarEventUpdateInput,
   CalendarSnapshot,
-} from '../calendar';
-import type { ChannelId, OtaCredentialId, OtaHotelId } from '../identity';
+} from '../shared/types/calendar';
+import type { ChannelId, OtaCredentialId, OtaHotelId } from './ids';
 import type {
   OtaCredential,
   OtaCredentialCreateInput,
   OtaCredentialIdentityUpdate,
   OtaCredentialPartitionUpdate,
-} from '../ota-credential';
-import type { OtaHotel, OtaHotelCreateInput, OtaHotelDiscoveryUpdate } from '../ota-hotel';
+} from '../shared/types/ota-credential';
+import type { OtaHotel, OtaHotelCreateInput, OtaHotelDiscoveryUpdate } from '../shared/types/ota-hotel';
 
 export interface CalendarRepository {
   load(): CalendarSnapshot;

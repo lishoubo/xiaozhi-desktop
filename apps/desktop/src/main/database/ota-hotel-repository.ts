@@ -5,14 +5,13 @@ import {
   type ChannelId,
   type OtaCredentialId,
   type OtaHotelId,
-} from '../../domain/identity';
+} from '../ids';
 import {
-  createOtaHotel,
   type OtaHotel,
   type OtaHotelCreateInput,
   type OtaHotelDiscoveryUpdate,
-} from '../../domain/ota-hotel';
-import type { OtaHotelRepository } from '../../domain/ports/repositories';
+} from '../../shared/types/ota-hotel';
+import type { OtaHotelRepository } from '../repositories';
 import type { ApplicationDatabase } from './application-database';
 import { parseJsonObject, serializeJsonObject } from './json-storage';
 
@@ -27,7 +26,7 @@ type OtaHotelRow = Readonly<{
 }>;
 
 function hotelFromRow(row: OtaHotelRow): OtaHotel {
-  return createOtaHotel({
+  return {
     id: row.id,
     credentialId: toOtaCredentialId(row.credentialId),
     channel: toChannelId(row.channel),
@@ -35,7 +34,7 @@ function hotelFromRow(row: OtaHotelRow): OtaHotel {
     otaHotelName: row.otaHotelName,
     bindExtra: parseJsonObject(row.bindExtra, 'bindExtra'),
     discoveredAt: row.discoveredAt,
-  });
+  };
 }
 
 const SELECT_COLUMNS = `
@@ -52,7 +51,7 @@ export class SqliteOtaHotelRepository implements OtaHotelRepository {
   constructor(private readonly database: ApplicationDatabase) {}
 
   create(input: OtaHotelCreateInput): OtaHotel {
-    const hotel = createOtaHotel(input);
+    const hotel: OtaHotel = { ...input };
     this.database
       .prepare(
         `INSERT INTO ota_hotel

@@ -23,7 +23,7 @@ import { registerAutomationHandlers } from './ipc/automation-handlers';
 import { openApplicationDatabase, type ApplicationDatabase } from './database/application-database';
 import { SqliteCalendarRepository } from './calendar/calendar-repository';
 import { registerCalendarHandlers } from './ipc/calendar-handlers';
-import { isStartupAutomationEnabled } from '../domain/policy/startup-automation-policy';
+import { isStartupAutomationEnabled } from './startup-enabled';
 import { SqliteOtaCredentialRepository } from './database/ota-credential-repository';
 import { SqliteOtaHotelRepository } from './database/ota-hotel-repository';
 import { OtaCredentialService } from './services/ota-credential-service';

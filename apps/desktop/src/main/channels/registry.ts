@@ -7,7 +7,7 @@
  * （`DiscoverCtrip` / `DiscoverDouyin` / `DiscoverMeituan` 各有各的入参与结果
  * 类型），统一它们需要改三个渠道的实现，不属于本次结构调整的范围。
  */
-import { toChannelId, type ChannelId } from '../../domain/identity';
+import { toChannelId, type ChannelId } from '../ids';
 import type { AppLogger } from '../../shared/logging';
 import { ctripHotelProbe } from './ctrip/hotel-prob';
 import { ctripLoginUrlMatcher } from './ctrip/login-url-matcher';

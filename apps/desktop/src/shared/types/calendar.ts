@@ -1,12 +1,8 @@
 /**
- * 日历的领域模型 —— 纯类型，零运行时依赖。
+ * 日历的数据形状 —— 纯类型，零运行时依赖。
  *
- * 与 `shared/calendar.ts` 的分工：
- *   domain/  = 业务是什么（这里）—— 纯 TS 类型，不 import zod
- *   shared/  = 跨进程传输契约 —— zod schema，运行时校验 IPC 入参
- *
- * schema 负责在边界上把不可信输入验成这些类型，两者必须保持结构一致；
- * `shared/calendar.ts` 里有编译期断言守住这个一致性。
+ * 与 `shared/calendar.ts` 的分工：这里是数据形状，那里是 zod schema
+ * （在 IPC 边界上把不可信输入验成这些类型）。两者必须保持结构一致。
  */
 
 export type CalendarEventSource = 'holiday-seed' | 'user';

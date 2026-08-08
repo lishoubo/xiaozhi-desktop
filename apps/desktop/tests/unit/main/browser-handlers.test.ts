@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { toChannelId } from '../../../src/domain/identity';
+import { toChannelId } from '../../../src/main/ids';
 import { IPC_CHANNELS } from '../../../src/shared/ipc-channels';
 import { writeImportedCookies } from '../../../src/main/cookie-import/store';
 

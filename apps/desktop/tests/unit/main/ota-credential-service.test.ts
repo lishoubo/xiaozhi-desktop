@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
-import { toChannelId, toOtaCredentialId, toOtaHotelId } from '../../../src/domain/identity';
-import type { OtaCredential } from '../../../src/domain/ota-credential';
+import { toChannelId, toOtaCredentialId, toOtaHotelId } from '../../../src/main/ids';
+import type { OtaCredential } from '../../../src/shared/types/ota-credential';
 import {
   OtaCredentialService,
   type DiscoverAndCreateDependencies,

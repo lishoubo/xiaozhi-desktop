@@ -7,9 +7,9 @@
  * 自身的契约，多实现是**当下的事实**（三个渠道），不是"将来可能换"。
  */
 import type { WebContents } from 'electron';
-import type { ChannelId, OtaHotelId } from '../../domain/identity';
-import type { JsonObject } from '../../domain/json';
-import type { OtaCredential } from '../../domain/ota-credential';
+import type { ChannelId, OtaHotelId } from '../ids';
+import type { JsonObject } from '../../shared/types/json';
+import type { OtaCredential } from '../../shared/types/ota-credential';
 
 /**
  * 判断登录标签页的 URL 是否已经离开登录页——命中即视为登录成功，触发探测。

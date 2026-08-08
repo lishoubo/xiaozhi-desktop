@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { toChannelId } from '../../../src/domain/identity';
+import { toChannelId } from '../../../src/main/ids';
 import {
   isCurrentLayoutPartition,
   LEGACY_SHARED_PARTITION,
   toPartitionName,
-} from '../../../src/domain/policy/partition-policy';
+} from '../../../src/main/browser/partition';
 
 describe('toPartitionName', () => {
   it('同渠道的两个短id得到不同 partition —— 这是 D1 的修复点', () => {

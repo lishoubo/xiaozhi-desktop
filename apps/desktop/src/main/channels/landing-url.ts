@@ -3,7 +3,7 @@
  * 用它拼出目标页面，不需要重新走登录流程。见
  * `openspec/changes/douyin-multi-account-nav/design.md` §6.2。
  */
-import type { ChannelId } from '../identity';
+import type { ChannelId } from '../ids';
 
 const CTRIP_MANAGEMENT_URL = 'https://ebooking.ctrip.com/home/mainland';
 const DOUYIN_HOME_URL = 'https://life.douyin.com/p/home';

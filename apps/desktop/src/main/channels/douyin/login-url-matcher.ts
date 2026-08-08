@@ -8,7 +8,7 @@
  * 只判 `/p/home` 不判 groupid 会在"停在选公司页"这个中间态误判为已登录。
  */
 import type { LoginUrlMatcher } from '../types';
-import { toChannelId } from '../../../domain/identity';
+import { toChannelId } from '../../ids';
 
 const HOME_PATH = '/p/home';
 const GROUP_ID_PARAM = 'groupid';

@@ -6,7 +6,7 @@ import {
 } from '../../shared/hotel-management';
 import { IPC_CHANNELS } from '../../shared/ipc-channels';
 import type { AppLogger } from '../../shared/logging';
-import type { RmsHotelCreateInput, RmsHotel } from '../../domain/rms-hotel';
+import type { RmsHotelCreateInput, RmsHotel } from '../../shared/types/rms-hotel';
 import type { RmsHotelOtaAccountsSnapshot } from '../services/hotel-management-service';
 import { createHandlerRegistry, type TrustedWindow } from './create-handler-registry';
 

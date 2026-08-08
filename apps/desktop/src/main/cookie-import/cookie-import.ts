@@ -1,4 +1,4 @@
-import { toChannelId, type ChannelId } from '../../domain/identity';
+import { toChannelId, type ChannelId } from '../ids';
 
 /**
  * 渠道 → cookie 域名的最小映射。**不是完整的 `ChannelManifest`**（design.md

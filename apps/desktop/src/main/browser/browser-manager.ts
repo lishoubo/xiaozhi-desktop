@@ -11,8 +11,8 @@ import {
 } from 'electron';
 import { EventEmitter } from 'node:events';
 import { randomUUID } from 'node:crypto';
-import type { ChannelId } from '../../domain/identity';
-import { LEGACY_SHARED_PARTITION } from '../../domain/policy/partition-policy';
+import type { ChannelId } from '../ids';
+import { LEGACY_SHARED_PARTITION } from '../browser/partition';
 import { IPC_CHANNELS } from '../../shared/ipc-channels';
 import { browserWebUrlSchema, type BrowserTab } from '../../shared/browser';
 import type { AppLogger } from '../../shared/logging';

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   isStartupAutomationEnabled,
   type StartupAutomationEnv,
-} from '../../../src/domain/policy/startup-automation-policy';
+} from '../../../src/main/startup-enabled';
 
 describe('isStartupAutomationEnabled', () => {
   it('默认关闭 —— 开机自动化必须显式 opt-in', () => {

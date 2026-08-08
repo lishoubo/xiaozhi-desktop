@@ -1,11 +1,11 @@
 import type { ApplicationDatabase } from '../database/application-database';
-import type { CalendarRepository } from '../../domain/ports/repositories';
+import type { CalendarRepository } from '../repositories';
 import type {
   CalendarEventCreateInput,
   CalendarEventRecord,
   CalendarEventUpdateInput,
   CalendarSnapshot,
-} from '../../domain/calendar';
+} from '../../shared/types/calendar';
 
 type CalendarGroupRow = Readonly<{
   id: string;

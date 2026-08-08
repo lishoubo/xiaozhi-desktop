@@ -6,8 +6,8 @@
  * `HotelProbeOutcome` 前提取当前页面 `groupid` 作为 `bindExtra`。
  */
 import type { WebContents } from 'electron';
-import { toOtaHotelId } from '../../../domain/identity';
-import { douyinBindExtra } from '../../../domain/ota-bind-extra';
+import { toOtaHotelId } from '../../ids';
+import { douyinBindExtra } from '../../channels/bind-extra';
 import type { AppLogger } from '../../../shared/logging';
 import { isTrustedHotelUrl } from '../trusted-hotel-url';
 import type { HotelProbe, HotelProbeOutcome } from '../types';

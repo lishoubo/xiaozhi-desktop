@@ -1,19 +1,10 @@
 /**
- * 领域标识 —— branded type + 带校验的转换函数。
- *
- * 用 `unique symbol` 而非字符串字面量做 brand，别处写不出
- * `{ __brand: 'ChannelId' }` 来伪造。
+ * 标识符的构造与校验。类型定义在 `shared/types/ids.ts`（跨进程数据形状要用到），
+ * 这里只放会抛异常的构造函数 —— 它们是主进程边界的守卫，渲染进程不该调用。
  */
+import type { ChannelId, OtaCredentialId, OtaHotelId } from '../shared/types/ids';
 
-declare const brand: unique symbol;
-type Brand<T, B> = T & { readonly [brand]: B };
-
-export type ChannelId = Brand<string, 'ChannelId'>;
-export type OtaCredentialId = Brand<string, 'OtaCredentialId'>;
-/** 渠道侧的门店 ID（携程/美团/抖音各不相同）。我们侧的统一 HotelId 待 rms 接通后引入。 */
-export type OtaHotelId = Brand<string, 'OtaHotelId'>;
-export type AppUserId = Brand<string, 'AppUserId'>;
-export type TabId = Brand<string, 'TabId'>;
+export type { ChannelId, OtaCredentialId, OtaHotelId };
 
 export class InvalidIdentifierError extends Error {
   constructor(kind: string, raw: string, reason: string) {
@@ -63,16 +54,6 @@ export function toOtaCredentialId(raw: string): OtaCredentialId {
 export function toOtaHotelId(raw: string): OtaHotelId {
   assertValidIdentifier('OtaHotelId', raw);
   return raw as OtaHotelId;
-}
-
-export function toAppUserId(raw: string): AppUserId {
-  assertValidIdentifier('AppUserId', raw);
-  return raw as AppUserId;
-}
-
-export function toTabId(raw: string): TabId {
-  assertValidIdentifier('TabId', raw);
-  return raw as TabId;
 }
 
 /** 用于不可信输入（manifest JSON、IPC 入参）：失败返回 null 而非抛错。 */

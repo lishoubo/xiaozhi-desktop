@@ -5,7 +5,7 @@
  * 不重复读取或操作携程页面。
  */
 import { z } from 'zod';
-import { toOtaHotelId } from '../../../domain/identity';
+import { toOtaHotelId } from '../../ids';
 import type { HotelProbe, HotelProbeOutcome } from '../types';
 
 const ctripCredentialExtraSchema = z.object({

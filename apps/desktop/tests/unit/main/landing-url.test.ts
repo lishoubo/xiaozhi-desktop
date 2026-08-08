@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { toChannelId } from '../../../src/domain/identity';
+import { toChannelId } from '../../../src/main/ids';
 import {
   otaChannelLandingUrl,
   UnsupportedChannelForLandingUrlError,
-} from '../../../src/domain/policy/ota-channel-landing-url-policy';
+} from '../../../src/main/channels/landing-url';
 
 describe('otaChannelLandingUrl', () => {
   it('携程场景：返回渠道默认 URL', () => {

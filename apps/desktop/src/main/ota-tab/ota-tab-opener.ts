@@ -17,12 +17,12 @@
  * 错过探测机会（携程场景下标签页只导航一次，没有第二次机会）。
  */
 import type { WebContents } from 'electron';
-import { toOtaCredentialId, type ChannelId } from '../../domain/identity';
+import { toOtaCredentialId, type ChannelId } from '../ids';
 import type { LoginUrlMatcher } from '../channels/types';
-import type { OtaCredential } from '../../domain/ota-credential';
-import type { OtaCredentialRepository } from '../../domain/ports/repositories';
-import { otaChannelLandingUrl } from '../../domain/policy/ota-channel-landing-url-policy';
-import { LEGACY_SHARED_PARTITION } from '../../domain/policy/partition-policy';
+import type { OtaCredential } from '../../shared/types/ota-credential';
+import type { OtaCredentialRepository } from '../repositories';
+import { otaChannelLandingUrl } from '../channels/landing-url';
+import { LEGACY_SHARED_PARTITION } from '../browser/partition';
 import type { BrowserTab } from '../../shared/browser';
 import { readImportedCookies } from '../cookie-import/store';
 import {

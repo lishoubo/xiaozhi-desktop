@@ -3,7 +3,7 @@ import {
   douyinBindExtra,
   meituanBindExtra,
   merchantGroupIdFromBindExtra,
-} from '../../../src/domain/ota-bind-extra';
+} from '../../../src/main/channels/bind-extra';
 
 describe('OTA bindExtra', () => {
   it('抖音保存并读取 merchantGroupId', () => {

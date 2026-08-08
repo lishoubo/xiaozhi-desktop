@@ -9,7 +9,7 @@ import {
   otaCredentialIdSchema,
   startLoginInputSchema,
 } from '../../shared/browser';
-import { toChannelId } from '../../domain/identity';
+import { toChannelId } from '../ids';
 import { IPC_CHANNELS } from '../../shared/ipc-channels';
 import type { AppLogger } from '../../shared/logging';
 import type { OtaTabOpener } from '../ota-tab/ota-tab-opener';

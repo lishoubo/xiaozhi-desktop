@@ -1,5 +1,5 @@
 /** RMS OTA account 的最小投影：远端酒店渠道绑定的最小事实，不携带凭证。 */
-import type { ChannelId } from './identity';
+import type { ChannelId } from './ids';
 import type { JsonObject } from './json';
 
 export type RmsOtaAccount = Readonly<{

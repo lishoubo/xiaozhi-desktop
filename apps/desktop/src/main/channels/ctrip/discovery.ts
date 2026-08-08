@@ -1,5 +1,5 @@
 import type { WebContents } from 'electron';
-import type { JsonObject } from '../../../domain/json';
+import type { JsonObject } from '../../../shared/types/json';
 import type { AppLogger } from '../../../shared/logging';
 import { isTrustedHotelUrl } from '../trusted-hotel-url';
 import {

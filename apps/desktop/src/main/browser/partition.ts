@@ -16,7 +16,7 @@
  * ⚠ **partition 名称一旦发布就固化在用户磁盘上**，改动等于让所有用户重新登录。
  * 因此改这里必须同时升 `partitionLayout` 版本号，并想清楚迁移策略。
  */
-import type { ChannelId } from '../identity';
+import type { ChannelId } from '../ids';
 
 /** 与 STORAGE_VERSIONS.partitionLayout 对应；改命名规则必须同步升版本。 */
 export const PARTITION_LAYOUT_VERSION = 1;

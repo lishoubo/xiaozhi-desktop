@@ -1,9 +1,9 @@
-import { toChannelId } from '../../../domain/identity';
+import { toChannelId } from '../../ids';
 import type {
   RmsOtaAccountBindInput,
   RmsOtaAccountGateway,
 } from '../../../main/gateway/rms/types';
-import { createRmsOtaAccount, type RmsOtaAccount } from '../../../domain/rms-ota-account';
+import { createRmsOtaAccount, type RmsOtaAccount } from '../../../shared/types/rms-ota-account';
 
 const SEED_OTA_ACCOUNTS: readonly RmsOtaAccount[] = [
   createRmsOtaAccount({

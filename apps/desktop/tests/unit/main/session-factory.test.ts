@@ -28,7 +28,7 @@ const electron = vi.hoisted(() => {
 
 vi.mock('electron', () => ({ session: electron.session }));
 
-import { toChannelId } from '../../../src/domain/identity';
+import { toChannelId } from '../../../src/main/ids';
 import { SessionFactory } from '../../../src/main/browser/session-factory';
 
 function createLogger() {

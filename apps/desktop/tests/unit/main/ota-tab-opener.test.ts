@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { toChannelId, toOtaCredentialId } from '../../../src/domain/identity';
+import { toChannelId, toOtaCredentialId } from '../../../src/main/ids';
 import { OtaTabOpener } from '../../../src/main/ota-tab/ota-tab-opener';
 import { TabEventBus } from '../../../src/main/services/tab-event-bus';
 import { readImportedCookies, writeImportedCookies } from '../../../src/main/cookie-import/store';

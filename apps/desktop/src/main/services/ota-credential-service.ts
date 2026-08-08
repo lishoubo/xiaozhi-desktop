@@ -11,10 +11,10 @@
  * openspec/changes/split-ota-hotel-prob-feature/design.md 决策 7。
  */
 import type { WebContents } from 'electron';
-import type { ChannelId } from '../../domain/identity';
-import { toOtaCredentialId } from '../../domain/identity';
-import type { OtaCredential } from '../../domain/ota-credential';
-import type { OtaCredentialRepository } from '../../domain/ports/repositories';
+import type { ChannelId } from '../ids';
+import { toOtaCredentialId } from '../ids';
+import type { OtaCredential } from '../../shared/types/ota-credential';
+import type { OtaCredentialRepository } from '../repositories';
 import type { AppLogger } from '../../shared/logging';
 import type { DiscoverCtrip } from '../channels/ctrip/discovery';
 import type { DiscoverDouyin } from '../channels/douyin/discovery';

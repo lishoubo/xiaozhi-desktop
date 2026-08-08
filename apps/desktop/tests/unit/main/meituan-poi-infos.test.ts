@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { toOtaHotelId } from '../../../src/domain/identity';
+import { toOtaHotelId } from '../../../src/main/ids';
 import { parseMeituanPoiInfos } from '../../../src/main/channels/meituan/poi-infos';
 
 describe('parseMeituanPoiInfos', () => {

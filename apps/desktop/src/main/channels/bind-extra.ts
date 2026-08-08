@@ -1,4 +1,4 @@
-import type { JsonObject } from './json';
+import type { JsonObject } from '../../shared/types/json';
 
 export function douyinBindExtra(merchantGroupId: string): JsonObject {
   return { merchantGroupId };

@@ -1,6 +1,6 @@
 import type { RmsHotelGateway, RmsOtaAccountGateway } from '../gateway/rms/types';
-import type { RmsHotelCreateInput, RmsHotel } from '../../domain/rms-hotel';
-import type { RmsOtaAccount } from '../../domain/rms-ota-account';
+import type { RmsHotelCreateInput, RmsHotel } from '../../shared/types/rms-hotel';
+import type { RmsOtaAccount } from '../../shared/types/rms-ota-account';
 
 export type RmsHotelOtaAccountsSnapshot = Readonly<{
   hotels: readonly RmsHotel[];

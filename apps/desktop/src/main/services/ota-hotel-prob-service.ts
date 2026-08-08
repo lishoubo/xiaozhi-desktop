@@ -7,8 +7,8 @@
  * 修复记录：为什么不能在 did-navigate 那一刻就拿到这份事件）。
  */
 import { randomUUID } from 'node:crypto';
-import { toChannelId, type ChannelId } from '../../domain/identity';
-import type { OtaHotelRepository } from '../../domain/ports/repositories';
+import { toChannelId, type ChannelId } from '../ids';
+import type { OtaHotelRepository } from '../repositories';
 import type { AppLogger } from '../../shared/logging';
 import type { TabCredentialCheckedEvent, TabEventBus } from '../services/tab-event-bus';
 import type { HotelProbe } from '../channels/types';

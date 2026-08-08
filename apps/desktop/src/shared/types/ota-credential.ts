@@ -1,4 +1,4 @@
-import type { ChannelId, OtaCredentialId } from './identity';
+import type { ChannelId, OtaCredentialId } from './ids';
 import type { JsonObject } from './json';
 
 export type OtaCredential = Readonly<{
