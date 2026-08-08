@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { meituanHotelProbe } from '../../../src/main/features/ota-hotel-prob/ota/meituan/hotel-prob';
+import { meituanHotelProbe } from '../../../src/main/channels/meituan/hotel-prob';
 
 describe('meituanHotelProbe', () => {
   describe('isProbeableUrl', () => {

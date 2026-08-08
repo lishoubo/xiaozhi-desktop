@@ -4,8 +4,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { toChannelId, toOtaCredentialId } from '../../../src/domain/identity';
-import { OtaTabOpener } from '../../../src/main/features/ota-tab-opener/ota-tab-opener';
-import { TabEventBus } from '../../../src/main/features/common/tab-event-bus';
+import { OtaTabOpener } from '../../../src/main/ota-tab/ota-tab-opener';
+import { TabEventBus } from '../../../src/main/services/tab-event-bus';
 import { readImportedCookies, writeImportedCookies } from '../../../src/main/cookie-import/store';
 
 const temporaryDirectories: string[] = [];

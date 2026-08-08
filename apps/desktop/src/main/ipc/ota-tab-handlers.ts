@@ -12,7 +12,7 @@ import {
 import { toChannelId } from '../../domain/identity';
 import { IPC_CHANNELS } from '../../shared/ipc-channels';
 import type { AppLogger } from '../../shared/logging';
-import type { OtaTabOpener } from '../features/ota-tab-opener/ota-tab-opener';
+import type { OtaTabOpener } from '../ota-tab/ota-tab-opener';
 import { createHandlerRegistry, type TrustedWindow } from './create-handler-registry';
 
 type RegisterOtaTabHandlersOptions = Readonly<{

@@ -6,7 +6,7 @@ import started from 'electron-squirrel-startup';
 import { registerBrowserHandlers } from './ipc/browser-handlers';
 import { registerOtaTabHandlers } from './ipc/ota-tab-handlers';
 import { BrowserManager } from './browser/browser-manager';
-import { TabEventBus } from './features/common/tab-event-bus';
+import { TabEventBus } from './services/tab-event-bus';
 import { configureNetworkPrivacy } from './security/network-privacy';
 import { createMainWindow } from './windows/main-window';
 import { configureMainLogging } from './logging/configure-main-logging';
@@ -18,27 +18,22 @@ import { registerCalendarHandlers } from './ipc/calendar-handlers';
 import { isStartupAutomationEnabled } from '../domain/policy/startup-automation-policy';
 import { SqliteOtaCredentialRepository } from './database/ota-credential-repository';
 import { SqliteOtaHotelRepository } from './database/ota-hotel-repository';
-import { DiscoverAndCreate } from './features/ota-credential/discover-and-create';
-import { OtaTabOpener } from './features/ota-tab-opener/ota-tab-opener';
-import { LOGIN_URL_MATCHERS } from './features/ota-tab-opener/login-url-matcher';
-import { createCtripDiscovery } from './features/ota-credential/ota/ctrip/discover-ctrip';
-import { createDouyinDiscovery } from './features/ota-credential/ota/douyin/discover-douyin';
-import { createMeituanDiscovery } from './features/ota-credential/ota/meituan/discover-meituan';
-import { OtaHotelProbFeature } from './features/ota-hotel-prob/ota-hotel-prob-feature';
-import { HotelManagementFeature } from './features/hotel-management/hotel-management-feature';
-import { MockRmsHotelGateway } from './features/hotel-management/rms-hotel-gateway-mock';
-import { MockRmsOtaAccountGateway } from './features/hotel-management/rms-ota-account-gateway-mock';
+import { OtaCredentialService } from './services/ota-credential-service';
+import { OtaTabOpener } from './ota-tab/ota-tab-opener';
+import { createChannelRegistry, hotelProbes, loginUrlMatchers } from './channels/registry';
+import { createCtripDiscovery } from './channels/ctrip/discovery';
+import { createDouyinDiscovery } from './channels/douyin/discovery';
+import { createMeituanDiscovery } from './channels/meituan/discovery';
+import { OtaHotelProbService } from './services/ota-hotel-prob-service';
+import { HotelManagementService } from './services/hotel-management-service';
+import { MockRmsHotelGateway } from './gateway/rms/rms-hotel-gateway-mock';
+import { MockRmsOtaAccountGateway } from './gateway/rms/rms-ota-account-gateway-mock';
 import { registerHotelManagementHandlers } from './ipc/hotel-management-handlers';
-import { ctripHotelProbe } from './features/ota-hotel-prob/ota/ctrip/hotel-prob';
-import { createDouyinHotelProbe } from './features/ota-hotel-prob/ota/douyin/hotel-prob';
-import { meituanHotelProbe } from './features/ota-hotel-prob/ota/meituan/hotel-prob';
-import type { HotelProbe } from './features/ota-hotel-prob/hotel-prob-port';
 import { removePendingPartition } from './file-store/pending-partitions-store';
 import { IPC_CHANNELS } from '../shared/ipc-channels';
-import { toChannelId, type ChannelId } from '../domain/identity';
 import { SessionFactory } from './browser/session-factory';
-import { createElectronSessionFetch, createServerTrpcClient } from './server/trpc-client';
-import { resolveServerOrigin } from './server/config';
+import { createElectronSessionFetch, createServerTrpcClient } from './server-client/trpc-client';
+import { resolveServerOrigin } from './server-client/config';
 import { registerAuthHandlers } from './ipc/auth-handlers';
 
 let mainWindow: BrowserWindow | null = null;
@@ -53,11 +48,11 @@ let applicationDatabase: ApplicationDatabase | null = null;
 let calendarRepository: SqliteCalendarRepository | null = null;
 let unregisterCalendarHandlers: (() => void) | null = null;
 let unregisterAuthHandlers: (() => void) | null = null;
-let discoverAndCreate: DiscoverAndCreate | null = null;
+let otaCredentialService: OtaCredentialService | null = null;
 let otaCredentialRepository: SqliteOtaCredentialRepository | null = null;
 let otaHotelRepository: SqliteOtaHotelRepository | null = null;
 let sessionFactory: SessionFactory | null = null;
-let hotelManagementFeature: HotelManagementFeature | null = null;
+let hotelManagementService: HotelManagementService | null = null;
 let unregisterHotelManagementHandlers: (() => void) | null = null;
 
 configureNetworkPrivacy(app.commandLine);
@@ -72,7 +67,7 @@ function openMainWindow(): void {
   if (!otaCredentialRepository) throw new Error('OtaCredential repository is not initialized');
   if (!otaHotelRepository) throw new Error('OtaHotel repository is not initialized');
   if (!sessionFactory) throw new Error('Session factory is not initialized');
-  if (!hotelManagementFeature) throw new Error('Hotel management feature is not initialized');
+  if (!hotelManagementService) throw new Error('Hotel management feature is not initialized');
   mainWindow = createMainWindow();
   log.info('Main window created');
   tabEventBus = new TabEventBus();
@@ -81,17 +76,13 @@ function openMainWindow(): void {
     ? new CtripCheckInAutomation(browserManager.browserSession, log)
     : null;
   const ctripResult = ctripAutomation?.start() ?? null;
-  if (!discoverAndCreate) throw new Error('Discovery pipeline is not initialized');
-  const hotelProbes: ReadonlyMap<ChannelId, HotelProbe> = new Map([
-    [toChannelId('ctrip'), ctripHotelProbe],
-    [toChannelId('douyin'), createDouyinHotelProbe(log)],
-    [toChannelId('meituan'), meituanHotelProbe],
-  ]);
+  if (!otaCredentialService) throw new Error('Discovery pipeline is not initialized');
+  const channelRegistry = createChannelRegistry(log);
   // 构造函数内部完成 tabEventBus 订阅；订阅回调闭包持有 this 引用，只要
   // tabEventBus 存活这个 Feature 实例就不会被 GC，不需要模块级变量持有它。
-  new OtaHotelProbFeature({
+  new OtaHotelProbService({
     tabEventBus,
-    probes: hotelProbes,
+    probes: hotelProbes(channelRegistry),
     repository: otaHotelRepository,
     logger: log,
   });
@@ -99,10 +90,10 @@ function openMainWindow(): void {
     userDataDir: app.getPath('userData'),
     browserManager,
     tabEventBus,
-    loginUrlMatchers: LOGIN_URL_MATCHERS,
+    loginUrlMatchers: loginUrlMatchers(channelRegistry),
     otaCredentialRepository,
     triggerDiscovery: (partitionName, channel, landingUrl, webContents) =>
-      discoverAndCreate?.trigger(partitionName, channel, landingUrl, webContents) ??
+      otaCredentialService?.trigger(partitionName, channel, landingUrl, webContents) ??
       Promise.resolve(null),
   });
   unregisterBrowserHandlers = registerBrowserHandlers({
@@ -129,7 +120,7 @@ function openMainWindow(): void {
   });
   unregisterHotelManagementHandlers = registerHotelManagementHandlers({
     window: mainWindow,
-    feature: hotelManagementFeature,
+    feature: hotelManagementService,
     logger: log,
   });
   const serverOrigin = resolveServerOrigin(process.env);
@@ -179,11 +170,11 @@ function initializeApplication(): void {
   const userDataDir = app.getPath('userData');
   otaCredentialRepository = new SqliteOtaCredentialRepository(applicationDatabase);
   otaHotelRepository = new SqliteOtaHotelRepository(applicationDatabase);
-  hotelManagementFeature = new HotelManagementFeature(
+  hotelManagementService = new HotelManagementService(
     new MockRmsHotelGateway(),
     new MockRmsOtaAccountGateway(),
   );
-  discoverAndCreate = new DiscoverAndCreate({
+  otaCredentialService = new OtaCredentialService({
     discoverCtrip: createCtripDiscovery(log),
     discoverDouyin: createDouyinDiscovery(log),
     discoverMeituan: createMeituanDiscovery(log),
@@ -249,10 +240,10 @@ app.once('will-quit', () => {
   if (applicationDatabase) log.info('Application database closed');
   applicationDatabase = null;
   calendarRepository = null;
-  discoverAndCreate = null;
+  otaCredentialService = null;
   otaCredentialRepository = null;
   otaHotelRepository = null;
-  hotelManagementFeature = null;
+  hotelManagementService = null;
   tabEventBus = null;
   otaTabOpener = null;
   sessionFactory = null;

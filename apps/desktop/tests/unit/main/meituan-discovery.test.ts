@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { createMeituanDiscovery } from '../../../src/main/features/ota-credential/ota/meituan/discover-meituan';
+import { createMeituanDiscovery } from '../../../src/main/channels/meituan/discovery';
 
 function logger() {
   return { info: vi.fn(), warn: vi.fn(), error: vi.fn() };

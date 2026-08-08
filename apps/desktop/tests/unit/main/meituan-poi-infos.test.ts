@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { toOtaHotelId } from '../../../src/domain/identity';
-import { parseMeituanPoiInfos } from '../../../src/main/features/ota-hotel-prob/ota/meituan/poi-infos';
+import { parseMeituanPoiInfos } from '../../../src/main/channels/meituan/poi-infos';
 
 describe('parseMeituanPoiInfos', () => {
   it('映射所有有效酒店及合作方上下文', () => {
