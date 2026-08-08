@@ -43,12 +43,6 @@ export const browserTabSchema = z.strictObject({
 
 export type BrowserTab = Readonly<z.infer<typeof browserTabSchema>>;
 
-export const browserRequestInterceptionSchema = z.strictObject({
-  ruleId: z.literal('ctrip-soa2'),
-});
-
-export type BrowserRequestInterception = Readonly<z.infer<typeof browserRequestInterceptionSchema>>;
-
 export const browserCookieSourceIdSchema = z.enum([
   'chrome',
   'edge',

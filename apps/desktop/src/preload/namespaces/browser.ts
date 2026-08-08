@@ -1,9 +1,7 @@
 import { z } from 'zod';
 import {
-  browserRequestInterceptionSchema,
   browserTabSchema,
   type BrowserBounds,
-  type BrowserRequestInterception,
   type BrowserTab,
 } from '../../shared/browser';
 import { IPC_CHANNELS } from '../../shared/ipc-channels';
@@ -15,8 +13,6 @@ const voidSchema = z.undefined();
 
 export function createBrowserApi(invoke: ValidatedInvoke, subscribe: ValidatedSubscribe) {
   return Object.freeze({
-    acknowledgeInterception: () =>
-      invoke(voidSchema, IPC_CHANNELS.browser.acknowledgeInterception),
     activate: (tabId: string) => invoke(browserTabSchema, IPC_CHANNELS.browser.activate, tabId),
     close: (tabId: string) => invoke(voidSchema, IPC_CHANNELS.browser.close, tabId),
     goBack: (tabId: string) => invoke(voidSchema, IPC_CHANNELS.browser.goBack, tabId),
@@ -29,8 +25,6 @@ export function createBrowserApi(invoke: ValidatedInvoke, subscribe: ValidatedSu
       invoke(voidSchema, IPC_CHANNELS.browser.setBounds, bounds),
     setAudioMuted: (muted: boolean) =>
       invoke(booleanSchema, IPC_CHANNELS.browser.setAudioMuted, muted),
-    onRequestIntercepted: (listener: (event: BrowserRequestInterception) => void) =>
-      subscribe(browserRequestInterceptionSchema, IPC_CHANNELS.browser.requestIntercepted, listener),
     onStateChanged: (listener: (tab: BrowserTab) => void) =>
       subscribe(browserTabSchema, IPC_CHANNELS.browser.stateChanged, listener),
   });

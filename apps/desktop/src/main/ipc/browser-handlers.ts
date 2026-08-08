@@ -12,7 +12,6 @@ const noArgumentsSchema = z.tuple([]);
 
 /** 标签页操作。开 tab 不在这里——那是 `ota-tab-handlers.ts` 的唯一入口。 */
 export interface BrowserTabController {
-  acknowledgeInterception(): void;
   activate(tabId: string): unknown;
   close(tabId: string): void;
   goBack(tabId: string): void;
@@ -39,9 +38,6 @@ export function registerBrowserHandlers({
   const registry = createHandlerRegistry({ window, logger });
   const handle = registry.handle;
 
-  handle(IPC_CHANNELS.browser.acknowledgeInterception, noArgumentsSchema, '请求参数无效', () =>
-    manager.acknowledgeInterception(),
-  );
   handle(IPC_CHANNELS.browser.activate, z.tuple([browserTabIdSchema]), '标签标识无效', (tabId) =>
     manager.activate(tabId),
   );

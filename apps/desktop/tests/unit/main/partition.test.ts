@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest';
 import { toChannelId } from '../../../src/main/ids';
 import {
   isCurrentLayoutPartition,
-  SHARED_BROWSING_PARTITION,
   toPartitionName,
 } from '../../../src/main/browser/partition';
 
@@ -36,8 +35,9 @@ describe('toPartitionName', () => {
   });
 
   it('绝不等于旧的全局共享 partition', () => {
+    // 账号隔离改造前所有账号共用的旧 partition，用户磁盘上可能仍存在。
     expect(toPartitionName('prod', toChannelId('ctrip'), 'short-id-1')).not.toBe(
-      SHARED_BROWSING_PARTITION,
+      'persist:hotel-butler-browser',
     );
   });
 });
@@ -50,6 +50,6 @@ describe('isCurrentLayoutPartition', () => {
   });
 
   it('把旧的共享 partition 判为非当前布局（legacy）', () => {
-    expect(isCurrentLayoutPartition(SHARED_BROWSING_PARTITION)).toBe(false);
+    expect(isCurrentLayoutPartition('persist:hotel-butler-browser')).toBe(false);
   });
 });

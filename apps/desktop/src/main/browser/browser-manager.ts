@@ -7,12 +7,10 @@ import {
   type Rectangle,
   type Session,
   type WebContents,
-  type WebRequestFilter,
 } from 'electron';
 import { EventEmitter } from 'node:events';
 import { randomUUID } from 'node:crypto';
 import type { ChannelId } from '../ids';
-import { SHARED_BROWSING_PARTITION } from '../browser/partition';
 import { IPC_CHANNELS } from '../../shared/ipc-channels';
 import { browserWebUrlSchema, type BrowserTab } from '../../shared/browser';
 import type { AppLogger } from '../../shared/logging';
@@ -40,10 +38,6 @@ type ManagedTab = {
   partitionName: string;
 };
 
-const CTRIP_API_REQUEST_FILTER: WebRequestFilter = {
-  urls: ['https://m.ctrip.com/restapi/soa2/*'],
-};
-
 function isReloadShortcut(
   input: Pick<Input, 'alt' | 'control' | 'key' | 'meta' | 'type'>,
 ): boolean {
@@ -63,7 +57,6 @@ function assertWebUrl(url: string): void {
 
 export class BrowserManager extends EventEmitter {
   /** @deprecated 旧的全局共享 session（D1 缺陷本身）。仅供未迁移的调用方过渡使用。 */
-  readonly browserSession: Session;
   private readonly sessionFactory: SessionFactory;
   private readonly tabs = new Map<string, ManagedTab>();
   private readonly retiredPartitions = new Set<string>();
@@ -86,9 +79,7 @@ export class BrowserManager extends EventEmitter {
   ) {
     super();
     this.sessionFactory = sessionFactory;
-    this.browserSession = this.sessionFactory.sessionForAccount(SHARED_BROWSING_PARTITION);
     this.window.webContents.on('before-input-event', this.handleShellInput);
-    this.installRequestInterceptor();
   }
 
   /**
@@ -211,11 +202,6 @@ export class BrowserManager extends EventEmitter {
     await this.clearRetiredPartitionWhenUnused(partitionName);
   }
 
-  acknowledgeInterception(): void {
-    // Kept for preload compatibility with older renderer bundles. Interception feedback is
-    // non-blocking now, so there is no browser view to restore.
-  }
-
   goBack(tabId: string): void {
     const navigation = this.getTab(tabId).view.webContents.navigationHistory;
     if (navigation.canGoBack()) navigation.goBack();
@@ -286,28 +272,9 @@ export class BrowserManager extends EventEmitter {
     if (!this.window.isDestroyed()) {
       this.window.webContents.removeListener('before-input-event', this.handleShellInput);
     }
-    this.browserSession.webRequest.onBeforeRequest(CTRIP_API_REQUEST_FILTER, null);
     if (tabCount > 0) this.logger.info('Browser workspace closed', { tabCount });
   }
 
-  private installRequestInterceptor(): void {
-    this.browserSession.webRequest.onBeforeRequest(
-      CTRIP_API_REQUEST_FILTER,
-      (details, callback) => {
-        if (!this.managedWebContentsIds.has(details.webContentsId ?? -1)) {
-          callback({});
-          return;
-        }
-
-        callback({ cancel: true });
-        if (this.window.isDestroyed()) return;
-        this.logger.info('Embedded browser request intercepted', { ruleId: 'ctrip-soa2' });
-        this.window.webContents.send(IPC_CHANNELS.browser.requestIntercepted, {
-          ruleId: 'ctrip-soa2',
-        });
-      },
-    );
-  }
 
   private async clearRetiredPartitionWhenUnused(partitionName: string): Promise<void> {
     const stillUsed = [...this.tabs.values()].some((tab) => tab.partitionName === partitionName);

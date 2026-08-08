@@ -23,19 +23,6 @@ export const PARTITION_LAYOUT_VERSION = 1;
 
 const PARTITION_PREFIX = 'persist:xiaozhi';
 
-/**
- * `BrowserManager.browserSession` 所用的 partition —— 唯一用途是承载携程
- * SOA2 请求拦截器（`installRequestInterceptor`）。拦截器需要一个 session 对象
- * 来挂 `webRequest.onBeforeRequest`，与账号隔离无关。
- *
- * 同时它是账号隔离改造（D1）之前的历史数据容器：那时所有 OTA 账号共用这一个
- * session，里面混着多个账号的登录态，无法判断哪条 cookie 属于谁，**不做自动
- * 迁移**——迁移会把 A 的登录态错配给 B。
- *
- * ⚠ 字符串值固化在用户磁盘上，改名可以，改值等于让老用户丢失这份数据。
- */
-export const SHARED_BROWSING_PARTITION = 'persist:hotel-butler-browser';
-
 export function toPartitionName(
   environment: 'prod' | 'dev',
   channel: ChannelId,
