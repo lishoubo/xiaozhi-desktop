@@ -8,7 +8,7 @@
 import { app, type BrowserWindow } from 'electron';
 import { BrowserManager } from '../browser/browser-manager';
 import { hotelProbes, loginUrlMatchers } from '../channels/registry';
-import { CtripCheckInAutomation } from '../automation/ctrip-check-in-automation';
+import { CtripCheckInAutomation } from '../startup/ctrip-check-in';
 import { BrowserCookieImporter } from '../cookie-import/browser-cookie-importer';
 import { registerAuthHandlers } from '../ipc/auth-handlers';
 import { registerAutomationHandlers } from '../ipc/automation-handlers';
@@ -29,7 +29,7 @@ import { OtaHotelProbService } from '../services/ota-hotel-prob-service';
 import { SystemService } from '../services/system-service';
 import { TabEventBus } from '../services/tab-event-bus';
 import { IPC_CHANNELS } from '../../shared/ipc-channels';
-import { isStartupAutomationEnabled } from '../startup-enabled';
+import { isStartupAutomationEnabled } from '../startup/enabled';
 import { createMainWindow } from '../windows/main-window';
 import type { AppScope } from './app-scope';
 

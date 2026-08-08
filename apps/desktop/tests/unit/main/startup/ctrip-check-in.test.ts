@@ -41,7 +41,7 @@ const electron = vi.hoisted(() => {
 
 vi.mock('electron', () => ({ WebContentsView: electron.MockWebContentsView }));
 
-import { CtripCheckInAutomation } from '../../../src/main/automation/ctrip-check-in-automation';
+import { CtripCheckInAutomation } from '../../../../src/main/startup/ctrip-check-in';
 
 function createLogger() {
   return { info: vi.fn(), warn: vi.fn(), error: vi.fn() };

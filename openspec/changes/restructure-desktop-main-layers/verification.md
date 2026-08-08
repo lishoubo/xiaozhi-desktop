@@ -77,3 +77,120 @@ E2E 最终验收记录见本文件末尾「最终验收」一节。
 **新基准线：241 测试全绿。** 后续每批门禁以此为准。
 
 E2E 未跑（按方案 C，留待最终验收）。
+
+---
+
+## B–I 批门禁结果
+
+每批均执行 `npm run check:desktop && npm run lint:desktop && npm run test:unit:desktop`，
+全部通过后才进入下一批。以下为各批完成时的真实测试数：
+
+| 批次 | commit | 测试数 | 说明 |
+|---|---|---|---|
+| A 测试瘦身 | `d96485f` | 51 文件 / 241 | 删 1562 行测试 + 4 个依赖 |
+| B IPC 样板收敛 | `65db320` | 52 文件 / 245 | registry 新增 5 个用例，删 1 个重复的信任校验用例 |
+| C 目录重划 | `f558299` | 52 文件 / 245 | 纯移动，用例数不变 |
+| D service 补齐 | `f6ccc64` | 52 文件 / 245 | handler 测试改为注入 service |
+| E 拆掉 domain | `af605ca` | 51 文件 / 237 | −8 为已删的 cookie-scope-policy 用例 |
+| F ota-tab 拆分 | `c58ddd2` | 52 文件 / 239 | 11 个用例重组为 13 个 |
+| G+H composition + lint | `f499c08` | 52 文件 / 239 | 新 lint 规则抓到 1 处真实违规 |
+| I preload 拆分 | `e29b4d7` | 52 文件 / 239 | 现有 preload 测试未改动即通过 |
+
+类型检查全程 `0 ERRORS`（文件数 821 → 831，增量为新增的 preload namespace）。
+
+## 计划外的发现与偏离
+
+### 1. `createRmsHotel` / `createRmsOtaAccount` 不是死代码（design §5.1 判断有误）
+
+design 原文称四个 `createXxx` 校验均为死代码。实测只有 `createOtaHotel` 成立：
+
+| 函数 | 校验对象 | 结论 |
+|---|---|---|
+| `createOtaHotel` | `credentialId`（branded） | 死代码，已删 |
+| `createOtaCredential` | `partitionName`（普通 string，会落磁盘） | **保留** |
+| `createRmsHotel` | `id: number > 0`、`name` 非空 | **保留** |
+| `createRmsOtaAccount` | `id`/`hotelId` 正数、`status` 非空 | **保留** |
+
+branded 只保护 `ChannelId` / `OtaCredentialId` / `OtaHotelId` 这三类；
+普通 number/string 字段仍需运行时校验。
+
+### 2. `BrowserManager.create()` 未删除（tasks F5 偏离）
+
+tasks 记为「已无调用方」。grep 后发现它仍被 `bindTabEvents` 的
+`setWindowOpenHandler` 用于站内弹窗新开标签页（`browser-manager.ts:336`），
+是真实用途，予以保留。原判断只查了外部引用，漏了类内部调用。
+
+### 3. E8 结论：`isCookieHostInScope` 是重复实现，不是未修复的隐私缺陷
+
+原担忧为「导入携程会把小红书/淘宝 cookie 一并读走」。实测
+`cookie-import.ts` 的 `channelForCookieDomain` 只认三个域名
+（`douyin.com` / `ctrip.com` / `meituan.com`），且带点比较子域
+（`normalized.endsWith('.' + supported)`）——`evilctrip.com` 防护同样存在。
+
+即：同一套子域匹配逻辑写了两遍，生产代码用的是 `cookie-import.ts` 那份，
+`domain/policy/cookie-scope-policy.ts` 从未接入，仅测试引用。已连同测试删除。
+
+### 4. `shared/calendar.ts` 的编译期守卫此前完全无效
+
+原实现 `type AssertExtends<A extends B, B> = [A, B] extends [B, A] ? true : true`
+三元两个分支同为 `true`，条件不影响结果，永不报错。
+
+改为 `Expect<MutuallyExtends<...>>` 后**当场报出三处 false**，排查为
+`z.infer` 产出可变对象、而类型侧包了 `Readonly<>` 的形式差异，非字段不一致。
+最终采用只比字段结构、不比 readonly 修饰的写法。
+
+**已验证守卫真实有效**：向 `shared/types/calendar.ts` 临时插入 `bogus: string`
+字段后，`tsc` 报 `src/shared/calendar.ts(80,10): error TS2344: Type 'false'
+does not satisfy the constraint 'true'`；移除该字段后恢复 0 错误。
+
+### 5. 新增 `main/startup/`（design 之外）
+
+`ctrip-check-in-automation.ts`（开机用 CDP 抓携程入住时间）与
+`startup-automation-policy.ts`（是否启用的 opt-in 开关）原本分处
+`main/automation/` 与 `domain/policy/`。这个开关是**安全开关**——其文件头
+注释记录了历史上默认开启导致「装上应用即在全局共享 session 上无审批地
+对携程执行自动化」的问题。开关与被它控制的危险操作分开放，改动方看不到
+这段理由，故归拢为 `main/startup/{enabled,ctrip-check-in}.ts`。
+
+同时撤销 design 中「startup-automation-policy → main/config.ts」的方案：
+`server-client/config.ts` 解析的是 server origin，与启动自动化无关，
+「都读环境变量」不构成归为一类的理由。
+
+## 最终结构
+
+```
+apps/desktop/src/
+├── shared/            zod 契约 + IPC 通道名 + types/（纯类型与 branded id 类型）
+├── main/
+│   ├── index.ts       进程入口，74 行，无业务对象 new
+│   ├── composition/   app-scope（进程级）+ window-scope（窗口级，disposers 逆序）
+│   ├── ids.ts         标识符构造与校验
+│   ├── repositories.ts
+│   ├── services/      8 个业务编排
+│   ├── ota-tab/       OtaTabService + LoginDetector + index.ts
+│   ├── channels/      ctrip|douyin|meituan + types.ts + registry.ts
+│   ├── gateway/rms/   接口 + mock
+│   ├── server-client/ tRPC 传输层
+│   ├── startup/       开机自动化及其开关
+│   ├── ipc/           10 个 handler + create-handler-registry
+│   └── browser/ database/ cookie-import/ file-store/ security/ windows/ logging/ calendar/
+└── renderer/
+```
+
+`domain/` 与 `domain/ports/` 已删除。
+
+测试 5477 行 / 源码 13103 行（0.42）。原始比例为 7501 / 12729（0.59）。
+未达 design §8 预估的 0.28，原因是编排层测试实际重写量小于预估
+（多数改为注入 service 后即可复用），且按「不额外补测试」的要求未新增用例。
+
+## 待办：E2E 最终验收
+
+按方案 C，E2E 留至全部批次完成后一次性验证。需先满足其运行前提：
+
+```
+npm run https:setup                    # 生成本地 HTTPS 证书
+npm run compose:local                  # 启动 PostgreSQL + MySQL(RMS) 容器
+npm run test:e2e:desktop
+```
+
+E2E 用例自始至终未作任何修改，可直接作为行为回归的判据。
