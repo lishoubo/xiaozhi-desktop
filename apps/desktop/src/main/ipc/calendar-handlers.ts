@@ -1,5 +1,10 @@
 import { z } from 'zod';
-import type { CalendarRepository } from '../../domain/ports/repositories';
+import type {
+  CalendarEventCreateInput,
+  CalendarEventRecord,
+  CalendarEventUpdateInput,
+  CalendarSnapshot,
+} from '../../domain/calendar';
 import type { AppLogger } from '../../shared/logging';
 import {
   calendarEventCreateInputSchema,
@@ -9,66 +14,45 @@ import {
 import { IPC_CHANNELS } from '../../shared/ipc-channels';
 import { createHandlerRegistry, type TrustedWindow } from './create-handler-registry';
 
+/** handler 声明自己需要什么，由 `CalendarService` 满足；不 import 实现类。 */
+export interface CalendarOrchestrator {
+  load(): CalendarSnapshot;
+  createEvent(input: CalendarEventCreateInput): CalendarEventRecord;
+  updateEvent(input: CalendarEventUpdateInput): CalendarEventRecord;
+  deleteEvent(id: string): void;
+}
+
 type RegisterCalendarHandlersOptions = Readonly<{
   window: TrustedWindow;
-  repository: CalendarRepository;
+  service: CalendarOrchestrator;
   logger: AppLogger;
 }>;
 
 export function registerCalendarHandlers({
   window,
-  repository,
+  service,
   logger,
 }: RegisterCalendarHandlersOptions): () => void {
   const registry = createHandlerRegistry({ window, logger });
 
-  /** 持久化失败时记一条带 channel 的日志再原样抛出，便于定位是哪个操作坏的。 */
-  const logFailure = <T>(channel: string, operation: () => T): T => {
-    try {
-      return operation();
-    } catch (error) {
-      logger.error('Calendar persistence operation failed', {
-        operation: channel,
-        errorName: error instanceof Error ? error.name : 'UnknownError',
-      });
-      throw error;
-    }
-  };
-
-  registry.handle(IPC_CHANNELS.calendar.load, z.tuple([]), '日程参数无效', () =>
-    logFailure(IPC_CHANNELS.calendar.load, () => repository.load()),
-  );
+  registry.handle(IPC_CHANNELS.calendar.load, z.tuple([]), '日程参数无效', () => service.load());
   registry.handle(
     IPC_CHANNELS.calendar.createEvent,
     z.tuple([calendarEventCreateInputSchema]),
     '日程参数无效',
-    (input) =>
-      logFailure(IPC_CHANNELS.calendar.createEvent, () => {
-        const event = repository.createEvent(input);
-        logger.info('Calendar event created', { source: event.source });
-        return event;
-      }),
+    (input) => service.createEvent(input),
   );
   registry.handle(
     IPC_CHANNELS.calendar.updateEvent,
     z.tuple([calendarEventUpdateInputSchema]),
     '日程参数无效',
-    (input) =>
-      logFailure(IPC_CHANNELS.calendar.updateEvent, () => {
-        const event = repository.updateEvent(input);
-        logger.info('Calendar event updated', { source: event.source });
-        return event;
-      }),
+    (input) => service.updateEvent(input),
   );
   registry.handle(
     IPC_CHANNELS.calendar.deleteEvent,
     z.tuple([calendarEventIdSchema]),
     '日程参数无效',
-    (id) =>
-      logFailure(IPC_CHANNELS.calendar.deleteEvent, () => {
-        repository.deleteEvent(id);
-        logger.info('Calendar event deleted');
-      }),
+    (id) => service.deleteEvent(id),
   );
 
   return () => registry.dispose();

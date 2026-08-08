@@ -4,7 +4,15 @@ import path from 'node:path';
 import log from 'electron-log/main';
 import started from 'electron-squirrel-startup';
 import { registerBrowserHandlers } from './ipc/browser-handlers';
+import { registerCookieHandlers } from './ipc/cookie-handlers';
+import { registerOtaCredentialHandlers } from './ipc/ota-credential-handlers';
+import { registerSystemHandlers } from './ipc/system-handlers';
 import { registerOtaTabHandlers } from './ipc/ota-tab-handlers';
+import { BrowserCookieImporter } from './cookie-import/browser-cookie-importer';
+import { CookieImportService } from './services/cookie-import-service';
+import { SystemService } from './services/system-service';
+import { CalendarService } from './services/calendar-service';
+import { AuthService } from './services/auth-service';
 import { BrowserManager } from './browser/browser-manager';
 import { TabEventBus } from './services/tab-event-bus';
 import { configureNetworkPrivacy } from './security/network-privacy';
@@ -41,6 +49,9 @@ let browserManager: BrowserManager | null = null;
 let tabEventBus: TabEventBus | null = null;
 let otaTabOpener: OtaTabOpener | null = null;
 let unregisterBrowserHandlers: (() => void) | null = null;
+let unregisterCookieHandlers: (() => void) | null = null;
+let unregisterOtaCredentialHandlers: (() => void) | null = null;
+let unregisterSystemHandlers: (() => void) | null = null;
 let unregisterOtaTabHandlers: (() => void) | null = null;
 let ctripAutomation: CtripCheckInAutomation | null = null;
 let unregisterAutomationHandlers: (() => void) | null = null;
@@ -100,8 +111,25 @@ function openMainWindow(): void {
     window: mainWindow,
     manager: browserManager,
     logger: log,
-    userDataDir: app.getPath('userData'),
-    otaCredentialRepository,
+  });
+  unregisterCookieHandlers = registerCookieHandlers({
+    window: mainWindow,
+    service: new CookieImportService({
+      importer: new BrowserCookieImporter(log),
+      userDataDir: app.getPath('userData'),
+      logger: log,
+    }),
+    logger: log,
+  });
+  unregisterOtaCredentialHandlers = registerOtaCredentialHandlers({
+    window: mainWindow,
+    service: otaCredentialService,
+    logger: log,
+  });
+  unregisterSystemHandlers = registerSystemHandlers({
+    window: mainWindow,
+    service: new SystemService({ app, logger: log }),
+    logger: log,
   });
   unregisterOtaTabHandlers = registerOtaTabHandlers({
     window: mainWindow,
@@ -115,7 +143,7 @@ function openMainWindow(): void {
   });
   unregisterCalendarHandlers = registerCalendarHandlers({
     window: mainWindow,
-    repository: calendarRepository,
+    service: new CalendarService({ repository: calendarRepository, logger: log }),
     logger: log,
   });
   unregisterHotelManagementHandlers = registerHotelManagementHandlers({
@@ -126,13 +154,16 @@ function openMainWindow(): void {
   const serverOrigin = resolveServerOrigin(process.env);
   const apiSession = sessionFactory.sessionForServerApi();
   unregisterAuthHandlers = registerAuthHandlers({
-    apiSession,
-    client: createServerTrpcClient({
-      baseUrl: serverOrigin,
-      fetch: createElectronSessionFetch(apiSession),
+    service: new AuthService({
+      apiSession,
+      client: createServerTrpcClient({
+        baseUrl: serverOrigin,
+        fetch: createElectronSessionFetch(apiSession),
+      }),
+      logger: log,
+      serverOrigin,
     }),
     logger: log,
-    serverOrigin,
     window: mainWindow,
   });
   mainWindow.once('closed', () => {
@@ -148,6 +179,12 @@ function openMainWindow(): void {
     ctripAutomation = null;
     unregisterOtaTabHandlers?.();
     unregisterOtaTabHandlers = null;
+    unregisterSystemHandlers?.();
+    unregisterSystemHandlers = null;
+    unregisterOtaCredentialHandlers?.();
+    unregisterOtaCredentialHandlers = null;
+    unregisterCookieHandlers?.();
+    unregisterCookieHandlers = null;
     unregisterBrowserHandlers?.();
     unregisterBrowserHandlers = null;
     browserManager?.destroy();
@@ -232,6 +269,9 @@ app.once('will-quit', () => {
   unregisterHotelManagementHandlers?.();
   unregisterCalendarHandlers?.();
   unregisterOtaTabHandlers?.();
+  unregisterSystemHandlers?.();
+  unregisterOtaCredentialHandlers?.();
+  unregisterCookieHandlers?.();
   unregisterBrowserHandlers?.();
   unregisterAutomationHandlers?.();
   ctripAutomation?.destroy();

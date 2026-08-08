@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { toChannelId, toOtaCredentialId } from '../../../src/domain/identity';
+import { toChannelId } from '../../../src/domain/identity';
 import { IPC_CHANNELS } from '../../../src/shared/ipc-channels';
 import { writeImportedCookies } from '../../../src/main/cookie-import/store';
 
@@ -32,6 +32,8 @@ const electron = vi.hoisted(() => {
 vi.mock('electron', () => ({ app: electron.app, ipcMain: electron.ipcMain }));
 
 import { registerBrowserHandlers } from '../../../src/main/ipc/browser-handlers';
+import { registerOtaCredentialHandlers } from '../../../src/main/ipc/ota-credential-handlers';
+import { CookieImportService } from '../../../src/main/services/cookie-import-service';
 
 function createLogger() {
   return { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
@@ -59,40 +61,11 @@ function baseManager() {
   };
 }
 
-function credentialRepository(
-  partitionName = 'persist:xiaozhi:prod:douyin:short',
-  channel = toChannelId('douyin'),
-) {
-  return {
-    listByChannel: vi.fn((requestedChannel) =>
-      requestedChannel === channel
-        ? [
-            {
-              id: toOtaCredentialId('credential-1'),
-              channel,
-              channelAccountId: null,
-              partitionName,
-              credentialExtra: null,
-              discoveredAt: 1,
-              lastRefreshedAt: null,
-            },
-          ]
-        : [],
-    ),
-  };
-}
-
 describe('browser audio handlers', () => {
   it('reads and updates the single workspace audio state with boolean validation', () => {
     const sender = {};
     const manager = baseManager();
-    registerBrowserHandlers({
-      window: { webContents: sender },
-      manager,
-      logger: createLogger(),
-      userDataDir: '/tmp/does-not-matter',
-      otaCredentialRepository: credentialRepository(),
-    });
+    registerBrowserHandlers({ window: { webContents: sender }, manager, logger: createLogger() });
 
     expect(invoke(IPC_CHANNELS.browser.getAudioMuted, sender)).toBe(false);
     expect(invoke(IPC_CHANNELS.browser.setAudioMuted, sender, true)).toBe(true);
@@ -104,26 +77,25 @@ describe('browser audio handlers', () => {
 describe('otaCredential.listByChannel handler', () => {
   it('lists credentials without requiring linked OTA accounts', () => {
     const sender = {};
-    const manager = baseManager();
-    const otaCredentialRepository = credentialRepository(
-      'persist:xiaozhi:prod:ctrip:credential-only',
-      toChannelId('ctrip'),
-    );
-    registerBrowserHandlers({
+    const service = {
+      listByChannel: vi.fn(() => [
+        { id: 'credential-1', channel: toChannelId('ctrip') } as never,
+      ]),
+    };
+    registerOtaCredentialHandlers({
       window: { webContents: sender },
-      manager,
+      service,
       logger: createLogger(),
-      userDataDir: '/tmp/does-not-matter',
-      otaCredentialRepository,
     });
 
     expect(invoke(IPC_CHANNELS.otaCredential.listByChannel, sender, 'ctrip')).toEqual([
       expect.objectContaining({ id: 'credential-1', channel: 'ctrip' }),
     ]);
+    expect(service.listByChannel).toHaveBeenCalledWith(toChannelId('ctrip'));
   });
 });
 
-describe('cookies.listImportedChannels handler', () => {
+describe('CookieImportService.listImportedChannels', () => {
   const temporaryDirectories: string[] = [];
 
   afterEach(() => {
@@ -138,8 +110,7 @@ describe('cookies.listImportedChannels handler', () => {
     return directory;
   }
 
-  it('透传 listImportedChannels 的查询结果', async () => {
-    const sender = {};
+  it('返回已导入渠道的落盘记录', async () => {
     const userDataDir = tempUserDataDir();
     await writeImportedCookies(
       userDataDir,
@@ -150,17 +121,13 @@ describe('cookies.listImportedChannels handler', () => {
         sourceId: 'chrome',
       },
     );
-    registerBrowserHandlers({
-      window: { webContents: sender },
-      manager: baseManager(),
-      logger: createLogger(),
+    const service = new CookieImportService({
+      importer: { listSources: vi.fn(), readCookies: vi.fn() } as never,
       userDataDir,
-      otaCredentialRepository: credentialRepository(),
+      logger: createLogger(),
     });
 
-    const result = await invoke(IPC_CHANNELS.cookies.listImportedChannels, sender);
-
-    expect(result).toEqual([
+    await expect(service.listImportedChannels()).resolves.toEqual([
       { channel: toChannelId('meituan'), importedAt: '2026-08-05T00:00:00.000Z' },
     ]);
   });

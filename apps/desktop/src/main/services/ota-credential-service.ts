@@ -45,6 +45,11 @@ export class OtaCredentialService {
 
   constructor(private readonly deps: DiscoverAndCreateDependencies) {}
 
+  /** 列出某渠道下已探测出的登录凭据（供账号切换 UI 展示）。 */
+  listByChannel(channel: ChannelId): readonly OtaCredential[] {
+    return this.deps.credentialRepository.listByChannel(channel);
+  }
+
   async trigger(
     partitionName: string,
     channel: ChannelId,

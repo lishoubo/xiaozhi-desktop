@@ -1,59 +1,40 @@
-import { app } from 'electron';
 import { z } from 'zod';
 import {
   browserBoundsSchema,
-  browserCookieSourceIdSchema,
   browserTabIdSchema,
-  otaCredentialChannelSchema,
   type BrowserBounds,
-  type SystemPreferences,
 } from '../../shared/browser';
-import { toChannelId } from '../../domain/identity';
-import type { OtaCredentialRepository } from '../../domain/ports/repositories';
 import { IPC_CHANNELS } from '../../shared/ipc-channels';
 import type { AppLogger } from '../../shared/logging';
-import { BrowserCookieImporter } from '../cookie-import/browser-cookie-importer';
-import { friendlyCookieImportMessage } from '../cookie-import/cookie-import';
-import { listImportedChannels, writeImportedCookies } from '../cookie-import/store';
 import { createHandlerRegistry, type TrustedWindow } from './create-handler-registry';
 
 const noArgumentsSchema = z.tuple([]);
 
+/** 标签页操作。开 tab 不在这里——那是 `ota-tab-handlers.ts` 的唯一入口。 */
+export interface BrowserTabController {
+  acknowledgeInterception(): void;
+  activate(tabId: string): unknown;
+  close(tabId: string): void;
+  goBack(tabId: string): void;
+  goForward(tabId: string): void;
+  getAudioMuted(): boolean;
+  hide(): void;
+  list(): unknown;
+  reload(tabId: string): void;
+  setBounds(bounds: BrowserBounds): void;
+  setAudioMuted(muted: boolean): boolean;
+}
+
 type RegisterBrowserHandlersOptions = Readonly<{
   window: TrustedWindow;
-  manager: Readonly<{
-    acknowledgeInterception: () => void;
-    activate: (tabId: string) => unknown;
-    close: (tabId: string) => void;
-    goBack: (tabId: string) => void;
-    goForward: (tabId: string) => void;
-    getAudioMuted: () => boolean;
-    hide: () => void;
-    list: () => unknown;
-    reload: (tabId: string) => void;
-    setBounds: (bounds: BrowserBounds) => void;
-    setAudioMuted: (muted: boolean) => boolean;
-  }>;
+  manager: BrowserTabController;
   logger: AppLogger;
-  cookieImporter?: Pick<BrowserCookieImporter, 'listSources' | 'readCookies'>;
-  userDataDir: string;
-  otaCredentialRepository: Pick<OtaCredentialRepository, 'listByChannel'>;
 }>;
-
-function systemPreferences(): SystemPreferences {
-  return {
-    autoLaunch: app.getLoginItemSettings().openAtLogin,
-    version: app.getVersion(),
-  };
-}
 
 export function registerBrowserHandlers({
   window,
   manager,
   logger,
-  cookieImporter = new BrowserCookieImporter(logger),
-  userDataDir,
-  otaCredentialRepository,
 }: RegisterBrowserHandlersOptions): () => void {
   const registry = createHandlerRegistry({ window, logger });
   const handle = registry.handle;
@@ -90,64 +71,6 @@ export function registerBrowserHandlers({
   handle(IPC_CHANNELS.browser.setAudioMuted, z.tuple([z.boolean()]), '声音状态无效', (muted) =>
     manager.setAudioMuted(muted),
   );
-  handle(IPC_CHANNELS.cookies.listSources, noArgumentsSchema, '请求参数无效', () =>
-    cookieImporter.listSources(),
-  );
-  handle(IPC_CHANNELS.cookies.listImportedChannels, noArgumentsSchema, '请求参数无效', () =>
-    listImportedChannels(userDataDir),
-  );
-  handle(
-    IPC_CHANNELS.otaCredential.listByChannel,
-    z.tuple([otaCredentialChannelSchema]),
-    '渠道标识无效',
-    (channelId) => otaCredentialRepository.listByChannel(toChannelId(channelId)),
-  );
-  handle(
-    IPC_CHANNELS.cookies.import,
-    z.tuple([browserCookieSourceIdSchema]),
-    '浏览器类型无效',
-    async (sourceId) => {
-      try {
-        const { cookiesByChannel, failed: readFailures } =
-          await cookieImporter.readCookies(sourceId);
-        if (cookiesByChannel.size === 0 && readFailures === 0) {
-          throw new Error('所选浏览器中没有找到可导入的 Cookie');
-        }
-        const importedAt = new Date().toISOString();
-        await Promise.all(
-          Array.from(cookiesByChannel.entries()).map(([channel, cookies]) =>
-            writeImportedCookies(userDataDir, channel, cookies, { importedAt, sourceId }),
-          ),
-        );
-        const imported = Array.from(cookiesByChannel.values()).reduce(
-          (total, cookies) => total + cookies.length,
-          0,
-        );
-        if (imported === 0) throw new Error('未能导入 Cookie，请确认浏览器已登录并允许系统访问');
-        logger.info('Cookies imported to disk', {
-          source: sourceId,
-          channels: cookiesByChannel.size,
-          imported,
-          failed: readFailures,
-        });
-        return { imported, failed: readFailures };
-      } catch (error) {
-        logger.warn('Cookie import could not be completed', {
-          source: typeof sourceId === 'string' ? sourceId : 'unknown',
-          errorName: error instanceof Error ? error.name : 'UnknownError',
-        });
-        return { imported: 0, failed: 0, error: friendlyCookieImportMessage(error) };
-      }
-    },
-  );
-  handle(IPC_CHANNELS.system.getPreferences, noArgumentsSchema, '请求参数无效', () =>
-    systemPreferences(),
-  );
-  handle(IPC_CHANNELS.system.setAutoLaunch, z.tuple([z.boolean()]), '开机启动设置无效', (enabled) => {
-    app.setLoginItemSettings({ openAtLogin: enabled });
-    logger.info('Auto-launch preference changed', { enabled });
-    return systemPreferences();
-  });
 
   return () => registry.dispose();
 }

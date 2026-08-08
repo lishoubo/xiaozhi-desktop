@@ -23,6 +23,7 @@ const electron = vi.hoisted(() => {
 vi.mock('electron', () => ({ ipcMain: electron.ipcMain }));
 
 import { registerAuthHandlers } from '../../../src/main/ipc/auth-handlers';
+import { AuthService } from '../../../src/main/services/auth-service';
 
 const employee = {
   id: '2',
@@ -61,11 +62,15 @@ function setup() {
       },
     },
   };
+  const logger = createLogger();
   registerAuthHandlers({
-    apiSession: { cookies: { remove } },
-    client,
-    logger: createLogger(),
-    serverOrigin: 'https://localhost:5173',
+    service: new AuthService({
+      apiSession: { cookies: { remove } },
+      client: client as never,
+      logger,
+      serverOrigin: 'https://localhost:5173',
+    }),
+    logger,
     window: { webContents: sender },
   });
   return { client, remove, sender };
