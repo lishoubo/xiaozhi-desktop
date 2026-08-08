@@ -10,8 +10,8 @@
  * 一个 session，导致同渠道两个账号的 cookie 互相覆盖，导入携程还会顺带
  * 覆盖已登录的美团 —— 用户会真实丢失登录态。
  *
- * 放在 domain 而非 SessionFactory 里，是因为「怎么命名」是一条可穷举测试的
- * 纯规则，而「拿到 Session 对象」才需要 Electron。
+ * 与 `SessionFactory` 分开，是因为「怎么命名」是一条可穷举测试的纯规则，
+ * 而「拿到 Session 对象」才需要 Electron。
  *
  * ⚠ **partition 名称一旦发布就固化在用户磁盘上**，改动等于让所有用户重新登录。
  * 因此改这里必须同时升 `partitionLayout` 版本号，并想清楚迁移策略。

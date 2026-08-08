@@ -11,7 +11,7 @@ const SERVER_API_PARTITION = 'persist:xiaozhi:server-api';
  * 把 partition 名字兑换成 Electron 的 `Session`。
  *
  * **这是全仓库唯一允许出现 partition 字符串的地方**（命名规则本身在
- * `domain/policy/partition-policy.ts`，那里可以裸测；这里只负责拿对象）。
+ * `browser/partition.ts`，那里可以裸测；这里只负责拿对象）。
  * 其他任何文件都不得调用 `session.fromPartition()` 或手工拼接 partition 名。
  */
 export class SessionFactory {
