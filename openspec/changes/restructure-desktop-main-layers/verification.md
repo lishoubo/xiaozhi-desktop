@@ -143,18 +143,40 @@ tasks 记为「已无调用方」。grep 后发现它仍被 `bindTabEvents` 的
 字段后，`tsc` 报 `src/shared/calendar.ts(80,10): error TS2344: Type 'false'
 does not satisfy the constraint 'true'`；移除该字段后恢复 0 错误。
 
-### 5. 新增 `main/startup/`（design 之外）
+### 5. 携程开机自动化整体删除（review 阶段决定）
 
-`ctrip-check-in-automation.ts`（开机用 CDP 抓携程入住时间）与
-`startup-automation-policy.ts`（是否启用的 opt-in 开关）原本分处
-`main/automation/` 与 `domain/policy/`。这个开关是**安全开关**——其文件头
-注释记录了历史上默认开启导致「装上应用即在全局共享 session 上无审批地
-对携程执行自动化」的问题。开关与被它控制的危险操作分开放，改动方看不到
-这段理由，故归拢为 `main/startup/{enabled,ctrip-check-in}.ts`。
+先归拢为 `main/startup/{enabled,ctrip-check-in}.ts`（理由：opt-in 开关是安全
+开关，与被它控制的危险操作分开放会让改动方看不到「默认开启曾导致装上应用即
+无审批地对携程执行自动化」这段历史）；随后在 review 中确认该功能不再需要，
+整条链路删除：
+
+- `renderer/components/automation/StartupAutomationDialog.svelte` 及 App.svelte 挂载
+- `main/startup/`（`ctrip-check-in.ts` + `enabled.ts`）
+- `main/ipc/automation-handlers.ts`、`shared/automation.ts`、
+  `preload/namespaces/automation.ts`、`IPC_CHANNELS.automation`
 
 同时撤销 design 中「startup-automation-policy → main/config.ts」的方案：
 `server-client/config.ts` 解析的是 server origin，与启动自动化无关，
 「都读环境变量」不构成归为一类的理由。
+
+### 6. `SHARED_BROWSING_PARTITION` 的四个引用中只有一个是真用途
+
+原 `LEGACY_SHARED_PARTITION`。改名时曾断言「三处是当前功能」——该判断有误，
+只核对了引用的存在性，未追到用户入口。逐条追查后：
+
+| 引用 | 用户入口 | 处置 |
+|---|---|---|
+| `OtaTabService.openView()` | 无（IPC/preload/service 链路完整，renderer 零调用） | 整条删除 |
+| `BrowserManager.create()` | 无（自带 `@deprecated`，仅测试使用） | 删除 |
+| `SessionFactory.legacySharedSession()` | 无（定义后从未被调用） | 删除 |
+| `BrowserManager.browserSession` | 携程 SOA2 请求拦截器 | **保留** |
+
+`create()` 的唯一内部调用方 `setWindowOpenHandler` 改为
+`createWithAlreadyPartition(tab.partitionName, ...)`——站内弹窗从此继承发起方的
+partition，不再掉出账号隔离，属行为改进。
+
+该常量现只剩一处引用，注释已改写为实际用途：承载请求拦截器所需的 session
+对象（与账号隔离无关），同时是账号隔离改造前的历史数据容器、不做自动迁移。
 
 ## 最终结构
 
@@ -171,7 +193,6 @@ apps/desktop/src/
 │   ├── channels/      ctrip|douyin|meituan + types.ts + registry.ts
 │   ├── gateway/rms/   接口 + mock
 │   ├── server-client/ tRPC 传输层
-│   ├── startup/       开机自动化及其开关
 │   ├── ipc/           10 个 handler + create-handler-registry
 │   └── browser/ database/ cookie-import/ file-store/ security/ windows/ logging/ calendar/
 └── renderer/

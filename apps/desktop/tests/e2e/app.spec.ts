@@ -30,7 +30,6 @@ test.beforeEach(async () => {
       ...launchEnvironment,
       ELECTRON_DISABLE_SECURITY_WARNINGS: 'true',
       HOTEL_BUTLER_SERVER_URL: 'https://localhost:4173',
-      // 开机自动化默认关闭（opt-in），e2e 不设 HOTEL_BUTLER_ENABLE_STARTUP_AUTOMATION 即不会运行
     },
   });
   page = await electronApp.firstWindow();
