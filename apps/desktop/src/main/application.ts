@@ -6,7 +6,7 @@ import started from 'electron-squirrel-startup';
 import { registerBrowserHandlers } from './ipc/browser-handlers';
 import { registerOtaTabHandlers } from './ipc/ota-tab-handlers';
 import { BrowserManager } from './browser/browser-manager';
-import { TabEventBus } from './browser/tab-event-bus';
+import { TabEventBus } from './features/common/tab-event-bus';
 import { configureNetworkPrivacy } from './security/network-privacy';
 import { createMainWindow } from './windows/main-window';
 import { configureMainLogging } from './logging/configure-main-logging';
@@ -17,9 +17,8 @@ import { SqliteCalendarRepository } from './calendar/calendar-repository';
 import { registerCalendarHandlers } from './ipc/calendar-handlers';
 import { isStartupAutomationEnabled } from '../domain/policy/startup-automation-policy';
 import { SqliteOtaCredentialRepository } from './database/ota-credential-repository';
-import { SqliteOtaHotelProbRepository } from './database/ota-hotel-prob-repository';
+import { SqliteOtaHotelRepository } from './database/ota-hotel-repository';
 import { DiscoverAndCreate } from './features/ota-credential/discover-and-create';
-import { createDiscoveryProbes } from './features/ota-credential/discovery-probe';
 import { OtaTabOpener } from './features/ota-tab-opener/ota-tab-opener';
 import { LOGIN_URL_MATCHERS } from './features/ota-tab-opener/login-url-matcher';
 import { createCtripDiscovery } from './features/ota-credential/ota/ctrip/discover-ctrip';
@@ -56,7 +55,7 @@ let unregisterCalendarHandlers: (() => void) | null = null;
 let unregisterAuthHandlers: (() => void) | null = null;
 let discoverAndCreate: DiscoverAndCreate | null = null;
 let otaCredentialRepository: SqliteOtaCredentialRepository | null = null;
-let otaHotelProbRepository: SqliteOtaHotelProbRepository | null = null;
+let otaHotelRepository: SqliteOtaHotelRepository | null = null;
 let sessionFactory: SessionFactory | null = null;
 let hotelManagementFeature: HotelManagementFeature | null = null;
 let unregisterHotelManagementHandlers: (() => void) | null = null;
@@ -71,7 +70,7 @@ configureMainLogging(log, {
 function openMainWindow(): void {
   if (!calendarRepository) throw new Error('Calendar repository is not initialized');
   if (!otaCredentialRepository) throw new Error('OtaCredential repository is not initialized');
-  if (!otaHotelProbRepository) throw new Error('OtaHotelProb repository is not initialized');
+  if (!otaHotelRepository) throw new Error('OtaHotel repository is not initialized');
   if (!sessionFactory) throw new Error('Session factory is not initialized');
   if (!hotelManagementFeature) throw new Error('Hotel management feature is not initialized');
   mainWindow = createMainWindow();
@@ -93,7 +92,7 @@ function openMainWindow(): void {
   new OtaHotelProbFeature({
     tabEventBus,
     probes: hotelProbes,
-    repository: otaHotelProbRepository,
+    repository: otaHotelRepository,
     logger: log,
   });
   otaTabOpener = new OtaTabOpener({
@@ -179,13 +178,12 @@ function initializeApplication(): void {
   calendarRepository = new SqliteCalendarRepository(applicationDatabase);
   const userDataDir = app.getPath('userData');
   otaCredentialRepository = new SqliteOtaCredentialRepository(applicationDatabase);
-  otaHotelProbRepository = new SqliteOtaHotelProbRepository(applicationDatabase);
+  otaHotelRepository = new SqliteOtaHotelRepository(applicationDatabase);
   hotelManagementFeature = new HotelManagementFeature(
     new MockRmsHotelGateway(),
     new MockRmsOtaAccountGateway(),
   );
   discoverAndCreate = new DiscoverAndCreate({
-    probes: createDiscoveryProbes(),
     discoverCtrip: createCtripDiscovery(log),
     discoverDouyin: createDouyinDiscovery(log),
     discoverMeituan: createMeituanDiscovery(log),
@@ -253,7 +251,7 @@ app.once('will-quit', () => {
   calendarRepository = null;
   discoverAndCreate = null;
   otaCredentialRepository = null;
-  otaHotelProbRepository = null;
+  otaHotelRepository = null;
   hotelManagementFeature = null;
   tabEventBus = null;
   otaTabOpener = null;

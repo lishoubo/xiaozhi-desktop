@@ -1,24 +1,19 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import {
-  toChannelId,
-  toOtaCredentialId,
-  toOtaHotelId,
-  toOtaHotelProbId,
-} from '../../../../src/domain/identity';
+import { toChannelId, toOtaCredentialId, toOtaHotelId } from '../../../../src/domain/identity';
 import {
   openApplicationDatabase,
   type ApplicationDatabase,
 } from '../../../../src/main/database/application-database';
 import { SqliteOtaCredentialRepository } from '../../../../src/main/database/ota-credential-repository';
-import { SqliteOtaHotelProbRepository } from '../../../../src/main/database/ota-hotel-prob-repository';
+import { SqliteOtaHotelRepository } from '../../../../src/main/database/ota-hotel-repository';
 
 function createLogger() {
   return { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
 }
 
-function input(overrides: Partial<Parameters<SqliteOtaHotelProbRepository['create']>[0]> = {}) {
+function input(overrides: Partial<Parameters<SqliteOtaHotelRepository['create']>[0]> = {}) {
   return {
-    id: toOtaHotelProbId('hotel-prob-1'),
+    id: 'hotel-prob-1',
     credentialId: toOtaCredentialId('credential-1'),
     channel: toChannelId('douyin'),
     otaHotelId: toOtaHotelId('dy-111'),
@@ -30,7 +25,7 @@ function input(overrides: Partial<Parameters<SqliteOtaHotelProbRepository['creat
 }
 
 let database: ApplicationDatabase;
-let repository: SqliteOtaHotelProbRepository;
+let repository: SqliteOtaHotelRepository;
 let credentialRepository: SqliteOtaCredentialRepository;
 
 beforeEach(() => {
@@ -54,10 +49,10 @@ beforeEach(() => {
     discoveredAt: 2,
     lastRefreshedAt: null,
   });
-  repository = new SqliteOtaHotelProbRepository(database);
+  repository = new SqliteOtaHotelRepository(database);
 });
 
-describe('SqliteOtaHotelProbRepository', () => {
+describe('SqliteOtaHotelRepository', () => {
   it('创建后可按渠道 + 门店查出同一条记录', () => {
     repository.create(input());
 
@@ -73,9 +68,7 @@ describe('SqliteOtaHotelProbRepository', () => {
 
   it('同一 (channel, otaHotelId) 二次创建违反唯一索引', () => {
     repository.create(input());
-    expect(() =>
-      repository.create(input({ id: toOtaHotelProbId('hotel-prob-2') })),
-    ).toThrow();
+    expect(() => repository.create(input({ id: 'hotel-prob-2' }))).toThrow();
   });
 
   it('findByCredentialId 按凭证查出探测记录，不存在返回 null', () => {
@@ -105,13 +98,13 @@ describe('SqliteOtaHotelProbRepository', () => {
 
   it('updateDiscovery 对不存在的记录 id 抛错', () => {
     expect(() =>
-      repository.updateDiscovery(toOtaHotelProbId('missing'), {
+      repository.updateDiscovery('missing', {
         credentialId: toOtaCredentialId('credential-2'),
         otaHotelName: null,
         bindExtra: null,
         discoveredAt: 2,
       }),
-    ).toThrow('未找到 OtaHotelProb');
+    ).toThrow('未找到 OtaHotel');
   });
 
   it('create 正确写入 bindExtra 与 discoveredAt', () => {

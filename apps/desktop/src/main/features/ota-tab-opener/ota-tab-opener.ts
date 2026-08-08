@@ -29,7 +29,7 @@ import {
   addPendingPartition,
   type PendingPartition,
 } from '../../file-store/pending-partitions-store';
-import { TabEventBus } from '../../browser/tab-event-bus';
+import { TabEventBus } from '../common/tab-event-bus';
 
 /** 架构约束：不 import `browser-manager` 实现，用类型查询表达结构依赖。 */
 type TabNavigatedEvent = import('../../browser/browser-manager').TabNavigatedEvent;

@@ -18,11 +18,7 @@ import type {
   OtaCredentialIdentityUpdate,
   OtaCredentialPartitionUpdate,
 } from '../ota-credential';
-import type {
-  OtaHotelProb,
-  OtaHotelProbCreateInput,
-  OtaHotelProbDiscoveryUpdate,
-} from '../ota-hotel-prob';
+import type { OtaHotel, OtaHotelCreateInput, OtaHotelDiscoveryUpdate } from '../ota-hotel';
 
 export interface CalendarRepository {
   load(): CalendarSnapshot;
@@ -31,11 +27,11 @@ export interface CalendarRepository {
   deleteEvent(id: string): void;
 }
 
-export interface OtaHotelProbRepository {
-  create(input: OtaHotelProbCreateInput): OtaHotelProb;
-  findByChannelAndHotelId(channel: ChannelId, otaHotelId: OtaHotelId): OtaHotelProb | null;
-  findByCredentialId(credentialId: OtaCredentialId): OtaHotelProb | null;
-  updateDiscovery(id: OtaHotelProb['id'], update: OtaHotelProbDiscoveryUpdate): OtaHotelProb;
+export interface OtaHotelRepository {
+  create(input: OtaHotelCreateInput): OtaHotel;
+  findByChannelAndHotelId(channel: ChannelId, otaHotelId: OtaHotelId): OtaHotel | null;
+  findByCredentialId(credentialId: OtaCredentialId): OtaHotel | null;
+  updateDiscovery(id: OtaHotel['id'], update: OtaHotelDiscoveryUpdate): OtaHotel;
 }
 
 export interface OtaCredentialRepository {

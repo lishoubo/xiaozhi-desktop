@@ -2,22 +2,21 @@ import {
   toChannelId,
   toOtaCredentialId,
   toOtaHotelId,
-  toOtaHotelProbId,
   type ChannelId,
   type OtaCredentialId,
   type OtaHotelId,
 } from '../../domain/identity';
 import {
-  createOtaHotelProb,
-  type OtaHotelProb,
-  type OtaHotelProbCreateInput,
-  type OtaHotelProbDiscoveryUpdate,
-} from '../../domain/ota-hotel-prob';
-import type { OtaHotelProbRepository } from '../../domain/ports/repositories';
+  createOtaHotel,
+  type OtaHotel,
+  type OtaHotelCreateInput,
+  type OtaHotelDiscoveryUpdate,
+} from '../../domain/ota-hotel';
+import type { OtaHotelRepository } from '../../domain/ports/repositories';
 import type { ApplicationDatabase } from './application-database';
 import { parseJsonObject, serializeJsonObject } from './json-storage';
 
-type OtaHotelProbRow = Readonly<{
+type OtaHotelRow = Readonly<{
   id: string;
   credentialId: string;
   channel: string;
@@ -27,9 +26,9 @@ type OtaHotelProbRow = Readonly<{
   discoveredAt: number;
 }>;
 
-function hotelProbFromRow(row: OtaHotelProbRow): OtaHotelProb {
-  return createOtaHotelProb({
-    id: toOtaHotelProbId(row.id),
+function hotelFromRow(row: OtaHotelRow): OtaHotel {
+  return createOtaHotel({
+    id: row.id,
     credentialId: toOtaCredentialId(row.credentialId),
     channel: toChannelId(row.channel),
     otaHotelId: toOtaHotelId(row.otaHotelId),
@@ -49,44 +48,44 @@ const SELECT_COLUMNS = `
   discovered_at AS discoveredAt
 `;
 
-export class SqliteOtaHotelProbRepository implements OtaHotelProbRepository {
+export class SqliteOtaHotelRepository implements OtaHotelRepository {
   constructor(private readonly database: ApplicationDatabase) {}
 
-  create(input: OtaHotelProbCreateInput): OtaHotelProb {
-    const hotelProb = createOtaHotelProb(input);
+  create(input: OtaHotelCreateInput): OtaHotel {
+    const hotel = createOtaHotel(input);
     this.database
       .prepare(
-        `INSERT INTO ota_hotel_prob
+        `INSERT INTO ota_hotel
           (id, credential_id, channel, ota_hotel_id, ota_hotel_name, bind_extra, discovered_at)
          VALUES
           (@id, @credentialId, @channel, @otaHotelId, @otaHotelName, @bindExtra, @discoveredAt)`,
       )
-      .run({ ...hotelProb, bindExtra: serializeJsonObject(hotelProb.bindExtra) });
-    return hotelProb;
+      .run({ ...hotel, bindExtra: serializeJsonObject(hotel.bindExtra) });
+    return hotel;
   }
 
-  findByChannelAndHotelId(channel: ChannelId, otaHotelId: OtaHotelId): OtaHotelProb | null {
+  findByChannelAndHotelId(channel: ChannelId, otaHotelId: OtaHotelId): OtaHotel | null {
     const row = this.database
-      .prepare<[string, string], OtaHotelProbRow>(
-        `SELECT ${SELECT_COLUMNS} FROM ota_hotel_prob WHERE channel = ? AND ota_hotel_id = ?`,
+      .prepare<[string, string], OtaHotelRow>(
+        `SELECT ${SELECT_COLUMNS} FROM ota_hotel WHERE channel = ? AND ota_hotel_id = ?`,
       )
       .get(channel, otaHotelId);
-    return row ? hotelProbFromRow(row) : null;
+    return row ? hotelFromRow(row) : null;
   }
 
-  findByCredentialId(credentialId: OtaCredentialId): OtaHotelProb | null {
+  findByCredentialId(credentialId: OtaCredentialId): OtaHotel | null {
     const row = this.database
-      .prepare<[string], OtaHotelProbRow>(
-        `SELECT ${SELECT_COLUMNS} FROM ota_hotel_prob WHERE credential_id = ?`,
+      .prepare<[string], OtaHotelRow>(
+        `SELECT ${SELECT_COLUMNS} FROM ota_hotel WHERE credential_id = ?`,
       )
       .get(credentialId);
-    return row ? hotelProbFromRow(row) : null;
+    return row ? hotelFromRow(row) : null;
   }
 
-  updateDiscovery(id: OtaHotelProb['id'], update: OtaHotelProbDiscoveryUpdate): OtaHotelProb {
+  updateDiscovery(id: OtaHotel['id'], update: OtaHotelDiscoveryUpdate): OtaHotel {
     const result = this.database
       .prepare(
-        `UPDATE ota_hotel_prob
+        `UPDATE ota_hotel
          SET credential_id = @credentialId,
              ota_hotel_name = @otaHotelName,
              bind_extra = @bindExtra,
@@ -95,13 +94,11 @@ export class SqliteOtaHotelProbRepository implements OtaHotelProbRepository {
          WHERE id = @id`,
       )
       .run({ ...update, id, bindExtra: serializeJsonObject(update.bindExtra) });
-    if (result.changes === 0) throw new Error('未找到 OtaHotelProb');
+    if (result.changes === 0) throw new Error('未找到 OtaHotel');
     const row = this.database
-      .prepare<[string], OtaHotelProbRow>(
-        `SELECT ${SELECT_COLUMNS} FROM ota_hotel_prob WHERE id = ?`,
-      )
+      .prepare<[string], OtaHotelRow>(`SELECT ${SELECT_COLUMNS} FROM ota_hotel WHERE id = ?`)
       .get(id);
-    if (!row) throw new Error('未找到 OtaHotelProb');
-    return hotelProbFromRow(row);
+    if (!row) throw new Error('未找到 OtaHotel');
+    return hotelFromRow(row);
   }
 }

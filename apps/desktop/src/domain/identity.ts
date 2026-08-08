@@ -9,7 +9,6 @@ declare const brand: unique symbol;
 type Brand<T, B> = T & { readonly [brand]: B };
 
 export type ChannelId = Brand<string, 'ChannelId'>;
-export type OtaHotelProbId = Brand<string, 'OtaHotelProbId'>;
 export type OtaCredentialId = Brand<string, 'OtaCredentialId'>;
 /** 渠道侧的门店 ID（携程/美团/抖音各不相同）。我们侧的统一 HotelId 待 rms 接通后引入。 */
 export type OtaHotelId = Brand<string, 'OtaHotelId'>;
@@ -54,11 +53,6 @@ function assertValidIdentifier(kind: string, raw: string): void {
 export function toChannelId(raw: string): ChannelId {
   assertValidIdentifier('ChannelId', raw);
   return raw as ChannelId;
-}
-
-export function toOtaHotelProbId(raw: string): OtaHotelProbId {
-  assertValidIdentifier('OtaHotelProbId', raw);
-  return raw as OtaHotelProbId;
 }
 
 export function toOtaCredentialId(raw: string): OtaCredentialId {

@@ -1,9 +1,9 @@
 /** 一个 credential 名下探测出的一家可操作渠道酒店。 */
-import type { ChannelId, OtaCredentialId, OtaHotelId, OtaHotelProbId } from './identity';
+import type { ChannelId, OtaCredentialId, OtaHotelId } from './identity';
 import type { JsonObject } from './json';
 
-export type OtaHotelProb = Readonly<{
-  id: OtaHotelProbId;
+export type OtaHotel = Readonly<{
+  id: string;
   credentialId: OtaCredentialId;
   channel: ChannelId;
   otaHotelId: OtaHotelId;
@@ -12,8 +12,8 @@ export type OtaHotelProb = Readonly<{
   discoveredAt: number;
 }>;
 
-export type OtaHotelProbCreateInput = Readonly<{
-  id: OtaHotelProbId;
+export type OtaHotelCreateInput = Readonly<{
+  id: string;
   credentialId: OtaCredentialId;
   channel: ChannelId;
   otaHotelId: OtaHotelId;
@@ -22,20 +22,20 @@ export type OtaHotelProbCreateInput = Readonly<{
   discoveredAt: number;
 }>;
 
-export type OtaHotelProbDiscoveryUpdate = Readonly<
-  Pick<OtaHotelProb, 'credentialId' | 'otaHotelName' | 'bindExtra' | 'discoveredAt'>
+export type OtaHotelDiscoveryUpdate = Readonly<
+  Pick<OtaHotel, 'credentialId' | 'otaHotelName' | 'bindExtra' | 'discoveredAt'>
 >;
 
-export class InvalidOtaHotelProbError extends Error {
+export class InvalidOtaHotelError extends Error {
   constructor(reason: string) {
-    super(`无效的 OtaHotelProb：${reason}`);
-    this.name = 'InvalidOtaHotelProbError';
+    super(`无效的 OtaHotel：${reason}`);
+    this.name = 'InvalidOtaHotelError';
   }
 }
 
-export function createOtaHotelProb(input: OtaHotelProbCreateInput): OtaHotelProb {
+export function createOtaHotel(input: OtaHotelCreateInput): OtaHotel {
   if (input.credentialId.length === 0) {
-    throw new InvalidOtaHotelProbError('credentialId 不能为空');
+    throw new InvalidOtaHotelError('credentialId 不能为空');
   }
   return {
     id: input.id,

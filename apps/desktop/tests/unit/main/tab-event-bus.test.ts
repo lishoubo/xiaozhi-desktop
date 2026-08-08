@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   TabEventBus,
   type TabCredentialCheckedEvent,
-} from '../../../src/main/browser/tab-event-bus';
+} from '../../../src/main/features/common/tab-event-bus';
 
 function fakeEvent(
   overrides: Partial<TabCredentialCheckedEvent> = {},

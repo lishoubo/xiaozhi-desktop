@@ -28,20 +28,6 @@ function credential(overrides: Partial<OtaCredential> = {}): OtaCredential {
   };
 }
 
-function singleProbe(probeChannel = channel) {
-  return {
-    channel: probeChannel,
-    discover: vi.fn().mockResolvedValue({
-      kind: 'single',
-      hotel: {
-        otaHotelId: toOtaHotelId('12345'),
-        otaHotelName: '测试酒店',
-        bindExtra: null,
-      },
-    }),
-  };
-}
-
 function createDeps(
   overrides: Partial<DiscoverAndCreateDependencies> = {},
 ): DiscoverAndCreateDependencies {
@@ -54,7 +40,6 @@ function createDeps(
     updatePartitionAndIdentity: vi.fn(),
   };
   return {
-    probes: new Map(),
     discoverCtrip: vi.fn().mockResolvedValue({ kind: 'none' }),
     discoverDouyin: vi.fn().mockResolvedValue({ kind: 'none' }),
     discoverMeituan: vi.fn().mockResolvedValue({ kind: 'none' }),
@@ -67,131 +52,7 @@ function createDeps(
 }
 
 describe('DiscoverAndCreate', () => {
-  it('single 结果创建 credential', async () => {
-    const probe = singleProbe();
-    const deps = createDeps({ probes: new Map([[channel, probe]]) });
-    const discoverAndCreate = new DiscoverAndCreate(deps);
-
-    await discoverAndCreate.trigger(
-      partitionName,
-      channel,
-      'https://example.com/landing',
-      {} as never,
-    );
-
-    expect(deps.credentialRepository.create).toHaveBeenCalledWith({
-      id: toOtaCredentialId('generated-credential-id'),
-      channel,
-      channelAccountId: null,
-      partitionName,
-      credentialExtra: null,
-      discoveredAt: expect.any(Number),
-      lastRefreshedAt: null,
-    });
-    expect(deps.removePendingPartition).toHaveBeenCalledWith(partitionName);
-  });
-
-  it('partition 已有关联 credential 时直接复用', async () => {
-    const existingCredential = credential();
-    const deps = createDeps({ probes: new Map([[channel, singleProbe()]]) });
-    vi.mocked(deps.credentialRepository.findByPartitionName).mockReturnValue(existingCredential);
-    const discoverAndCreate = new DiscoverAndCreate(deps);
-
-    await discoverAndCreate.trigger(
-      partitionName,
-      channel,
-      'https://example.com/landing',
-      {} as never,
-    );
-
-    expect(deps.credentialRepository.create).not.toHaveBeenCalled();
-  });
-
-  it('credential 落库失败时返回 false', async () => {
-    const deps = createDeps({ probes: new Map([[channel, singleProbe()]]) });
-    vi.mocked(deps.credentialRepository.create).mockImplementation(() => {
-      throw new Error('database failed');
-    });
-    const discoverAndCreate = new DiscoverAndCreate(deps);
-
-    await expect(
-      discoverAndCreate.trigger(partitionName, channel, 'https://example.com/landing', {} as never),
-    ).resolves.toBeNull();
-    expect(deps.removePendingPartition).not.toHaveBeenCalled();
-  });
-
-  it('建号成功后通知 renderer 刷新账号并永久防重复探测', async () => {
-    const probe = singleProbe();
-    const onAccountBound = vi.fn();
-    const deps = createDeps({ probes: new Map([[channel, probe]]), onAccountBound });
-    const discoverAndCreate = new DiscoverAndCreate(deps);
-
-    await discoverAndCreate.trigger(
-      partitionName,
-      channel,
-      'https://example.com/landing',
-      {} as never,
-    );
-    await discoverAndCreate.trigger(
-      partitionName,
-      channel,
-      'https://example.com/landing',
-      {} as never,
-    );
-
-    expect(onAccountBound).toHaveBeenCalledWith(channel);
-    expect(probe.discover).toHaveBeenCalledTimes(1);
-  });
-
-  it('探测结果为 none 时不落库、不通知', async () => {
-    const probe = { channel, discover: vi.fn().mockResolvedValue({ kind: 'none' }) };
-    const onAccountBound = vi.fn();
-    const deps = createDeps({ probes: new Map([[channel, probe]]), onAccountBound });
-    const discoverAndCreate = new DiscoverAndCreate(deps);
-
-    await discoverAndCreate.trigger(
-      partitionName,
-      channel,
-      'https://example.com/landing',
-      {} as never,
-    );
-
-    expect(deps.credentialRepository.create).not.toHaveBeenCalled();
-    expect(onAccountBound).not.toHaveBeenCalled();
-  });
-
-  it('探测进行中再次触发会被 inflight 跳过', async () => {
-    let resolveDiscover: (outcome: { kind: 'none' }) => void = () => {};
-    const probe = {
-      channel,
-      discover: vi.fn(
-        () =>
-          new Promise<{ kind: 'none' }>((resolve) => {
-            resolveDiscover = resolve;
-          }),
-      ),
-    };
-    const deps = createDeps({ probes: new Map([[channel, probe]]) });
-    const discoverAndCreate = new DiscoverAndCreate(deps);
-
-    const first = discoverAndCreate.trigger(
-      partitionName,
-      channel,
-      'https://example.com/landing',
-      {} as never,
-    );
-    await discoverAndCreate.trigger(
-      partitionName,
-      channel,
-      'https://example.com/landing',
-      {} as never,
-    );
-    expect(probe.discover).toHaveBeenCalledTimes(1);
-    resolveDiscover({ kind: 'none' });
-    await first;
-  });
-
-  it('渠道未注册 probe 时直接跳过', async () => {
+  it('渠道未注册 discovery 时直接跳过', async () => {
     const deps = createDeps();
     const discoverAndCreate = new DiscoverAndCreate(deps);
 
@@ -199,37 +60,6 @@ describe('DiscoverAndCreate', () => {
       discoverAndCreate.trigger(partitionName, channel, 'https://example.com/landing', {} as never),
     ).resolves.toBeNull();
     expect(deps.credentialRepository.create).not.toHaveBeenCalled();
-  });
-
-  it('multiple 结果仍不落库、不标记 bound', async () => {
-    const probe = {
-      channel,
-      discover: vi.fn().mockResolvedValue({
-        kind: 'multiple',
-        hotels: [
-          { otaHotelId: toOtaHotelId('1'), otaHotelName: '门店A', bindExtra: null },
-          { otaHotelId: toOtaHotelId('2'), otaHotelName: '门店B', bindExtra: null },
-        ],
-      }),
-    };
-    const deps = createDeps({ probes: new Map([[channel, probe]]) });
-    const discoverAndCreate = new DiscoverAndCreate(deps);
-
-    await discoverAndCreate.trigger(
-      partitionName,
-      channel,
-      'https://example.com/landing',
-      {} as never,
-    );
-    await discoverAndCreate.trigger(
-      partitionName,
-      channel,
-      'https://example.com/landing',
-      {} as never,
-    );
-
-    expect(deps.credentialRepository.create).not.toHaveBeenCalled();
-    expect(probe.discover).toHaveBeenCalledTimes(2);
   });
 
   it('携程单酒店结果创建带 hotel-dom 临时身份的 credential', async () => {

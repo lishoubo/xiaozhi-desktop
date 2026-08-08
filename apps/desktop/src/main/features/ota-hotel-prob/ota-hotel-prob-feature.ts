@@ -7,16 +7,16 @@
  * 修复记录：为什么不能在 did-navigate 那一刻就拿到这份事件）。
  */
 import { randomUUID } from 'node:crypto';
-import { toChannelId, toOtaHotelProbId, type ChannelId } from '../../../domain/identity';
-import type { OtaHotelProbRepository } from '../../../domain/ports/repositories';
+import { toChannelId, type ChannelId } from '../../../domain/identity';
+import type { OtaHotelRepository } from '../../../domain/ports/repositories';
 import type { AppLogger } from '../../../shared/logging';
-import type { TabCredentialCheckedEvent, TabEventBus } from '../../browser/tab-event-bus';
+import type { TabCredentialCheckedEvent, TabEventBus } from '../common/tab-event-bus';
 import type { HotelProbe } from './hotel-prob-port';
 
 export type OtaHotelProbFeatureDependencies = Readonly<{
   tabEventBus: TabEventBus;
   probes: ReadonlyMap<ChannelId, HotelProbe>;
-  repository: OtaHotelProbRepository;
+  repository: OtaHotelRepository;
   logger: AppLogger;
 }>;
 
@@ -64,7 +64,7 @@ export class OtaHotelProbFeature {
         });
       } else {
         this.deps.repository.create({
-          id: toOtaHotelProbId(randomUUID()),
+          id: randomUUID(),
           credentialId: credential.id,
           channel: credential.channel,
           otaHotelId: hotel.otaHotelId,

@@ -141,6 +141,30 @@ const migrations: readonly Migration[] = [
       `);
     },
   },
+  {
+    version: 6,
+    name: 'rename-ota-hotel-prob-to-ota-hotel',
+    apply(database) {
+      database.exec(`
+        DROP TABLE ota_hotel_prob;
+
+        CREATE TABLE ota_hotel (
+          id TEXT PRIMARY KEY,
+          credential_id TEXT NOT NULL REFERENCES ota_credential(id) ON UPDATE CASCADE ON DELETE RESTRICT,
+          channel TEXT NOT NULL,
+          ota_hotel_id TEXT NOT NULL,
+          ota_hotel_name TEXT,
+          bind_extra TEXT,
+          discovered_at INTEGER NOT NULL,
+          created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE UNIQUE INDEX ota_hotel_channel_hotel_idx ON ota_hotel(channel, ota_hotel_id);
+        CREATE INDEX ota_hotel_credential_idx ON ota_hotel(credential_id);
+      `);
+    },
+  },
 ];
 
 function migrate(database: ApplicationDatabase): number {

@@ -1,15 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
-import {
-  toChannelId,
-  toOtaCredentialId,
-  toOtaHotelId,
-  toOtaHotelProbId,
-} from '../../../src/domain/identity';
+import { toChannelId, toOtaCredentialId, toOtaHotelId } from '../../../src/domain/identity';
 import type { OtaCredential } from '../../../src/domain/ota-credential';
 import {
   TabEventBus,
   type TabCredentialCheckedEvent,
-} from '../../../src/main/browser/tab-event-bus';
+} from '../../../src/main/features/common/tab-event-bus';
 import { OtaHotelProbFeature } from '../../../src/main/features/ota-hotel-prob/ota-hotel-prob-feature';
 import type { HotelProbe } from '../../../src/main/features/ota-hotel-prob/hotel-prob-port';
 
@@ -100,7 +95,7 @@ describe('OtaHotelProbFeature', () => {
       repository: {
         create: vi.fn(),
         findByChannelAndHotelId: vi.fn(() => null),
-        findByCredentialId: vi.fn(() => ({ id: toOtaHotelProbId('existing') })),
+        findByCredentialId: vi.fn(() => ({ id: 'existing' })),
         updateDiscovery: vi.fn(),
       },
     });
@@ -186,7 +181,7 @@ describe('OtaHotelProbFeature', () => {
       probes: new Map([[toChannelId('douyin'), probe]]),
       repository: {
         create: vi.fn(),
-        findByChannelAndHotelId: vi.fn(() => ({ id: toOtaHotelProbId('existing-hotel') })),
+        findByChannelAndHotelId: vi.fn(() => ({ id: 'existing-hotel' })),
         findByCredentialId: vi.fn(() => null),
         updateDiscovery: vi.fn(),
       },

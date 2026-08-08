@@ -2,7 +2,7 @@
  * 本文件只处理登录判定和身份归并（渠道账号识别、OtaCredential 归并）。不代替
  * 上层判断任何业务动作是否该发生——上层 Feature（如
  * `main/features/ota-hotel-prob/`）要感知处理结果，去订阅
- * `main/browser/tab-event-bus.ts` 广播的 `tab:credential-checked` 事件，不要
+ * `main/features/common/tab-event-bus.ts` 广播的 `tab:credential-checked` 事件，不要
  * 自己再查一次数据库。`trigger()` 的返回值就是这次处理最终确认的
  * `OtaCredential`（没有则为 null），由 `BrowserManager` 负责在这个返回值确定
  * 之后才广播，保证下游订阅者收到事件时 credential 已经真实写入数据库。
@@ -16,7 +16,6 @@ import { toOtaCredentialId } from '../../../domain/identity';
 import type { OtaCredential } from '../../../domain/ota-credential';
 import type { OtaCredentialRepository } from '../../../domain/ports/repositories';
 import type { AppLogger } from '../../../shared/logging';
-import type { DiscoveredOtaHotel, DiscoveryProbe } from './discovery-probe-port';
 import type { DiscoverCtrip } from './ota/ctrip/discover-ctrip';
 import type { DiscoverDouyin } from './ota/douyin/discover-douyin';
 import type { DiscoverMeituan } from './ota/meituan/discover-meituan';
@@ -26,7 +25,6 @@ const DOUYIN_CHANNEL = 'douyin';
 const MEITUAN_CHANNEL = 'meituan';
 
 export type DiscoverAndCreateDependencies = Readonly<{
-  probes: ReadonlyMap<ChannelId, DiscoveryProbe>;
   discoverCtrip: DiscoverCtrip;
   discoverDouyin: DiscoverDouyin;
   discoverMeituan: DiscoverMeituan;
@@ -58,8 +56,7 @@ export class DiscoverAndCreate {
     const isCtrip = channel === CTRIP_CHANNEL;
     const isDouyin = channel === DOUYIN_CHANNEL;
     const isMeituan = channel === MEITUAN_CHANNEL;
-    const probe = isCtrip || isDouyin || isMeituan ? null : this.deps.probes.get(channel);
-    if (!isCtrip && !isDouyin && !isMeituan && !probe) {
+    if (!isCtrip && !isDouyin && !isMeituan) {
       this.deps.logger.info('Discovery skipped: no probe registered for channel', { channel });
       return null;
     }
@@ -112,33 +109,7 @@ export class DiscoverAndCreate {
         this.deps.logger.info('Meituan discovery saved credential', { channel });
         return credential;
       }
-      if (!probe) return null;
-      const outcome = await probe.discover(partitionName, landingUrl, webContents);
-      this.deps.logger.info('Discovery outcome', { channel, kind: outcome.kind });
-      switch (outcome.kind) {
-        case 'unsupported':
-        case 'none':
-          return null;
-        case 'single': {
-          const credential = await this.createCredentialFromHotel(
-            partitionName,
-            channel,
-            outcome.hotel,
-          );
-          this.bound.add(partitionName);
-          this.deps.logger.info('Discovery bound credential', {
-            channel,
-            otaHotelId: outcome.hotel.otaHotelId,
-          });
-          return credential;
-        }
-        case 'multiple':
-          this.deps.logger.info('Discovery found multiple hotels, awaiting user selection', {
-            channel,
-            count: outcome.hotels.length,
-          });
-          return null;
-      }
+      return null;
     } catch (error) {
       this.deps.logger.warn('Discovery failed', {
         channel,
@@ -148,40 +119,6 @@ export class DiscoverAndCreate {
     } finally {
       this.inflight.delete(partitionName);
     }
-  }
-
-  private async createCredentialFromHotel(
-    partitionName: string,
-    channel: ChannelId,
-    _hotel: DiscoveredOtaHotel,
-  ): Promise<OtaCredential> {
-    const now = Date.now();
-    const credential = this.findOrCreateCredential(partitionName, channel, now);
-    await this.deps.removePendingPartition(partitionName);
-    this.deps.onAccountBound?.(channel);
-    return credential;
-  }
-
-  private findOrCreateCredential(
-    partitionName: string,
-    channel: ChannelId,
-    now: number,
-  ): OtaCredential {
-    const credential =
-      this.deps.credentialRepository.findByPartitionName(partitionName) ??
-      this.deps.credentialRepository.create({
-        id: toOtaCredentialId(this.deps.generateCredentialId()),
-        channel,
-        channelAccountId: null,
-        partitionName,
-        credentialExtra: null,
-        discoveredAt: now,
-        lastRefreshedAt: null,
-      });
-    if (credential.channel !== channel) {
-      throw new Error('partition 对应 credential 的渠道与本次探测渠道不一致');
-    }
-    return credential;
   }
 
   private async persistIdentifiedResult(
