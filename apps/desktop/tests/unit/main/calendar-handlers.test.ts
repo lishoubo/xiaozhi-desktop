@@ -79,7 +79,8 @@ describe('calendar IPC handlers', () => {
     expect(JSON.stringify(logger.info.mock.calls)).not.toContain('需求复盘');
   });
 
-  it('rejects untrusted senders and malformed ranges without calling the repository', () => {
+  // 信任校验由 create-handler-registry.test.ts 覆盖；这里只留日程自身的业务约束。
+  it('rejects an event whose end precedes its start, without leaking the title into logs', () => {
     const sender = {};
     const logger = createLogger();
     const repository = {
@@ -90,7 +91,6 @@ describe('calendar IPC handlers', () => {
     };
     registerCalendarHandlers({ window: { webContents: sender }, repository, logger });
 
-    expect(() => invoke(IPC_CHANNELS.calendar.load, {})).toThrow('拒绝来自非主应用窗口的请求');
     expect(() =>
       invoke(IPC_CHANNELS.calendar.createEvent, sender, {
         id: 'event-1',

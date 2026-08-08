@@ -40,15 +40,5 @@ describe('automation IPC', () => {
     });
   });
 
-  it('rejects unexpected arguments from the trusted renderer', () => {
-    const sender = {};
-    const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
-    registerAutomationHandlers({ window: { webContents: sender }, result: null, logger });
-    const handler = electron.handlers.get(IPC_CHANNELS.automation.getCtripCheckIn);
-
-    expect(() => handler?.({ sender }, 'unexpected')).toThrow('请求参数无效');
-    expect(logger.warn).toHaveBeenCalledWith('Rejected invalid IPC request', {
-      channel: IPC_CHANNELS.automation.getCtripCheckIn,
-    });
-  });
+  // 信任校验与参数校验由 create-handler-registry.test.ts 统一覆盖，此处不重复。
 });

@@ -37,10 +37,15 @@ function createLogger() {
   return { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
 }
 
+/**
+ * 真实的 `ipcMain.handle` 会把 listener 的同步抛出也转成 rejected promise，
+ * 这里用 `Promise.resolve().then(...)` 复现该语义，否则同步抛出的校验错误会
+ * 直接冒泡而不是变成 rejection。
+ */
 function invoke(channel: string, sender: unknown, ...args: unknown[]): Promise<unknown> {
   const handler = electron.handlers.get(channel);
   if (!handler) throw new Error(`Missing test IPC handler: ${channel}`);
-  return handler({ sender }, ...args);
+  return Promise.resolve().then(() => handler({ sender }, ...args));
 }
 
 function setup() {
@@ -89,12 +94,10 @@ describe('auth IPC handlers', () => {
     expect(remove).toHaveBeenCalledWith('https://localhost:5173', '__Host-xiaozhi_desktop_session');
   });
 
-  it('rejects untrusted or malformed auth requests without disclosing inputs in logs', async () => {
+  // 信任校验由 create-handler-registry.test.ts 覆盖；这里只留登录入参自身的约束。
+  it('rejects a malformed phone/code pair without forwarding it to the server', async () => {
     const { client, sender } = setup();
 
-    await expect(invoke(IPC_CHANNELS.auth.currentSession, {})).rejects.toThrow(
-      '拒绝来自非主应用窗口的请求',
-    );
     await expect(
       invoke(IPC_CHANNELS.auth.loginWithPhoneCode, sender, 'private-phone', 'secret'),
     ).rejects.toThrow('登录参数无效');
