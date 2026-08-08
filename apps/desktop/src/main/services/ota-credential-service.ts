@@ -14,7 +14,7 @@ import type { WebContents } from 'electron';
 import type { ChannelId } from '../ids';
 import { toOtaCredentialId } from '../ids';
 import type { OtaCredential } from '../../shared/types/ota-credential';
-import type { OtaCredentialRepository } from '../repositories';
+import type { OtaCredentialRepository } from '../database/ota-credential-repository';
 import type { AppLogger } from '../../shared/logging';
 import type { DiscoverCtrip } from '../channels/ctrip/discovery';
 import type { DiscoverDouyin } from '../channels/douyin/discovery';

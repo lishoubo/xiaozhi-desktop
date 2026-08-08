@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { toChannelId } from '../../../src/main/ids';
 import {
   isCurrentLayoutPartition,
-  LEGACY_SHARED_PARTITION,
+  SHARED_BROWSING_PARTITION,
   toPartitionName,
 } from '../../../src/main/browser/partition';
 
@@ -37,7 +37,7 @@ describe('toPartitionName', () => {
 
   it('绝不等于旧的全局共享 partition', () => {
     expect(toPartitionName('prod', toChannelId('ctrip'), 'short-id-1')).not.toBe(
-      LEGACY_SHARED_PARTITION,
+      SHARED_BROWSING_PARTITION,
     );
   });
 });
@@ -50,6 +50,6 @@ describe('isCurrentLayoutPartition', () => {
   });
 
   it('把旧的共享 partition 判为非当前布局（legacy）', () => {
-    expect(isCurrentLayoutPartition(LEGACY_SHARED_PARTITION)).toBe(false);
+    expect(isCurrentLayoutPartition(SHARED_BROWSING_PARTITION)).toBe(false);
   });
 });

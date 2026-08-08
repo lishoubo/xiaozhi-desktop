@@ -12,7 +12,7 @@ import {
 import { EventEmitter } from 'node:events';
 import { randomUUID } from 'node:crypto';
 import type { ChannelId } from '../ids';
-import { LEGACY_SHARED_PARTITION } from '../browser/partition';
+import { SHARED_BROWSING_PARTITION } from '../browser/partition';
 import { IPC_CHANNELS } from '../../shared/ipc-channels';
 import { browserWebUrlSchema, type BrowserTab } from '../../shared/browser';
 import type { AppLogger } from '../../shared/logging';
@@ -86,14 +86,14 @@ export class BrowserManager extends EventEmitter {
   ) {
     super();
     this.sessionFactory = sessionFactory;
-    this.browserSession = this.sessionFactory.sessionForAccount(LEGACY_SHARED_PARTITION);
+    this.browserSession = this.sessionFactory.sessionForAccount(SHARED_BROWSING_PARTITION);
     this.window.webContents.on('before-input-event', this.handleShellInput);
     this.installRequestInterceptor();
   }
 
   /** @deprecated 用 `createWithAlreadyPartition` 替代，指定明确的 partition。 */
   create(channelId: string, url: string): BrowserTab {
-    return this.createWithAlreadyPartition(LEGACY_SHARED_PARTITION, channelId, url);
+    return this.createWithAlreadyPartition(SHARED_BROWSING_PARTITION, channelId, url);
   }
 
   /**

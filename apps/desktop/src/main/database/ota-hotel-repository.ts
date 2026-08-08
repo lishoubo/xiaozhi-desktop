@@ -11,9 +11,19 @@ import {
   type OtaHotelCreateInput,
   type OtaHotelDiscoveryUpdate,
 } from '../../shared/types/ota-hotel';
-import type { OtaHotelRepository } from '../repositories';
 import type { ApplicationDatabase } from './application-database';
 import { parseJsonObject, serializeJsonObject } from './json-storage';
+
+/**
+ * 渠道酒店的持久化能力。接口与实现同文件：service 只 import 这个类型，
+ * eslint 已禁止它们 import 下面的实现类。
+ */
+export interface OtaHotelRepository {
+  create(input: OtaHotelCreateInput): OtaHotel;
+  findByChannelAndHotelId(channel: ChannelId, otaHotelId: OtaHotelId): OtaHotel | null;
+  findByCredentialId(credentialId: OtaCredentialId): OtaHotel | null;
+  updateDiscovery(id: OtaHotel['id'], update: OtaHotelDiscoveryUpdate): OtaHotel;
+}
 
 type OtaHotelRow = Readonly<{
   id: string;

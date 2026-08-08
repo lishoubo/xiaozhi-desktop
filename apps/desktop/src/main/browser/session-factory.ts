@@ -3,7 +3,7 @@ import { session, type Session } from 'electron';
 import type { ChannelId } from '../ids';
 import {
   isCurrentLayoutPartition,
-  LEGACY_SHARED_PARTITION,
+  SHARED_BROWSING_PARTITION,
   toPartitionName,
 } from '../browser/partition';
 import { denyEmbeddedPagePermissions } from '../security/session-permissions';
@@ -78,7 +78,7 @@ export class SessionFactory {
    * A 的登录态错配给 B，所以保留但不迁移（磁盘最便宜，登录态最贵）。
    */
   legacySharedSession(): Session {
-    return session.fromPartition(LEGACY_SHARED_PARTITION);
+    return session.fromPartition(SHARED_BROWSING_PARTITION);
   }
 
   isLegacyPartition(name: string): boolean {

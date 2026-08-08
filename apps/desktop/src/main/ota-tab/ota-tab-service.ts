@@ -7,9 +7,9 @@
  * eslint `import/no-restricted-paths` 强制（services/ 不得 import browser/）。
  */
 import { toOtaCredentialId, type ChannelId } from '../ids';
-import type { OtaCredentialRepository } from '../repositories';
+import type { OtaCredentialRepository } from '../database/ota-credential-repository';
 import { otaChannelLandingUrl } from '../channels/landing-url';
-import { LEGACY_SHARED_PARTITION } from '../browser/partition';
+import { SHARED_BROWSING_PARTITION } from '../browser/partition';
 import type { BrowserTab } from '../../shared/browser';
 import { readImportedCookies } from '../cookie-import/store';
 import { addPendingPartition, type PendingPartition } from '../file-store/pending-partitions-store';
@@ -93,7 +93,7 @@ export class OtaTabService {
   /** 查看渠道页面（原 `browser.create`），不参与登录判定。 */
   openView(channelId: string, url: string): BrowserTab {
     return this.deps.browserManager.createWithAlreadyPartition(
-      LEGACY_SHARED_PARTITION,
+      SHARED_BROWSING_PARTITION,
       channelId,
       url,
     );

@@ -1,11 +1,21 @@
 import type { ApplicationDatabase } from '../database/application-database';
-import type { CalendarRepository } from '../repositories';
 import type {
   CalendarEventCreateInput,
   CalendarEventRecord,
   CalendarEventUpdateInput,
   CalendarSnapshot,
 } from '../../shared/types/calendar';
+
+/**
+ * 日程的持久化能力。接口与实现同文件：service 只 import 这个类型，
+ * eslint 已禁止它们 import 下面的实现类。
+ */
+export interface CalendarRepository {
+  load(): CalendarSnapshot;
+  createEvent(input: CalendarEventCreateInput): CalendarEventRecord;
+  updateEvent(input: CalendarEventUpdateInput): CalendarEventRecord;
+  deleteEvent(id: string): void;
+}
 
 type CalendarGroupRow = Readonly<{
   id: string;

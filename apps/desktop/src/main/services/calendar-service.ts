@@ -9,7 +9,7 @@ import type {
   CalendarEventUpdateInput,
   CalendarSnapshot,
 } from '../../shared/types/calendar';
-import type { CalendarRepository } from '../repositories';
+import type { CalendarRepository } from '../calendar/calendar-repository';
 import type { AppLogger } from '../../shared/logging';
 
 export type CalendarServiceDependencies = Readonly<{

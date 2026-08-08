@@ -8,7 +8,7 @@
  */
 import { randomUUID } from 'node:crypto';
 import { toChannelId, type ChannelId } from '../ids';
-import type { OtaHotelRepository } from '../repositories';
+import type { OtaHotelRepository } from '../database/ota-hotel-repository';
 import type { AppLogger } from '../../shared/logging';
 import type { TabCredentialCheckedEvent, TabEventBus } from '../services/tab-event-bus';
 import type { HotelProbe } from '../channels/types';
