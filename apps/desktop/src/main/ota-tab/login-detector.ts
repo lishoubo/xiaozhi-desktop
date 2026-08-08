@@ -9,14 +9,14 @@
  *
  * 时序约束（历史踩坑，见 `split-ota-hotel-prob-feature` 变更记录，必须保留）：
  * `tab:credential-checked` 必须等 `triggerDiscovery` 写库完成才广播，不能在
- * 导航发生的那一刻广播——否则 `OtaHotelProbService` 可能查到 null 而永久
+ * 导航发生的那一刻广播——否则 `HotelProbeDispatcher` 可能查到 null 而永久
  * 错过探测机会（携程场景下标签页只导航一次，没有第二次机会）。
  */
 import type { WebContents } from 'electron';
 import type { ChannelId } from '../ids';
 import type { LoginUrlMatcher } from '../channels/types';
 import type { OtaCredential } from '../../shared/types/ota-credential';
-import { TabEventBus } from '../services/tab-event-bus';
+import { TabEventBus } from './tab-event-bus';
 
 /** 架构约束：不 import `browser-manager` 实现，用类型查询表达结构依赖。 */
 type TabNavigatedEvent = import('../browser/browser-manager').TabNavigatedEvent;

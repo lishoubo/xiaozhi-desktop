@@ -53,7 +53,7 @@ export function loginUrlMatchers(
   );
 }
 
-/** 从注册表投影出 `OtaHotelProbService` 需要的那一份。 */
+/** 从注册表投影出 `HotelProbeDispatcher` 需要的那一份。 */
 export function hotelProbes(
   registry: ReadonlyMap<ChannelId, ChannelAdapter>,
 ): ReadonlyMap<ChannelId, HotelProbe> {

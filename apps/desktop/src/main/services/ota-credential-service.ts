@@ -2,7 +2,7 @@
  * 本文件只处理登录判定和身份归并（渠道账号识别、OtaCredential 归并）。不代替
  * 上层判断任何业务动作是否该发生——上层 Feature（如
  * `main/features/ota-hotel-prob/`）要感知处理结果，去订阅
- * `main/services/tab-event-bus.ts` 广播的 `tab:credential-checked` 事件，不要
+ * `main/ota-tab/tab-event-bus.ts` 广播的 `tab:credential-checked` 事件，不要
  * 自己再查一次数据库。`trigger()` 的返回值就是这次处理最终确认的
  * `OtaCredential`（没有则为 null），由 `BrowserManager` 负责在这个返回值确定
  * 之后才广播，保证下游订阅者收到事件时 credential 已经真实写入数据库。

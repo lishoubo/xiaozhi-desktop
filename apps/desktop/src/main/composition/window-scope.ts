@@ -17,15 +17,14 @@ import { registerHotelManagementHandlers } from '../ipc/hotel-management-handler
 import { registerOtaCredentialHandlers } from '../ipc/ota-credential-handlers';
 import { registerOtaTabHandlers } from '../ipc/ota-tab-handlers';
 import { registerSystemHandlers } from '../ipc/system-handlers';
-import { LoginDetector, OtaTabService } from '../ota-tab';
+import { LoginDetector, OtaTabService, TabEventBus } from '../ota-tab';
 import { resolveServerOrigin } from '../server-client/config';
 import { createElectronSessionFetch, createServerTrpcClient } from '../server-client/trpc-client';
 import { AuthService } from '../services/auth-service';
 import { CalendarService } from '../services/calendar-service';
 import { CookieImportService } from '../services/cookie-import-service';
-import { OtaHotelProbService } from '../services/ota-hotel-prob-service';
+import { HotelProbeDispatcher } from '../channels/hotel-probe-dispatcher';
 import { SystemService } from '../services/system-service';
-import { TabEventBus } from '../services/tab-event-bus';
 import { IPC_CHANNELS } from '../../shared/ipc-channels';
 import { createMainWindow } from '../windows/main-window';
 import type { AppScope } from './app-scope';
@@ -63,7 +62,7 @@ export function createWindowScope(scope: AppScope): WindowScope {
 
   // 构造函数内部完成 tabEventBus 订阅；订阅回调闭包持有 this 引用，只要
   // tabEventBus 存活这个实例就不会被 GC，不需要变量持有它。
-  new OtaHotelProbService({
+  new HotelProbeDispatcher({
     tabEventBus,
     probes: hotelProbes(scope.channelRegistry),
     logger,

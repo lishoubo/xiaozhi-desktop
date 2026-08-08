@@ -1,8 +1,16 @@
 /**
- * 订阅 TabEventBus 的 `tab:credential-checked` 事件，自己判断要不要探测酒店。
- * 这个事件是 ota-credential 对这次导航的判定/归并已经跑完之后才广播的，
- * 事件里带的 credential（如果非 null）已经真实写入数据库——不需要再自己查
- * 一次；不依赖 ota-credential 内部实现，只依赖这份事件契约。见
+ * 酒店探测的**分发器**：订阅标签页事实 → 按渠道选 probe → 调用 → 记日志。
+ * 探测逻辑本身不在这里，在各渠道的 `channels/<渠道>/hotel-prob.ts`；这里只有
+ * 跨渠道的调度，所以是 Dispatcher 而不是 Service。
+ *
+ * 放在 `channels/` 而非 `services/`：探测与浏览器强相关（注入脚本、拦截响应、
+ * 解析页面），是渠道能力的调度，不是业务编排。它依赖 `ota-tab/` 的事件总线——
+ * 这是 `channels/` 唯一被放行的外部依赖，其余（services/database/gateway/ipc/
+ * composition）由 eslint 禁止，需要什么就注入窄回调。
+ *
+ * 订阅的 `tab:credential-checked` 是 ota-credential 对这次导航的判定/归并已经
+ * 跑完之后才广播的，事件里带的 credential（如果非 null）已经真实写入数据库——
+ * 不需要再自己查一次；不依赖 ota-credential 内部实现，只依赖这份事件契约。见
  * openspec/changes/split-ota-hotel-prob-feature/design.md 决策 2（及后续
  * 修复记录：为什么不能在 did-navigate 那一刻就拿到这份事件）。
  *
@@ -11,21 +19,21 @@
  * 早退——用户否决候选后必须能对同一凭证再次探测。见
  * openspec/changes/ota-hotel-stores-hotel-info-only/design.md 决策 3、4。
  *
- * 本次候选结果暂无消费者，只记日志；向上通知由后续「绑定流程」变更接通。
+ * 候选结果暂无消费者，只记日志；向上通知由后续「绑定流程」变更接通。
  */
 import { toChannelId, type ChannelId } from '../ids';
 import type { AppLogger } from '../../shared/logging';
-import type { TabCredentialCheckedEvent, TabEventBus } from '../services/tab-event-bus';
-import type { HotelProbe } from '../channels/types';
+import type { TabCredentialCheckedEvent, TabEventBus } from '../ota-tab';
+import type { HotelProbe } from './types';
 
-export type OtaHotelProbFeatureDependencies = Readonly<{
+export type HotelProbeDispatcherDependencies = Readonly<{
   tabEventBus: TabEventBus;
   probes: ReadonlyMap<ChannelId, HotelProbe>;
   logger: AppLogger;
 }>;
 
-export class OtaHotelProbService {
-  constructor(private readonly deps: OtaHotelProbFeatureDependencies) {
+export class HotelProbeDispatcher {
+  constructor(private readonly deps: HotelProbeDispatcherDependencies) {
     this.deps.tabEventBus.on('tab:credential-checked', (event: TabCredentialCheckedEvent) => {
       void this.onCredentialChecked(event);
     });

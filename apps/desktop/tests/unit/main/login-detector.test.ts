@@ -2,7 +2,7 @@ import { EventEmitter } from 'node:events';
 import { describe, expect, it, vi } from 'vitest';
 import { toChannelId } from '../../../src/main/ids';
 import { LoginDetector } from '../../../src/main/ota-tab/login-detector';
-import { TabEventBus } from '../../../src/main/services/tab-event-bus';
+import { TabEventBus } from '../../../src/main/ota-tab/tab-event-bus';
 
 /** 真实 EventEmitter 充当 mock BrowserManager，保留 tab:navigated/tab:closed 订阅语义。 */
 function createBrowserManagerStub() {
@@ -62,7 +62,7 @@ describe('LoginDetector', () => {
 
   /**
    * 时序回归（历史踩坑，见 split-ota-hotel-prob-feature）：广播必须晚于写库
-   * 完成，否则下游 OtaHotelProbService 查到 null 会永久错过探测机会
+   * 完成，否则下游 HotelProbeDispatcher 查到 null 会永久错过探测机会
    * ——携程场景下标签页只导航一次，没有第二次机会。
    */
   it('广播 tab:credential-checked 发生在 triggerDiscovery 写库完成之后', async () => {

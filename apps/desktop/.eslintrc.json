@@ -42,6 +42,34 @@
             "target": "./src/renderer",
             "from": "./src/main",
             "message": "renderer 只能通过 preload 访问 main"
+          },
+          // channels/ 是被注入的渠道适配器：输入凭证 + 页面，输出探测结果。
+          // 唯一放行的外部依赖是 ota-tab/（需要订阅标签页事实），这里不写它的
+          // zone 是有意为之，不是遗漏——no-restricted-paths 是默认允许、显式禁止。
+          {
+            "target": "./src/main/channels",
+            "from": "./src/main/services",
+            "message": "channels/ 是被注入的渠道适配器，不得反向依赖 services/；需要什么就注入窄回调"
+          },
+          {
+            "target": "./src/main/channels",
+            "from": "./src/main/database",
+            "message": "channels/ 不直接落库；持久化由 composition root 注入的回调完成"
+          },
+          {
+            "target": "./src/main/channels",
+            "from": "./src/main/gateway",
+            "message": "channels/ 不直接访问远端网关；需要什么就注入窄回调"
+          },
+          {
+            "target": "./src/main/channels",
+            "from": "./src/main/ipc",
+            "message": "channels/ 不认识 IPC 边界"
+          },
+          {
+            "target": "./src/main/channels",
+            "from": "./src/main/composition",
+            "message": "channels/ 不得依赖装配层（依赖方向是 composition → channels）"
           }
         ]
       }

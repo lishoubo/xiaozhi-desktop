@@ -4,11 +4,11 @@ import type { OtaCredential } from '../../../src/shared/types/ota-credential';
 import {
   TabEventBus,
   type TabCredentialCheckedEvent,
-} from '../../../src/main/services/tab-event-bus';
+} from '../../../src/main/ota-tab';
 import {
-  OtaHotelProbService,
-  type OtaHotelProbFeatureDependencies,
-} from '../../../src/main/services/ota-hotel-prob-service';
+  HotelProbeDispatcher,
+  type HotelProbeDispatcherDependencies,
+} from '../../../src/main/channels/hotel-probe-dispatcher';
 import type { HotelProbe } from '../../../src/main/channels/types';
 
 function createLogger() {
@@ -51,24 +51,24 @@ function foundProbe(): HotelProbe {
 }
 
 /** 只允许覆盖 probes：logger 与 tabEventBus 需要在用例里断言，保持具体类型。 */
-function createDeps(overrides: Pick<Partial<OtaHotelProbFeatureDependencies>, 'probes'> = {}) {
+function createDeps(overrides: Pick<Partial<HotelProbeDispatcherDependencies>, 'probes'> = {}) {
   return {
     tabEventBus: new TabEventBus(),
     probes: new Map([[toChannelId('douyin'), foundProbe()]]),
     logger: createLogger(),
     ...overrides,
-  } satisfies OtaHotelProbFeatureDependencies;
+  } satisfies HotelProbeDispatcherDependencies;
 }
 
 async function flushMicrotasks(): Promise<void> {
   await new Promise((resolve) => setImmediate(resolve));
 }
 
-describe('OtaHotelProbService', () => {
+describe('HotelProbeDispatcher', () => {
   it('探测成功只产出候选日志，不写库', async () => {
     const probe = foundProbe();
     const deps = createDeps({ probes: new Map([[toChannelId('douyin'), probe]]) });
-    new OtaHotelProbService(deps);
+    new HotelProbeDispatcher(deps);
 
     deps.tabEventBus.emitCredentialChecked(fakeEvent());
     await flushMicrotasks();
@@ -83,7 +83,7 @@ describe('OtaHotelProbService', () => {
   it('同一凭证连续两次事件都会执行探测（用户否决后可重试）', async () => {
     const probe = foundProbe();
     const deps = createDeps({ probes: new Map([[toChannelId('douyin'), probe]]) });
-    new OtaHotelProbService(deps);
+    new HotelProbeDispatcher(deps);
 
     deps.tabEventBus.emitCredentialChecked(fakeEvent());
     await flushMicrotasks();
@@ -99,7 +99,7 @@ describe('OtaHotelProbService', () => {
       probe: vi.fn(),
     };
     const deps = createDeps({ probes: new Map([[toChannelId('douyin'), probe]]) });
-    new OtaHotelProbService(deps);
+    new HotelProbeDispatcher(deps);
 
     deps.tabEventBus.emitCredentialChecked(fakeEvent());
     await flushMicrotasks();
@@ -109,7 +109,7 @@ describe('OtaHotelProbService', () => {
 
   it('渠道未注册 probe 时直接跳过', async () => {
     const deps = createDeps({ probes: new Map() });
-    new OtaHotelProbService(deps);
+    new HotelProbeDispatcher(deps);
 
     deps.tabEventBus.emitCredentialChecked(fakeEvent());
     await flushMicrotasks();
@@ -120,7 +120,7 @@ describe('OtaHotelProbService', () => {
   it('outcome.kind 不是 checked 时不触发探测', async () => {
     const probe = foundProbe();
     const deps = createDeps({ probes: new Map([[toChannelId('douyin'), probe]]) });
-    new OtaHotelProbService(deps);
+    new HotelProbeDispatcher(deps);
 
     deps.tabEventBus.emitCredentialChecked(fakeEvent({ outcome: { kind: 'not-applicable' } }));
     await flushMicrotasks();
@@ -131,7 +131,7 @@ describe('OtaHotelProbService', () => {
   it('outcome.credential 为 null 时不触发探测', async () => {
     const probe = foundProbe();
     const deps = createDeps({ probes: new Map([[toChannelId('douyin'), probe]]) });
-    new OtaHotelProbService(deps);
+    new HotelProbeDispatcher(deps);
 
     deps.tabEventBus.emitCredentialChecked(
       fakeEvent({ outcome: { kind: 'checked', credential: null } }),
@@ -147,7 +147,7 @@ describe('OtaHotelProbService', () => {
       probe: vi.fn().mockRejectedValue(new Error('boom')),
     };
     const deps = createDeps({ probes: new Map([[toChannelId('douyin'), probe]]) });
-    new OtaHotelProbService(deps);
+    new HotelProbeDispatcher(deps);
 
     deps.tabEventBus.emitCredentialChecked(fakeEvent());
     await flushMicrotasks();
@@ -165,7 +165,7 @@ describe('OtaHotelProbService', () => {
       probe: vi.fn().mockResolvedValue({ kind: 'none' }),
     };
     const deps = createDeps({ probes: new Map([[toChannelId('douyin'), probe]]) });
-    new OtaHotelProbService(deps);
+    new HotelProbeDispatcher(deps);
 
     deps.tabEventBus.emitCredentialChecked(fakeEvent());
     await flushMicrotasks();

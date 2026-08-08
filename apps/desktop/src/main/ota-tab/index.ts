@@ -5,5 +5,16 @@
 export { OtaTabService, type OtaTabServiceDependencies } from './ota-tab-service';
 export { LoginDetector, type LoginDetectorDependencies } from './login-detector';
 
+/**
+ * 标签页事实广播。发射方只有本模块内的 `LoginDetector`；订阅方（如
+ * `channels/hotel-probe-dispatcher.ts`）通过这个公开面拿到总线，不 import 具体
+ * 文件路径。
+ */
+export {
+  TabEventBus,
+  type TabCredentialCheckedEvent,
+  type CredentialCheckOutcome,
+} from './tab-event-bus';
+
 /** 转出打开意图用到的环境类型，免得调用方为一个类型去 import 基础设施模块。 */
 export type { PendingPartition } from '../file-store/pending-partitions-store';
