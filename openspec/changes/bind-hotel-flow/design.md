@@ -40,37 +40,51 @@
 ### 决策 1：链路形状——两条独立的链，中间不接首尾
 
 ```
-【浏览器工作区】用户发起绑定
+【酒店管理页 /hotels】用户选中凭证，点「打开浏览器并绑定」
    │
-   │ ① ipc hotelManagement.startBinding(credentialId, rmsHotelId)
-   │      └→ HotelManagementService 生成 requestId
-   │         └→ OtaTabService.openExisting(credId, {kind:'bind-hotel', requestId})
-   │      ←─ 返回 { requestId }
+   │ ① ipc hotelManagement.startBinding()  →  只回 { requestId }
+   │      （主进程**不开 tab**，不持有任何绑定状态）
+   │ ② hotelBindingWaiting.set({requestId, credentialId, rmsHotelId, rmsHotelName})
+   │ ③ push('/')
    │
-   │ ② renderer: waiting.await('bind-hotel', requestId, cb) → cancel
+【浏览器工作区 /】BindHotelDialog 挂载
+   │ ④ hotelBindingWaiting.consume()
+   │ ⑤ waiting.await('bind-hotel', requestId, cb)      ← 先登记，不会错过结果
+   │ ⑥ browserOtaTabs.openExisting(credentialId, {kind:'bind-hotel', requestId})
+   │      └→ ipc otaTab.openExisting（intent 过 schema 校验）
+   │           └→ OtaTabService.openExisting → LoginDetector.register(tabId, ch, intent)
+   │      ←─ 返回 tab，store 做三步收尾：进标签栏 / 切到该渠道 / syncBounds
    │
    ├── 主进程侧（与上面不是同一条调用栈）───────────────
-   │   LoginDetector.register(tabId, channel, intent)
-   │      → 导航 → 判定 → 写 credential
+   │   LoginDetector：导航 → 判定 → 写 credential
    │      → TabEventBus 广播（事件带 intent）
    │      → HotelProbeDispatcher：选 probe → probe() → 候选
    │           · webContents.isDestroyed() → 丢弃
    │           · notify({requestId, kind, payload:{credentialId, hotels}})
    │              └→ composition root 接到 webContents.send
    │
-   │ ③ renderer 收到，requestId 匹配 → 就地弹窗（不跳转）
+   │ ⑦ renderer 收到，requestId 匹配 → 就地弹窗（不跳转）
    │      ├─ 否决 → 关弹窗，可换渠道重来
    │      └─ 选定 → ipc hotelManagement.confirmBinding(...)
    │                  └→ gateway.bind() → 成功后 repository.save()
    └─
 ```
 
-①② 是一条链（发起 + 登记等待），③ 是另一条（结果送达）。**中间隔着事件总线，不是函数返回**。
+①②③ 是一条链（取号 + 交接意图），⑦ 是另一条（结果送达）。**中间隔着事件总线，不是函数返回**。
 
 | 方案 | 结论 |
 |---|---|
 | A. `startBinding` 返回 Promise，等探测完成才 resolve | ✗ 探测可能永不发生（用户没登录成功/关了 tab），Promise 永久挂起；主进程必须保存 resolve 回调 = pending 状态 |
 | B. 发起与结果分离，用 requestId 关联 | **✓** 主进程无状态；用户放弃时 renderer 单方面取消即可 |
+
+**tab 由谁开**（初版遗漏了这个选择，真机跑不通后补上）：
+
+| 方案 | 结论 |
+|---|---|
+| A. `startBinding` 在主进程内部开 tab | ✗ 开 tab 有三步收尾**只有渲染进程做得了**——进 `tabsByChannel`（标签栏才画得出）、设为活动标签并切渠道（否则内容区停在上一个渠道）、`syncBounds()`（WebContentsView 没尺寸等于没渲染，页面不渲染探测也就必然失败）。主进程代劳会开出一个界面不认识的标签页 |
+| B. renderer 调 `otaTab.openExisting` 自己开 | **✓** 与其余三条开 tab 路径同一条链；`startBinding` 退化为纯发号器 |
+
+代价是 intent 要穿过 IPC（此前只在主进程内部传递），因此必须在边界过 `otaTabIntentSchema`——它来自渲染进程，是不可信输入，不能直接进 `LoginDetector`。
 
 ### 决策 2：状态放在会自然消亡的一侧
 
@@ -178,7 +192,37 @@ gateway.bind(...)  ──成功──> repository.save(...)
 
 挂在 `components/browser/`（浏览器工作区），不挂酒店管理页。用户否决后要能立刻换渠道重试，跳转会把一个循环拆成往返。
 
-因此**不需要跨路由 intent**——用户全程不离开浏览器页。监听器随弹窗组件挂载/卸载。
+发起在酒店页、弹窗在浏览器页，因此**需要一条跨路由 intent** 做交接（`hotelBindingWaiting`）。它是一次性信箱，读取即清空——语义上正好对应「离开浏览器工作区即视为放弃本次绑定」：等待随 `BindHotelDialog` 卸载消亡，用户回酒店页重新发起即可。不为此加超时，也不加常驻的「等待中」提示。
+
+### 决策 9：渲染进程侧的 OTA tab 状态层
+
+主进程有 `OtaTabService` 作为「OTA tab 的唯一开口」，渲染进程这一头此前是零层——tab 状态和三步收尾散在 `BrowserWorkspace` 的几个函数里。后果是「不从该组件内部发起」的开 tab 需求（绑定）无处可接，只能绕过去，而绕过去就会开出界面不认识的 tab。
+
+`renderer/components/browser/browser-ota-tabs.svelte.ts` 收敛这一侧：
+
+```ts
+class BrowserOtaTabsStore {
+  tabsByChannel:   Record<string, BrowserTab[]>   // $state
+  activeTabIds:    Record<string, string>          // $state
+  activeChannelId: string                          // $state
+
+  registerViewport(read: () => DOMRect): () => void  // 组件把 DOM 几何交进来
+  adopt(tab): Promise<BrowserTab>                    // 三步收尾，所有开 tab 路径必经
+  openForNewLogin(channelId, url)
+  openWithImportedCookie(channelId, url)
+  openExisting(credentialId, intent?)                // ← 绑定路径在这里接
+  activate(tab) / selectChannel(id) / close(tab) / closeSuperseded(...) / hydrate(tabs)
+}
+```
+
+| | 收进 store | 留在组件 |
+|---|---|---|
+| `tabsByChannel` / `activeTabIds` / `activeChannelId` | ✓ | |
+| 三步收尾（`adopt`） | ✓ | |
+| 视口 DOM 引用 | 由组件注册进来 | 元素本身 |
+| `credentialsByChannel`（凭证列表） | | ✓ tab 的邻居，不是同一件事 |
+
+`BindHotelDialog` 因此**自给自足**：自己 consume 意图、自己调 `store.openExisting`、自己登记等待，不需要 `BrowserWorkspace` 传 props——绑定的业务概念（`rmsHotelName` 之类）一个字都不渗进浏览器工作区。
 
 ## Risks / Trade-offs
 

@@ -68,10 +68,17 @@ export class HotelProbeDispatcher {
     this.deps.logger.info('Hotel probe found candidates', {
       channel: event.channel,
       hotelCount: outcome.hotels.length,
+      tabId: event.tabId,
+      intentKind: event.intent?.kind ?? 'none',
     });
 
     // 没有绑定意图就没有等待方：探测照跑，结果无人接收。
-    if (event.intent?.kind !== 'bind-hotel') return;
+    if (event.intent?.kind !== 'bind-hotel') {
+      this.deps.logger.info('Hotel probe candidates dropped: no binding intent', {
+        channel: event.channel,
+      });
+      return;
+    }
 
     // 标签页已经关了说明用户已放弃，候选没有意义。这个判断必须在 probe() 之后
     // ——探测期间用户随时可能关闭。
@@ -82,6 +89,10 @@ export class HotelProbeDispatcher {
       return;
     }
 
+    this.deps.logger.info('Hotel probe candidates delivered', {
+      channel: event.channel,
+      requestId: event.intent.requestId,
+    });
     this.deps.notify({
       requestId: event.intent.requestId,
       kind: 'bind-hotel',

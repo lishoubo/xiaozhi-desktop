@@ -87,9 +87,6 @@ export function createWindowScope(scope: AppScope): WindowScope {
     loginDetector,
     otaCredentialRepository: scope.otaCredentialRepository,
   });
-  // 绑定流程要开标签页，而 OtaTabService 依赖窗口级的 BrowserManager。
-  scope.setBindingTabOpener(otaTabService);
-  onDispose(() => scope.setBindingTabOpener(null));
 
   const serverOrigin = resolveServerOrigin(process.env);
   const apiSession = scope.sessionFactory.sessionForServerApi();

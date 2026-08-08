@@ -22,10 +22,7 @@ import { MockRmsHotelGateway } from '../gateway/rms/rms-hotel-gateway-mock';
 import { MockRmsOtaAccountGateway } from '../gateway/rms/rms-ota-account-gateway-mock';
 import type { ChannelId } from '../ids';
 import { SessionFactory } from '../browser/session-factory';
-import {
-  HotelManagementService,
-  type BindingTabOpener,
-} from '../services/hotel-management-service';
+import { HotelManagementService } from '../services/hotel-management-service';
 import { OtaCredentialService } from '../services/ota-credential-service';
 
 export type AppScope = Readonly<{
@@ -50,7 +47,6 @@ export type AppScope = Readonly<{
    * 由 window scope 回填：绑定流程要开 OTA 标签页，而 `OtaTabService` 依赖
    * 窗口级的 `BrowserManager`。窗口不存在时调用会明确失败，不静默吞掉。
    */
-  setBindingTabOpener(opener: BindingTabOpener | null): void;
   dispose(): void;
 }>;
 
@@ -83,7 +79,6 @@ export function createAppScope(logger: AppLogger): AppScope {
   // 窗口级能力的回填槽位：window scope 建好 BrowserManager / 主窗口后写入。
   let retirePartition: ((partitionName: string) => Promise<void>) | null = null;
   let notifyAccountBound: ((channel: ChannelId) => void) | null = null;
-  let bindingTabOpener: BindingTabOpener | null = null;
 
   const otaCredentialService = new OtaCredentialService({
     discoverCtrip: createCtripDiscovery(logger),
@@ -111,12 +106,6 @@ export function createAppScope(logger: AppLogger): AppScope {
       otaAccountGateway: new MockRmsOtaAccountGateway(),
       otaHotelRepository,
       otaCredentialRepository,
-      tabOpener: {
-        openExisting(credentialId, intent) {
-          if (!bindingTabOpener) throw new Error('主窗口尚未就绪，无法打开标签页');
-          return bindingTabOpener.openExisting(credentialId, intent);
-        },
-      },
       readCookieSnapshot: (partitionName) => readCookieSnapshot(partitionName),
       generateRequestId: () => randomUUID(),
     }),
@@ -127,9 +116,6 @@ export function createAppScope(logger: AppLogger): AppScope {
     },
     setAccountBoundNotifier(notify) {
       notifyAccountBound = notify;
-    },
-    setBindingTabOpener(opener) {
-      bindingTabOpener = opener;
     },
     dispose() {
       database.close();

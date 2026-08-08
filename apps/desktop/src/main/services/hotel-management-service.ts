@@ -3,8 +3,7 @@ import type { RmsHotelCreateInput, RmsHotel } from '../../shared/types/rms-hotel
 import type { RmsOtaAccount } from '../../shared/types/rms-ota-account';
 import type { OtaHotelRepository } from '../database/ota-hotel-repository';
 import type { OtaCredentialRepository } from '../database/ota-credential-repository';
-import type { BrowserTab, ConfirmBindingInput, StartBindingInput } from '../../shared/browser';
-import type { OtaTabIntent } from '../ota-tab';
+import type { ConfirmBindingInput } from '../../shared/browser';
 import { toOtaCredentialId, toOtaHotelId } from '../ids';
 
 export type RmsHotelOtaAccountsSnapshot = Readonly<{
@@ -12,17 +11,11 @@ export type RmsHotelOtaAccountsSnapshot = Readonly<{
   otaAccounts: readonly RmsOtaAccount[];
 }>;
 
-/** OTA 标签页的开口，窄接口——本服务不认识 `OtaTabService` 实现。 */
-export interface BindingTabOpener {
-  openExisting(credentialId: string, intent?: OtaTabIntent): BrowserTab;
-}
-
 export type HotelManagementServiceDependencies = Readonly<{
   hotelGateway: RmsHotelGateway;
   otaAccountGateway: RmsOtaAccountGateway;
   otaHotelRepository: Pick<OtaHotelRepository, 'save'>;
   otaCredentialRepository: Pick<OtaCredentialRepository, 'findById'>;
-  tabOpener: BindingTabOpener;
   /** 按 partition 读取实时 cookie 快照；实现落在 composition root（services 不得 import browser/）。 */
   readCookieSnapshot: (partitionName: string) => Promise<readonly RmsCookieSnapshotEntry[]>;
   generateRequestId: () => string;
@@ -57,14 +50,16 @@ export class HotelManagementService {
   }
 
   /**
-   * 发起绑定：开标签页并带上意图。**不等待结果**——探测可能永不发生（用户没登录
-   * 成功、中途关了标签页），等在这里会让 Promise 永久挂起。返回 requestId，UI
-   * 自己登记等待，结果经候选通知送达。
+   * 发起绑定：**只发号**。标签页由 renderer 自己打开（`otaTab.openExisting` 带上
+   * 意图）——开 tab 之后必须做的三件事（进标签栏、设为活动标签、按视口尺寸布局
+   * WebContentsView）都依赖只有 renderer 才有的 DOM 几何信息，主进程代劳会开出
+   * 一个界面不认识的标签页。
+   *
+   * 也**不等待结果**：探测可能永不发生（用户没登录成功、中途关了标签页），等在
+   * 这里会让 Promise 永久挂起。UI 拿 requestId 自己登记等待，结果经候选通知送达。
    */
-  startBinding(input: StartBindingInput): Readonly<{ requestId: string }> {
-    const requestId = this.deps.generateRequestId();
-    this.deps.tabOpener.openExisting(input.credentialId, { kind: 'bind-hotel', requestId });
-    return { requestId };
+  startBinding(): Readonly<{ requestId: string }> {
+    return { requestId: this.deps.generateRequestId() };
   }
 
   /**

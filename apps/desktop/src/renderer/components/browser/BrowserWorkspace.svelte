@@ -20,6 +20,7 @@
   } from '../../motion';
   import { OTA_CHANNELS, type OtaChannel } from '../../data/ota-channels';
   import { dismissAppNotification, showAppNotification } from '../../notifications';
+  import { browserOtaTabs } from './browser-ota-tabs.svelte';
   import { cookieListAutoOpen, tabActivation } from './cross-route-intents';
   import { Button } from '$lib/components/ui/button';
   import { Spinner } from '$lib/components/ui/spinner';
@@ -33,20 +34,19 @@
   } from './login-credential-options';
 
   const COOKIE_PROMPT_KEY = 'hotel-butler.cookie-import-prompted';
-  let activeChannelId = $state(OTA_CHANNELS[0].id);
-  let activeTabIds = $state<Record<string, string>>({});
-  let tabsByChannel = $state<Record<string, BrowserTab[]>>({});
+  // 标签页状态归 `browserOtaTabs`（渲染进程侧的 OTA tab 状态层）；本组件只渲染
+  // 它、并把视口尺寸注册进去。凭证列表不属于 tab 状态，仍留在本地。
   let credentialsByChannel = $state<Record<string, OtaCredentialDto[]>>({});
-  let viewport: HTMLElement | undefined;
   let cookiePrompt = $state(false);
   let openingSessionTab = $state(false);
   let audioMuted = $state(false);
   let audioStateReady = $state(false);
   let updatingAudioMuted = $state(false);
-  let activeTabs = $derived(tabsByChannel[activeChannelId] ?? []);
-  let activeTab = $derived(
-    activeTabs.find((tab) => tab.id === activeTabIds[activeChannelId]) ?? activeTabs[0],
-  );
+  let viewportNode: HTMLElement | undefined;
+  let resizeObserver: ResizeObserver | undefined;
+  let activeChannelId = $derived(browserOtaTabs.activeChannelId);
+  let activeTabs = $derived(browserOtaTabs.activeTabs);
+  let activeTab = $derived(browserOtaTabs.activeTab);
   let activeCredentials = $derived(credentialsByChannel[activeChannelId] ?? []);
   let activeChannel = $derived(OTA_CHANNELS.find((item) => item.id === activeChannelId));
   let activeCredentialOptions = $derived(
@@ -68,26 +68,10 @@
     });
   }
 
-  function updateTab(next: BrowserTab): void {
-    const tabs = tabsByChannel[next.channelId] ?? [];
-    const index = tabs.findIndex((tab) => tab.id === next.id);
-    tabsByChannel[next.channelId] =
-      index === -1 ? [...tabs, next] : tabs.map((tab) => (tab.id === next.id ? next : tab));
-    if (index === -1 || !activeTabIds[next.channelId]) activeTabIds[next.channelId] = next.id;
-  }
-
   async function createTab(channel: OtaChannel, url = channel.url): Promise<BrowserTab | null> {
     try {
       dismissAppNotification('browser-operation-error');
-      const tab = await window.hotelButler.otaTab.openForNewLogin({
-        channelId: channel.id,
-        environment: 'prod',
-        url,
-      });
-      updateTab(tab);
-      activeTabIds[channel.id] = tab.id;
-      await syncBounds();
-      return tab;
+      return await browserOtaTabs.openForNewLogin(channel.id, url);
     } catch (error) {
       reportBrowserFailure('Browser tab could not be created', '页面打开失败，请重试', error);
       return null;
@@ -109,18 +93,9 @@
 
   async function selectChannel(channel: OtaChannel): Promise<void> {
     dismissAppNotification('browser-operation-error');
-    activeChannelId = channel.id;
     void loadCredentials(channel.id);
-    const tabId = activeTabIds[channel.id];
     try {
-      if (tabId) {
-        await window.hotelButler.browser.activate(tabId);
-      } else {
-        // 新渠道没有已打开的标签页——`activate` 不会被调用，若不显式 `hide`，
-        // 上一个渠道的 WebContentsView 会一直挂在 contentView 上不被移除。
-        await window.hotelButler.browser.hide();
-      }
-      await syncBounds();
+      await browserOtaTabs.selectChannel(channel.id);
     } catch (error) {
       reportBrowserFailure('Browser channel could not be selected', '渠道切换失败，请重试', error);
     }
@@ -131,11 +106,7 @@
   ): Promise<BrowserTab | null> {
     dismissAppNotification('browser-operation-error');
     try {
-      const tab = await window.hotelButler.otaTab.openExisting(credential.id);
-      updateTab(tab);
-      activeTabIds[credential.channel] = tab.id;
-      await syncBounds();
-      return tab;
+      return await browserOtaTabs.openExisting(credential.id);
     } catch (error) {
       reportBrowserFailure(
         'Ota credential tab could not be opened',
@@ -151,25 +122,13 @@
     targetPartitionName: string,
     previousTabs: readonly BrowserTab[],
   ): Promise<void> {
-    const closedTabIds = new Set<string>();
-    for (const tab of previousTabs) {
-      if (tab.partitionName === targetPartitionName) continue;
-      try {
-        await window.hotelButler.browser.close(tab.id);
-        closedTabIds.add(tab.id);
-      } catch (error) {
-        reportBrowserFailure(
-          'Superseded browser tab could not be closed',
-          '旧账号页面关闭失败，请手动关闭',
-          error,
-        );
-      }
-    }
-    if (closedTabIds.size > 0) {
-      tabsByChannel[channelId] = (tabsByChannel[channelId] ?? []).filter(
-        (tab) => !closedTabIds.has(tab.id),
-      );
-    }
+    await browserOtaTabs.closeSuperseded(channelId, targetPartitionName, previousTabs, (error) =>
+      reportBrowserFailure(
+        'Superseded browser tab could not be closed',
+        '旧账号页面关闭失败，请手动关闭',
+        error,
+      ),
+    );
   }
 
   async function openNewTabForActiveSession(): Promise<void> {
@@ -189,8 +148,7 @@
 
     if (targetTab) {
       try {
-        await window.hotelButler.browser.activate(targetTab.id);
-        activeTabIds[targetTab.channelId] = targetTab.id;
+        await browserOtaTabs.activate(targetTab);
       } catch (error) {
         reportBrowserFailure(
           'Existing account tab could not be activated',
@@ -225,15 +183,8 @@
     const previousTabs = [...activeTabs];
     dismissAppNotification('browser-operation-error');
     try {
-      const tab = await window.hotelButler.otaTab.openWithImportedCookie({
-        channelId: channel.id,
-        environment: 'prod',
-        url: channel.url,
-      });
-      updateTab(tab);
-      activeTabIds[channel.id] = tab.id;
+      const tab = await browserOtaTabs.openWithImportedCookie(channel.id, channel.url);
       await closeSupersededTabs(tab.channelId, tab.partitionName, previousTabs);
-      await syncBounds();
       return true;
     } catch (error) {
       reportBrowserFailure(
@@ -248,9 +199,7 @@
   async function selectTab(tab: BrowserTab): Promise<void> {
     dismissAppNotification('browser-operation-error');
     try {
-      await window.hotelButler.browser.activate(tab.id);
-      activeTabIds[tab.channelId] = tab.id;
-      await syncBounds();
+      await browserOtaTabs.activate(tab);
     } catch (error) {
       reportBrowserFailure('Browser tab could not be selected', '标签切换失败，请重试', error);
     }
@@ -258,47 +207,16 @@
 
   async function closeTab(tab: BrowserTab): Promise<void> {
     dismissAppNotification('browser-operation-error');
-    const tabs = tabsByChannel[tab.channelId] ?? [];
-    const index = tabs.findIndex((item) => item.id === tab.id);
     try {
-      await window.hotelButler.browser.close(tab.id);
+      await browserOtaTabs.close(tab);
     } catch (error) {
       reportBrowserFailure('Browser tab could not be closed', '标签关闭失败，请重试', error);
-      return;
-    }
-
-    const nextTabs = tabs.filter((item) => item.id !== tab.id);
-    tabsByChannel[tab.channelId] = nextTabs;
-    if (activeTabIds[tab.channelId] !== tab.id) return;
-
-    const next = nextTabs[Math.min(index, nextTabs.length - 1)];
-    if (!next) {
-      delete activeTabIds[tab.channelId];
-      return;
-    }
-
-    activeTabIds[tab.channelId] = next.id;
-    try {
-      await window.hotelButler.browser.activate(next.id);
-    } catch (error) {
-      reportBrowserFailure(
-        'Adjacent browser tab could not be activated after close',
-        '相邻标签激活失败，请重试',
-        error,
-      );
     }
   }
 
   async function syncBounds(): Promise<void> {
-    if (!viewport) return;
     try {
-      const bounds = viewport.getBoundingClientRect();
-      await window.hotelButler.browser.setBounds({
-        x: bounds.x,
-        y: bounds.y,
-        width: bounds.width,
-        height: bounds.height,
-      });
+      await browserOtaTabs.syncBounds();
     } catch (error) {
       reportBrowserFailure(
         'Browser viewport could not be synchronized',
@@ -308,10 +226,18 @@
     }
   }
 
+  /**
+   * 把视口交给 store —— 只有渲染进程拿得到这个几何信息。同时留一份本地引用给
+   * `ResizeObserver`（视口尺寸变化要重新同步 WebContentsView）。
+   */
   function browserViewport(node: HTMLElement): () => void {
-    viewport = node;
+    viewportNode = node;
+    resizeObserver?.observe(node);
+    const unregister = browserOtaTabs.registerViewport(() => node.getBoundingClientRect());
     return () => {
-      if (viewport === node) viewport = undefined;
+      if (viewportNode === node) viewportNode = undefined;
+      resizeObserver?.unobserve(node);
+      unregister();
     };
   }
 
@@ -371,7 +297,7 @@
         if (mounted) audioStateReady = true;
       });
     const unsubscribe = window.hotelButler.browser.onStateChanged((tab) => {
-      updateTab(tab);
+      browserOtaTabs.updateTab(tab);
     });
     const unsubscribeDiscoveryCompleted = window.hotelButler.otaCredential.onDiscoveryCompleted(
       ({ channel }) => {
@@ -379,27 +305,18 @@
       },
     );
     const observer = new ResizeObserver(() => void syncBounds());
-    if (viewport) observer.observe(viewport);
+    resizeObserver = observer;
+    if (viewportNode) observer.observe(viewportNode);
     window.addEventListener('resize', syncBounds);
     const pendingTab = tabActivation.consume();
     if (pendingTab) {
-      updateTab(pendingTab);
-      activeChannelId = pendingTab.channelId;
-      activeTabIds[pendingTab.channelId] = pendingTab.id;
       void loadCredentials(pendingTab.channelId);
       cookiePrompt = false;
-      void window.hotelButler.browser
-        .activate(pendingTab.id)
-        .then(() => syncBounds())
-        .catch((error: unknown) => {
-          if (mounted) {
-            reportBrowserFailure(
-              'Pending tab could not be activated',
-              '标签激活失败，请重试',
-              error,
-            );
-          }
-        });
+      void browserOtaTabs.adopt(pendingTab).catch((error: unknown) => {
+        if (mounted) {
+          reportBrowserFailure('Pending tab could not be activated', '标签激活失败，请重试', error);
+        }
+      });
     } else {
       void loadCredentials(activeChannelId);
       cookiePrompt = localStorage.getItem(COOKIE_PROMPT_KEY) !== 'true';
@@ -408,14 +325,11 @@
           .list()
           .then(async (tabs) => {
             if (!mounted) return;
-            for (const tab of tabs) updateTab(tab);
+            browserOtaTabs.hydrate(tabs);
+            // 兜底激活：带着绑定意图进来时，标签页由 BindHotelDialog 那条链开，
+            // 它先起跑但后完成——这里必须让位，否则会把它从内容区顶掉。
             const ctripTab = tabs.find((tab) => tab.channelId === OTA_CHANNELS[0].id);
-            if (ctripTab) {
-              await window.hotelButler.browser.activate(ctripTab.id);
-              if (!mounted) return;
-              activeTabIds[ctripTab.channelId] = ctripTab.id;
-              await syncBounds();
-            }
+            if (ctripTab) await browserOtaTabs.activateIfIdle(ctripTab);
           })
           .catch((error: unknown) => {
             if (mounted) {
@@ -430,6 +344,7 @@
     }
     return () => {
       mounted = false;
+      browserOtaTabs.releaseViewportSession();
       void Promise.resolve(window.hotelButler.browser.hide()).catch((error: unknown) => {
         log.warn('Browser workspace could not be hidden', {
           errorName: error instanceof Error ? error.name : 'UnknownError',
@@ -438,6 +353,7 @@
       unsubscribe();
       unsubscribeDiscoveryCompleted();
       observer.disconnect();
+      resizeObserver = undefined;
       window.removeEventListener('resize', syncBounds);
     };
   });

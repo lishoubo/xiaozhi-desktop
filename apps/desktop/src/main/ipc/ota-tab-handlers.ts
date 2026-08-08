@@ -6,13 +6,14 @@
 import { z } from 'zod';
 import {
   otaCredentialIdSchema,
+  otaTabIntentSchema,
   startLoginInputSchema,
   type BrowserTab,
 } from '../../shared/browser';
 import { toChannelId, type ChannelId } from '../ids';
 import { IPC_CHANNELS } from '../../shared/ipc-channels';
 import type { AppLogger } from '../../shared/logging';
-import type { PendingPartition } from '../ota-tab';
+import type { OtaTabIntent, PendingPartition } from '../ota-tab';
 import { createHandlerRegistry, type TrustedWindow } from './create-handler-registry';
 
 /** handler 声明自己需要什么，由 `OtaTabService` 满足；不 import 实现类。 */
@@ -27,7 +28,7 @@ export interface OtaTabOrchestrator {
     channel: ChannelId,
     url: string,
   ): Promise<BrowserTab>;
-  openExisting(credentialId: string, intent?: unknown): BrowserTab;
+  openExisting(credentialId: string, intent?: OtaTabIntent): BrowserTab;
 }
 
 type RegisterOtaTabHandlersOptions = Readonly<{
@@ -58,9 +59,11 @@ export function registerOtaTabHandlers({
   );
   registry.handle(
     IPC_CHANNELS.otaTab.openExisting,
-    z.tuple([otaCredentialIdSchema]),
+    // intent 可缺省：不带就是普通打开。用 `.default()` 让校验后的元组保持定长，
+    // 免得可选元素把 listener 的形参变成不定参数。
+    z.tuple([otaCredentialIdSchema, otaTabIntentSchema.nullish().default(null)]),
     '登录凭据标识无效',
-    (credentialId) => service.openExisting(credentialId),
+    (credentialId, intent) => service.openExisting(credentialId, intent ?? undefined),
   );
 
   return () => registry.dispose();

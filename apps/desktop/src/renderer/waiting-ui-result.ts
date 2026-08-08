@@ -26,6 +26,8 @@ export type WaitingUiResult = Readonly<{
 
 export function createWaitingUiResult(
   subscribe: (listener: (envelope: UiWaitingResultEnvelope) => void) => () => void,
+  /** 信封到了却没人在等——调用方可据此排查（本模块不依赖任何日志实现）。 */
+  onUnclaimed?: (envelope: UiWaitingResultEnvelope, waitingCount: number) => void,
 ): WaitingUiResult {
   // 异构 Map：不同 kind 的回调 payload 类型不同，TS 表达不了这种关系。两处
   // `as never` 是代价，收在本文件内——对外的 `await<K>` 完全类型安全，调用方
@@ -34,7 +36,11 @@ export function createWaitingUiResult(
 
   const unsubscribe = subscribe((envelope) => {
     const resolve = waiting.get(envelope.requestId);
-    if (!resolve) return; // 不是本页在等的，或用户已放弃
+    if (!resolve) {
+      // 不是本页在等的，或用户已放弃
+      onUnclaimed?.(envelope, waiting.size);
+      return;
+    }
     waiting.delete(envelope.requestId);
     resolve(envelope.payload as never);
   });

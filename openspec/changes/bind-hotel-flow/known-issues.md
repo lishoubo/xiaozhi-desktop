@@ -1,84 +1,98 @@
-# 已知问题（未修复）
+# 已知问题
 
-状态：Change 3 代码已提交但**绑定流程未跑通**，真机验证卡在下面第 1 条。
-提交这一版是为了留存进度，不代表功能可用。
+状态：问题 1、2 已修并**真机验证通过**（候选弹窗正常出现）。问题 3 已解决一半：
+`confirmBinding` 的失败原因现在会透传给用户，探测端的静默失败仍未处理。
+
+真机验证遗留：绑定成功后 `ota_hotel` 落库尚未亲眼确认（此前撞上 seed 数据的
+「已存在活跃绑定」业务拒绝，见问题 4）。
 
 ---
 
-## 问题 1（阻塞）：绑定开出的标签页，renderer 不知道它的存在
+## 问题 1（已修）：绑定开出的标签页，renderer 不知道它的存在
 
 **症状**：从酒店管理页发起绑定、选中抖音账号后，标签页在主进程里确实开了，但界面
-仍停留在携程渠道、显示携程的内容。用户以为"打开抖音账号结果展示携程酒店"。
+仍停留在携程渠道、显示携程的内容。
 
-**根因**：`startBinding` 在**主进程内部**开 tab，返回值只有 `requestId`，tab 被丢弃：
+**根因**：`startBinding` 在主进程内部开 tab，返回值只有 `requestId`，tab 被丢弃；
+而开 tab 有三步收尾只有渲染进程做得了（进 `tabsByChannel`、设为活动标签并切渠道、
+`syncBounds`）。这是设计缺陷不只是实现疏漏——`design.md` 决策 1 的方案对比表只比较
+了「startBinding 要不要等探测结果」，**没有比较「tab 由谁开」**。
 
-```ts
-// HotelManagementService.startBinding —— 当前实现
-startBinding(input) {
-  const requestId = this.deps.generateRequestId();
-  this.deps.tabOpener.openExisting(input.credentialId, { kind: 'bind-hotel', requestId });
-  return { requestId };            // ← tab 丢在这里
-}
-```
+**修复**：让绑定走与其他入口相同的路径。
 
-而 renderer 里所有既有的开 tab 路径都依赖返回的 tab 做三件事
-（`BrowserWorkspace.openExistingCredentialTab`）：
+| 改动 | 位置 |
+|---|---|
+| 新增渲染进程侧 OTA tab 状态层，收敛三步收尾 | `renderer/components/browser/browser-ota-tabs.svelte.ts` |
+| `BrowserWorkspace` 只渲染 + 注册视口，不再持有 tab 状态 | `BrowserWorkspace.svelte` |
+| `BindHotelDialog` 自给自足：consume 意图 → 开 tab → 登记等待 | `BindHotelDialog.svelte` |
+| `startBinding` 退化为纯发号器，`tabOpener` 依赖删除 | `hotel-management-service.ts` + composition |
+| intent 穿过 IPC，边界过 `otaTabIntentSchema` 校验 | `ota-tab-handlers.ts` + preload |
+| 跨路由意图带上 `credentialId` | `hotel-management/cross-route-intents.ts` |
 
-```ts
-const tab = await window.hotelButler.otaTab.openExisting(credential.id);
-updateTab(tab);                              // 加进 tabsByChannel
-activeTabIds[credential.channel] = tab.id;   // 设为该渠道的活动 tab
-await syncBounds();                          // 同步 WebContentsView 位置
-```
+`design.md` 决策 1 已补「tab 由谁开」对比表，并新增决策 9 记录渲染进程侧状态层。
 
-绑定这条路径跳过了这三步，所以 renderer 的 `tabsByChannel` 里没有这个 tab，
-`activeChannelId` 也没切换。
+真机复验时又暴露出三个后续断点，都已修复：
 
-**这是设计缺陷，不只是实现疏漏**：`design.md` 决策 1 的链路图就是这么画的
-（`startBinding → OtaTabService.openExisting`，返回 `{ requestId }`）。写 design 时
-没有读 `openExistingCredentialTab`，不知道 renderer 对 tab 返回值有实质依赖；
-决策 1 的方案对比表只比较了「startBinding 要不要等探测结果」，**没有比较
-「tab 由谁开」**——这个选择从未进入设计视野。
+| 断点 | 现象 | 根因 | 修复 |
+|---|---|---|---|
+| 默认激活覆盖 | 标签开了、渠道切了，但内容区是携程 | `browser.list()` 的「默认激活携程」与绑定开 tab 是两条并行异步链，前者后完成把后者顶掉 | store 记 `#explicitlyActivated`，兜底激活改用 `activateIfIdle()` 让位 |
+| `bound` 早退吞凭证 | 绑定 tab 开了但连 `Discovery triggered` 都不打 | `OtaCredentialService.trigger` 对已探测过的 partition 返回 `null`，下游据此认定「没登录成功」跳过探测。而绑定选的就是已登录账号，`bound` 里几乎总有它 | 早退时改为 `findByPartitionName()` 返回已有凭证；`inflight` 分支保持返回 null |
+| 弹窗被原生视图遮住 | 候选已送达、回调已触发，但界面上看不到弹窗 | `WebContentsView` 是原生视图，永远盖在所有 HTML 之上，z-index 管不到 | 弹窗开合时 `suspendViewport()` / `resumeViewport()`；尺寸对齐 `AccountSwitcherDialog` |
 
-**修复方向**（未实施，待重新梳理后确认）：让绑定走与其他入口相同的路径——
-renderer 调 `otaTab.openExisting(credentialId, intent)` 拿到 tab 并复用
-`openExistingCredentialTab` 的三步；`startBinding` 退化为纯发号器。
-需要 `ota-tab-handlers.ts` 与 preload 的 `openExisting` 支持透传 intent。
-
-**同时要改**：`design.md` 决策 1 的链路图、`tasks.md` 4.2。
+**验证**：check 835 files 0 errors、lint 0 problems、单元 246 tests 全过。真机确认
+候选弹窗正常出现（日志 `Binding candidates claimed` 与 `delivered` 的 requestId 一致）。
 
 ---
 
-## 问题 2（独立）：抖音探测在本次真机中失败
+## 问题 2（已修）：抖音探测在上一次真机中失败
 
 ```
-17:22:52.498  Douyin discovery saved credential { channel: 'douyin' }
 17:22:56.722  Douyin hotel probe: aside menu never became ready
 17:23:22.500  Douyin hotel probe: no dsl/get response captured
 ```
 
-抖音 `probe()` 返回 `none`，dispatcher 按设计直接 return，不通知、不弹窗。
+**确认与问题 1 同源**：tab 没有被 `syncBounds` 正确布局，WebContentsView 没有尺寸
+等于没渲染，侧边菜单自然 never ready。问题 1 修复后抖音探测稳定成功：
 
-**怀疑与问题 1 同源**：tab 没有被 `syncBounds` 正确布局，页面可能根本没渲染，
-侧边菜单自然 never ready。修完问题 1 后需重新验证；若仍失败再单独排查抖音
-适配器。
+```
+19:11:56.142  Hotel probe found candidates { channel: 'douyin', hotelCount: 1,
+                                             intentKind: 'bind-hotel' }
+```
+
+抖音适配器本身无需改动。
 
 ---
 
-## 问题 3（设计缺口）：探测失败时用户无任何反馈
+## 问题 3（部分处理）：失败时用户无反馈
 
-`HotelProbeDispatcher` 遇到 `outcome.kind === 'none'` 直接 return，不通知 UI。
-从用户视角是「点了绑定 → 跳过去 → 登录完 → 没有下文」，无法区分"还在等"和
-"已经失败"。
+**已解决——`confirmBinding` 的失败**：远端的业务拒绝（如「该酒店的此渠道已存在活跃
+绑定」）此前被统一显示为「绑定失败，请重试」，用户重试多少次都不会成功。现在透传
+真实文案，并剥掉 Electron 的 `Error invoking remote method '<channel>': ` 包装
+（`binding-failure-message.ts`，3 个单测覆盖）。
 
-这是 `design.md` 有意定的行为（"没候选就不通知"），但真机一跑就暴露了体验问题。
-待定：是否给 payload 加空列表 + UI 提示，还是另设一种失败 kind。
+**未解决——探测端的静默失败**：`HotelProbeDispatcher` 有**四条**静默 return 路径：
+`outcome.kind === 'none'`、没有对应 probe、`isProbeableUrl` 为 false、`probe()` 抛
+异常。任一条命中 UI 都收不到通知，用户无法区分「还在等」和「已经失败」。
+
+已确认**本次不做**（不加常驻等待提示、不加超时）。要补的话应在 dispatcher 层统一
+收敛为一种失败通知，而不是只补 `none` 一种。本次已给这四条路径补了日志
+（`dropped: no binding intent` 等），排查时能直接定位。
+
+---
+
+## 问题 4（非缺陷）：绑定报错「该酒店的此渠道已存在活跃绑定」
+
+真机测试时对 `hotelId: 1001` + 抖音发起绑定会失败。这**不是后端缺失**——
+`MockRmsOtaAccountGateway.bind()` 已实现，这是它的业务规则：seed 数据里该酒店的
+抖音绑定已存在（上海云栖酒店，`LOGIN_EXPIRED`）。换一家酒店即可绑定成功。
+
+此前 UI 把它显示成「请重试」掩盖了真实原因，现已透传（见问题 3）。
 
 ---
 
 ## 已验证可用的部分
 
-链路的上半段在真机上是通的（携程）：
+链路上半段在携程上一直是通的：
 
 ```
 17:22:35.458  Discovery triggered { channel: 'ctrip' }
@@ -88,8 +102,7 @@ renderer 调 `otaTab.openExisting(credentialId, intent)` 拿到 tab 并复用
 ```
 
 顺带澄清一个前两个 change 遗留的疑点：`XXX discovery saved credential` 此前一直
-没出现，**并非缺陷**——那两次运行 credential 已存在、`bound` 集合直接早退。本次
-换了新 partition（`ctrip:6e774f52`）后该日志正常打出。
+没出现，**并非缺陷**——那两次运行 credential 已存在、`bound` 集合直接早退。换了新
+partition（`ctrip:6e774f52`）后该日志正常打出。
 
-静态与单元层面全绿：check 833 files 0 errors、lint 通过、单元测试 51 files 239 tests。
-`ota_hotel` 仍为 0 行（未走到确认绑定这一步，符合当前进度）。
+`ota_hotel` 落库尚未亲眼确认（见顶部状态）。

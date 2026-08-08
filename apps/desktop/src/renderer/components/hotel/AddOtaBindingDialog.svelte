@@ -64,13 +64,13 @@
     dismissAppNotification(NOTIFICATION_ID);
     submitting = true;
     try {
-      const { requestId } = await window.hotelButler.hotelManagement.startBinding({
-        credentialId: credential.id,
-        rmsHotelId: hotel.id,
-      });
-      // 意图交给浏览器工作区：它挂载后登记等待，候选到了就地弹窗。
+      // 只取号：标签页由浏览器工作区那边打开（开 tab 之后的三步收尾依赖只有
+      // 渲染进程才有的视口尺寸，而此刻浏览器视口还没挂载）。
+      const { requestId } = await window.hotelButler.hotelManagement.startBinding();
+      // 意图交给浏览器工作区：它挂载后开标签页并登记等待，候选到了就地弹窗。
       hotelBindingWaiting.set({
         requestId,
+        credentialId: credential.id,
         rmsHotelId: hotel.id,
         rmsHotelName: hotel.name,
       });

@@ -9,6 +9,8 @@ import { createNavigationIntent } from '../navigation-intent';
  */
 export const hotelBindingWaiting = createNavigationIntent<{
   requestId: string;
+  /** 浏览器工作区用它开标签页——开 tab 的三步收尾只有渲染进程做得了。 */
+  credentialId: string;
   rmsHotelId: number;
   rmsHotelName: string;
 }>();

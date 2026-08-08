@@ -23,7 +23,7 @@
 ## 4. 绑定服务与 IPC
 
 - [x] 4.1 `main/services/hotel-management-service.ts`：新增依赖 `otaTab`（窄接口，只要 `openExisting`）、`otaHotelRepository`（只要 `save`）、`readCookieSnapshot`、`generateRequestId`
-- [x] 4.2 同文件：`startBinding(credentialId, rmsHotelId)` → 生成 requestId → `otaTab.openExisting(credentialId, {kind:'bind-hotel', requestId})` → 返回 `{ requestId }`
+- [x] 4.2 同文件：`startBinding()` **只发号** → 返回 `{ requestId }`。标签页由渲染进程自己开（三步收尾只有渲染进程做得了，见 design 决策 1「tab 由谁开」）；`tabOpener` 依赖已删除
 - [x] 4.3 同文件：`confirmBinding(input)` → 读 cookie 快照 → `otaAccountGateway.bind(...)` → **成功后**再 `otaHotelRepository.save(...)`；远端失败直接抛出，不写本地（design.md 决策 6）
 - [x] 4.4 `main/ipc/hotel-management-handlers.ts`：`HotelManagementOrchestrator` 增加两个方法；注册 `startBinding`/`confirmBinding` 两个 handler，参数走 zod 校验，复用既有 `logFailure`
 - [x] 4.5 `main/composition/window-scope.ts` / `app-scope.ts`：`HotelManagementService` 注入 `otaTabService`、`otaHotelRepository`、`readCookieSnapshot`（用 `sessionFactory` 按 partitionName 读 cookie）、`generateRequestId`（`crypto.randomUUID`）
@@ -50,7 +50,8 @@
 - [x] 7.2 同文件：新增「webContents 已销毁时不调用 notify」
 - [x] 7.3 同文件：新增「无意图时不调用 notify，仅记日志」
 - [x] 7.4 `login-detector.test.ts`：新增「register 传入的 intent 随广播带出」与「tab 关闭后 intent 不再出现在后续广播」
-- [x] 7.5 新增 `hotel-management-service.test.ts`：`startBinding` 生成 requestId 并透传 intent；`confirmBinding` 远端成功后才 save；**远端失败时不 save**
+- [x] 7.5 新增 `hotel-management-service.test.ts`：`startBinding` 每次发新号；`confirmBinding` 远端成功后才 save；**远端失败时不 save**
+- [x] 7.6 新增 `ota-tab-handlers.test.ts`：`openExisting` 的 intent 透传、缺省即普通打开、**非法意图被 schema 拒绝且不调 service**
 - [x] 7.6 新增 `waiting-ui-result.test.ts`：requestId 匹配才回调、回调后自动清除、`cancel()` 后不再回调、不匹配的信封被忽略
 - [x] 7.7 `ota-tab-service.test.ts`：确认 intent 收窄后既有用例仍通过，补一条「传 bind-hotel 意图时 register 收到该意图」
 
@@ -64,3 +65,23 @@
 - [ ] 8.6 真机验证否决路径：点「否」后不写库，换渠道重新发起能再次探测出候选（验证 Change 1 删除早退的效果）
 - [ ] 8.7 真机验证失败路径：远端 mock 抛错时本地不写入、UI 有明确报错
 - [ ] 8.8 将验证证据写入 `openspec/changes/bind-hotel-flow/verification.md`
+
+## 8. 修复真机断链（问题 1）
+
+- [x] 8.1 新增 `renderer/components/browser/browser-ota-tabs.svelte.ts`：渲染进程侧 OTA tab 状态层，`adopt()` 收敛三步收尾（进标签栏 / 切渠道设活动标签 / `syncBounds`）
+- [x] 8.2 `BrowserWorkspace.svelte` 改为只渲染 + 注册视口，tab 状态全部读 store；凭证列表不收进 store
+- [x] 8.3 `BindHotelDialog.svelte` 自给自足：consume 意图 → `store.openExisting(credentialId, intent)` → 登记等待；不经父组件传 props
+- [x] 8.4 `otaTab.openExisting` 支持 intent：preload 加参数、handler 过 `otaTabIntentSchema` 校验、`OtaTabOrchestrator` 的 `intent?: unknown` 收窄为 `OtaTabIntent`
+- [x] 8.5 `hotelBindingWaiting` 意图带上 `credentialId`；`AddOtaBindingDialog` 改调无参 `startBinding()`
+- [x] 8.6 静态门禁：check 835 files 0 errors、lint 0 problems、单元 246 tests
+
+## 9. 真机复验暴露的后续断点
+
+- [x] 9.1 **默认激活覆盖**：`browser.list()` 的兜底激活与绑定开 tab 是并行异步链，前者后完成把后者顶掉（现象：标签开了、渠道切了，内容区却是携程）。store 记 `#explicitlyActivated`，兜底改用 `activateIfIdle()` 让位；`activate()` 顺带补上漏设的 `activeChannelId`
+- [x] 9.2 **`bound` 早退吞掉凭证**：`OtaCredentialService.trigger` 对已探测过的 partition 返回 `null`，下游据此认定「没登录成功」而跳过探测——绑定选的就是已登录账号，这条路径必然失效。改为返回 `findByPartitionName()`；`inflight` 分支保持 null。回归测试已验证能抓到该 bug（revert 即红）
+- [x] 9.3 **弹窗被原生视图遮住**：`WebContentsView` 永远盖在 HTML 之上，z-index 管不到。弹窗开合时 `suspendViewport()` / `resumeViewport()`，让位期间 `syncBounds()` 直接 return；ESC / 点遮罩走 `onOpenChange` 以免绕过恢复
+- [x] 9.4 弹窗尺寸对齐 `AccountSwitcherDialog`（`max-w-4xl` + `p-7`）——那个弹窗同样是 `browser.hide()` 让位，只是够大盖住了空白
+- [x] 9.5 `confirmBinding` 失败透传远端文案，剥掉 Electron 的 `Error invoking remote method` 包装（`binding-failure-message.ts` + 3 个单测）
+- [x] 9.6 补排查日志：dispatcher 的 `tabId`/`intentKind`/`dropped`/`delivered`，renderer 的 `registered`/`claimed`/`nobody claimed`
+- [x] 9.7 **真机验证**：候选弹窗正常出现，`Binding candidates claimed` 与 `delivered` 的 requestId 一致
+- [ ] 9.8 **真机验证绑定落库**：换一家未绑定抖音的酒店走完确认，确认 `ota_hotel` 有记录（此前撞上 seed 的「已存在活跃绑定」业务拒绝）

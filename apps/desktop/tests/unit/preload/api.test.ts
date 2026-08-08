@@ -234,7 +234,8 @@ describe('createDesktopApi', () => {
     await expect(api.otaTab.openExisting('credential-1')).resolves.toEqual(tab);
     expect(invoke.mock.calls).toEqual([
       [IPC_CHANNELS.otaCredential.listByChannel, 'douyin'],
-      [IPC_CHANNELS.otaTab.openExisting, 'credential-1'],
+      // 不带意图时第二个参数是 undefined——普通打开，探测候选无人接收。
+      [IPC_CHANNELS.otaTab.openExisting, 'credential-1', undefined],
     ]);
   });
 

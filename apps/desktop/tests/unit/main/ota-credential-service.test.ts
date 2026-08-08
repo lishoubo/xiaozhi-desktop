@@ -475,4 +475,39 @@ describe('OtaCredentialService', () => {
     expect(deps.credentialRepository.updateIdentity).not.toHaveBeenCalled();
     expect(deps.removePendingPartition).not.toHaveBeenCalled();
   });
+  /**
+   * 真机踩过的坑：第二次导航返回 null 会让 `HotelProbeDispatcher` 以为「这次
+   * 没登录成功」而跳过酒店探测，于是「对已登录账号发起绑定」永远等不到候选。
+   */
+  it('同一 partition 再次触发时返回已有 credential，而不是 null', async () => {
+    const existing = credential({ channel: douyinChannel, partitionName: douyinPartitionName });
+    const discoverDouyin = vi.fn().mockResolvedValue({
+      kind: 'found',
+      credential: { channelAccountId: '9527', credentialExtra: {} },
+      hotels: [],
+    });
+    const deps = createDeps({ discoverDouyin });
+    vi.mocked(deps.credentialRepository.create).mockReturnValue(existing);
+    const service = new OtaCredentialService(deps);
+
+    const first = await service.trigger(
+      douyinPartitionName,
+      douyinChannel,
+      'https://example.com/landing',
+      {} as never,
+    );
+    expect(first).not.toBeNull();
+
+    // 第二次：探测不再重跑，但凭证必须照样交出去。
+    vi.mocked(deps.credentialRepository.findByPartitionName).mockReturnValue(existing);
+    const second = await service.trigger(
+      douyinPartitionName,
+      douyinChannel,
+      'https://example.com/landing',
+      {} as never,
+    );
+
+    expect(second).toEqual(existing);
+    expect(discoverDouyin).toHaveBeenCalledTimes(1);
+  });
 });

@@ -9,7 +9,6 @@ import {
   startBindingResultSchema,
   uiWaitingResultEnvelopeSchema,
   type ConfirmBindingInput,
-  type StartBindingInput,
 } from '../../shared/browser';
 import { IPC_CHANNELS } from '../../shared/ipc-channels';
 import type { UiWaitingResultEnvelope } from '../../shared/types/ui-waiting-result-types';
@@ -27,9 +26,12 @@ export function createHotelManagementApi(invoke: ValidatedInvoke, subscribe: Val
     unbindOtaAccount: (otaAccountId: number) =>
       invoke(voidSchema, IPC_CHANNELS.hotelManagement.unbindOtaAccount, otaAccountId),
 
-    /** 发起绑定：返回 requestId，调用方用它登记等待，结果经 `onWaitingResult` 送达。 */
-    startBinding: (input: StartBindingInput) =>
-      invoke(startBindingResultSchema, IPC_CHANNELS.hotelManagement.startBinding, input),
+    /**
+     * 发起绑定：只取号。标签页由调用方自己经 `otaTab.openExisting` 打开并带上
+     * 意图，结果经 `onWaitingResult` 按 requestId 送达。
+     */
+    startBinding: () =>
+      invoke(startBindingResultSchema, IPC_CHANNELS.hotelManagement.startBinding),
     /** 用户选定候选后收尾：先远端后本地，任一步失败都会 reject。 */
     confirmBinding: (input: ConfirmBindingInput) =>
       invoke(rmsOtaAccountSchema, IPC_CHANNELS.hotelManagement.confirmBinding, input),

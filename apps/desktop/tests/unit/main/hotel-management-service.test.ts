@@ -24,7 +24,6 @@ const HOTEL = {
 
 function setup(overrides: { bind?: ReturnType<typeof vi.fn> } = {}) {
   let idCounter = 0;
-  const tabOpener = { openExisting: vi.fn(() => ({ id: 'tab-1' }) as never) };
   const otaHotelRepository = { save: vi.fn((input) => input) };
   const otaAccountGateway = {
     listOtaAccounts: vi.fn(),
@@ -36,24 +35,19 @@ function setup(overrides: { bind?: ReturnType<typeof vi.fn> } = {}) {
     otaAccountGateway,
     otaHotelRepository,
     otaCredentialRepository: { findById: vi.fn(() => credential()) },
-    tabOpener,
     readCookieSnapshot: vi.fn().mockResolvedValue([{ domain: 'a.com', name: 'k', value: 'v' }]),
     generateRequestId: () => `id-${++idCounter}`,
   });
-  return { service, tabOpener, otaHotelRepository, otaAccountGateway };
+  return { service, otaHotelRepository, otaAccountGateway };
 }
 
 describe('HotelManagementService 绑定流程', () => {
-  it('startBinding 生成 requestId 并把绑定意图透传给标签页', () => {
-    const { service, tabOpener } = setup();
+  it('startBinding 只发号——标签页由渲染进程自己开', () => {
+    const { service } = setup();
 
-    const result = service.startBinding({ credentialId: 'credential-1', rmsHotelId: 42 });
-
-    expect(result.requestId).toBe('id-1');
-    expect(tabOpener.openExisting).toHaveBeenCalledWith('credential-1', {
-      kind: 'bind-hotel',
-      requestId: 'id-1',
-    });
+    expect(service.startBinding().requestId).toBe('id-1');
+    // 每次发起都是新号，两个并发绑定各自认领各自的候选。
+    expect(service.startBinding().requestId).toBe('id-2');
   });
 
   it('confirmBinding 先写远端、成功后才写本地', async () => {
@@ -102,7 +96,6 @@ describe('HotelManagementService 绑定流程', () => {
       otaAccountGateway,
       otaHotelRepository,
       otaCredentialRepository: { findById: vi.fn(() => null) },
-      tabOpener: { openExisting: vi.fn() },
       readCookieSnapshot: vi.fn(),
       generateRequestId: () => 'id',
     });

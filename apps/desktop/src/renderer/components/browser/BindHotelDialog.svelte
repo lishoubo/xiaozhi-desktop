@@ -12,6 +12,8 @@
   import { hotelBindingWaiting } from '../../hotel-management/cross-route-intents';
   import { dismissAppNotification, showAppNotification } from '../../notifications';
   import { createWaitingUiResult } from '../../waiting-ui-result';
+  import { bindingFailureMessage } from './binding-failure-message';
+  import { browserOtaTabs } from './browser-ota-tabs.svelte';
   import { Button } from '$lib/components/ui/button';
   import { Spinner } from '$lib/components/ui/spinner';
   import * as Dialog from '$lib/components/ui/dialog';
@@ -27,8 +29,14 @@
   let rmsHotelName = $state('');
   let cancelWaiting: (() => void) | undefined;
 
-  const waiting = createWaitingUiResult((listener) =>
-    window.hotelButler.hotelManagement.onWaitingResult(listener),
+  const waiting = createWaitingUiResult(
+    (listener) => window.hotelButler.hotelManagement.onWaitingResult(listener),
+    (envelope, waitingCount) => {
+      log.warn('Binding candidates arrived but nobody claimed them', {
+        requestId: envelope.requestId,
+        waitingCount,
+      });
+    },
   );
 
   onMount(() => {
@@ -37,16 +45,41 @@
     if (!pending) return;
     rmsHotelId = pending.rmsHotelId;
     rmsHotelName = pending.rmsHotelName;
+
+    log.info('Binding waiting registered', { requestId: pending.requestId });
+    // 先登记等待再开标签页：探测发生在导航之后，但先登记不会错过任何结果。
     cancelWaiting = waiting.await('bind-hotel', pending.requestId, (payload) => {
+      log.info('Binding candidates claimed', { requestId: pending.requestId });
       cancelWaiting = undefined;
       credentialId = payload.credentialId;
       candidates = payload.hotels;
       selectedOtaHotelId = payload.hotels.length === 1 ? payload.hotels[0]?.otaHotelId : undefined;
       open = true;
+      // 原生 WebContentsView 永远盖在 HTML 之上，不让位弹窗就看不见。
+      void browserOtaTabs.suspendViewport();
     });
+
+    // 标签页由这里开——不经过 BrowserWorkspace。store 负责三步收尾（进标签栏、
+    // 切到该渠道、按视口布局），主进程代劳不了。
+    void browserOtaTabs
+      .openExisting(pending.credentialId, { kind: 'bind-hotel', requestId: pending.requestId })
+      .catch((reason: unknown) => {
+        cancelWaiting?.();
+        cancelWaiting = undefined;
+        log.warn('Binding tab could not be opened', {
+          errorName: reason instanceof Error ? reason.name : 'UnknownError',
+        });
+        showAppNotification({
+          id: NOTIFICATION_ID,
+          title: '发起绑定失败',
+          message: '打开渠道标签页失败，请重试。',
+          tone: 'error',
+        });
+      });
   });
 
   onDestroy(() => {
+    log.info('Binding dialog destroyed', { hadPendingWait: cancelWaiting !== undefined });
     // 用户离开页面即视为放弃：只清本地等待表，主进程不需要知道。
     cancelWaiting?.();
     waiting.dispose();
@@ -63,7 +96,7 @@
         rmsHotelId,
         hotel,
       });
-      open = false;
+      closeDialog();
       showAppNotification({
         id: 'bind-hotel-done',
         title: '绑定成功',
@@ -71,14 +104,16 @@
         tone: 'default',
       });
     } catch (reason) {
-      // 弹窗保持打开，用户可以直接重试。
+      // 弹窗保持打开，用户可以换一个候选再试。
       log.warn('Hotel binding failed', {
         errorName: reason instanceof Error ? reason.name : 'UnknownError',
       });
       showAppNotification({
         id: NOTIFICATION_ID,
         title: '绑定失败',
-        message: '绑定失败，请重试。',
+        // 透传远端文案：「已存在活跃绑定」这类业务拒绝重试永远不会成功，
+        // 统一说「请重试」会让用户白试。
+        message: bindingFailureMessage(reason),
         tone: 'error',
       });
     } finally {
@@ -86,16 +121,26 @@
     }
   }
 
-  /** 否决：什么都不写，用户可以回酒店页换个账号重新发起。 */
-  function rejectCandidates(): void {
+  /** 关闭弹窗并把内容区还给网页。 */
+  function closeDialog(): void {
     open = false;
-    candidates = [];
-    selectedOtaHotelId = undefined;
+    void browserOtaTabs.resumeViewport();
   }
 </script>
 
-<Dialog.Root bind:open>
-  <Dialog.Content class="sm:max-w-lg">
+<!-- ESC / 点遮罩关闭也要把内容区还给网页，所以走 onOpenChange 而不是 bind:open。 -->
+<Dialog.Root
+  {open}
+  onOpenChange={(next) => {
+    if (next) return;
+    closeDialog();
+    candidates = [];
+    selectedOtaHotelId = undefined;
+  }}
+>
+  <Dialog.Content
+    class="max-h-[min(760px,calc(100vh-48px))] gap-5 overflow-y-auto p-7 sm:max-w-4xl"
+  >
     <Dialog.Header>
       <Dialog.Title>确认要绑定的门店</Dialog.Title>
       <Dialog.Description>
@@ -124,7 +169,7 @@
     </ul>
 
     <Dialog.Footer>
-      <Button variant="ghost" disabled={submitting} onclick={rejectCandidates}>都不是</Button>
+      <Button variant="ghost" disabled={submitting} onclick={closeDialog}>都不是</Button>
       <Button disabled={!selectedOtaHotelId || submitting} onclick={() => void confirmBinding()}>
         {#if submitting}
           <Spinner aria-label="正在绑定" />

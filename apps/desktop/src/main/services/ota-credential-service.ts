@@ -56,7 +56,15 @@ export class OtaCredentialService {
     landingUrl: string,
     webContents: WebContents,
   ): Promise<OtaCredential | null> {
-    if (this.bound.has(partitionName) || this.inflight.has(partitionName)) return null;
+    // 已探测过的 partition 不重复探测身份，但**必须把已有凭证返回**：下游
+    // （`HotelProbeDispatcher`）拿 `credential === null` 当「这次导航没登录成
+    // 功」处理，直接跳过酒店探测。返回 null 会让「对已登录账号发起绑定」这条
+    // 最常见的路径必然失效——绑定选的就是已登录账号，`bound` 里几乎总有它。
+    if (this.bound.has(partitionName)) {
+      return this.deps.credentialRepository.findByPartitionName(partitionName);
+    }
+    // 探测进行中：这一次导航让它去，避免同一 partition 并发探测。
+    if (this.inflight.has(partitionName)) return null;
 
     const isCtrip = channel === CTRIP_CHANNEL;
     const isDouyin = channel === DOUYIN_CHANNEL;
