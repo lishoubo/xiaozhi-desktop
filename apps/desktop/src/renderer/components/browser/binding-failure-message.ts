@@ -11,6 +11,8 @@ const FALLBACK = '绑定失败，请重试。';
 export function bindingFailureMessage(reason: unknown): string {
   if (!(reason instanceof Error) || !reason.message) return FALLBACK;
   const unwrapped = reason.message.replace(/^Error invoking remote method '[^']*':\s*/, '');
-  const withoutErrorPrefix = unwrapped.replace(/^(?:Error|TypeError):\s*/, '').trim();
+  // 任意 `XxxError: ` 前缀，不只是内建的 Error/TypeError——主进程抛的是自定义
+  // 子类时（如 InvalidIdentifierError），只匹配内建名会把类名漏给用户。
+  const withoutErrorPrefix = unwrapped.replace(/^[A-Za-z]*Error:\s*/, '').trim();
   return withoutErrorPrefix || FALLBACK;
 }

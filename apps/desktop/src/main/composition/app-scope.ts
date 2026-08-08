@@ -108,6 +108,7 @@ export function createAppScope(logger: AppLogger): AppScope {
       otaCredentialRepository,
       readCookieSnapshot: (partitionName) => readCookieSnapshot(partitionName),
       generateRequestId: () => randomUUID(),
+      logger,
     }),
     otaCredentialService,
     channelRegistry: createChannelRegistry(logger),

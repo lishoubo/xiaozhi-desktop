@@ -132,8 +132,8 @@ export const probedHotelSchema = z.strictObject({
 });
 
 /**
- * 打开 OTA 标签页时携带的意图。目前只有绑定酒店一种：带上它，探测出候选后才会
- * 向 UI 发通知；不带则只是普通打开，探测照跑但无人接收。
+ * 打开 OTA 标签页时携带的意图。目前只有绑定酒店一种：带上它才会触发酒店探测并把
+ * 候选通知到 UI；不带则只是普通打开，完全不探测。
  */
 export const bindHotelIntentSchema = z.strictObject({
   kind: z.literal('bind-hotel'),
@@ -153,13 +153,6 @@ export const uiWaitingResultEnvelopeSchema = z.strictObject({
     hotels: z.array(probedHotelSchema),
   }),
 });
-
-export const startBindingInputSchema = z.strictObject({
-  credentialId: nonEmptyStringSchema,
-  rmsHotelId: z.number().int().positive(),
-});
-
-export type StartBindingInput = Readonly<z.infer<typeof startBindingInputSchema>>;
 
 export const startBindingResultSchema = z.strictObject({
   requestId: nonEmptyStringSchema,

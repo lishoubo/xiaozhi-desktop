@@ -51,8 +51,28 @@ export function toOtaCredentialId(raw: string): OtaCredentialId {
   return raw as OtaCredentialId;
 }
 
+/**
+ * OtaHotelId 是**外部系统的 ID**（携程/抖音/美团各自的门店编号），只被存储与比较，
+ * **不参与 partition 名与磁盘路径的拼接**（`toPartitionName` 只吃 environment /
+ * channel / shortId）。因此这里不套用上面那条为路径安全而设的小写字符集规则——
+ * 那条规则会拒绝合法的外部 ID（如携程的 `SHYQ-310042`），而拒绝的时机在
+ * `confirmBinding` 里是**远端已绑定成功之后**，会把用户卡死在「绑定失败→重试→
+ * 远端说已存在活跃绑定」的死循环里。
+ *
+ * 仍然校验非空与长度上限：空串会静默污染 `(channel, ota_hotel_id)` 唯一键，
+ * 超长值则是明显的解析出错而非真实 ID。
+ */
+const MAX_OTA_HOTEL_ID_LENGTH = 128;
+
 export function toOtaHotelId(raw: string): OtaHotelId {
-  assertValidIdentifier('OtaHotelId', raw);
+  if (raw.length === 0) throw new InvalidIdentifierError('OtaHotelId', raw, '不能为空');
+  if (raw.length > MAX_OTA_HOTEL_ID_LENGTH) {
+    throw new InvalidIdentifierError(
+      'OtaHotelId',
+      raw,
+      `长度不能超过 ${MAX_OTA_HOTEL_ID_LENGTH}`,
+    );
+  }
   return raw as OtaHotelId;
 }
 

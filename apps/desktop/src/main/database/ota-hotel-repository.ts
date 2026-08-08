@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import {
   toChannelId,
   toOtaCredentialId,
@@ -54,8 +55,11 @@ export class SqliteOtaHotelRepository implements OtaHotelRepository {
 
   /**
    * 按 `(channel, otaHotelId)` upsert。同一家渠道酒店在本地只存一条：已存在时
-   * 改指本次凭证并刷新酒店信息，记录 `id` 保持不变（入参里的 `id` 被忽略）。
-   * 用单条 `ON CONFLICT` 而非「先查再决定」，避免两次往返之间的竞态。
+   * 改指本次凭证并刷新酒店信息，记录 `id` 保持不变。用单条 `ON CONFLICT` 而非
+   * 「先查再决定」，避免两次往返之间的竞态。
+   *
+   * `id` 在这里生成而不由调用方传入：冲突时它会被丢弃，只有新增时才生效——这个
+   * 「有时生效有时不生效」的规则属于 upsert 语义本身，不该外泄给调用方。
    *
    * 改指最新凭证是有意的：同一家店应跟随最近一次成功探测的登录态，否则旧凭证
    * 失效后这家店就无法再被操作。
@@ -74,7 +78,11 @@ export class SqliteOtaHotelRepository implements OtaHotelRepository {
            updated_at = CURRENT_TIMESTAMP
          RETURNING ${SELECT_COLUMNS}`,
       )
-      .get({ ...input, bindExtra: serializeJsonObject(input.bindExtra) });
+      .get({
+        ...input,
+        id: randomUUID(),
+        bindExtra: serializeJsonObject(input.bindExtra),
+      });
     if (!row) throw new Error('保存 OtaHotel 失败');
     return hotelFromRow(row);
   }

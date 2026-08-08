@@ -22,9 +22,12 @@ const HOTEL = {
   bindExtra: { merchantGroupId: 'group-1' },
 } as const;
 
-function setup(overrides: { bind?: ReturnType<typeof vi.fn> } = {}) {
+function setup(
+  overrides: { bind?: ReturnType<typeof vi.fn>; save?: ReturnType<typeof vi.fn> } = {},
+) {
   let idCounter = 0;
-  const otaHotelRepository = { save: vi.fn((input) => input) };
+  const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
+  const otaHotelRepository = { save: overrides.save ?? vi.fn((input) => input) };
   const otaAccountGateway = {
     listOtaAccounts: vi.fn(),
     bind: overrides.bind ?? vi.fn().mockResolvedValue({ id: 7 }),
@@ -37,8 +40,9 @@ function setup(overrides: { bind?: ReturnType<typeof vi.fn> } = {}) {
     otaCredentialRepository: { findById: vi.fn(() => credential()) },
     readCookieSnapshot: vi.fn().mockResolvedValue([{ domain: 'a.com', name: 'k', value: 'v' }]),
     generateRequestId: () => `id-${++idCounter}`,
+    logger,
   });
-  return { service, otaHotelRepository, otaAccountGateway };
+  return { service, otaHotelRepository, otaAccountGateway, logger };
 }
 
 describe('HotelManagementService 绑定流程', () => {
@@ -88,6 +92,27 @@ describe('HotelManagementService 绑定流程', () => {
     expect(otaHotelRepository.save).not.toHaveBeenCalled();
   });
 
+  /**
+   * 远端已经绑定成功，本地只是缓存。若把本地失败报成绑定失败，用户一重试远端就会以
+   * 「已存在活跃绑定」拒绝——人被卡死在一个其实早已成功的操作上。
+   */
+  it('本地写入失败不算绑定失败：仍返回远端结果，只记警告', async () => {
+    const { service, logger } = setup({
+      save: vi.fn(() => {
+        throw new Error('磁盘炸了');
+      }),
+    });
+
+    await expect(
+      service.confirmBinding({ credentialId: 'credential-1', rmsHotelId: 42, hotel: HOTEL }),
+    ).resolves.toEqual({ id: 7 });
+
+    expect(logger.warn).toHaveBeenCalledWith(
+      'OTA hotel saved remotely but not locally',
+      expect.objectContaining({ channel: 'douyin' }),
+    );
+  });
+
   it('凭据不存在时明确失败，不调远端也不写本地', async () => {
     const otaHotelRepository = { save: vi.fn() };
     const otaAccountGateway = { listOtaAccounts: vi.fn(), bind: vi.fn(), unbind: vi.fn() };
@@ -98,6 +123,7 @@ describe('HotelManagementService 绑定流程', () => {
       otaCredentialRepository: { findById: vi.fn(() => null) },
       readCookieSnapshot: vi.fn(),
       generateRequestId: () => 'id',
+      logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
     });
 
     await expect(

@@ -70,13 +70,15 @@
 真实文案，并剥掉 Electron 的 `Error invoking remote method '<channel>': ` 包装
 （`binding-failure-message.ts`，3 个单测覆盖）。
 
-**未解决——探测端的静默失败**：`HotelProbeDispatcher` 有**四条**静默 return 路径：
+**未解决——探测端的静默失败**：`HotelProbeDispatcher` 有**三条**静默 return 路径：
 `outcome.kind === 'none'`、没有对应 probe、`isProbeableUrl` 为 false、`probe()` 抛
 异常。任一条命中 UI 都收不到通知，用户无法区分「还在等」和「已经失败」。
 
 已确认**本次不做**（不加常驻等待提示、不加超时）。要补的话应在 dispatcher 层统一
-收敛为一种失败通知，而不是只补 `none` 一种。本次已给这四条路径补了日志
-（`dropped: no binding intent` 等），排查时能直接定位。
+收敛为一种失败通知，而不是只补 `none` 一种。
+
+> 后续更新：原本的第四条「无绑定意图」已随 design 决策 3b 消失——没有意图现在
+> 根本不进探测，不存在「探完了没人接」的状态。剩下三条仍在。
 
 ---
 

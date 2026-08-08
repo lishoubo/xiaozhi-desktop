@@ -74,7 +74,7 @@ export class OtaTabService {
 
   /**
    * 打开已有账号（流程B）。`intent` 说明"这次打开是为了做什么"：带上它，登录
-   * 判定完成后探测出的候选会通知到 UI；不带则只开 tab 并做判定，候选无人接收。
+   * 判定完成后才会探测酒店并把候选通知到 UI；不带则只开 tab 并做判定，不探测。
    * intent 由 `LoginDetector` 保管（挂在 tab 记录上，随 tab 关闭一起消失），
    * 并随 `tab:credential-checked` 广播带给下游。
    */

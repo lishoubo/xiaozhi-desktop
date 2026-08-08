@@ -13,7 +13,6 @@ function createLogger() {
 
 function input(overrides: Partial<Parameters<SqliteOtaHotelRepository['save']>[0]> = {}) {
   return {
-    id: 'ota-hotel-1',
     credentialId: toOtaCredentialId('credential-1'),
     channel: toChannelId('douyin'),
     otaHotelId: toOtaHotelId('dy-111'),
@@ -71,7 +70,7 @@ describe('SqliteOtaHotelRepository', () => {
 
   it('同一 (channel, otaHotelId) 二次保存走 upsert，不抛错且记录 id 不变', () => {
     const created = repository.save(input());
-    const again = repository.save(input({ id: 'ignored-id' }));
+    const again = repository.save(input());
 
     expect(again.id).toBe(created.id);
     expect(countRows(database)).toBe(1);
@@ -82,7 +81,6 @@ describe('SqliteOtaHotelRepository', () => {
 
     const updated = repository.save(
       input({
-        id: 'ignored-id',
         credentialId: toOtaCredentialId('credential-2'),
         otaHotelName: '新酒店名',
         bindExtra: { merchantGroupId: 'group-2' },
@@ -99,7 +97,7 @@ describe('SqliteOtaHotelRepository', () => {
 
   it('同一凭证保存两家不同酒店时两条记录并存', () => {
     repository.save(input());
-    repository.save(input({ id: 'ota-hotel-2', otaHotelId: toOtaHotelId('dy-222') }));
+    repository.save(input({ otaHotelId: toOtaHotelId('dy-222') }));
 
     expect(countRows(database)).toBe(2);
     expect(

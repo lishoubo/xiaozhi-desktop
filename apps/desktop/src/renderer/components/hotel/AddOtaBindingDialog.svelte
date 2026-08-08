@@ -83,7 +83,7 @@
       showAppNotification({
         id: NOTIFICATION_ID,
         title: '发起绑定失败',
-        message: '打开渠道标签页失败，请重试。',
+        message: '请重试。',
         tone: 'error',
       });
     } finally {

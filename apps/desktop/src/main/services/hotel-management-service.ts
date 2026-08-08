@@ -4,6 +4,7 @@ import type { RmsOtaAccount } from '../../shared/types/rms-ota-account';
 import type { OtaHotelRepository } from '../database/ota-hotel-repository';
 import type { OtaCredentialRepository } from '../database/ota-credential-repository';
 import type { ConfirmBindingInput } from '../../shared/browser';
+import type { AppLogger } from '../../shared/logging';
 import { toOtaCredentialId, toOtaHotelId } from '../ids';
 
 export type RmsHotelOtaAccountsSnapshot = Readonly<{
@@ -19,6 +20,7 @@ export type HotelManagementServiceDependencies = Readonly<{
   /** 按 partition 读取实时 cookie 快照；实现落在 composition root（services 不得 import browser/）。 */
   readCookieSnapshot: (partitionName: string) => Promise<readonly RmsCookieSnapshotEntry[]>;
   generateRequestId: () => string;
+  logger: AppLogger;
 }>;
 
 /**
@@ -65,7 +67,8 @@ export class HotelManagementService {
   /**
    * 用户选定候选后收尾：**先远端、后本地**。远端是绑定关系的权威，先写本地会在
    * 远端失败时留下无从解释的孤儿记录（本地表根本不表达绑定关系）；反向最坏只是
-   * 本地缺一条酒店信息，下次保存即自愈。
+   * 本地缺一条酒店信息，下次保存即自愈——所以本地写入失败**不算绑定失败**，只记
+   * 警告（见下）。
    */
   async confirmBinding(input: ConfirmBindingInput): Promise<RmsOtaAccount> {
     const credential = this.deps.otaCredentialRepository.findById(
@@ -84,14 +87,24 @@ export class HotelManagementService {
       cookies,
     });
 
-    this.deps.otaHotelRepository.save({
-      id: this.deps.generateRequestId(),
-      credentialId: credential.id,
-      channel: credential.channel,
-      otaHotelId: toOtaHotelId(input.hotel.otaHotelId),
-      otaHotelName: input.hotel.otaHotelName,
-      bindExtra: input.hotel.bindExtra,
-    });
+    // 远端已经绑定成功，这一步只是把酒店信息缓存到本地。它失败不该让用户看到
+    // 「绑定失败」——用户一重试，远端就会以「已存在活跃绑定」拒绝，人被卡死在
+    // 一个其实早已成功的操作上。按决策 6 的自愈逻辑：最坏只是本地缺一条酒店
+    // 信息，下次探测保存即可补上。
+    try {
+      this.deps.otaHotelRepository.save({
+        credentialId: credential.id,
+        channel: credential.channel,
+        otaHotelId: toOtaHotelId(input.hotel.otaHotelId),
+        otaHotelName: input.hotel.otaHotelName,
+        bindExtra: input.hotel.bindExtra,
+      });
+    } catch (error) {
+      this.deps.logger.warn('OTA hotel saved remotely but not locally', {
+        channel: credential.channel,
+        errorName: error instanceof Error ? error.name : 'UnknownError',
+      });
+    }
 
     return otaAccount;
   }

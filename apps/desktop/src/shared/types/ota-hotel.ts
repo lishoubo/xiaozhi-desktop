@@ -18,8 +18,12 @@ export type OtaHotel = Readonly<{
   bindExtra: JsonObject | null;
 }>;
 
-/** `save()` 的入参。字段与 `OtaHotel` 一致：命中冲突时 `id` 忽略，沿用既有记录。 */
-export type OtaHotelSaveInput = OtaHotel;
+/**
+ * `save()` 的入参。**不含 `id`**：命中 `(channel, otaHotelId)` 冲突时沿用既有记录的
+ * id，新增时才生成——两种情况下调用方传进来的 id 都不会成为最终结果，让调用方编一个
+ * 只会让「这个 id 到底生不生效」在读代码时无从判断。id 由仓储自己负责。
+ */
+export type OtaHotelSaveInput = Omit<OtaHotel, 'id'>;
 
 // 这里曾有 createOtaHotel + InvalidOtaHotelError，唯一的校验是
 // `credentialId.length === 0`。但 credentialId 的类型是 branded 的

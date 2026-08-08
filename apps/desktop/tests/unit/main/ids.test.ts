@@ -4,6 +4,7 @@ import {
   parseChannelId,
   toChannelId,
   toOtaCredentialId,
+  toOtaHotelId,
 } from '../../../src/main/ids';
 
 describe('toChannelId', () => {
@@ -58,5 +59,26 @@ describe('toOtaCredentialId', () => {
 
   it('拒绝空 credential 标识', () => {
     expect(() => toOtaCredentialId('')).toThrow(InvalidIdentifierError);
+  });
+});
+
+describe('toOtaHotelId', () => {
+  /**
+   * 这是**外部系统的 ID**，只被存储与比较，不进 partition 名与磁盘路径，所以不套用
+   * ChannelId 那套为路径安全而设的小写字符集规则。曾经套用过，代价是携程这类大写
+   * ID 会在「远端已绑定成功之后」才抛错，把用户卡在绑定失败的死循环里。
+   */
+  it('接受大写与下划线等外部系统常见形态', () => {
+    expect(toOtaHotelId('SHYQ-310042')).toBe('SHYQ-310042');
+    expect(toOtaHotelId('742966120')).toBe('742966120');
+    expect(toOtaHotelId('poi_88_A')).toBe('poi_88_A');
+  });
+
+  it('仍然拒绝空串 —— 会静默污染 (channel, ota_hotel_id) 唯一键', () => {
+    expect(() => toOtaHotelId('')).toThrow(InvalidIdentifierError);
+  });
+
+  it('仍然拒绝超长值 —— 那是解析出错而非真实 ID', () => {
+    expect(() => toOtaHotelId('a'.repeat(129))).toThrow(InvalidIdentifierError);
   });
 });

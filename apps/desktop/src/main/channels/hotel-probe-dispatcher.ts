@@ -19,7 +19,9 @@
  * 早退——用户否决候选后必须能对同一凭证再次探测。见
  * openspec/changes/ota-hotel-stores-hotel-info-only/design.md 决策 3、4。
  *
- * 候选结果暂无消费者，只记日志；向上通知由后续「绑定流程」变更接通。
+ * **只有带 `bind-hotel` 意图的标签页才探测**。「无副作用」说的是不写库，不是不
+ * 碰页面：抖音探测会点开左侧菜单、等页面就绪、拦 CDP 响应（最长 30s），用户正
+ * 在看的页面会被挪走。普通登录不带意图，因此一次都不探。
  */
 import { toChannelId, type ChannelId } from '../ids';
 import type { AppLogger } from '../../shared/logging';
@@ -50,6 +52,12 @@ export class HotelProbeDispatcher {
     const { credential } = event.outcome;
     if (!credential) return;
 
+    // 没有绑定意图就没有等待方，探测的结果无人接收——所以**根本不探**。这个判断
+    // 必须早于 `probe()`：探测不是免费的旁观动作，抖音要点开左侧菜单、等页面加载、
+    // 拦响应（最长 30s），会把用户正在看的页面挪走；美团要注入脚本发请求。普通
+    // 登录只是「登录」，不该被顺带劫持成一次探测。
+    if (event.intent?.kind !== 'bind-hotel') return;
+
     const probe = this.deps.probes.get(toChannelId(event.channel));
     if (!probe || !probe.isProbeableUrl(event.url)) return;
 
@@ -69,16 +77,8 @@ export class HotelProbeDispatcher {
       channel: event.channel,
       hotelCount: outcome.hotels.length,
       tabId: event.tabId,
-      intentKind: event.intent?.kind ?? 'none',
+      intentKind: event.intent.kind,
     });
-
-    // 没有绑定意图就没有等待方：探测照跑，结果无人接收。
-    if (event.intent?.kind !== 'bind-hotel') {
-      this.deps.logger.info('Hotel probe candidates dropped: no binding intent', {
-        channel: event.channel,
-      });
-      return;
-    }
 
     // 标签页已经关了说明用户已放弃，候选没有意义。这个判断必须在 probe() 之后
     // ——探测期间用户随时可能关闭。

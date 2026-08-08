@@ -28,14 +28,21 @@ function credential(overrides: Partial<OtaCredential> = {}): OtaCredential {
   };
 }
 
+const BIND_INTENT = { kind: 'bind-hotel', requestId: 'req-1' } as const;
+
+/**
+ * 默认带绑定意图：没有意图就根本不探测，绝大多数用例要断言的是探测本身的行为。
+ * 「无意图不探测」由专门的用例覆盖。
+ */
 function fakeEvent(overrides: Partial<TabCredentialCheckedEvent> = {}): TabCredentialCheckedEvent {
   return {
     tabId: 'tab-1',
     partitionName: 'persist:xiaozhi:prod:douyin:aaa',
     channel: 'douyin',
     url: 'https://life.douyin.com/p/home?groupid=1',
-    webContents: {} as never,
+    webContents: { isDestroyed: () => false } as never,
     outcome: { kind: 'checked', credential: credential() },
+    intent: BIND_INTENT,
     ...overrides,
   };
 }
@@ -61,8 +68,6 @@ function createDeps(overrides: Pick<Partial<HotelProbeDispatcherDependencies>, '
     ...overrides,
   } satisfies HotelProbeDispatcherDependencies;
 }
-
-const BIND_INTENT = { kind: 'bind-hotel', requestId: 'req-1' } as const;
 
 async function flushMicrotasks(): Promise<void> {
   await new Promise((resolve) => setImmediate(resolve));
@@ -167,12 +172,7 @@ describe('HotelProbeDispatcher', () => {
     const deps = createDeps();
     new HotelProbeDispatcher(deps);
 
-    deps.tabEventBus.emitCredentialChecked(
-      fakeEvent({
-        intent: BIND_INTENT,
-        webContents: { isDestroyed: () => false } as never,
-      }),
-    );
+    deps.tabEventBus.emitCredentialChecked(fakeEvent());
     await flushMicrotasks();
 
     expect(deps.notify).toHaveBeenCalledWith({
@@ -185,17 +185,16 @@ describe('HotelProbeDispatcher', () => {
     });
   });
 
-  it('无绑定意图时不通知 UI，只记候选日志', async () => {
-    const deps = createDeps();
+  it('无绑定意图时根本不探测——普通登录不该被顺带劫持成一次探测', async () => {
+    const probe = foundProbe();
+    const deps = createDeps({ probes: new Map([[toChannelId('douyin'), probe]]) });
     new HotelProbeDispatcher(deps);
 
-    deps.tabEventBus.emitCredentialChecked(fakeEvent());
+    deps.tabEventBus.emitCredentialChecked(fakeEvent({ intent: undefined }));
     await flushMicrotasks();
 
-    expect(deps.logger.info).toHaveBeenCalledWith(
-      'Hotel probe found candidates',
-      expect.objectContaining({ hotelCount: 1 }),
-    );
+    expect(probe.probe).not.toHaveBeenCalled();
+    expect(probe.isProbeableUrl).not.toHaveBeenCalled();
     expect(deps.notify).not.toHaveBeenCalled();
   });
 

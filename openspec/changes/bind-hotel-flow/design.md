@@ -108,6 +108,22 @@
 
 候选在用户确认前不是事实，不该进入任何持久化。这也是为什么 Change 1 要把探测改成无副作用——两个决策是同一件事的两面。
 
+### 决策 3b：没有绑定意图就不探测
+
+初版 dispatcher 的顺序是「先 `probe()`，再看 intent 决定要不要通知」，无意图时探测照跑、结果只记日志。那是 dispatcher 还没有消费者时的遗留形态，不是有意选择——接上绑定链路后它就变成纯粹的代价。
+
+「探测无副作用」说的是**不写库**，不是不碰页面：
+
+| 渠道 | probe 实际做什么 | 用户可见 |
+|---|---|---|
+| 携程 | 解析已存的 `credentialExtra` | 无 |
+| 美团 | `executeJavaScript` 发一次门店列表请求 | 基本无感 |
+| 抖音 | 点开左侧「门店管理」菜单 → 等菜单就绪(4s) → 拦 CDP `dsl/get`(最长 30s) | **把用户正在看的页面挪走** |
+
+所以判断必须**早于** `probe()`：普通登录只是「登录」，不该被顺带劫持成一次探测。改后 `event.intent?.kind !== 'bind-hotel'` 直接 return，`isProbeableUrl` 都不调。
+
+顺带消掉了 known-issues 问题 3 里「无意图时的候选丢弃日志」——那条路径现在根本走不到。
+
 ### 决策 4：kind → payload 映射表
 
 ```ts
@@ -175,12 +191,36 @@ composition root 接到 `webContents.send`——与既有 `setAccountBoundNotifi
 ### 决策 6：远端先于本地
 
 ```
-gateway.bind(...)  ──成功──> repository.save(...)
-       │
+gateway.bind(...)  ──成功──> repository.save(...) ──失败──> 记 warn，仍返回成功
+       │                                          └──成功──> 返回
        └──失败──> 抛出，不写本地
 ```
 
 理由：远端是绑定关系的权威。若先写本地再写远端，远端失败会留下「本地有、远端无」的孤儿记录，而本地表根本不表达绑定关系，这条记录无从解释。反向则最坏只是「远端有、本地无酒店信息」，下次探测保存即可自愈。
+
+**本地写入失败不算绑定失败**（初版实现漏了这一半，后补）：既然「最坏只是本地缺一条、下次自愈」，那它就不该冒泡成用户可见的失败。让它抛的后果是——远端**已经绑定成功**，用户却看到「绑定失败」，一重试远端就以「该酒店的此渠道已存在活跃绑定」拒绝，人被永久卡在一个其实早已成功的操作上。这条路径是可达的，不是理论风险：见下方 `OtaHotelId` 字符集。
+
+### 决策 6b：`OtaHotelId` 不套用 partition 的字符集规则
+
+`toOtaHotelId` 原先复用 `assertValidIdentifier`，即 `/^[a-z0-9][a-z0-9-]*$/`。那条规则的理由写在 `ids.ts` 上：标识符会被拼进 partition 字符串和磁盘路径，大小写混用在 macOS 通过、在 Linux 失败。
+
+但 `OtaHotelId` **不进任何路径**——`toPartitionName(environment, channel, shortId)` 三个入参都不是它。它是携程/抖音/美团各自的门店编号，本地只存储与比较。
+
+| | 借用 partition 规则 | 独立规则（本次） |
+|---|---|---|
+| `SHYQ-310042`（携程真实形态，mock seed 里就有） | ✗ 抛 `InvalidIdentifierError` | ✓ |
+| 抛错时机 | `confirmBinding` 里，**远端已绑定成功之后** | — |
+| 后果 | 用户看到「绑定失败」→ 重试 → 远端说「已存在活跃绑定」→ 死循环 | — |
+
+保留非空与长度上限（128）：空串会静默污染 `(channel, ota_hotel_id)` 唯一键，超长值是解析出错而非真实 ID。
+
+三个 probe 里 `toOtaHotelId` 也在调，抖音那处的 throw 被 `catch` 成 `{kind:'none'}`（表现为「探不到酒店」），携程走 `/(\d+)/` 提取不受影响——所以此前只有 `confirmBinding` 这一处会真正炸给用户。
+
+### 决策 6c：`ota_hotel` 的行 id 由仓储生成
+
+`save()` 是按 `(channel, ota_hotel_id)` upsert 的，冲突时入参 `id` 被丢弃、沿用既有记录。让调用方传一个「有时生效、有时不生效」的 id，读代码时无从判断它到底会不会落库；实现里更是直接把 `generateRequestId()`（语义是「绑定请求号」）当行主键使，一个依赖同时承担三种含义。
+
+改法：`OtaHotelSaveInput = Omit<OtaHotel, 'id'>`，`id` 在 `SqliteOtaHotelRepository.save()` 内部 `randomUUID()`。这条「有时生效」的规则属于 upsert 语义本身，不外泄。
 
 ### 决策 7：cookie 快照从哪来
 

@@ -68,9 +68,16 @@ export function createWindowScope(scope: AppScope): WindowScope {
     logger,
     // dispatcher 在 channels/，不认识 electron 与 ipc；这里把它接到窗口上。
     notify: (envelope) => {
-      if (!window.isDestroyed()) {
-        window.webContents.send(IPC_CHANNELS.uiWaitingResult.delivered, envelope);
+      if (window.isDestroyed()) {
+        // 不记的话，dispatcher 已经打了 `candidates delivered`，日志上看是送到了，
+        // 排查时会误判成渲染进程侧的问题。
+        logger.warn('UI waiting result dropped: window destroyed', {
+          requestId: envelope.requestId,
+          kind: envelope.kind,
+        });
+        return;
       }
+      window.webContents.send(IPC_CHANNELS.uiWaitingResult.delivered, envelope);
     },
   });
 
