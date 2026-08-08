@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import type { JsonObject, JsonValue } from '../domain/json';
+import type { JsonObject, JsonValue } from '../shared/types/json';
 
 const nonEmptyStringSchema = z
   .string()
@@ -42,12 +42,6 @@ export const browserTabSchema = z.strictObject({
 });
 
 export type BrowserTab = Readonly<z.infer<typeof browserTabSchema>>;
-
-export const browserRequestInterceptionSchema = z.strictObject({
-  ruleId: z.literal('ctrip-soa2'),
-});
-
-export type BrowserRequestInterception = Readonly<z.infer<typeof browserRequestInterceptionSchema>>;
 
 export const browserCookieSourceIdSchema = z.enum([
   'chrome',

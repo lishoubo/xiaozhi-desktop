@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { toChannelId, toOtaCredentialId, toOtaHotelId } from '../../../../src/domain/identity';
+import { toChannelId, toOtaCredentialId, toOtaHotelId } from '../../../../src/main/ids';
 import {
   openApplicationDatabase,
   type ApplicationDatabase,

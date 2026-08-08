@@ -159,15 +159,21 @@ docs/                            规范之外的文档
 
 测试细则见 `docs/TESTING_STANDARDS.md`。通用工程与 Electron 安全必须遵守以下硬约束：
 
-- **核心业务逻辑与框架解耦**：`src/domain/` 零框架依赖，不 import `electron` / `better-sqlite3` / `svelte` / harness SDK / `node:fs`。判定标准 = 验收标准：domain 的测试用裸 vitest 跑，不需要 mock 任何东西
-- 依赖方向：`renderer` 只通过 `preload` 访问 `main`；`domain` 不依赖任何一端；只有 composition root 能 import Gateway 实现
+- **分层边界由 eslint 强制**，不靠约定（见 `apps/desktop/.eslintrc.json`）：
+  - `shared/`（跨进程契约与纯类型）与 `main/ids.ts`（标识符校验）零框架依赖，且 `shared` 不得依赖 `main`
+  - `main/ipc/` 只做边界：信任校验 → 参数校验 → 调**恰好一个** service → 错误转换；不得 import `electron`（`ipcMain` 收在 `create-handler-registry.ts`）、不得直连仓储与基础设施
+  - `main/services/` 是业务编排，不得直接开 tab —— OTA 标签页的唯一开口是 `main/ota-tab/`
+  - `main/channels/` 是被注入的渠道适配器，不得反向依赖 `services`/`ipc`/`composition`
+  - `renderer` 只通过 `preload` 访问 `main`
+- 只有 composition root（`main/composition/`）能 import 实现类；其余各层依赖窄接口
+- `main/index.ts` 是进程入口，不含任何业务对象 `new`
 - 保持既有行为，不顺手重构、重命名、升级无关代码
 - 优先简单显式的写法，不做投机抽象；只有"确定会有第二种实现"才值得抽象
 - 错误在有足够上下文的层处理，或保留 cause 向上抛，**不静默吞掉**
 - 严格 TypeScript，避免 `any`、非空断言、类型断言；不可避免时说明原因
 - 删除废弃代码，不留注释掉的实现
 
-架构定稿见 `docs/arch/2026-08-03-final-architecture.md`。
+desktop 主进程分层定稿见 `openspec/specs/desktop-main-layering/spec.md`。
 
 ## 安全护栏
 

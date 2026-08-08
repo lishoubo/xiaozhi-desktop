@@ -77,9 +77,7 @@ describe('createDesktopApi', () => {
       partitionName: 'persist:xiaozhi:prod:ctrip:short',
     };
     const invoke = vi.fn(async (channel: string) => {
-      if (channel === IPC_CHANNELS.otaTab.openView || channel === IPC_CHANNELS.browser.activate) {
-        return tab;
-      }
+      if (channel === IPC_CHANNELS.browser.activate) return tab;
       if (channel === IPC_CHANNELS.browser.list) return [tab];
       if (channel === IPC_CHANNELS.browser.getAudioMuted) return false;
       if (channel === IPC_CHANNELS.browser.setAudioMuted) return true;
@@ -90,13 +88,10 @@ describe('createDesktopApi', () => {
       if (channel === IPC_CHANNELS.cookies.listImportedChannels) {
         return [{ channel: 'ctrip', importedAt: '2026-08-05T00:00:00.000Z' }];
       }
-      if (channel === IPC_CHANNELS.automation.getCtripCheckIn) return null;
       return undefined;
     });
     const api = createDesktopApi({ chrome: '1', electron: '2', node: '3' }, invoke);
 
-    await api.browser.acknowledgeInterception();
-    await api.otaTab.openView('ctrip', 'https://ebooking.ctrip.com/');
     await api.browser.activate('tab-1');
     await api.browser.close('tab-1');
     await api.browser.goBack('tab-1');
@@ -110,11 +105,8 @@ describe('createDesktopApi', () => {
     await api.cookies.listSources();
     await api.cookies.import('edge');
     await api.cookies.listImportedChannels();
-    await api.automation.getCtripCheckIn();
 
     expect(invoke.mock.calls).toEqual([
-      [IPC_CHANNELS.browser.acknowledgeInterception],
-      [IPC_CHANNELS.otaTab.openView, { channelId: 'ctrip', url: 'https://ebooking.ctrip.com/' }],
       [IPC_CHANNELS.browser.activate, 'tab-1'],
       [IPC_CHANNELS.browser.close, 'tab-1'],
       [IPC_CHANNELS.browser.goBack, 'tab-1'],
@@ -128,25 +120,9 @@ describe('createDesktopApi', () => {
       [IPC_CHANNELS.cookies.listSources],
       [IPC_CHANNELS.cookies.import, 'edge'],
       [IPC_CHANNELS.cookies.listImportedChannels],
-      [IPC_CHANNELS.automation.getCtripCheckIn],
     ]);
   });
 
-  it('subscribes to sanitized embedded-browser interception events', () => {
-    const subscribe = vi.fn();
-    const listener = vi.fn();
-    const api = createDesktopApi({ chrome: '1', electron: '2', node: '3' }, vi.fn(), subscribe);
-
-    api.browser.onRequestIntercepted(listener);
-    const subscription = subscribe.mock.calls[0][1] as (value: unknown) => void;
-    subscription({ ruleId: 'ctrip-soa2' });
-
-    expect(subscribe).toHaveBeenCalledWith(
-      IPC_CHANNELS.browser.requestIntercepted,
-      expect.any(Function),
-    );
-    expect(listener).toHaveBeenCalledWith({ ruleId: 'ctrip-soa2' });
-  });
 
   it('exposes a typed calendar data source over fixed IPC channels', async () => {
     const snapshot = {
@@ -208,18 +184,13 @@ describe('createDesktopApi', () => {
 
   it('drops malformed main-process events before they reach renderer listeners', () => {
     const subscribe = vi.fn();
-    const interceptionListener = vi.fn();
     const stateListener = vi.fn();
     const api = createDesktopApi({ chrome: '1', electron: '2', node: '3' }, vi.fn(), subscribe);
 
-    api.browser.onRequestIntercepted(interceptionListener);
     api.browser.onStateChanged(stateListener);
-    const interceptionSubscription = subscribe.mock.calls[0][1] as (value: unknown) => void;
-    const stateSubscription = subscribe.mock.calls[1][1] as (value: unknown) => void;
-    interceptionSubscription({ ruleId: 'unexpected-rule' });
+    const stateSubscription = subscribe.mock.calls[0][1] as (value: unknown) => void;
     stateSubscription({ id: 'tab-1' });
 
-    expect(interceptionListener).not.toHaveBeenCalled();
     expect(stateListener).not.toHaveBeenCalled();
   });
 

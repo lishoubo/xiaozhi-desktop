@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { douyinLoginUrlMatcher } from '../../../src/main/features/ota-tab-opener/ota/douyin/login-url-matcher';
+import { douyinLoginUrlMatcher } from '../../../src/main/channels/douyin/login-url-matcher';
 
 describe('douyinLoginUrlMatcher', () => {
   it('停在登录页时判定为尚未登录成功', () => {

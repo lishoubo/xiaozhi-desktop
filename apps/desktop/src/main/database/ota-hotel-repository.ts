@@ -5,16 +5,25 @@ import {
   type ChannelId,
   type OtaCredentialId,
   type OtaHotelId,
-} from '../../domain/identity';
+} from '../ids';
 import {
-  createOtaHotel,
   type OtaHotel,
   type OtaHotelCreateInput,
   type OtaHotelDiscoveryUpdate,
-} from '../../domain/ota-hotel';
-import type { OtaHotelRepository } from '../../domain/ports/repositories';
+} from '../../shared/types/ota-hotel';
 import type { ApplicationDatabase } from './application-database';
 import { parseJsonObject, serializeJsonObject } from './json-storage';
+
+/**
+ * 渠道酒店的持久化能力。接口与实现同文件：service 只 import 这个类型，
+ * eslint 已禁止它们 import 下面的实现类。
+ */
+export interface OtaHotelRepository {
+  create(input: OtaHotelCreateInput): OtaHotel;
+  findByChannelAndHotelId(channel: ChannelId, otaHotelId: OtaHotelId): OtaHotel | null;
+  findByCredentialId(credentialId: OtaCredentialId): OtaHotel | null;
+  updateDiscovery(id: OtaHotel['id'], update: OtaHotelDiscoveryUpdate): OtaHotel;
+}
 
 type OtaHotelRow = Readonly<{
   id: string;
@@ -27,7 +36,7 @@ type OtaHotelRow = Readonly<{
 }>;
 
 function hotelFromRow(row: OtaHotelRow): OtaHotel {
-  return createOtaHotel({
+  return {
     id: row.id,
     credentialId: toOtaCredentialId(row.credentialId),
     channel: toChannelId(row.channel),
@@ -35,7 +44,7 @@ function hotelFromRow(row: OtaHotelRow): OtaHotel {
     otaHotelName: row.otaHotelName,
     bindExtra: parseJsonObject(row.bindExtra, 'bindExtra'),
     discoveredAt: row.discoveredAt,
-  });
+  };
 }
 
 const SELECT_COLUMNS = `
@@ -52,7 +61,7 @@ export class SqliteOtaHotelRepository implements OtaHotelRepository {
   constructor(private readonly database: ApplicationDatabase) {}
 
   create(input: OtaHotelCreateInput): OtaHotel {
-    const hotel = createOtaHotel(input);
+    const hotel: OtaHotel = { ...input };
     this.database
       .prepare(
         `INSERT INTO ota_hotel

@@ -1,5 +1,4 @@
-import { ipcMain, type IpcMainInvokeEvent } from 'electron';
-import { z, type ZodType } from 'zod';
+import { z } from 'zod';
 import {
   rmsHotelCreateInputSchema,
   rmsHotelIdSchema,
@@ -7,8 +6,9 @@ import {
 } from '../../shared/hotel-management';
 import { IPC_CHANNELS } from '../../shared/ipc-channels';
 import type { AppLogger } from '../../shared/logging';
-import type { RmsHotelCreateInput, RmsHotel } from '../../domain/rms-hotel';
-import type { RmsHotelOtaAccountsSnapshot } from '../features/hotel-management/hotel-management-feature';
+import type { RmsHotelCreateInput, RmsHotel } from '../../shared/types/rms-hotel';
+import type { RmsHotelOtaAccountsSnapshot } from '../services/hotel-management-service';
+import { createHandlerRegistry, type TrustedWindow } from './create-handler-registry';
 
 export interface HotelManagementOrchestrator {
   load(): Promise<RmsHotelOtaAccountsSnapshot>;
@@ -18,7 +18,7 @@ export interface HotelManagementOrchestrator {
 }
 
 type RegisterHotelManagementHandlersOptions = Readonly<{
-  window: Readonly<{ webContents: unknown }>;
+  window: TrustedWindow;
   feature: HotelManagementOrchestrator;
   logger: AppLogger;
 }>;
@@ -28,49 +28,44 @@ export function registerHotelManagementHandlers({
   feature,
   logger,
 }: RegisterHotelManagementHandlersOptions): () => void {
-  const channels = Object.values(IPC_CHANNELS.hotelManagement);
-  const handle = <Arguments extends unknown[]>(
-    channel: string,
-    argumentsSchema: ZodType<Arguments>,
-    listener: (...args: Arguments) => unknown,
-  ): void => {
-    ipcMain.handle(channel, (event: IpcMainInvokeEvent, ...args: unknown[]) => {
-      if (event.sender !== window.webContents) {
-        logger.warn('Rejected untrusted IPC request', { channel });
-        throw new Error('拒绝来自非主应用窗口的请求');
-      }
-      const parsed = argumentsSchema.safeParse(args);
-      if (!parsed.success) {
-        logger.warn('Rejected invalid IPC request', { channel });
-        throw new Error('酒店管理参数无效');
-      }
-      return Promise.resolve(listener(...parsed.data)).catch((error: unknown) => {
-        logger.error('Hotel management operation failed', {
-          operation: channel,
-          errorName: error instanceof Error ? error.name : 'UnknownError',
-        });
-        throw error;
+  const registry = createHandlerRegistry({ window, logger });
+
+  /** 远端调用失败时记一条带 channel 的日志再原样抛出。 */
+  const logFailure = <T>(channel: string, operation: () => Promise<T>): Promise<T> =>
+    operation().catch((error: unknown) => {
+      logger.error('Hotel management operation failed', {
+        operation: channel,
+        errorName: error instanceof Error ? error.name : 'UnknownError',
       });
+      throw error;
     });
-  };
 
-  handle(IPC_CHANNELS.hotelManagement.load, z.tuple([]), () => feature.load());
-
-  handle(IPC_CHANNELS.hotelManagement.createHotel, z.tuple([rmsHotelCreateInputSchema]), (input) =>
-    feature.createHotel(input),
+  registry.handle(IPC_CHANNELS.hotelManagement.load, z.tuple([]), '酒店管理参数无效', () =>
+    logFailure(IPC_CHANNELS.hotelManagement.load, () => feature.load()),
   );
-
-  handle(IPC_CHANNELS.hotelManagement.deleteHotel, z.tuple([rmsHotelIdSchema]), (hotelId) =>
-    feature.deleteHotel(hotelId),
+  registry.handle(
+    IPC_CHANNELS.hotelManagement.createHotel,
+    z.tuple([rmsHotelCreateInputSchema]),
+    '酒店管理参数无效',
+    (input) =>
+      logFailure(IPC_CHANNELS.hotelManagement.createHotel, () => feature.createHotel(input)),
   );
-
-  handle(
+  registry.handle(
+    IPC_CHANNELS.hotelManagement.deleteHotel,
+    z.tuple([rmsHotelIdSchema]),
+    '酒店管理参数无效',
+    (hotelId) =>
+      logFailure(IPC_CHANNELS.hotelManagement.deleteHotel, () => feature.deleteHotel(hotelId)),
+  );
+  registry.handle(
     IPC_CHANNELS.hotelManagement.unbindOtaAccount,
     z.tuple([rmsOtaAccountIdSchema]),
-    (otaAccountId) => feature.unbindOtaAccount(otaAccountId),
+    '酒店管理参数无效',
+    (otaAccountId) =>
+      logFailure(IPC_CHANNELS.hotelManagement.unbindOtaAccount, () =>
+        feature.unbindOtaAccount(otaAccountId),
+      ),
   );
 
-  return () => {
-    for (const channel of channels) ipcMain.removeHandler(channel);
-  };
+  return () => registry.dispose();
 }

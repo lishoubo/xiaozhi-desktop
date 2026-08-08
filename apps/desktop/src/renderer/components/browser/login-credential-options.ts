@@ -1,4 +1,4 @@
-import type { JsonValue } from '../../../domain/json';
+import type { JsonValue } from '../../../shared/types/json';
 import type { OtaCredentialDto } from '../../../shared/browser';
 
 export type LoginCredentialOption = Readonly<{

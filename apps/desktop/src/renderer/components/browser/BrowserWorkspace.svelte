@@ -373,14 +373,6 @@
     const unsubscribe = window.hotelButler.browser.onStateChanged((tab) => {
       updateTab(tab);
     });
-    const unsubscribeInterception = window.hotelButler.browser.onRequestIntercepted(() => {
-      showAppNotification({
-        id: 'browser-request-intercepted',
-        title: '请求拦截成功',
-        message: '已拦截携程接口请求：/restapi/soa2/**',
-        tone: 'default',
-      });
-    });
     const unsubscribeDiscoveryCompleted = window.hotelButler.otaCredential.onDiscoveryCompleted(
       ({ channel }) => {
         if (channel === activeChannelId) void loadCredentials(channel);
@@ -444,7 +436,6 @@
         });
       });
       unsubscribe();
-      unsubscribeInterception();
       unsubscribeDiscoveryCompleted();
       observer.disconnect();
       window.removeEventListener('resize', syncBounds);

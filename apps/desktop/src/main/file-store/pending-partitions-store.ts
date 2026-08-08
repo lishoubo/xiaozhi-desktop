@@ -22,7 +22,7 @@
  */
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import type { ChannelId } from '../../domain/identity';
+import type { ChannelId } from '../ids';
 
 const PENDING_PARTITIONS_FILENAME = 'pending-partitions.json';
 

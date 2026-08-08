@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import type { JsonObject, JsonValue } from '../domain/json';
+import type { JsonObject, JsonValue } from '../shared/types/json';
 
 const nonEmptyStringSchema = z
   .string()

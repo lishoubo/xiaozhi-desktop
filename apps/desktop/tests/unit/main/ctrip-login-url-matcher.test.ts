@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ctripLoginUrlMatcher } from '../../../src/main/features/ota-tab-opener/ota/ctrip/login-url-matcher';
+import { ctripLoginUrlMatcher } from '../../../src/main/channels/ctrip/login-url-matcher';
 
 describe('ctripLoginUrlMatcher', () => {
   it('URL 含 /login/ 时判定为尚未登录成功', () => {

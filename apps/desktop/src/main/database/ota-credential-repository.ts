@@ -3,17 +3,33 @@ import {
   toOtaCredentialId,
   type ChannelId,
   type OtaCredentialId,
-} from '../../domain/identity';
+} from '../ids';
 import {
   createOtaCredential,
   type OtaCredential,
   type OtaCredentialCreateInput,
   type OtaCredentialIdentityUpdate,
   type OtaCredentialPartitionUpdate,
-} from '../../domain/ota-credential';
-import type { OtaCredentialRepository } from '../../domain/ports/repositories';
+} from '../../shared/types/ota-credential';
 import type { ApplicationDatabase } from './application-database';
 import { parseJsonObject, serializeJsonObject } from './json-storage';
+
+/**
+ * 登录凭据的持久化能力。接口与实现同文件：service 只 import 这个类型，
+ * eslint 已禁止它们 import 下面的实现类，不需要把接口单独放远处。
+ */
+export interface OtaCredentialRepository {
+  create(input: OtaCredentialCreateInput): OtaCredential;
+  listByChannel(channel: ChannelId): readonly OtaCredential[];
+  findById(id: OtaCredentialId): OtaCredential | null;
+  findByPartitionName(partitionName: string): OtaCredential | null;
+  findByChannelAndAccountId(channel: ChannelId, channelAccountId: string): OtaCredential | null;
+  updateIdentity(id: OtaCredentialId, update: OtaCredentialIdentityUpdate): OtaCredential;
+  updatePartitionAndIdentity(
+    id: OtaCredentialId,
+    update: OtaCredentialPartitionUpdate,
+  ): OtaCredential;
+}
 
 type OtaCredentialRow = Readonly<{
   id: string;

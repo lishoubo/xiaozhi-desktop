@@ -77,7 +77,8 @@ describe('hotel management IPC handlers', () => {
     );
   });
 
-  it('rejects untrusted senders and malformed input without calling the feature', () => {
+  // 信任校验由 create-handler-registry.test.ts 覆盖；这里只留酒店入参自身的约束。
+  it('rejects an empty hotel name and a non-positive id without calling the feature', () => {
     const sender = {};
     const logger = createLogger();
     const feature = {
@@ -88,9 +89,6 @@ describe('hotel management IPC handlers', () => {
     };
     registerHotelManagementHandlers({ window: { webContents: sender }, feature, logger });
 
-    expect(() => invoke(IPC_CHANNELS.hotelManagement.load, {})).toThrow(
-      '拒绝来自非主应用窗口的请求',
-    );
     expect(() => invoke(IPC_CHANNELS.hotelManagement.createHotel, sender, { name: '' })).toThrow(
       '酒店管理参数无效',
     );

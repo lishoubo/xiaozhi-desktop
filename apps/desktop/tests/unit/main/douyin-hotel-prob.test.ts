@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { createDouyinHotelProbe } from '../../../src/main/features/ota-hotel-prob/ota/douyin/hotel-prob';
+import { createDouyinHotelProbe } from '../../../src/main/channels/douyin/hotel-prob';
 
 function logger() {
   return { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
