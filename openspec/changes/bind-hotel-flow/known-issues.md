@@ -3,8 +3,10 @@
 状态：问题 1、2 已修并**真机验证通过**（候选弹窗正常出现）。问题 3 已解决一半：
 `confirmBinding` 的失败原因现在会透传给用户，探测端的静默失败仍未处理。
 
-真机验证遗留：绑定成功后 `ota_hotel` 落库尚未亲眼确认（此前撞上 seed 数据的
-「已存在活跃绑定」业务拒绝，见问题 4）。
+真机验证遗留：绑定成功后 `ota_hotel` 落库**仍未确认**——2026-08-08 20:23 那次运行
+连续三次绑定（douyin / meituan / ctrip）全部撞上问题 4 的 seed 冲突。见文末「真机
+日志（2026-08-08）」。**下次必须选 1003 苏州平江府**，它是唯一三个渠道都没被 seed
+占用的酒店。
 
 ---
 
@@ -108,3 +110,52 @@
 partition（`ctrip:6e774f52`）后该日志正常打出。
 
 `ota_hotel` 落库尚未亲眼确认（见顶部状态）。
+
+---
+
+## 真机日志（2026-08-08 20:23，含「无意图不探测」的验证）
+
+日志 `~/Library/Logs/小智酒店管家/main.log`，数据库
+`~/Library/Application Support/小智酒店管家/hotel-butler.sqlite`。
+
+**已验证：普通登录不再触发探测**（design 决策 3b 的效果）。三个渠道走完整登录，
+credential 全部落库，全程**没有任何 `Hotel probe` 日志**：
+
+```
+20:23:38.246  Discovery triggered { channel: 'ctrip' }
+20:23:38.805  Ctrip discovery saved credential
+20:23:54.178  Discovery triggered { channel: 'douyin' }
+20:23:55.486  Douyin discovery saved credential
+20:24:08.364  Discovery triggered { channel: 'meituan' }
+20:24:13.011  Meituan discovery saved credential
+```
+
+**已验证：只有带意图才探测**，且 requestId 全程对得上：
+
+```
+20:24:13.304  Binding waiting registered { requestId: a5c8de6f… }
+20:24:17.889  Hotel probe found candidates { channel: 'douyin', hotelCount: 1,
+                                             intentKind: 'bind-hotel' }
+20:24:17.890  Binding candidates claimed { requestId: a5c8de6f… }
+```
+
+**未验证：`ota_hotel` 落库。** 三次绑定全部失败，`ota_hotel` 仍为 0 行：
+
+```
+20:24:19.961  [warn] Hotel binding failed { errorName: 'Error' }   douyin
+20:25:18.547  [warn] Hotel binding failed { errorName: 'Error' }   meituan
+20:29:17.097  [warn] Hotel binding failed { errorName: 'Error' }   ctrip
+```
+
+`errorName: 'Error'` 是普通 `Error`，对应 mock 的 `throw new Error('该酒店的此渠道
+已存在活跃绑定')`；若是 `toOtaHotelId` 抛的会显示 `InvalidIdentifierError`。
+⚠ 日志只记 `errorName` 不记 message，「是哪条业务拒绝」是从 seed 数据反推的，
+不是日志直接写的——排查同类问题时注意这个盲点。
+
+seed 把三个渠道占了两家酒店，正好覆盖这次试的全部组合：
+
+| hotelId | 酒店 | 已被 seed 占用的渠道 |
+|---|---|---|
+| 1001 | 上海云栖酒店 | ctrip、douyin |
+| 1002 | 杭州西溪悦榕酒店 | meituan |
+| **1003** | **苏州平江府** | **无——下次用这家** |

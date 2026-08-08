@@ -62,6 +62,7 @@
 - [x] 8.3 迭代期定向测试：改到哪个文件跑哪个
 - [x] 8.4 完成态跑一次单元测试全量：`npm run test:unit:desktop`
 - [ ] 8.5 **真机端到端**（与用户一起）：启动应用 → 发起绑定 → 观察日志出现 `Discovery triggered` → `discovery outcome` → 候选通知 → 弹窗出现 → 选定确认 → `ota_hotel` 出现 1 行且字段正确
+  - 2026-08-08 20:23 跑到「候选送达 + 弹窗认领」为止均通过；最后一步确认**三次全部**撞 seed 冲突失败，`ota_hotel` 仍 0 行。**下次选 1003 苏州平江府**（唯一未被 seed 占用的酒店），详见 known-issues「真机日志」
 - [ ] 8.6 真机验证否决路径：点「否」后不写库，换渠道重新发起能再次探测出候选（验证 Change 1 删除早退的效果）
 - [ ] 8.7 真机验证失败路径：远端 mock 抛错时本地不写入、UI 有明确报错
 - [ ] 8.8 将验证证据写入 `openspec/changes/bind-hotel-flow/verification.md`
@@ -84,4 +85,14 @@
 - [x] 9.5 `confirmBinding` 失败透传远端文案，剥掉 Electron 的 `Error invoking remote method` 包装（`binding-failure-message.ts` + 3 个单测）
 - [x] 9.6 补排查日志：dispatcher 的 `tabId`/`intentKind`/`dropped`/`delivered`，renderer 的 `registered`/`claimed`/`nobody claimed`
 - [x] 9.7 **真机验证**：候选弹窗正常出现，`Binding candidates claimed` 与 `delivered` 的 requestId 一致
-- [ ] 9.8 **真机验证绑定落库**：换一家未绑定抖音的酒店走完确认，确认 `ota_hotel` 有记录（此前撞上 seed 的「已存在活跃绑定」业务拒绝）
+- [ ] 9.8 **真机验证绑定落库**：**用 1003 苏州平江府**（1001/1002 的对应渠道都被 seed 占了，换渠道没用——2026-08-08 三次全失败就是这个原因）走完确认，确认 `ota_hotel` 有记录
+
+## 10. 探测触发条件收窄 + review 修复（commit 80432b7）
+
+- [x] 10.1 **无绑定意图不再探测**：intent 判断提到 `probe()` 之前。原顺序是先探再看意图，无意图时探测照跑只丢日志——而抖音 probe 会点开左侧菜单、等就绪(4s)、拦 CDP(最长 30s)，等于每次普通登录都劫持用户页面。见 design 决策 3b
+- [x] 10.2 **`OtaHotelId` 去掉 partition 字符集规则**：它是外部系统 ID，不进 partition 名与磁盘路径（`toPartitionName` 只吃 environment/channel/shortId）。原规则会拒绝 `SHYQ-310042` 这类合法值，且抛错时机在**远端已绑定成功之后**，把用户卡进「绑定失败→重试→已存在活跃绑定」死循环。保留非空 + 长度上限 128。见 design 决策 6b
+- [x] 10.3 **本地写入失败不算绑定失败**：design 决策 6 早已写明「最坏只是本地缺一条、下次自愈」，实现却让它抛。改为记 warn 仍返回远端结果
+- [x] 10.4 **`ota_hotel` 行 id 收进仓储**：原先传 `generateRequestId()` 当主键，而 upsert 冲突时该 id 被丢弃；一个依赖同时当绑定请求号/operationId/行主键三用。改为 `Omit<OtaHotel,'id'>`。见 design 决策 6c
+- [x] 10.5 四处清理：删除零引用的 `startBindingInputSchema`；修正 `AddOtaBindingDialog` 中「打开渠道标签页失败」文案（该路径重构后已不开 tab）；`bindingFailureMessage` 改剥任意 `XxxError:` 前缀；窗口销毁丢弃 envelope 时补日志
+- [x] 10.6 静态门禁：check 835 files 0 errors、lint 0 problems、单元 250 tests（原 246，新增 4）。其中「无意图不探测」与「本地写入失败不算绑定失败」两条已用「删掉守卫即变红」验证
+- [x] 10.7 **真机验证「普通登录不产生 `ota_hotel`」**：三渠道登录 credential 全落库，全程无 `Hotel probe` 日志，`ota_hotel` 0 行。见 known-issues「真机日志」
