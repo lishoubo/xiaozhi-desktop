@@ -72,6 +72,37 @@ describe('LoginDetector', () => {
     expect(checked).toEqual([expect.objectContaining({ intent: undefined })]);
   });
 
+  /**
+   * 「新登录账号」这条链的关键时序：新开的 tab 先落在**登录页**（不命中判据），
+   * 用户登完之后才导航到已登录页。intent 必须活过中间那些不命中的导航——它挂在
+   * tab 记录上，只有 tab 关闭才清，所以第二次导航仍然带得出来。
+   *
+   * 这条链没法用单测端到端跑（要真的开浏览器登录），这里锁住的是主进程侧的时序。
+   */
+  it('新登录：先停在登录页不触发，登完再导航时 intent 仍在', async () => {
+    const { detector, triggerDiscovery, checked, navigate } = setup();
+    const intent = { kind: 'bind-hotel', requestId: 'req-1' } as const;
+
+    detector.register('tab-1', CTRIP, intent);
+
+    // 第一次：落在登录页，还没登录
+    navigate('https://ebooking.ctrip.com/login/index');
+    await flush();
+    expect(triggerDiscovery).not.toHaveBeenCalled();
+    expect(checked).toEqual([
+      expect.objectContaining({ outcome: { kind: 'not-yet-past-login' }, intent }),
+    ]);
+
+    // 第二次：用户登完跳走
+    navigate('https://ebooking.ctrip.com/home');
+    await flush();
+
+    expect(triggerDiscovery).toHaveBeenCalledOnce();
+    expect(checked[1]).toEqual(
+      expect.objectContaining({ outcome: { kind: 'checked', credential: null }, intent }),
+    );
+  });
+
   it('登记后导航命中登录判据即触发 discovery 并广播 checked', async () => {
     const { detector, triggerDiscovery, checked, navigate } = setup();
 
