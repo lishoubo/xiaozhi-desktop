@@ -9,7 +9,6 @@
 import { toOtaCredentialId, type ChannelId } from '../ids';
 import type { OtaCredentialRepository } from '../database/ota-credential-repository';
 import { otaChannelLandingUrl } from '../channels/landing-url';
-import { SHARED_BROWSING_PARTITION } from '../browser/partition';
 import type { BrowserTab } from '../../shared/browser';
 import { readImportedCookies } from '../cookie-import/store';
 import { addPendingPartition, type PendingPartition } from '../file-store/pending-partitions-store';
@@ -88,15 +87,6 @@ export class OtaTabService {
     );
     if (intent !== undefined) this.deps.loginDetector.register(tab.id, credential.channel);
     return tab;
-  }
-
-  /** 查看渠道页面（原 `browser.create`），不参与登录判定。 */
-  openView(channelId: string, url: string): BrowserTab {
-    return this.deps.browserManager.createWithAlreadyPartition(
-      SHARED_BROWSING_PARTITION,
-      channelId,
-      url,
-    );
   }
 
   private rememberPendingPartition(

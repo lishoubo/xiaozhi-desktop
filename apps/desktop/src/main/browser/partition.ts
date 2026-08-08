@@ -24,17 +24,15 @@ export const PARTITION_LAYOUT_VERSION = 1;
 const PARTITION_PREFIX = 'persist:xiaozhi';
 
 /**
- * 不做账号隔离的共享浏览 partition。承担两个角色，都不能删：
+ * `BrowserManager.browserSession` 所用的 partition —— 唯一用途是承载携程
+ * SOA2 请求拦截器（`installRequestInterceptor`）。拦截器需要一个 session 对象
+ * 来挂 `webRequest.onBeforeRequest`，与账号隔离无关。
  *
- * 1. **当前功能**：只看不登录的场景用它 —— `openView()`（查看渠道页面）、
- *    站内弹窗新开的标签页、`BrowserManager` 的默认 session。这些场景没有
- *    账号概念，不需要独立 partition。
- * 2. **历史数据容器**：账号隔离（D1 修复）之前，所有 OTA 账号共用这一个
- *    session。里面混着多个账号的登录态，无法判断哪条 cookie 属于谁，
- *    **不做自动迁移**——迁移会把 A 的登录态错配给 B。
+ * 同时它是账号隔离改造（D1）之前的历史数据容器：那时所有 OTA 账号共用这一个
+ * session，里面混着多个账号的登录态，无法判断哪条 cookie 属于谁，**不做自动
+ * 迁移**——迁移会把 A 的登录态错配给 B。
  *
- * ⚠ 字符串值固化在用户磁盘上，改动等于让老用户丢失这份登录态。名字可以改，
- * 值不能改。
+ * ⚠ 字符串值固化在用户磁盘上，改名可以，改值等于让老用户丢失这份数据。
  */
 export const SHARED_BROWSING_PARTITION = 'persist:hotel-butler-browser';
 

@@ -1,11 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { session, type Session } from 'electron';
 import type { ChannelId } from '../ids';
-import {
-  isCurrentLayoutPartition,
-  SHARED_BROWSING_PARTITION,
-  toPartitionName,
-} from '../browser/partition';
+import { toPartitionName } from '../browser/partition';
 import { denyEmbeddedPagePermissions } from '../security/session-permissions';
 import type { AppLogger } from '../../shared/logging';
 
@@ -71,17 +67,4 @@ export class SessionFactory {
     return created;
   }
 
-  /**
-   * 旧的全局共享 session。**只读，不再写入。**
-   *
-   * 里面混着多个账号的登录态，无法判断哪条 cookie 属于谁 —— 自动迁移会把
-   * A 的登录态错配给 B，所以保留但不迁移（磁盘最便宜，登录态最贵）。
-   */
-  legacySharedSession(): Session {
-    return session.fromPartition(SHARED_BROWSING_PARTITION);
-  }
-
-  isLegacyPartition(name: string): boolean {
-    return !isCurrentLayoutPartition(name);
-  }
 }

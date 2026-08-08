@@ -8,10 +8,8 @@
 import { app, type BrowserWindow } from 'electron';
 import { BrowserManager } from '../browser/browser-manager';
 import { hotelProbes, loginUrlMatchers } from '../channels/registry';
-import { CtripCheckInAutomation } from '../startup/ctrip-check-in';
 import { BrowserCookieImporter } from '../cookie-import/browser-cookie-importer';
 import { registerAuthHandlers } from '../ipc/auth-handlers';
-import { registerAutomationHandlers } from '../ipc/automation-handlers';
 import { registerBrowserHandlers } from '../ipc/browser-handlers';
 import { registerCalendarHandlers } from '../ipc/calendar-handlers';
 import { registerCookieHandlers } from '../ipc/cookie-handlers';
@@ -29,7 +27,6 @@ import { OtaHotelProbService } from '../services/ota-hotel-prob-service';
 import { SystemService } from '../services/system-service';
 import { TabEventBus } from '../services/tab-event-bus';
 import { IPC_CHANNELS } from '../../shared/ipc-channels';
-import { isStartupAutomationEnabled } from '../startup/enabled';
 import { createMainWindow } from '../windows/main-window';
 import type { AppScope } from './app-scope';
 
@@ -63,12 +60,6 @@ export function createWindowScope(scope: AppScope): WindowScope {
     scope.setPartitionRetirer(null);
     scope.setAccountBoundNotifier(null);
   });
-
-  const ctripAutomation = isStartupAutomationEnabled(process.env)
-    ? new CtripCheckInAutomation(browserManager.browserSession, logger)
-    : null;
-  const ctripResult = ctripAutomation?.start() ?? null;
-  if (ctripAutomation) onDispose(() => ctripAutomation.destroy());
 
   // 构造函数内部完成 tabEventBus 订阅；订阅回调闭包持有 this 引用，只要
   // tabEventBus 存活这个实例就不会被 GC，不需要变量持有它。
@@ -113,7 +104,6 @@ export function createWindowScope(scope: AppScope): WindowScope {
   );
   onDispose(registerSystemHandlers({ window, service: new SystemService({ app, logger }), logger }));
   onDispose(registerOtaTabHandlers({ window, service: otaTabService, logger }));
-  onDispose(registerAutomationHandlers({ window, result: ctripResult, logger }));
   onDispose(
     registerCalendarHandlers({
       window,

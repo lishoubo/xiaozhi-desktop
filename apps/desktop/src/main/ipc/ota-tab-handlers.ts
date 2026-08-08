@@ -5,7 +5,6 @@
  */
 import { z } from 'zod';
 import {
-  browserCreateInputSchema,
   otaCredentialIdSchema,
   startLoginInputSchema,
   type BrowserTab,
@@ -29,7 +28,6 @@ export interface OtaTabOrchestrator {
     url: string,
   ): Promise<BrowserTab>;
   openExisting(credentialId: string, intent?: unknown): BrowserTab;
-  openView(channelId: string, url: string): BrowserTab;
 }
 
 type RegisterOtaTabHandlersOptions = Readonly<{
@@ -63,12 +61,6 @@ export function registerOtaTabHandlers({
     z.tuple([otaCredentialIdSchema]),
     '登录凭据标识无效',
     (credentialId) => service.openExisting(credentialId),
-  );
-  registry.handle(
-    IPC_CHANNELS.otaTab.openView,
-    z.tuple([browserCreateInputSchema]),
-    '浏览器参数无效',
-    ({ channelId, url }) => service.openView(channelId, url),
   );
 
   return () => registry.dispose();

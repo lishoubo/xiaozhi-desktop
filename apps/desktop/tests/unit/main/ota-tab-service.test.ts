@@ -109,17 +109,4 @@ describe('OtaTabService', () => {
 
     expect(() => service.openExisting('credential-1')).toThrow('未找到该登录凭据');
   });
-
-  it('openView() 用共享 partition 打开，不参与登录判定', () => {
-    const { service, browserManager, loginDetector } = setup();
-
-    service.openView('ctrip', 'https://ctrip.com/hotels');
-
-    expect(browserManager.createWithAlreadyPartition).toHaveBeenCalledWith(
-      expect.stringContaining('persist:'),
-      'ctrip',
-      'https://ctrip.com/hotels',
-    );
-    expect(loginDetector.register).not.toHaveBeenCalled();
-  });
 });

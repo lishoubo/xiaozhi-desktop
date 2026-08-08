@@ -91,11 +91,6 @@ export class BrowserManager extends EventEmitter {
     this.installRequestInterceptor();
   }
 
-  /** @deprecated 用 `createWithAlreadyPartition` 替代，指定明确的 partition。 */
-  create(channelId: string, url: string): BrowserTab {
-    return this.createWithAlreadyPartition(SHARED_BROWSING_PARTITION, channelId, url);
-  }
-
   /**
    * 已有 credential：直接用它的 `partitionName` 开标签页。流程B（打开已有
    * 账号）及"从其他登录态创建账号"（add-account-flow-per-channel/design.md
@@ -333,7 +328,8 @@ export class BrowserManager extends EventEmitter {
     const { webContents } = tab.view;
     webContents.setWindowOpenHandler(({ url }) => {
       try {
-        this.create(tab.channelId, url);
+        // 弹窗继承发起方的 partition：同一账号打开的新窗口不应掉进共享 session。
+        this.createWithAlreadyPartition(tab.partitionName, tab.channelId, url);
       } catch {
         // Invalid and non-web popup targets stay blocked.
         this.logger.warn('Blocked invalid browser popup', { channelId: tab.channelId });

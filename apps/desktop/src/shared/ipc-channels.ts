@@ -5,9 +5,6 @@ export const IPC_CHANNELS = {
     logout: 'auth:logout',
     requestPhoneCode: 'auth:request-phone-code',
   },
-  automation: {
-    getCtripCheckIn: 'automation:get-ctrip-check-in',
-  },
   browser: {
     acknowledgeInterception: 'browser:acknowledge-interception',
     activate: 'browser:activate',
@@ -38,7 +35,6 @@ export const IPC_CHANNELS = {
     openExisting: 'ota-tab:open-existing',
     openForNewLogin: 'ota-tab:open-for-new-login',
     openWithImportedCookie: 'ota-tab:open-with-imported-cookie',
-    openView: 'ota-tab:open-view',
   },
   cookies: {
     import: 'cookies:import',

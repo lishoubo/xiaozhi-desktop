@@ -132,7 +132,7 @@ beforeEach(() => {
 describe('BrowserManager', () => {
   it('applies one audio state to every existing tab and lets new tabs inherit it', () => {
     const manager = new BrowserManager(createWindow() as never, createLogger());
-    manager.create('ctrip', 'https://ebooking.ctrip.com/');
+    manager.createWithAlreadyPartition('persist:test-shared', 'ctrip', 'https://ebooking.ctrip.com/');
     manager.createWithAlreadyPartition(
       'persist:xiaozhi:prod:douyin:account',
       'douyin',
@@ -157,8 +157,8 @@ describe('BrowserManager', () => {
   it('keeps the global preference and updates remaining tabs when one tab cannot be muted', () => {
     const logger = createLogger();
     const manager = new BrowserManager(createWindow() as never, logger);
-    manager.create('ctrip', 'https://ebooking.ctrip.com/');
-    manager.create('douyin', 'https://life.douyin.com/p/home');
+    manager.createWithAlreadyPartition('persist:test-shared', 'ctrip', 'https://ebooking.ctrip.com/');
+    manager.createWithAlreadyPartition('persist:test-shared', 'douyin', 'https://life.douyin.com/p/home');
     electron.views[0].webContents.setAudioMuted.mockImplementationOnce(() => {
       throw new Error('tab unavailable');
     });
@@ -177,7 +177,12 @@ describe('BrowserManager', () => {
     const window = createWindow();
     const manager = new BrowserManager(window as never, logger);
 
-    const tab = manager.create('ctrip', 'https://ebooking.ctrip.com/');
+    // 复用构造器创建的默认 session，断言权限 handler 只被安装一次。
+    const tab = manager.createWithAlreadyPartition(
+      'persist:hotel-butler-browser',
+      'ctrip',
+      'https://ebooking.ctrip.com/',
+    );
     manager.close(tab.id);
 
     expect(electron.session.fromPartition).toHaveBeenCalledWith('persist:hotel-butler-browser');
@@ -223,7 +228,7 @@ describe('BrowserManager', () => {
     const logger = createLogger();
     const manager = new BrowserManager(createWindow() as never, logger);
 
-    manager.create('ctrip', 'https://ebooking.ctrip.com/');
+    manager.createWithAlreadyPartition('persist:test-shared', 'ctrip', 'https://ebooking.ctrip.com/');
 
     await vi.waitFor(() =>
       expect(logger.error).toHaveBeenCalledWith('Browser page load failed', {
@@ -237,7 +242,7 @@ describe('BrowserManager', () => {
   it('blocks non-web navigation and records only the channel category', () => {
     const logger = createLogger();
     const manager = new BrowserManager(createWindow() as never, logger);
-    manager.create('ctrip', 'https://ebooking.ctrip.com/');
+    manager.createWithAlreadyPartition('persist:test-shared', 'ctrip', 'https://ebooking.ctrip.com/');
     const preventDefault = vi.fn();
 
     electron.views[0].handlers.get('will-navigate')?.({ preventDefault }, 'javascript:alert(1)');
@@ -252,7 +257,7 @@ describe('BrowserManager', () => {
     const logger = createLogger();
     const window = createWindow();
     const manager = new BrowserManager(window as never, logger);
-    manager.create('ctrip', 'https://ebooking.ctrip.com/');
+    manager.createWithAlreadyPartition('persist:test-shared', 'ctrip', 'https://ebooking.ctrip.com/');
     const callback = vi.fn();
 
     expect(electron.browserSession.webRequest.onBeforeRequest).toHaveBeenCalledWith(
@@ -282,7 +287,7 @@ describe('BrowserManager', () => {
   it('lets the renderer coalesce concurrent interception events by notification ID', () => {
     const window = createWindow();
     const manager = new BrowserManager(window as never, createLogger());
-    manager.create('ctrip', 'https://ebooking.ctrip.com/');
+    manager.createWithAlreadyPartition('persist:test-shared', 'ctrip', 'https://ebooking.ctrip.com/');
     const firstCallback = vi.fn();
     const secondCallback = vi.fn();
     const webContentsId = electron.views[0].webContents.id;
@@ -304,7 +309,7 @@ describe('BrowserManager', () => {
   it('keeps the active embedded page mounted after request interception', () => {
     const window = createWindow();
     const manager = new BrowserManager(window as never, createLogger());
-    manager.create('ctrip', 'https://ebooking.ctrip.com/');
+    manager.createWithAlreadyPartition('persist:test-shared', 'ctrip', 'https://ebooking.ctrip.com/');
     const webContentsId = electron.views[0].webContents.id;
 
     electron.getBeforeRequestListener()?.(
@@ -318,7 +323,7 @@ describe('BrowserManager', () => {
   it('reattaches an active tab when the workspace activates it after being hidden', () => {
     const window = createWindow();
     const manager = new BrowserManager(window as never, createLogger());
-    const tab = manager.create('ctrip', 'https://ebooking.ctrip.com/');
+    const tab = manager.createWithAlreadyPartition('persist:test-shared', 'ctrip', 'https://ebooking.ctrip.com/');
 
     manager.hide();
     manager.activate(tab.id);
@@ -358,7 +363,7 @@ describe('BrowserManager', () => {
   it('routes Cmd+R to the active embedded tab and blocks it outside the browser workspace', () => {
     const window = createWindow();
     const manager = new BrowserManager(window as never, createLogger());
-    manager.create('ctrip', 'https://ebooking.ctrip.com/');
+    manager.createWithAlreadyPartition('persist:test-shared', 'ctrip', 'https://ebooking.ctrip.com/');
     const preventDefault = vi.fn();
     const input = {
       type: 'keyDown',

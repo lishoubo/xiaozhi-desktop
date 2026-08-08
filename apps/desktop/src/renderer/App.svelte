@@ -4,7 +4,6 @@
   import { onDestroy } from 'svelte';
   import AppFrame from './components/layout/AppFrame.svelte';
   import AppNotificationCenter from './components/layout/AppNotificationCenter.svelte';
-  import StartupAutomationDialog from './components/automation/StartupAutomationDialog.svelte';
   import LoginPage from './pages/LoginPage.svelte';
   import { clearAuthSession, setAuthSession, type AuthSession } from './auth';
   import { isFeatureOff } from './version-features';
@@ -72,7 +71,6 @@
     <p class="text-sm text-muted-foreground">正在验证登录状态…</p>
   </main>
 {:else if session}
-  <StartupAutomationDialog />
   <AppFrame>
     <Router {routes} />
   </AppFrame>

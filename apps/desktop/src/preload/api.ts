@@ -12,7 +12,6 @@ import {
   type Subscribe,
 } from './invoke';
 import { createAuthApi } from './namespaces/auth';
-import { createAutomationApi } from './namespaces/automation';
 import { createBrowserApi } from './namespaces/browser';
 import { createCalendarApi } from './namespaces/calendar';
 import { createCookiesApi } from './namespaces/cookies';
@@ -37,7 +36,6 @@ export function createDesktopApi(
 
   return Object.freeze({
     auth: createAuthApi(validatedInvoke),
-    automation: createAutomationApi(validatedInvoke),
     browser: createBrowserApi(validatedInvoke, validatedSubscribe),
     calendar: createCalendarApi(validatedInvoke),
     cookies: createCookiesApi(validatedInvoke),

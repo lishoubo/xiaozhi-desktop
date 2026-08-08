@@ -10,7 +10,5 @@ export function createOtaTabApi(invoke: ValidatedInvoke) {
       invoke(browserTabSchema, IPC_CHANNELS.otaTab.openForNewLogin, input),
     openWithImportedCookie: (input: StartLoginInput) =>
       invoke(browserTabSchema, IPC_CHANNELS.otaTab.openWithImportedCookie, input),
-    openView: (channelId: string, url: string) =>
-      invoke(browserTabSchema, IPC_CHANNELS.otaTab.openView, { channelId, url }),
   });
 }
