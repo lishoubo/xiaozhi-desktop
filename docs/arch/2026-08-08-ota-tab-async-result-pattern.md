@@ -133,12 +133,21 @@ composition root 负责把它接到 `window.webContents.send`。同理，**读 c
 |---|---|---|
 | intent kind | `bind-hotel` | `reauth-ota` |
 | 打开时带的额外信息 | — | `expectedChannelAccountId` |
+| dispatcher | `HotelProbeDispatcher` | `OtaReauthDispatcher` |
 | dispatcher 做什么 | 选 probe → `probe()` → 候选 | 比对 `credential.channelAccountId` |
 | 要不要碰页面 | 要（抖音点菜单、拦 CDP） | **不要**（身份已由 `triggerDiscovery` 识别） |
-| payload | `{ credentialId, hotels[] }` | `{ ok, credentialId }` 或不一致原因 |
-| 弹窗让用户做什么 | 单选门店 → 确认 | 看结果；不一致时回到账号列表重选 |
+| payload | `{ credentialId, hotels[] }` | `{ ok:true, credentialId }` / `{ ok:false, reason }` |
+| 弹窗组件 | `BindHotelDialog` | `ReauthDialog` |
+| 弹窗让用户做什么 | 单选门店 → 确认 | 看结果；不一致时回账号列表重选 |
+| 发起页组件 | `AddOtaBindingDialog` | `ReauthOtaAccountDialog` |
+| 跨路由意图 | `hotelBindingWaiting` | `otaReauthWaiting` |
 | `confirmXxx` 写本地吗 | 写 `ota_hotel` | **不写**（门店关系没变） |
 | 远端方法 | `bind()` | `reauthenticate()` |
+
+**开 tab 的两种来源**：`openExisting(credentialId)` 是「用已有账号」；「新登录账号」
+此刻还没有凭证，走 `openForNewLogin(channelId, url, intent)` 开空登录页，登录成功后
+照样触发探测。两者带的是同一个 intent，跨路由意图里 `credentialId` 与
+`newLoginChannel` 二选一。
 
 两例的差异集中在 dispatcher 内部和 payload 形状，**外围机制完全一致**——这正是本范式
 成立的依据。

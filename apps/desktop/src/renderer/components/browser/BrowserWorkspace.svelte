@@ -26,6 +26,7 @@
   import { Spinner } from '$lib/components/ui/spinner';
   import AccountSwitcherDialog from './AccountSwitcherDialog.svelte';
   import BindHotelDialog from './BindHotelDialog.svelte';
+  import ReauthDialog from './ReauthDialog.svelte';
   import CookieImportDialog from './CookieImportDialog.svelte';
   import {
     buildLoginCredentialOptions,
@@ -555,6 +556,7 @@
 </main>
 
 <BindHotelDialog />
+<ReauthDialog />
 
 {#if cookiePrompt}
   <aside

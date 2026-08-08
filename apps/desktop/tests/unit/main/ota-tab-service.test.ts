@@ -46,7 +46,18 @@ describe('OtaTabService', () => {
     await service.open('prod', CTRIP, 'https://ctrip.com');
 
     expect(browserManager.createAndNewPartition).toHaveBeenCalledWith('prod', CTRIP, 'https://ctrip.com');
-    expect(loginDetector.register).toHaveBeenCalledWith('tab-1', CTRIP);
+    // 不带意图时 intent 为 undefined——普通新建账号，登录后不触发任何后续流程。
+    expect(loginDetector.register).toHaveBeenCalledWith('tab-1', CTRIP, undefined);
+  });
+
+  /** 绑定入口的「新登录账号」走这条路：新账号可操作的门店未知，登录后要探测。 */
+  it('open() 带意图时透传给登录判定', async () => {
+    const { service, loginDetector } = setup();
+    const intent = { kind: 'bind-hotel', requestId: 'req-1' } as const;
+
+    await service.open('prod', CTRIP, 'https://ctrip.com', intent);
+
+    expect(loginDetector.register).toHaveBeenCalledWith('tab-1', CTRIP, intent);
   });
 
   it('createFromCookie() 在该渠道没有已导入 cookie 时报错', async () => {

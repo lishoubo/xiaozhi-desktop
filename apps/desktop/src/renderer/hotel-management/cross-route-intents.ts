@@ -20,3 +20,18 @@ export const hotelBindingWaiting = createNavigationIntent<{
   rmsHotelId: number;
   rmsHotelName: string;
 }>();
+
+/**
+ * 「重新登录」的跨路由意图。与绑定同一形状：酒店页发起，浏览器工作区接手开标签页
+ * 并等结果。
+ *
+ * `expectedChannelAccountId` 一路带到主进程做身份核对——用户选的是「恢复这个账号」，
+ * 登录出来的必须还是它。
+ */
+export const otaReauthWaiting = createNavigationIntent<{
+  requestId: string;
+  credentialId: string;
+  expectedChannelAccountId: string;
+  otaAccountId: number;
+  channelName: string;
+}>();

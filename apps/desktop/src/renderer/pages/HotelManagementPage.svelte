@@ -10,6 +10,7 @@
   import * as AlertDialog from '$lib/components/ui/alert-dialog';
   import AddOtaBindingDialog from '../components/hotel/AddOtaBindingDialog.svelte';
   import BoundOtaAccountCard from '../components/hotel/BoundOtaAccountCard.svelte';
+  import ReauthOtaAccountDialog from '../components/hotel/ReauthOtaAccountDialog.svelte';
   import { groupOtaAccountsByHotelId, type OtaAccountAction } from '../hotel-management/model';
   import { needsAttention } from '../hotel-management/account-status';
   import type { RmsHotelDto, RmsOtaAccountDto } from '../../shared/hotel-management';
@@ -136,8 +137,14 @@
     account: RmsOtaAccountDto,
     channelName: string,
   ): void {
-    const actionName =
-      action === 'login' ? '重新登录' : action === 'retry' ? '重试初始化' : '处理绑定问题';
+    // 登录类问题走重新登录弹窗；其余（初始化失败、酒店不匹配）刷 cookie 解决不了，
+    // 仍未实现。
+    if (action === 'login') {
+      const hotel = hotels.find((item) => item.id === account.hotelId);
+      reauthTarget = { account, rmsHotelName: hotel?.name ?? '' };
+      return;
+    }
+    const actionName = action === 'retry' ? '重试初始化' : '处理绑定问题';
     showAppNotification({
       id: `ota-${account.id}-${action}`,
       title: `${channelName} · ${actionName}`,
@@ -147,6 +154,7 @@
   }
 
   let addBindingTarget = $state<RmsHotelDto | null>(null);
+  let reauthTarget = $state<{ account: RmsOtaAccountDto; rmsHotelName: string } | null>(null);
 </script>
 
 <main
@@ -282,6 +290,7 @@
   otaAccounts={addBindingTarget ? (accountsByHotelId.get(addBindingTarget.id) ?? []) : []}
   onClose={() => (addBindingTarget = null)}
 />
+<ReauthOtaAccountDialog target={reauthTarget} onClose={() => (reauthTarget = null)} />
 
 <Dialog.Root bind:open={createOpen}>
   <Dialog.Content class="sm:max-w-md">
