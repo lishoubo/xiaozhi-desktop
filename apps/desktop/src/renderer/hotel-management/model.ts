@@ -7,6 +7,24 @@ import { isActiveBinding } from './account-status';
  * 远端规则是「同一酒店 + 同一渠道只能有一个活跃绑定」，所以发起绑定时要按**渠道
  * 整体**排除，不是只排除已绑定的那一个账号——同渠道的其他账号选了也会被远端拒绝。
  */
+/**
+ * 列表翻页的派生值。`safePage` 会把越界页码夹回有效范围——删到最后一页空了、或
+ * 重新加载后总数变少时，页码若不回退就会停在空白页。
+ */
+export function paginate<T>(
+  items: readonly T[],
+  page: number,
+  pageSize: number,
+): Readonly<{ safePage: number; totalPages: number; pageItems: readonly T[] }> {
+  const totalPages = Math.max(1, Math.ceil(items.length / pageSize));
+  const safePage = Math.min(Math.max(1, Math.trunc(page)), totalPages);
+  return {
+    safePage,
+    totalPages,
+    pageItems: items.slice((safePage - 1) * pageSize, safePage * pageSize),
+  };
+}
+
 export function boundChannelsOfHotel(
   accounts: readonly RmsOtaAccountDto[],
 ): ReadonlySet<string> {

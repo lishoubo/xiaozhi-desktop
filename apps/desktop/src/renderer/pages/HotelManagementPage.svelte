@@ -1,5 +1,7 @@
 <script lang="ts">
   import Building2 from '@lucide/svelte/icons/building-2';
+  import ChevronLeft from '@lucide/svelte/icons/chevron-left';
+  import ChevronRight from '@lucide/svelte/icons/chevron-right';
   import Plus from '@lucide/svelte/icons/plus';
   import Trash2 from '@lucide/svelte/icons/trash-2';
   import log from 'electron-log/renderer';
@@ -11,7 +13,11 @@
   import AddOtaBindingDialog from '../components/hotel/AddOtaBindingDialog.svelte';
   import BoundOtaAccountCard from '../components/hotel/BoundOtaAccountCard.svelte';
   import ReauthOtaAccountDialog from '../components/hotel/ReauthOtaAccountDialog.svelte';
-  import { groupOtaAccountsByHotelId, type OtaAccountAction } from '../hotel-management/model';
+  import {
+    groupOtaAccountsByHotelId,
+    paginate,
+    type OtaAccountAction,
+  } from '../hotel-management/model';
   import { needsAttention } from '../hotel-management/account-status';
   import type { RmsHotelDto, RmsOtaAccountDto } from '../../shared/hotel-management';
   import { enter, PAGE_ENTER_OPTIONS } from '../motion';
@@ -26,6 +32,17 @@
   const attentionAccounts = $derived(
     otaAccounts.filter((account) => needsAttention(account.status)).length,
   );
+
+  const PAGE_SIZE = 10;
+  let currentPage = $state(1);
+  const pagination = $derived(paginate(hotels, currentPage, PAGE_SIZE));
+  const safePage = $derived(pagination.safePage);
+  const totalPages = $derived(pagination.totalPages);
+  const pagedHotels = $derived(pagination.pageItems);
+
+  function goToPage(page: number): void {
+    currentPage = Math.min(Math.max(1, page), totalPages);
+  }
 
   let createOpen = $state(false);
   let createName = $state('');
@@ -71,6 +88,8 @@
       await window.hotelButler.hotelManagement.createHotel({ name: createName.trim() });
       createOpen = false;
       await loadHotelManagement();
+      // 新酒店追加在末尾，不跳过去用户就看不见自己刚建的那家。
+      currentPage = Math.max(1, Math.ceil(hotels.length / PAGE_SIZE));
     } catch (reason) {
       log.warn('Hotel creation failed', {
         errorName: reason instanceof Error ? reason.name : 'UnknownError',
@@ -221,7 +240,7 @@
           <span class="text-right">操作</span>
         </div>
 
-        {#each hotels as hotel}
+        {#each pagedHotels as hotel}
           {@const accounts = accountsByHotelId.get(hotel.id) ?? []}
           <section
             class="grid min-h-16 grid-cols-[minmax(180px,0.8fr)_minmax(360px,2fr)_88px] items-center gap-4 border-b border-border px-4 py-2 last:border-b-0"
@@ -281,6 +300,41 @@
           </section>
         {/each}
       </div>
+
+      {#if totalPages > 1}
+        <nav
+          class="mt-3 flex items-center justify-between gap-3"
+          aria-label="酒店列表翻页"
+        >
+          <span class="text-[11px] text-muted-foreground">
+            第 {(safePage - 1) * PAGE_SIZE + 1}–{Math.min(safePage * PAGE_SIZE, hotels.length)} 家，共
+            {hotels.length} 家
+          </span>
+          <div class="flex items-center gap-1">
+            <Button
+              size="icon-sm"
+              variant="ghost"
+              disabled={safePage <= 1}
+              aria-label="上一页"
+              onclick={() => goToPage(safePage - 1)}
+            >
+              <ChevronLeft />
+            </Button>
+            <span class="px-1 text-xs tabular-nums" aria-current="page">
+              {safePage} / {totalPages}
+            </span>
+            <Button
+              size="icon-sm"
+              variant="ghost"
+              disabled={safePage >= totalPages}
+              aria-label="下一页"
+              onclick={() => goToPage(safePage + 1)}
+            >
+              <ChevronRight />
+            </Button>
+          </div>
+        </nav>
+      {/if}
     {/if}
   </div>
 </main>
