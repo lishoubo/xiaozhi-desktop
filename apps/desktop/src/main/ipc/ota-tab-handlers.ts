@@ -1,5 +1,5 @@
 /**
- * OTA 标签页打开的 4 个 IPC 入口，全部委托 `OtaTabOpener`。取代原
+ * OTA 标签页打开的 4 个 IPC 入口，全部委托 `OtaTabService`。取代原
  * `browser-handlers.ts` 里散落的 `browser.create`/`otaCredential.open*`
  * handler——见 `openspec/changes/refactor-ota-tab-opener/design.md` 决策 4。
  */
@@ -8,22 +8,39 @@ import {
   browserCreateInputSchema,
   otaCredentialIdSchema,
   startLoginInputSchema,
+  type BrowserTab,
 } from '../../shared/browser';
-import { toChannelId } from '../ids';
+import { toChannelId, type ChannelId } from '../ids';
 import { IPC_CHANNELS } from '../../shared/ipc-channels';
 import type { AppLogger } from '../../shared/logging';
-import type { OtaTabOpener } from '../ota-tab/ota-tab-opener';
+import type { PendingPartition } from '../file-store/pending-partitions-store';
 import { createHandlerRegistry, type TrustedWindow } from './create-handler-registry';
+
+/** handler 声明自己需要什么，由 `OtaTabService` 满足；不 import 实现类。 */
+export interface OtaTabOrchestrator {
+  open(
+    environment: PendingPartition['environment'],
+    channel: ChannelId,
+    url: string,
+  ): Promise<BrowserTab>;
+  createFromCookie(
+    environment: PendingPartition['environment'],
+    channel: ChannelId,
+    url: string,
+  ): Promise<BrowserTab>;
+  openExisting(credentialId: string, intent?: unknown): BrowserTab;
+  openView(channelId: string, url: string): BrowserTab;
+}
 
 type RegisterOtaTabHandlersOptions = Readonly<{
   window: TrustedWindow;
-  otaTabOpener: OtaTabOpener;
+  service: OtaTabOrchestrator;
   logger: AppLogger;
 }>;
 
 export function registerOtaTabHandlers({
   window,
-  otaTabOpener,
+  service,
   logger,
 }: RegisterOtaTabHandlersOptions): () => void {
   const registry = createHandlerRegistry({ window, logger });
@@ -32,27 +49,26 @@ export function registerOtaTabHandlers({
     IPC_CHANNELS.otaTab.openForNewLogin,
     z.tuple([startLoginInputSchema]),
     '登录参数无效',
-    ({ channelId, environment, url }) =>
-      otaTabOpener.open(environment, toChannelId(channelId), url),
+    ({ channelId, environment, url }) => service.open(environment, toChannelId(channelId), url),
   );
   registry.handle(
     IPC_CHANNELS.otaTab.openWithImportedCookie,
     z.tuple([startLoginInputSchema]),
     '登录参数无效',
     ({ channelId, environment, url }) =>
-      otaTabOpener.createFromCookie(environment, toChannelId(channelId), url),
+      service.createFromCookie(environment, toChannelId(channelId), url),
   );
   registry.handle(
     IPC_CHANNELS.otaTab.openExisting,
     z.tuple([otaCredentialIdSchema]),
     '登录凭据标识无效',
-    (credentialId) => otaTabOpener.openExisting(credentialId),
+    (credentialId) => service.openExisting(credentialId),
   );
   registry.handle(
     IPC_CHANNELS.otaTab.openView,
     z.tuple([browserCreateInputSchema]),
     '浏览器参数无效',
-    ({ channelId, url }) => otaTabOpener.openView(channelId, url),
+    ({ channelId, url }) => service.openView(channelId, url),
   );
 
   return () => registry.dispose();

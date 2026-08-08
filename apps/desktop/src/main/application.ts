@@ -27,7 +27,7 @@ import { isStartupAutomationEnabled } from './startup-enabled';
 import { SqliteOtaCredentialRepository } from './database/ota-credential-repository';
 import { SqliteOtaHotelRepository } from './database/ota-hotel-repository';
 import { OtaCredentialService } from './services/ota-credential-service';
-import { OtaTabOpener } from './ota-tab/ota-tab-opener';
+import { LoginDetector, OtaTabService } from './ota-tab';
 import { createChannelRegistry, hotelProbes, loginUrlMatchers } from './channels/registry';
 import { createCtripDiscovery } from './channels/ctrip/discovery';
 import { createDouyinDiscovery } from './channels/douyin/discovery';
@@ -47,7 +47,7 @@ import { registerAuthHandlers } from './ipc/auth-handlers';
 let mainWindow: BrowserWindow | null = null;
 let browserManager: BrowserManager | null = null;
 let tabEventBus: TabEventBus | null = null;
-let otaTabOpener: OtaTabOpener | null = null;
+let otaTabService: OtaTabService | null = null;
 let unregisterBrowserHandlers: (() => void) | null = null;
 let unregisterCookieHandlers: (() => void) | null = null;
 let unregisterOtaCredentialHandlers: (() => void) | null = null;
@@ -97,15 +97,19 @@ function openMainWindow(): void {
     repository: otaHotelRepository,
     logger: log,
   });
-  otaTabOpener = new OtaTabOpener({
-    userDataDir: app.getPath('userData'),
+  const loginDetector = new LoginDetector({
     browserManager,
     tabEventBus,
     loginUrlMatchers: loginUrlMatchers(channelRegistry),
-    otaCredentialRepository,
     triggerDiscovery: (partitionName, channel, landingUrl, webContents) =>
       otaCredentialService?.trigger(partitionName, channel, landingUrl, webContents) ??
       Promise.resolve(null),
+  });
+  otaTabService = new OtaTabService({
+    userDataDir: app.getPath('userData'),
+    browserManager,
+    loginDetector,
+    otaCredentialRepository,
   });
   unregisterBrowserHandlers = registerBrowserHandlers({
     window: mainWindow,
@@ -133,7 +137,7 @@ function openMainWindow(): void {
   });
   unregisterOtaTabHandlers = registerOtaTabHandlers({
     window: mainWindow,
-    otaTabOpener,
+    service: otaTabService,
     logger: log,
   });
   unregisterAutomationHandlers = registerAutomationHandlers({
@@ -189,7 +193,7 @@ function openMainWindow(): void {
     unregisterBrowserHandlers = null;
     browserManager?.destroy();
     browserManager = null;
-    otaTabOpener = null;
+    otaTabService = null;
     mainWindow = null;
     log.info('Main window closed');
   });
@@ -285,7 +289,7 @@ app.once('will-quit', () => {
   otaHotelRepository = null;
   hotelManagementService = null;
   tabEventBus = null;
-  otaTabOpener = null;
+  otaTabService = null;
   sessionFactory = null;
   log.info('Application shutdown completed');
 });
