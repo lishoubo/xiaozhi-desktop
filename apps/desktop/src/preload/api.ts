@@ -18,6 +18,7 @@ import { createCookiesApi } from './namespaces/cookies';
 import { createHotelManagementApi } from './namespaces/hotel-management';
 import { createOtaCredentialApi } from './namespaces/ota-credential';
 import { createOtaTabApi } from './namespaces/ota-tab';
+import { createStaffAuthApi } from './namespaces/staff-auth';
 import { createSystemApi } from './namespaces/system';
 
 type RuntimeVersions = Readonly<{
@@ -42,6 +43,9 @@ export function createDesktopApi(
     hotelManagement: createHotelManagementApi(validatedInvoke, validatedSubscribe),
     otaCredential: createOtaCredentialApi(validatedInvoke, validatedSubscribe),
     otaTab: createOtaTabApi(validatedInvoke),
+    // 两个 auth namespace 长期共存：preload 是 IPC 白名单，挂上不代表对端注册了
+    // handler。真正的隔离在 main —— composition 只注册命中变体的那一套。
+    staffAuth: createStaffAuthApi(validatedInvoke),
     system: createSystemApi(validatedInvoke),
     versions: Object.freeze({
       chrome: versions.chrome,

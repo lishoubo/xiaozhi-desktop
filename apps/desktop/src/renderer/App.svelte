@@ -5,36 +5,37 @@
   import AppFrame from './components/layout/AppFrame.svelte';
   import AppNotificationCenter from './components/layout/AppNotificationCenter.svelte';
   import LoginPage from './pages/LoginPage.svelte';
+  import StaffLoginPage from './pages/StaffLoginPage.svelte';
   import { clearAuthSession, setAuthSession, type AuthSession } from './auth';
-  import { isFeatureOff } from './version-features';
+  import { clearStaffSession, setStaffSession, type StaffSession } from './staff-auth';
+  import { IS_STAFF_AUTH } from '../shared/auth-variant';
   import { routes } from './routes';
 
-  // 'auth' 特性关闭时跳过远端手机验证码登录门禁，用本地假身份直接进入
-  // 主界面。仅用于本地不起 server 时的开发联调，见 version-features.ts。
-  const skipAuth = isFeatureOff('auth');
-  const DEV_BYPASS_SESSION: AuthSession = {
-    id: '0',
-    orgId: '0',
-    username: 'lishoubo-dev',
-    fullName: '本地开发（跳过登录）',
-    phone: '13800138000',
-    roleCode: 'FRONT_DESK',
+  type Session = StaffSession | AuthSession;
+
+  let session = $state<Session | null>(null);
+  let restoringSession = $state(true);
+
+  const clearSession = (): void => {
+    if (IS_STAFF_AUTH) clearStaffSession();
+    else clearAuthSession();
   };
 
-  let session = $state<AuthSession | null>(skipAuth ? DEV_BYPASS_SESSION : null);
-  let restoringSession = $state(!skipAuth);
-
   const restoreSession = async (): Promise<void> => {
-    if (skipAuth) {
-      setAuthSession(DEV_BYPASS_SESSION);
-      return;
-    }
     try {
-      session = await window.hotelButler.auth.currentSession();
-      if (session) setAuthSession(session);
-      else clearAuthSession();
+      if (IS_STAFF_AUTH) {
+        const restored = await window.hotelButler.staffAuth.currentSession();
+        session = restored;
+        if (restored) setStaffSession(restored);
+        else clearStaffSession();
+      } else {
+        const restored = await window.hotelButler.auth.currentSession();
+        session = restored;
+        if (restored) setAuthSession(restored);
+        else clearAuthSession();
+      }
     } catch {
-      clearAuthSession();
+      clearSession();
       session = null;
     } finally {
       restoringSession = false;
@@ -43,16 +44,23 @@
 
   const logout = async (): Promise<void> => {
     try {
-      await window.hotelButler.auth.logout();
+      if (IS_STAFF_AUTH) await window.hotelButler.staffAuth.logout();
+      else await window.hotelButler.auth.logout();
     } catch {
       log.warn('Remote user session could not be revoked');
     } finally {
-      clearAuthSession();
+      clearSession();
       session = null;
       log.info('User session cleared');
     }
   };
-  const login = async (employee: AuthSession): Promise<void> => {
+  const loginWithStaff = async (employee: StaffSession): Promise<void> => {
+    await replace('/');
+    setStaffSession(employee);
+    session = employee;
+    log.info('User session created');
+  };
+  const loginWithPhone = async (employee: AuthSession): Promise<void> => {
     await replace('/');
     setAuthSession(employee);
     session = employee;
@@ -76,5 +84,9 @@
   </AppFrame>
 {:else}
   <AppNotificationCenter />
-  <LoginPage onLogin={login} />
+  {#if IS_STAFF_AUTH}
+    <StaffLoginPage onLogin={loginWithStaff} />
+  {:else}
+    <LoginPage onLogin={loginWithPhone} />
+  {/if}
 {/if}

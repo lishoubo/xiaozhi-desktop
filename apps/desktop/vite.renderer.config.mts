@@ -7,6 +7,7 @@ import { defineConfig } from 'vite';
 import { svelte } from '@sveltejs/vite-plugin-svelte';
 // eslint-disable-next-line import/no-unresolved
 import tailwindcss from '@tailwindcss/vite';
+import { authVariantDefine } from './vite-plugins/auth-variant';
 
 const certificateDirectory = process.env.LOCAL_HTTPS_CERT_DIR
   ? path.resolve(process.env.LOCAL_HTTPS_CERT_DIR)
@@ -14,7 +15,7 @@ const certificateDirectory = process.env.LOCAL_HTTPS_CERT_DIR
 
 // https://vitejs.dev/config
 export default defineConfig({
-  plugins: [tailwindcss(), svelte()],
+  plugins: [authVariantDefine(), tailwindcss(), svelte()],
   server: {
     host: 'localhost',
     port: 5174,

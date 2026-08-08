@@ -5,6 +5,11 @@ export const IPC_CHANNELS = {
     logout: 'auth:logout',
     requestPhoneCode: 'auth:request-phone-code',
   },
+  staffAuth: {
+    currentSession: 'staff-auth:current-session',
+    login: 'staff-auth:login',
+    logout: 'staff-auth:logout',
+  },
   browser: {
     activate: 'browser:activate',
     close: 'browser:close',

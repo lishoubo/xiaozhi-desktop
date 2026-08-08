@@ -15,7 +15,12 @@ export {
   phoneCodeRequestResponseSchema,
   phoneCodeSchema,
   phoneNumberSchema,
+  staffIdentitySchema,
+  staffLogoutResponseSchema,
+  staffPasswordSchema,
+  staffUsernameSchema,
   type EmployeeIdentity,
+  type StaffIdentity,
 } from './contracts';
 
 type ApiLogFields = Record<string, string | number | boolean | null | undefined>;

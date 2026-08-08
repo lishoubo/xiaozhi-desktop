@@ -6,6 +6,7 @@ import { denyEmbeddedPagePermissions } from '../security/session-permissions';
 import type { AppLogger } from '../../shared/logging';
 
 const SERVER_API_PARTITION = 'persist:xiaozhi:server-api';
+const RMS_API_PARTITION = 'persist:xiaozhi:rms-api';
 
 /**
  * 把 partition 名字兑换成 Electron 的 `Session`。
@@ -27,6 +28,16 @@ export class SessionFactory {
   /** Desktop backend API cookie jar, isolated from every OTA browsing session. */
   sessionForServerApi(): Session {
     return this.fromPartitionCached(SERVER_API_PARTITION);
+  }
+
+  /**
+   * rms-server 直连用的 cookie jar，与 server API 和所有 OTA 浏览态都隔离。
+   *
+   * 认证本身走 Bearer token，用不上 cookie；但登录响应会带 `rms_current_hotel`，
+   * 单独给它一个 jar 存着，后续接酒店上下文时不用再改这里。
+   */
+  sessionForRmsApi(): Session {
+    return this.fromPartitionCached(RMS_API_PARTITION);
   }
 
   /**

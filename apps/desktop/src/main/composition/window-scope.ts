@@ -16,11 +16,17 @@ import { registerCookieHandlers } from '../ipc/cookie-handlers';
 import { registerHotelManagementHandlers } from '../ipc/hotel-management-handlers';
 import { registerOtaCredentialHandlers } from '../ipc/ota-credential-handlers';
 import { registerOtaTabHandlers } from '../ipc/ota-tab-handlers';
+import { registerStaffAuthHandlers } from '../ipc/staff-auth-handlers';
 import { registerSystemHandlers } from '../ipc/system-handlers';
 import { LoginDetector, OtaTabService, TabEventBus } from '../ota-tab';
 import { resolveServerOrigin } from '../server-client/config';
 import { createElectronSessionFetch, createServerTrpcClient } from '../server-client/trpc-client';
+import { createRmsAuthClient } from '../staff-auth/rms-auth-client';
+import { resolveRmsOrigin } from '../staff-auth/rms-endpoint';
+import { createStaffTokenStore } from '../staff-auth/token-store';
+import { AUTH_VARIANT, IS_STAFF_AUTH } from '../../shared/auth-variant';
 import { AuthService } from '../services/auth-service';
+import { StaffAuthService } from '../services/staff-auth-service';
 import { CalendarService } from '../services/calendar-service';
 import { CookieImportService } from '../services/cookie-import-service';
 import { HotelProbeDispatcher } from '../channels/hotel-probe-dispatcher';
@@ -101,9 +107,6 @@ export function createWindowScope(scope: AppScope): WindowScope {
     otaCredentialRepository: scope.otaCredentialRepository,
   });
 
-  const serverOrigin = resolveServerOrigin(process.env);
-  const apiSession = scope.sessionFactory.sessionForServerApi();
-
   onDispose(registerBrowserHandlers({ window, manager: browserManager, logger }));
   onDispose(
     registerCookieHandlers({
@@ -131,21 +134,46 @@ export function createWindowScope(scope: AppScope): WindowScope {
   onDispose(
     registerHotelManagementHandlers({ window, feature: scope.hotelManagementService, logger }),
   );
-  onDispose(
-    registerAuthHandlers({
-      service: new AuthService({
-        apiSession,
-        client: createServerTrpcClient({
-          baseUrl: serverOrigin,
-          fetch: createElectronSessionFetch(apiSession),
+  // 登录体系按构建变体二选一。`IS_STAFF_AUTH` 是编译期常量，未命中的分支连同它
+  // 依赖的 service 会被 DCE 摇掉，不会进产物；未选中那套的 session 也不会创建。
+  logger.info('Authentication variant selected', { authVariant: AUTH_VARIANT });
+  if (IS_STAFF_AUTH) {
+    const rmsSession = scope.sessionFactory.sessionForRmsApi();
+    onDispose(
+      registerStaffAuthHandlers({
+        service: new StaffAuthService({
+          client: createRmsAuthClient({
+            origin: resolveRmsOrigin(process.env),
+            fetch: createElectronSessionFetch(rmsSession),
+            logger,
+          }),
+          tokenStore: createStaffTokenStore({ userDataDir: scope.userDataDir, logger }),
+          now: () => Date.now(),
+          logger,
         }),
         logger,
-        serverOrigin,
+        window,
       }),
-      logger,
-      window,
-    }),
-  );
+    );
+  } else {
+    const serverOrigin = resolveServerOrigin(process.env);
+    const apiSession = scope.sessionFactory.sessionForServerApi();
+    onDispose(
+      registerAuthHandlers({
+        service: new AuthService({
+          apiSession,
+          client: createServerTrpcClient({
+            baseUrl: serverOrigin,
+            fetch: createElectronSessionFetch(apiSession),
+          }),
+          logger,
+          serverOrigin,
+        }),
+        logger,
+        window,
+      }),
+    );
+  }
 
   let disposed = false;
   const dispose = (): void => {
