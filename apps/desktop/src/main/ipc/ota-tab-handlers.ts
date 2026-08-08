@@ -13,7 +13,7 @@ import {
 import { toChannelId, type ChannelId } from '../ids';
 import { IPC_CHANNELS } from '../../shared/ipc-channels';
 import type { AppLogger } from '../../shared/logging';
-import type { PendingPartition } from '../file-store/pending-partitions-store';
+import type { PendingPartition } from '../ota-tab';
 import { createHandlerRegistry, type TrustedWindow } from './create-handler-registry';
 
 /** handler 声明自己需要什么，由 `OtaTabService` 满足；不 import 实现类。 */

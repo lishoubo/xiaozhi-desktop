@@ -4,3 +4,6 @@
  */
 export { OtaTabService, type OtaTabServiceDependencies } from './ota-tab-service';
 export { LoginDetector, type LoginDetectorDependencies } from './login-detector';
+
+/** 转出打开意图用到的环境类型，免得调用方为一个类型去 import 基础设施模块。 */
+export type { PendingPartition } from '../file-store/pending-partitions-store';
