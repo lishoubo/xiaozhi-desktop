@@ -64,10 +64,7 @@ function withMutex<T>(task: () => Promise<T>): Promise<T> {
   return next;
 }
 
-export function addPendingPartition(
-  userDataDir: string,
-  entry: PendingPartition,
-): Promise<void> {
+export function addPendingPartition(userDataDir: string, entry: PendingPartition): Promise<void> {
   return withMutex(async () => {
     const entries = await readAll(userDataDir);
     await writeAll(userDataDir, [...entries, entry]);

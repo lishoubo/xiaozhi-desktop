@@ -104,8 +104,9 @@ function updateInputFromEvent(
   event: Partial<CalendarEvent>,
 ): CalendarEventUpdateInput | null {
   // 局部逐字段构建，故用可变类型；返回时收敛回只读的 CalendarEventUpdateInput
-  const update: { -readonly [K in keyof CalendarEventUpdateInput['event']]: CalendarEventUpdateInput['event'][K] } =
-    {};
+  const update: {
+    -readonly [K in keyof CalendarEventUpdateInput['event']]: CalendarEventUpdateInput['event'][K];
+  } = {};
   if (typeof event.text === 'string') update.title = event.text.trim() || '新日程';
   if (event.start instanceof Date) update.startsAt = toLocalDateTime(event.start);
   if (event.end instanceof Date) update.endsAt = toLocalDateTime(event.end);

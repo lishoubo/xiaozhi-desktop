@@ -15,7 +15,10 @@
   import type { OtaCredentialDto } from '../../../shared/browser';
   import type { RmsOtaAccountDto } from '../../../shared/hotel-management';
   import { OTA_CHANNELS } from '../../data/ota-channels';
-  import { hotelBindingWaiting, otaReauthWaiting } from '../../hotel-management/cross-route-intents';
+  import {
+    hotelBindingWaiting,
+    otaReauthWaiting,
+  } from '../../hotel-management/cross-route-intents';
   import { dismissAppNotification, showAppNotification } from '../../notifications';
   import { Button } from '$lib/components/ui/button';
   import { Spinner } from '$lib/components/ui/spinner';
@@ -192,7 +195,12 @@
     {/if}
 
     <Dialog.Footer class="sm:justify-between">
-      <Button variant="outline" size="sm" disabled={submitting} onclick={() => void startNewLogin()}>
+      <Button
+        variant="outline"
+        size="sm"
+        disabled={submitting}
+        onclick={() => void startNewLogin()}
+      >
         <Plus />
         新登录账号
       </Button>

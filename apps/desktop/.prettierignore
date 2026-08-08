@@ -1,0 +1,18 @@
+# prettier 不会向上查找 ignore 文件：在本 workspace 里跑 `prettier --check .` 时，
+# 根目录那份 .prettierignore 完全不生效。所以构建产物与测试报告必须在这里再挡一次，
+# 否则 format:check 会去检查压缩后的 bundle 和 playwright 报告。
+
+# Build output
+.vite/
+.e2e/
+
+# Test output
+playwright-report/
+test-results/
+coverage/
+
+# Package manager state
+package-lock.json
+
+# Documentation is maintained manually
+*.md

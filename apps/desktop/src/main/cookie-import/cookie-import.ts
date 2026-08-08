@@ -17,7 +17,9 @@ const CHROMIUM_TO_UNIX_SECONDS = 11_644_473_600;
 export function channelForCookieDomain(domain: string): ChannelId | null {
   const normalized = domain.trim().toLowerCase().replace(/^\./, '');
   for (const [channel, domains] of Object.entries(CHANNEL_COOKIE_DOMAINS)) {
-    if (domains.some((supported) => normalized === supported || normalized.endsWith(`.${supported}`))) {
+    if (
+      domains.some((supported) => normalized === supported || normalized.endsWith(`.${supported}`))
+    ) {
       return toChannelId(channel);
     }
   }

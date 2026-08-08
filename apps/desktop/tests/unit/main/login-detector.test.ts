@@ -111,7 +111,9 @@ describe('LoginDetector', () => {
     await flush();
 
     expect(triggerDiscovery).toHaveBeenCalledOnce();
-    expect(checked).toEqual([expect.objectContaining({ outcome: { kind: 'checked', credential: null } })]);
+    expect(checked).toEqual([
+      expect.objectContaining({ outcome: { kind: 'checked', credential: null } }),
+    ]);
   });
 
   /**
@@ -132,9 +134,7 @@ describe('LoginDetector', () => {
     const detector = new LoginDetector({
       browserManager: browserManager as never,
       tabEventBus,
-      loginUrlMatchers: new Map([
-        [CTRIP, { channel: CTRIP, isPastLogin: () => true }],
-      ]),
+      loginUrlMatchers: new Map([[CTRIP, { channel: CTRIP, isPastLogin: () => true }]]),
       triggerDiscovery: async () => {
         await writeFinished;
         order.push('db-write-done');

@@ -9,7 +9,11 @@ import { z, type ZodType } from 'zod';
 import type { ChannelId } from '../ids';
 import type { BrowserCookieSource, BrowserCookieSourceId } from '../../shared/browser';
 import type { AppLogger } from '../../shared/logging';
-import { channelForCookieDomain, chromiumTimestampToUnix, isSupportedCookieDomain } from './cookie-import';
+import {
+  channelForCookieDomain,
+  chromiumTimestampToUnix,
+  isSupportedCookieDomain,
+} from './cookie-import';
 
 type SupportedPlatform = NodeJS.Platform;
 

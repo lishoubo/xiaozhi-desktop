@@ -4,9 +4,7 @@ import {
   type TabCredentialCheckedEvent,
 } from '../../../src/main/ota-tab/tab-event-bus';
 
-function fakeEvent(
-  overrides: Partial<TabCredentialCheckedEvent> = {},
-): TabCredentialCheckedEvent {
+function fakeEvent(overrides: Partial<TabCredentialCheckedEvent> = {}): TabCredentialCheckedEvent {
   return {
     tabId: 'tab-1',
     partitionName: 'persist:xiaozhi:prod:ctrip:aaa',

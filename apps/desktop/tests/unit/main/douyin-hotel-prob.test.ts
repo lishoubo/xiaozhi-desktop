@@ -9,9 +9,9 @@ describe('createDouyinHotelProbe', () => {
   describe('isProbeableUrl', () => {
     it('接受携带 groupid 的受信任来客首页 URL', () => {
       const probe = createDouyinHotelProbe(logger());
-      expect(
-        probe.isProbeableUrl('https://life.douyin.com/p/home?groupid=1813179858562059'),
-      ).toBe(true);
+      expect(probe.isProbeableUrl('https://life.douyin.com/p/home?groupid=1813179858562059')).toBe(
+        true,
+      );
     });
 
     it('拒绝不受信任域名', () => {
@@ -25,9 +25,9 @@ describe('createDouyinHotelProbe', () => {
 
     it('拒绝非首页路径', () => {
       const probe = createDouyinHotelProbe(logger());
-      expect(
-        probe.isProbeableUrl('https://life.douyin.com/p/other?groupid=1813179858562059'),
-      ).toBe(false);
+      expect(probe.isProbeableUrl('https://life.douyin.com/p/other?groupid=1813179858562059')).toBe(
+        false,
+      );
     });
 
     it('拒绝缺少 groupid 的首页 URL', () => {

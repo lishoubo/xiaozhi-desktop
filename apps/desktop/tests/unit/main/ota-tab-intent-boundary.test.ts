@@ -83,8 +83,6 @@ describe('非法 intent 被拒', () => {
   });
 
   it('多带了未声明的字段（strictObject 拒绝）', () => {
-    expect(() =>
-      newLoginTuple.parse([LOGIN_INPUT, { ...BIND_INTENT, extra: 'x' }]),
-    ).toThrow();
+    expect(() => newLoginTuple.parse([LOGIN_INPUT, { ...BIND_INTENT, extra: 'x' }])).toThrow();
   });
 });

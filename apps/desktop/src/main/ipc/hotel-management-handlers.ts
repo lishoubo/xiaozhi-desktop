@@ -81,11 +81,8 @@ export function registerHotelManagementHandlers({
       ),
   );
 
-  registry.handle(
-    IPC_CHANNELS.hotelManagement.startBinding,
-    z.tuple([]),
-    '绑定参数无效',
-    () => Promise.resolve(feature.startBinding()),
+  registry.handle(IPC_CHANNELS.hotelManagement.startBinding, z.tuple([]), '绑定参数无效', () =>
+    Promise.resolve(feature.startBinding()),
   );
   registry.handle(
     IPC_CHANNELS.hotelManagement.confirmBinding,
@@ -95,11 +92,8 @@ export function registerHotelManagementHandlers({
       logFailure(IPC_CHANNELS.hotelManagement.confirmBinding, () => feature.confirmBinding(input)),
   );
 
-  registry.handle(
-    IPC_CHANNELS.hotelManagement.startReauth,
-    z.tuple([]),
-    '重新登录参数无效',
-    () => Promise.resolve(feature.startReauth()),
+  registry.handle(IPC_CHANNELS.hotelManagement.startReauth, z.tuple([]), '重新登录参数无效', () =>
+    Promise.resolve(feature.startReauth()),
   );
   registry.handle(
     IPC_CHANNELS.hotelManagement.confirmReauth,

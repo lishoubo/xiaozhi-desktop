@@ -28,8 +28,7 @@ export type ProbedHotel = Readonly<{
 }>;
 
 export type HotelProbeOutcome =
-  | Readonly<{ kind: 'none' }>
-  | Readonly<{ kind: 'found'; hotels: readonly ProbedHotel[] }>;
+  Readonly<{ kind: 'none' }> | Readonly<{ kind: 'found'; hotels: readonly ProbedHotel[] }>;
 
 /**
  * 三渠道统一的酒店探测接口。探测是**无副作用的查询**：只产出候选，不落库、

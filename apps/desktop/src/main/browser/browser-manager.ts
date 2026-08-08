@@ -151,17 +151,15 @@ export class BrowserManager extends EventEmitter {
     this.bindTabEvents(tab);
     this.activate(id);
     this.logger.info('Browser tab created', { channelId, partitionName });
-    void view.webContents
-      .loadURL(url)
-      .catch((error: unknown) => {
-        tab.loading = false;
-        tab.title = '页面加载失败';
-        this.logger.error('Browser page load failed', {
-          channelId,
-          errorName: error instanceof Error ? error.name : 'UnknownError',
-        });
-        this.emitStateChanged(tab);
+    void view.webContents.loadURL(url).catch((error: unknown) => {
+      tab.loading = false;
+      tab.title = '页面加载失败';
+      this.logger.error('Browser page load failed', {
+        channelId,
+        errorName: error instanceof Error ? error.name : 'UnknownError',
       });
+      this.emitStateChanged(tab);
+    });
     return tab;
   }
 
@@ -274,7 +272,6 @@ export class BrowserManager extends EventEmitter {
     }
     if (tabCount > 0) this.logger.info('Browser workspace closed', { tabCount });
   }
-
 
   private async clearRetiredPartitionWhenUnused(partitionName: string): Promise<void> {
     const stillUsed = [...this.tabs.values()].some((tab) => tab.partitionName === partitionName);

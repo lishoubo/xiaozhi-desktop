@@ -3,9 +3,7 @@ import { resolveRendererDevServerUrl } from '../../../src/main/windows/renderer-
 
 describe('resolveRendererDevServerUrl', () => {
   it('upgrades the Electron Forge development URL to HTTPS', () => {
-    expect(resolveRendererDevServerUrl('http://localhost:5174/')).toBe(
-      'https://localhost:5174/',
-    );
+    expect(resolveRendererDevServerUrl('http://localhost:5174/')).toBe('https://localhost:5174/');
   });
 
   it('rejects non-web development URLs', () => {

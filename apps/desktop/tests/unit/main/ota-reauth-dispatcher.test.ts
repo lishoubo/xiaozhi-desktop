@@ -141,9 +141,7 @@ describe('OtaReauthDispatcher', () => {
     const deps = createDeps();
     new OtaReauthDispatcher(deps);
 
-    deps.tabEventBus.emitCredentialChecked(
-      fakeEvent({ outcome: { kind: 'not-yet-past-login' } }),
-    );
+    deps.tabEventBus.emitCredentialChecked(fakeEvent({ outcome: { kind: 'not-yet-past-login' } }));
 
     expect(deps.notify).not.toHaveBeenCalled();
   });

@@ -26,9 +26,7 @@ describe('meituanHotelProbe', () => {
       });
       const webContents = { executeJavaScript };
 
-      await expect(
-        meituanHotelProbe.probe({} as never, webContents as never),
-      ).resolves.toEqual({
+      await expect(meituanHotelProbe.probe({} as never, webContents as never)).resolves.toEqual({
         kind: 'found',
         hotels: [
           {
@@ -48,9 +46,9 @@ describe('meituanHotelProbe', () => {
       });
       const webContents = { executeJavaScript };
 
-      await expect(
-        meituanHotelProbe.probe({} as never, webContents as never),
-      ).resolves.toEqual({ kind: 'none' });
+      await expect(meituanHotelProbe.probe({} as never, webContents as never)).resolves.toEqual({
+        kind: 'none',
+      });
     });
   });
 });

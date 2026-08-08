@@ -40,9 +40,7 @@ export function paginate<T>(
   };
 }
 
-export function boundChannelsOfHotel(
-  accounts: readonly RmsOtaAccountDto[],
-): ReadonlySet<string> {
+export function boundChannelsOfHotel(accounts: readonly RmsOtaAccountDto[]): ReadonlySet<string> {
   return new Set(
     accounts.filter((account) => isActiveBinding(account.status)).map((account) => account.source),
   );

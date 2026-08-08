@@ -60,7 +60,11 @@ export class AuthService {
   }
 
   /** 远端失败一律转成用户可读文案，不把 tRPC 的原始错误透给渲染进程。 */
-  private async safeCall<T>(operation: string, message: string, call: () => Promise<T>): Promise<T> {
+  private async safeCall<T>(
+    operation: string,
+    message: string,
+    call: () => Promise<T>,
+  ): Promise<T> {
     try {
       return await call();
     } catch (error) {

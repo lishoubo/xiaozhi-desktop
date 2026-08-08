@@ -45,7 +45,11 @@ describe('OtaTabService', () => {
 
     await service.open('prod', CTRIP, 'https://ctrip.com');
 
-    expect(browserManager.createAndNewPartition).toHaveBeenCalledWith('prod', CTRIP, 'https://ctrip.com');
+    expect(browserManager.createAndNewPartition).toHaveBeenCalledWith(
+      'prod',
+      CTRIP,
+      'https://ctrip.com',
+    );
     // 不带意图时 intent 为 undefined——普通新建账号，登录后不触发任何后续流程。
     expect(loginDetector.register).toHaveBeenCalledWith('tab-1', CTRIP, undefined);
   });

@@ -1,8 +1,4 @@
-import {
-  browserTabSchema,
-  type OtaTabIntentDto,
-  type StartLoginInput,
-} from '../../shared/browser';
+import { browserTabSchema, type OtaTabIntentDto, type StartLoginInput } from '../../shared/browser';
 import { IPC_CHANNELS } from '../../shared/ipc-channels';
 import type { ValidatedInvoke } from '../invoke';
 

@@ -1,9 +1,4 @@
-import {
-  toChannelId,
-  toOtaCredentialId,
-  type ChannelId,
-  type OtaCredentialId,
-} from '../ids';
+import { toChannelId, toOtaCredentialId, type ChannelId, type OtaCredentialId } from '../ids';
 import {
   createOtaCredential,
   type OtaCredential,

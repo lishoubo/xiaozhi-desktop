@@ -92,20 +92,19 @@
       log.warn('Binding intent has neither credentialId nor newLoginChannel');
       return;
     }
-    void opening
-      .catch((reason: unknown) => {
-        cancelWaiting?.();
-        cancelWaiting = undefined;
-        log.warn('Binding tab could not be opened', {
-          errorName: reason instanceof Error ? reason.name : 'UnknownError',
-        });
-        showAppNotification({
-          id: NOTIFICATION_ID,
-          title: '发起绑定失败',
-          message: '打开渠道标签页失败，请重试。',
-          tone: 'error',
-        });
+    void opening.catch((reason: unknown) => {
+      cancelWaiting?.();
+      cancelWaiting = undefined;
+      log.warn('Binding tab could not be opened', {
+        errorName: reason instanceof Error ? reason.name : 'UnknownError',
       });
+      showAppNotification({
+        id: NOTIFICATION_ID,
+        title: '发起绑定失败',
+        message: '打开渠道标签页失败，请重试。',
+        tone: 'error',
+      });
+    });
   });
 
   onDestroy(() => {
@@ -184,7 +183,9 @@
     <ul class="max-h-72 space-y-1 overflow-y-auto py-2">
       {#each candidates as hotel (hotel.otaHotelId)}
         <li>
-          <label class="flex cursor-pointer items-center gap-3 rounded-md px-3 py-2 hover:bg-accent">
+          <label
+            class="flex cursor-pointer items-center gap-3 rounded-md px-3 py-2 hover:bg-accent"
+          >
             <input
               type="radio"
               name="ota-hotel"
@@ -202,10 +203,7 @@
     </ul>
 
     {#if requiresUnbindFirst}
-      <p
-        class="m-0 rounded-md bg-[#fde9e7] px-3 py-2 text-xs text-[#a8342d]"
-        role="alert"
-      >
+      <p class="m-0 rounded-md bg-[#fde9e7] px-3 py-2 text-xs text-[#a8342d]" role="alert">
         「{rmsHotelName}」在该渠道已绑定另一家门店，需要先解绑才能改绑。请回到酒店管理页解绑后重试。
       </p>
     {/if}

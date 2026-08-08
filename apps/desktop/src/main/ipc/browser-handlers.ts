@@ -1,9 +1,5 @@
 import { z } from 'zod';
-import {
-  browserBoundsSchema,
-  browserTabIdSchema,
-  type BrowserBounds,
-} from '../../shared/browser';
+import { browserBoundsSchema, browserTabIdSchema, type BrowserBounds } from '../../shared/browser';
 import { IPC_CHANNELS } from '../../shared/ipc-channels';
 import type { AppLogger } from '../../shared/logging';
 import { createHandlerRegistry, type TrustedWindow } from './create-handler-registry';

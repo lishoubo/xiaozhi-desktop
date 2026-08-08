@@ -1,9 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { toChannelId } from '../../../src/main/ids';
-import {
-  isCurrentLayoutPartition,
-  toPartitionName,
-} from '../../../src/main/browser/partition';
+import { isCurrentLayoutPartition, toPartitionName } from '../../../src/main/browser/partition';
 
 describe('toPartitionName', () => {
   it('同渠道的两个短id得到不同 partition —— 这是 D1 的修复点', () => {
@@ -44,9 +41,9 @@ describe('toPartitionName', () => {
 
 describe('isCurrentLayoutPartition', () => {
   it('识别当前布局生成的 partition', () => {
-    expect(isCurrentLayoutPartition(toPartitionName('prod', toChannelId('ctrip'), 'short-id-1'))).toBe(
-      true,
-    );
+    expect(
+      isCurrentLayoutPartition(toPartitionName('prod', toChannelId('ctrip'), 'short-id-1')),
+    ).toBe(true);
   });
 
   it('把旧的共享 partition 判为非当前布局（legacy）', () => {

@@ -1,4 +1,8 @@
-import type { RmsHotelGateway, RmsOtaAccountGateway, RmsCookieSnapshotEntry } from '../gateway/rms/types';
+import type {
+  RmsHotelGateway,
+  RmsOtaAccountGateway,
+  RmsCookieSnapshotEntry,
+} from '../gateway/rms/types';
 import type { RmsHotelCreateInput, RmsHotel } from '../../shared/types/rms-hotel';
 import type { RmsOtaAccount } from '../../shared/types/rms-ota-account';
 import type { OtaHotelRepository } from '../database/ota-hotel-repository';
@@ -21,10 +25,7 @@ export type HotelManagementServiceDependencies = Readonly<{
   hotelGateway: RmsHotelGateway;
   otaAccountGateway: RmsOtaAccountGateway;
   otaHotelRepository: Pick<OtaHotelRepository, 'save' | 'findByChannelAndHotelId'>;
-  otaCredentialRepository: Pick<
-    OtaCredentialRepository,
-    'findById' | 'findByChannelAndAccountId'
-  >;
+  otaCredentialRepository: Pick<OtaCredentialRepository, 'findById' | 'findByChannelAndAccountId'>;
   /** 按 partition 读取实时 cookie 快照；实现落在 composition root（services 不得 import browser/）。 */
   readCookieSnapshot: (partitionName: string) => Promise<readonly RmsCookieSnapshotEntry[]>;
   generateRequestId: () => string;

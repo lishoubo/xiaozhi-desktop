@@ -67,11 +67,7 @@ const MAX_OTA_HOTEL_ID_LENGTH = 128;
 export function toOtaHotelId(raw: string): OtaHotelId {
   if (raw.length === 0) throw new InvalidIdentifierError('OtaHotelId', raw, '不能为空');
   if (raw.length > MAX_OTA_HOTEL_ID_LENGTH) {
-    throw new InvalidIdentifierError(
-      'OtaHotelId',
-      raw,
-      `长度不能超过 ${MAX_OTA_HOTEL_ID_LENGTH}`,
-    );
+    throw new InvalidIdentifierError('OtaHotelId', raw, `长度不能超过 ${MAX_OTA_HOTEL_ID_LENGTH}`);
   }
   return raw as OtaHotelId;
 }

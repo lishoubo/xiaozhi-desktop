@@ -4,7 +4,9 @@ import { MockRmsOtaAccountGateway } from '../../../src/main/gateway/rms/rms-ota-
 /** seed：1001 上海云栖酒店已绑 ctrip(30101) 与 douyin(30102，登录失效)。 */
 const DOUYIN_EXPIRED_ID = 30102;
 
-function reauthInput(overrides: Partial<Parameters<MockRmsOtaAccountGateway['reauthenticate']>[0]> = {}) {
+function reauthInput(
+  overrides: Partial<Parameters<MockRmsOtaAccountGateway['reauthenticate']>[0]> = {},
+) {
   return {
     operationId: 'op-1',
     otaAccountId: DOUYIN_EXPIRED_ID,

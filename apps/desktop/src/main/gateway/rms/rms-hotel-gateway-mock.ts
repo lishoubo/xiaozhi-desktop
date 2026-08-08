@@ -1,4 +1,8 @@
-import { createRmsHotel, type RmsHotel, type RmsHotelCreateInput } from '../../../shared/types/rms-hotel';
+import {
+  createRmsHotel,
+  type RmsHotel,
+  type RmsHotelCreateInput,
+} from '../../../shared/types/rms-hotel';
 import type { RmsHotelGateway } from '../../../main/gateway/rms/types';
 
 const SEED_HOTELS: readonly RmsHotel[] = [

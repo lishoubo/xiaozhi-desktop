@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { toChannelId, toOtaCredentialId } from '../../../src/main/ids';
-import { createOtaCredential, InvalidOtaCredentialError } from '../../../src/shared/types/ota-credential';
+import {
+  createOtaCredential,
+  InvalidOtaCredentialError,
+} from '../../../src/shared/types/ota-credential';
 
 function input(overrides: Partial<Parameters<typeof createOtaCredential>[0]> = {}) {
   return {

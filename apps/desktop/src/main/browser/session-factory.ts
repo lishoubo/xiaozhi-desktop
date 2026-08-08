@@ -77,5 +77,4 @@ export class SessionFactory {
     this.cache.set(partition, created);
     return created;
   }
-
 }

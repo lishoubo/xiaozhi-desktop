@@ -224,7 +224,9 @@ describe('HotelManagementService.findCredentialForAccount', () => {
 
   /** 新数据：绑定那一刻写下的关联，不必绕本地表。 */
   it('bindExtra 带 channelAccountId 时直接匹配凭证', () => {
-    const findByChannelAndAccountId = vi.fn(() => credential({ id: toOtaCredentialId('cred-new') }));
+    const findByChannelAndAccountId = vi.fn(() =>
+      credential({ id: toOtaCredentialId('cred-new') }),
+    );
     const findByChannelAndHotelId = vi.fn(() => null);
     const { service } = setup({ findByChannelAndAccountId, findByChannelAndHotelId });
 
@@ -272,9 +274,7 @@ describe('HotelManagementService.findCredentialForAccount', () => {
     const findByChannelAndHotelId = vi.fn(() => null);
     const { service } = setup({ findByChannelAndHotelId });
 
-    expect(
-      service.findCredentialForAccount({ ...ACCOUNT, otaHotelId: null }),
-    ).toBeNull();
+    expect(service.findCredentialForAccount({ ...ACCOUNT, otaHotelId: null })).toBeNull();
     expect(findByChannelAndHotelId).not.toHaveBeenCalled();
   });
 

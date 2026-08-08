@@ -35,8 +35,11 @@ export function registerCookieHandlers({
   registry.handle(IPC_CHANNELS.cookies.listSources, noArgumentsSchema, '请求参数无效', () =>
     service.listSources(),
   );
-  registry.handle(IPC_CHANNELS.cookies.listImportedChannels, noArgumentsSchema, '请求参数无效', () =>
-    service.listImportedChannels(),
+  registry.handle(
+    IPC_CHANNELS.cookies.listImportedChannels,
+    noArgumentsSchema,
+    '请求参数无效',
+    () => service.listImportedChannels(),
   );
   registry.handle(
     IPC_CHANNELS.cookies.import,

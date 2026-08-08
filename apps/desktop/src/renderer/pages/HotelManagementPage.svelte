@@ -302,10 +302,7 @@
       </div>
 
       {#if totalPages > 1}
-        <nav
-          class="mt-3 flex items-center justify-between gap-3"
-          aria-label="酒店列表翻页"
-        >
+        <nav class="mt-3 flex items-center justify-between gap-3" aria-label="酒店列表翻页">
           <span class="text-[11px] text-muted-foreground">
             第 {(safePage - 1) * PAGE_SIZE + 1}–{Math.min(safePage * PAGE_SIZE, hotels.length)} 家，共
             {hotels.length} 家

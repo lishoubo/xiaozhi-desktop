@@ -119,10 +119,10 @@ export function createWindowScope(scope: AppScope): WindowScope {
       logger,
     }),
   );
+  onDispose(registerOtaCredentialHandlers({ window, service: scope.otaCredentialService, logger }));
   onDispose(
-    registerOtaCredentialHandlers({ window, service: scope.otaCredentialService, logger }),
+    registerSystemHandlers({ window, service: new SystemService({ app, logger }), logger }),
   );
-  onDispose(registerSystemHandlers({ window, service: new SystemService({ app, logger }), logger }));
   onDispose(registerOtaTabHandlers({ window, service: otaTabService, logger }));
   onDispose(
     registerCalendarHandlers({

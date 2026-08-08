@@ -1,9 +1,5 @@
 import { z } from 'zod';
-import {
-  browserTabSchema,
-  type BrowserBounds,
-  type BrowserTab,
-} from '../../shared/browser';
+import { browserTabSchema, type BrowserBounds, type BrowserTab } from '../../shared/browser';
 import { IPC_CHANNELS } from '../../shared/ipc-channels';
 import type { ValidatedInvoke, ValidatedSubscribe } from '../invoke';
 

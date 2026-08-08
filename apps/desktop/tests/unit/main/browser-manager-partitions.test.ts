@@ -201,7 +201,11 @@ describe('BrowserManager — tab:navigated / tab:closed 事件广播', () => {
     const listener = vi.fn();
     manager.on('tab:navigated', listener);
 
-    await manager.createAndNewPartition('prod', toChannelId('douyin'), 'https://life.douyin.com/p/login');
+    await manager.createAndNewPartition(
+      'prod',
+      toChannelId('douyin'),
+      'https://life.douyin.com/p/login',
+    );
     const view = electron.views[0];
     view.handlers.get('did-navigate-in-page')?.({}, 'https://life.douyin.com/p/home?groupid=123');
 

@@ -14,7 +14,10 @@ import { createCtripDiscovery } from '../channels/ctrip/discovery';
 import { createDouyinDiscovery } from '../channels/douyin/discovery';
 import { createMeituanDiscovery } from '../channels/meituan/discovery';
 import { createChannelRegistry, type ChannelAdapter } from '../channels/registry';
-import { openApplicationDatabase, type ApplicationDatabase } from '../database/application-database';
+import {
+  openApplicationDatabase,
+  type ApplicationDatabase,
+} from '../database/application-database';
 import { SqliteOtaCredentialRepository } from '../database/ota-credential-repository';
 import { SqliteOtaHotelRepository } from '../database/ota-hotel-repository';
 import { removePendingPartition } from '../file-store/pending-partitions-store';

@@ -32,8 +32,7 @@ export function createHotelManagementApi(invoke: ValidatedInvoke, subscribe: Val
      * 发起绑定：只取号。标签页由调用方自己经 `otaTab.openExisting` 打开并带上
      * 意图，结果经 `onWaitingResult` 按 requestId 送达。
      */
-    startBinding: () =>
-      invoke(startBindingResultSchema, IPC_CHANNELS.hotelManagement.startBinding),
+    startBinding: () => invoke(startBindingResultSchema, IPC_CHANNELS.hotelManagement.startBinding),
     /** 用户选定候选后收尾：先远端后本地，任一步失败都会 reject。 */
     confirmBinding: (input: ConfirmBindingInput) =>
       invoke(rmsOtaAccountSchema, IPC_CHANNELS.hotelManagement.confirmBinding, input),
@@ -44,11 +43,7 @@ export function createHotelManagementApi(invoke: ValidatedInvoke, subscribe: Val
       invoke(rmsOtaAccountSchema, IPC_CHANNELS.hotelManagement.confirmReauth, input),
     /** 查「这条远端绑定当初是哪个本地凭证建的」；找不到返回 null，不是错误。 */
     findCredentialForAccount: (input: FindCredentialForAccountInput) =>
-      invoke(
-        z.string().nullable(),
-        IPC_CHANNELS.hotelManagement.findCredentialForAccount,
-        input,
-      ),
+      invoke(z.string().nullable(), IPC_CHANNELS.hotelManagement.findCredentialForAccount, input),
     /** 订阅「UI 在等的结果送达了」。信封里的 requestId 用来认领。 */
     onWaitingResult: (listener: (envelope: UiWaitingResultEnvelope) => void) =>
       subscribe(uiWaitingResultEnvelopeSchema, IPC_CHANNELS.uiWaitingResult.delivered, listener),

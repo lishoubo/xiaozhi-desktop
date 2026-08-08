@@ -1,10 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { toChannelId, toOtaCredentialId, toOtaHotelId } from '../../../src/main/ids';
 import type { OtaCredential } from '../../../src/shared/types/ota-credential';
-import {
-  TabEventBus,
-  type TabCredentialCheckedEvent,
-} from '../../../src/main/ota-tab';
+import { TabEventBus, type TabCredentialCheckedEvent } from '../../../src/main/ota-tab';
 import {
   HotelProbeDispatcher,
   type HotelProbeDispatcherDependencies,

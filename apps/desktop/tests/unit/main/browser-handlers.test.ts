@@ -78,9 +78,7 @@ describe('otaCredential.listByChannel handler', () => {
   it('lists credentials without requiring linked OTA accounts', () => {
     const sender = {};
     const service = {
-      listByChannel: vi.fn(() => [
-        { id: 'credential-1', channel: toChannelId('ctrip') } as never,
-      ]),
+      listByChannel: vi.fn(() => [{ id: 'credential-1', channel: toChannelId('ctrip') } as never]),
     };
     registerOtaCredentialHandlers({
       window: { webContents: sender },

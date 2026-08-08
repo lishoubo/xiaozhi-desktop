@@ -120,9 +120,7 @@ export const otaDiscoveryCompletedEventSchema = z.strictObject({
   channel: nonEmptyStringSchema,
 });
 
-export type OtaDiscoveryCompletedEvent = Readonly<
-  z.infer<typeof otaDiscoveryCompletedEventSchema>
->;
+export type OtaDiscoveryCompletedEvent = Readonly<z.infer<typeof otaDiscoveryCompletedEventSchema>>;
 
 /** 探测出的候选酒店，尚未保存。 */
 export const probedHotelSchema = z.strictObject({

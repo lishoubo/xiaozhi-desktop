@@ -7,7 +7,10 @@ const electron = vi.hoisted(() => {
     handlers,
     ipcMain: {
       handle: vi.fn(
-        (channel: string, listener: (event: { sender: unknown }, ...args: unknown[]) => unknown) => {
+        (
+          channel: string,
+          listener: (event: { sender: unknown }, ...args: unknown[]) => unknown,
+        ) => {
           handlers.set(channel, listener);
         },
       ),

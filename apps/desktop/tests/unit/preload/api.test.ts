@@ -123,7 +123,6 @@ describe('createDesktopApi', () => {
     ]);
   });
 
-
   it('exposes a typed calendar data source over fixed IPC channels', async () => {
     const snapshot = {
       groups: [
