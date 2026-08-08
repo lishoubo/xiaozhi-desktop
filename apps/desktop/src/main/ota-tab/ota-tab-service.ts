@@ -31,18 +31,25 @@ export type OtaTabServiceDependencies = Readonly<{
 export class OtaTabService {
   constructor(private readonly deps: OtaTabServiceDependencies) {}
 
-  /** "新建账号"：不注入 cookie，等待用户手动登录。 */
+  /**
+   * "新建账号"：不注入 cookie，等待用户手动登录。
+   *
+   * `intent` 与 `openExisting` 同义——「这次打开是为了做什么」。绑定入口的
+   * 「新登录账号」快捷方式带 `bind-hotel` 意图走这条路：新账号可操作的门店未知，
+   * 登录成功后必须探测并让用户确认。
+   */
   async open(
     environment: PendingPartition['environment'],
     channel: ChannelId,
     url: string,
+    intent?: OtaTabIntent,
   ): Promise<BrowserTab> {
     const { tab, partitionName } = await this.deps.browserManager.createAndNewPartition(
       environment,
       channel,
       url,
     );
-    this.deps.loginDetector.register(tab.id, channel);
+    this.deps.loginDetector.register(tab.id, channel, intent);
     await this.rememberPendingPartition(partitionName, channel, environment);
     return tab;
   }

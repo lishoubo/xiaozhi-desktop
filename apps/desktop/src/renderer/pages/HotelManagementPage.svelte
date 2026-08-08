@@ -11,6 +11,7 @@
   import AddOtaBindingDialog from '../components/hotel/AddOtaBindingDialog.svelte';
   import BoundOtaAccountCard from '../components/hotel/BoundOtaAccountCard.svelte';
   import { groupOtaAccountsByHotelId, type OtaAccountAction } from '../hotel-management/model';
+  import { needsAttention } from '../hotel-management/account-status';
   import type { RmsHotelDto, RmsOtaAccountDto } from '../../shared/hotel-management';
   import { enter, PAGE_ENTER_OPTIONS } from '../motion';
   import { dismissAppNotification, showAppNotification } from '../notifications';
@@ -22,11 +23,7 @@
   const accountsByHotelId = $derived(groupOtaAccountsByHotelId(otaAccounts));
   const totalAccounts = $derived(otaAccounts.length);
   const attentionAccounts = $derived(
-    otaAccounts.filter((account) =>
-      ['LOGIN_FAILED', 'LOGIN_EXPIRED', 'INIT_FAILED', 'HOTEL_NAME_MISMATCH'].includes(
-        account.status,
-      ),
-    ).length,
+    otaAccounts.filter((account) => needsAttention(account.status)).length,
   );
 
   let createOpen = $state(false);
@@ -280,7 +277,11 @@
   </div>
 </main>
 
-<AddOtaBindingDialog hotel={addBindingTarget} onClose={() => (addBindingTarget = null)} />
+<AddOtaBindingDialog
+  hotel={addBindingTarget}
+  otaAccounts={addBindingTarget ? (accountsByHotelId.get(addBindingTarget.id) ?? []) : []}
+  onClose={() => (addBindingTarget = null)}
+/>
 
 <Dialog.Root bind:open={createOpen}>
   <Dialog.Content class="sm:max-w-md">

@@ -61,8 +61,26 @@
 
     // 标签页由这里开——不经过 BrowserWorkspace。store 负责三步收尾（进标签栏、
     // 切到该渠道、按视口布局），主进程代劳不了。
-    void browserOtaTabs
-      .openExisting(pending.credentialId, { kind: 'bind-hotel', requestId: pending.requestId })
+    //
+    // 两种来源：选了已有账号就打开那个凭证；「新登录账号」此刻还没有凭证，开一个
+    // 空登录页，等用户登完再由探测产出候选。两条路带的是同一个 intent。
+    const intent = { kind: 'bind-hotel', requestId: pending.requestId } as const;
+    const opening = pending.credentialId
+      ? browserOtaTabs.openExisting(pending.credentialId, intent)
+      : pending.newLoginChannel
+        ? browserOtaTabs.openForNewLogin(
+            pending.newLoginChannel.channelId,
+            pending.newLoginChannel.url,
+            intent,
+          )
+        : null;
+    if (!opening) {
+      cancelWaiting?.();
+      cancelWaiting = undefined;
+      log.warn('Binding intent has neither credentialId nor newLoginChannel');
+      return;
+    }
+    void opening
       .catch((reason: unknown) => {
         cancelWaiting?.();
         cancelWaiting = undefined;

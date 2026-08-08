@@ -8,6 +8,14 @@ export type OtaChannel = Readonly<{
   iconUrl: string;
 }>;
 
+/**
+ * 支持酒店绑定的渠道 —— 与主进程 `channels/registry.ts` 注册了 `hotelProbe` 的那三个
+ * 一致。没有 probe 的渠道登录后探测不出候选，绑定流程走不完，因此绑定入口不能列出它们。
+ *
+ * ⚠ 主进程新增渠道适配器时要同步这里。两处分处不同进程，无法用类型系统关联。
+ */
+export const BINDABLE_CHANNEL_IDS: readonly string[] = ['ctrip', 'douyin', 'meituan'];
+
 export const OTA_CHANNELS: readonly OtaChannel[] = [
   {
     id: 'ctrip',

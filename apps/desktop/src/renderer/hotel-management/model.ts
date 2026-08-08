@@ -1,4 +1,19 @@
 import type { RmsOtaAccountDto } from '../../shared/hotel-management';
+import { isActiveBinding } from './account-status';
+
+/**
+ * 这家酒店已经占用了哪些渠道的绑定位。
+ *
+ * 远端规则是「同一酒店 + 同一渠道只能有一个活跃绑定」，所以发起绑定时要按**渠道
+ * 整体**排除，不是只排除已绑定的那一个账号——同渠道的其他账号选了也会被远端拒绝。
+ */
+export function boundChannelsOfHotel(
+  accounts: readonly RmsOtaAccountDto[],
+): ReadonlySet<string> {
+  return new Set(
+    accounts.filter((account) => isActiveBinding(account.status)).map((account) => account.source),
+  );
+}
 
 export function groupOtaAccountsByHotelId(
   otaAccounts: readonly RmsOtaAccountDto[],

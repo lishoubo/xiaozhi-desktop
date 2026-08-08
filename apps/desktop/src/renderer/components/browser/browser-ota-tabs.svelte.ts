@@ -84,13 +84,19 @@ class BrowserOtaTabsStore {
     return tab;
   }
 
-  /** "新建账号"：不注入 cookie，等用户手动登录。 */
-  async openForNewLogin(channelId: string, url: string): Promise<BrowserTab> {
-    const tab = await window.hotelButler.otaTab.openForNewLogin({
-      channelId,
-      environment: 'prod',
-      url,
-    });
+  /**
+   * "新建账号"：不注入 cookie，等用户手动登录。`intent` 同 `openExisting`——绑定
+   * 入口的「新登录账号」带意图进来，登录成功后照样探测候选。
+   */
+  async openForNewLogin(
+    channelId: string,
+    url: string,
+    intent?: OtaTabIntentDto,
+  ): Promise<BrowserTab> {
+    const tab = await window.hotelButler.otaTab.openForNewLogin(
+      { channelId, environment: 'prod', url },
+      intent,
+    );
     return this.adopt(tab);
   }
 

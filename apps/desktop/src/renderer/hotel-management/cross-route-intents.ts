@@ -9,8 +9,14 @@ import { createNavigationIntent } from '../navigation-intent';
  */
 export const hotelBindingWaiting = createNavigationIntent<{
   requestId: string;
-  /** 浏览器工作区用它开标签页——开 tab 的三步收尾只有渲染进程做得了。 */
-  credentialId: string;
+  /**
+   * 浏览器工作区用它开标签页——开 tab 的三步收尾只有渲染进程做得了。
+   *
+   * 二选一：`credentialId` 是「用已有账号」，`newLoginChannel` 是「新登录账号」
+   * （此刻还没有凭证，登录成功后才会产生）。
+   */
+  credentialId?: string;
+  newLoginChannel?: { channelId: string; url: string };
   rmsHotelId: number;
   rmsHotelName: string;
 }>();

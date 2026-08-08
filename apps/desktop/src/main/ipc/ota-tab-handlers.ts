@@ -22,6 +22,7 @@ export interface OtaTabOrchestrator {
     environment: PendingPartition['environment'],
     channel: ChannelId,
     url: string,
+    intent?: OtaTabIntent,
   ): Promise<BrowserTab>;
   createFromCookie(
     environment: PendingPartition['environment'],
@@ -46,9 +47,11 @@ export function registerOtaTabHandlers({
 
   registry.handle(
     IPC_CHANNELS.otaTab.openForNewLogin,
-    z.tuple([startLoginInputSchema]),
+    // intent 同 openExisting：可缺省，用 `.default()` 保持元组定长。
+    z.tuple([startLoginInputSchema, otaTabIntentSchema.nullish().default(null)]),
     '登录参数无效',
-    ({ channelId, environment, url }) => service.open(environment, toChannelId(channelId), url),
+    ({ channelId, environment, url }, intent) =>
+      service.open(environment, toChannelId(channelId), url, intent ?? undefined),
   );
   registry.handle(
     IPC_CHANNELS.otaTab.openWithImportedCookie,
