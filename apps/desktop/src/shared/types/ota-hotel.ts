@@ -1,4 +1,11 @@
-/** 一个 credential 名下探测出的一家可操作渠道酒店。 */
+/**
+ * 用户确认后保存的一家渠道酒店信息。本地只保存酒店自身的事实（所属凭证、渠道、
+ * OTA 酒店 ID、名称、渠道原始上下文）——OTA 酒店与 RMS 酒店之间的绑定关系由远端
+ * 持有，本地不表达，因此这里没有绑定时刻或 RMS 酒店标识这类字段。
+ *
+ * 探测阶段的产物是候选（`channels/types.ts` 的 `ProbedHotel`），不是这个类型：
+ * 探测无副作用，只有用户确认才写入本地。
+ */
 import type { ChannelId, OtaCredentialId, OtaHotelId } from './ids';
 import type { JsonObject } from './json';
 
@@ -9,22 +16,10 @@ export type OtaHotel = Readonly<{
   otaHotelId: OtaHotelId;
   otaHotelName: string | null;
   bindExtra: JsonObject | null;
-  discoveredAt: number;
 }>;
 
-export type OtaHotelCreateInput = Readonly<{
-  id: string;
-  credentialId: OtaCredentialId;
-  channel: ChannelId;
-  otaHotelId: OtaHotelId;
-  otaHotelName: string | null;
-  bindExtra: JsonObject | null;
-  discoveredAt: number;
-}>;
-
-export type OtaHotelDiscoveryUpdate = Readonly<
-  Pick<OtaHotel, 'credentialId' | 'otaHotelName' | 'bindExtra' | 'discoveredAt'>
->;
+/** `save()` 的入参。字段与 `OtaHotel` 一致：命中冲突时 `id` 忽略，沿用既有记录。 */
+export type OtaHotelSaveInput = OtaHotel;
 
 // 这里曾有 createOtaHotel + InvalidOtaHotelError，唯一的校验是
 // `credentialId.length === 0`。但 credentialId 的类型是 branded 的

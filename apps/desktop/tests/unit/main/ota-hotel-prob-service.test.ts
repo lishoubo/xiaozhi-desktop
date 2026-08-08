@@ -5,7 +5,10 @@ import {
   TabEventBus,
   type TabCredentialCheckedEvent,
 } from '../../../src/main/services/tab-event-bus';
-import { OtaHotelProbService } from '../../../src/main/services/ota-hotel-prob-service';
+import {
+  OtaHotelProbService,
+  type OtaHotelProbFeatureDependencies,
+} from '../../../src/main/services/ota-hotel-prob-service';
 import type { HotelProbe } from '../../../src/main/channels/types';
 
 function createLogger() {
@@ -25,9 +28,7 @@ function credential(overrides: Partial<OtaCredential> = {}): OtaCredential {
   };
 }
 
-function fakeEvent(
-  overrides: Partial<TabCredentialCheckedEvent> = {},
-): TabCredentialCheckedEvent {
+function fakeEvent(overrides: Partial<TabCredentialCheckedEvent> = {}): TabCredentialCheckedEvent {
   return {
     tabId: 'tab-1',
     partitionName: 'persist:xiaozhi:prod:douyin:aaa',
@@ -49,21 +50,14 @@ function foundProbe(): HotelProbe {
   };
 }
 
-function createDeps(overrides: Record<string, unknown> = {}) {
-  const tabEventBus = new TabEventBus();
-  const repository = {
-    create: vi.fn((input) => input),
-    findByChannelAndHotelId: vi.fn(() => null),
-    findByCredentialId: vi.fn(() => null),
-    updateDiscovery: vi.fn(),
-  };
+/** 只允许覆盖 probes：logger 与 tabEventBus 需要在用例里断言，保持具体类型。 */
+function createDeps(overrides: Pick<Partial<OtaHotelProbFeatureDependencies>, 'probes'> = {}) {
   return {
-    tabEventBus,
+    tabEventBus: new TabEventBus(),
     probes: new Map([[toChannelId('douyin'), foundProbe()]]),
-    repository,
     logger: createLogger(),
     ...overrides,
-  };
+  } satisfies OtaHotelProbFeatureDependencies;
 }
 
 async function flushMicrotasks(): Promise<void> {
@@ -71,40 +65,32 @@ async function flushMicrotasks(): Promise<void> {
 }
 
 describe('OtaHotelProbService', () => {
-  it('探测成功后创建新的酒店探测记录', async () => {
-    const deps = createDeps();
-    new OtaHotelProbService(deps as never);
+  it('探测成功只产出候选日志，不写库', async () => {
+    const probe = foundProbe();
+    const deps = createDeps({ probes: new Map([[toChannelId('douyin'), probe]]) });
+    new OtaHotelProbService(deps);
 
     deps.tabEventBus.emitCredentialChecked(fakeEvent());
     await flushMicrotasks();
 
-    expect(deps.repository.create).toHaveBeenCalledWith(
-      expect.objectContaining({
-        credentialId: 'credential-1',
-        channel: 'douyin',
-        otaHotelId: 'dy-111',
-        otaHotelName: '测试酒店',
-      }),
+    expect(probe.probe).toHaveBeenCalledTimes(1);
+    expect(deps.logger.info).toHaveBeenCalledWith(
+      'Hotel probe found candidates',
+      expect.objectContaining({ channel: 'douyin', hotelCount: 1 }),
     );
   });
 
-  it('渠道已有探测记录时跳过，不重复探测', async () => {
+  it('同一凭证连续两次事件都会执行探测（用户否决后可重试）', async () => {
     const probe = foundProbe();
-    const deps = createDeps({
-      probes: new Map([[toChannelId('douyin'), probe]]),
-      repository: {
-        create: vi.fn(),
-        findByChannelAndHotelId: vi.fn(() => null),
-        findByCredentialId: vi.fn(() => ({ id: 'existing' })),
-        updateDiscovery: vi.fn(),
-      },
-    });
-    new OtaHotelProbService(deps as never);
+    const deps = createDeps({ probes: new Map([[toChannelId('douyin'), probe]]) });
+    new OtaHotelProbService(deps);
 
     deps.tabEventBus.emitCredentialChecked(fakeEvent());
     await flushMicrotasks();
+    deps.tabEventBus.emitCredentialChecked(fakeEvent());
+    await flushMicrotasks();
 
-    expect(probe.probe).not.toHaveBeenCalled();
+    expect(probe.probe).toHaveBeenCalledTimes(2);
   });
 
   it('URL 不满足 isProbeableUrl 时不触发探测', async () => {
@@ -113,7 +99,7 @@ describe('OtaHotelProbService', () => {
       probe: vi.fn(),
     };
     const deps = createDeps({ probes: new Map([[toChannelId('douyin'), probe]]) });
-    new OtaHotelProbService(deps as never);
+    new OtaHotelProbService(deps);
 
     deps.tabEventBus.emitCredentialChecked(fakeEvent());
     await flushMicrotasks();
@@ -123,22 +109,20 @@ describe('OtaHotelProbService', () => {
 
   it('渠道未注册 probe 时直接跳过', async () => {
     const deps = createDeps({ probes: new Map() });
-    new OtaHotelProbService(deps as never);
+    new OtaHotelProbService(deps);
 
     deps.tabEventBus.emitCredentialChecked(fakeEvent());
     await flushMicrotasks();
 
-    expect(deps.repository.create).not.toHaveBeenCalled();
+    expect(deps.logger.info).not.toHaveBeenCalled();
   });
 
   it('outcome.kind 不是 checked 时不触发探测', async () => {
     const probe = foundProbe();
     const deps = createDeps({ probes: new Map([[toChannelId('douyin'), probe]]) });
-    new OtaHotelProbService(deps as never);
+    new OtaHotelProbService(deps);
 
-    deps.tabEventBus.emitCredentialChecked(
-      fakeEvent({ outcome: { kind: 'not-applicable' } }),
-    );
+    deps.tabEventBus.emitCredentialChecked(fakeEvent({ outcome: { kind: 'not-applicable' } }));
     await flushMicrotasks();
 
     expect(probe.probe).not.toHaveBeenCalled();
@@ -147,7 +131,7 @@ describe('OtaHotelProbService', () => {
   it('outcome.credential 为 null 时不触发探测', async () => {
     const probe = foundProbe();
     const deps = createDeps({ probes: new Map([[toChannelId('douyin'), probe]]) });
-    new OtaHotelProbService(deps as never);
+    new OtaHotelProbService(deps);
 
     deps.tabEventBus.emitCredentialChecked(
       fakeEvent({ outcome: { kind: 'checked', credential: null } }),
@@ -157,13 +141,13 @@ describe('OtaHotelProbService', () => {
     expect(probe.probe).not.toHaveBeenCalled();
   });
 
-  it('探测抛错时记录警告，不影响后续事件', async () => {
+  it('探测抛错时记录警告，不产出候选', async () => {
     const probe: HotelProbe = {
       isProbeableUrl: vi.fn(() => true),
       probe: vi.fn().mockRejectedValue(new Error('boom')),
     };
     const deps = createDeps({ probes: new Map([[toChannelId('douyin'), probe]]) });
-    new OtaHotelProbService(deps as never);
+    new OtaHotelProbService(deps);
 
     deps.tabEventBus.emitCredentialChecked(fakeEvent());
     await flushMicrotasks();
@@ -172,29 +156,20 @@ describe('OtaHotelProbService', () => {
       'Hotel probe failed',
       expect.objectContaining({ channel: 'douyin' }),
     );
-    expect(deps.repository.create).not.toHaveBeenCalled();
+    expect(deps.logger.info).not.toHaveBeenCalled();
   });
 
-  it('已存在同渠道同酒店记录时更新而非新建', async () => {
-    const probe = foundProbe();
-    const deps = createDeps({
-      probes: new Map([[toChannelId('douyin'), probe]]),
-      repository: {
-        create: vi.fn(),
-        findByChannelAndHotelId: vi.fn(() => ({ id: 'existing-hotel' })),
-        findByCredentialId: vi.fn(() => null),
-        updateDiscovery: vi.fn(),
-      },
-    });
-    new OtaHotelProbService(deps as never);
+  it('probe 返回 none 时不产出候选', async () => {
+    const probe: HotelProbe = {
+      isProbeableUrl: vi.fn(() => true),
+      probe: vi.fn().mockResolvedValue({ kind: 'none' }),
+    };
+    const deps = createDeps({ probes: new Map([[toChannelId('douyin'), probe]]) });
+    new OtaHotelProbService(deps);
 
     deps.tabEventBus.emitCredentialChecked(fakeEvent());
     await flushMicrotasks();
 
-    expect(deps.repository.updateDiscovery).toHaveBeenCalledWith(
-      'existing-hotel',
-      expect.objectContaining({ credentialId: 'credential-1' }),
-    );
-    expect(deps.repository.create).not.toHaveBeenCalled();
+    expect(deps.logger.info).not.toHaveBeenCalled();
   });
 });

@@ -11,17 +11,20 @@ function createLogger() {
   return { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
 }
 
-function input(overrides: Partial<Parameters<SqliteOtaHotelRepository['create']>[0]> = {}) {
+function input(overrides: Partial<Parameters<SqliteOtaHotelRepository['save']>[0]> = {}) {
   return {
-    id: 'hotel-prob-1',
+    id: 'ota-hotel-1',
     credentialId: toOtaCredentialId('credential-1'),
     channel: toChannelId('douyin'),
     otaHotelId: toOtaHotelId('dy-111'),
     otaHotelName: null,
     bindExtra: null,
-    discoveredAt: 1_700_000_000_000,
     ...overrides,
   };
+}
+
+function countRows(database: ApplicationDatabase): number {
+  return database.prepare<[], { n: number }>('SELECT COUNT(*) AS n FROM ota_hotel').get()?.n ?? -1;
 }
 
 let database: ApplicationDatabase;
@@ -53,8 +56,8 @@ beforeEach(() => {
 });
 
 describe('SqliteOtaHotelRepository', () => {
-  it('创建后可按渠道 + 门店查出同一条记录', () => {
-    repository.create(input());
+  it('保存后可按渠道 + 门店查出同一条记录', () => {
+    repository.save(input());
 
     const found = repository.findByChannelAndHotelId(toChannelId('douyin'), toOtaHotelId('dy-111'));
     expect(found?.credentialId).toBe('credential-1');
@@ -66,53 +69,51 @@ describe('SqliteOtaHotelRepository', () => {
     ).toBeNull();
   });
 
-  it('同一 (channel, otaHotelId) 二次创建违反唯一索引', () => {
-    repository.create(input());
-    expect(() => repository.create(input({ id: 'hotel-prob-2' }))).toThrow();
+  it('同一 (channel, otaHotelId) 二次保存走 upsert，不抛错且记录 id 不变', () => {
+    const created = repository.save(input());
+    const again = repository.save(input({ id: 'ignored-id' }));
+
+    expect(again.id).toBe(created.id);
+    expect(countRows(database)).toBe(1);
   });
 
-  it('findByCredentialId 按凭证查出探测记录，不存在返回 null', () => {
-    const created = repository.create(input());
+  it('同一酒店由不同凭证保存时改指新凭证并刷新酒店信息', () => {
+    const created = repository.save(input({ otaHotelName: '旧名', bindExtra: null }));
 
-    expect(repository.findByCredentialId(toOtaCredentialId('credential-1'))?.id).toBe(created.id);
-    expect(repository.findByCredentialId(toOtaCredentialId('credential-2'))).toBeNull();
-  });
-
-  it('updateDiscovery 更新凭证引用和酒店发现事实，记录 id 不变', () => {
-    const created = repository.create(input());
-
-    const updated = repository.updateDiscovery(created.id, {
-      credentialId: toOtaCredentialId('credential-2'),
-      otaHotelName: '新酒店名',
-      bindExtra: { merchantGroupId: 'group-2' },
-      discoveredAt: 2_000,
-    });
+    const updated = repository.save(
+      input({
+        id: 'ignored-id',
+        credentialId: toOtaCredentialId('credential-2'),
+        otaHotelName: '新酒店名',
+        bindExtra: { merchantGroupId: 'group-2' },
+      }),
+    );
 
     expect(updated.id).toBe(created.id);
     expect(updated.otaHotelId).toBe(created.otaHotelId);
     expect(updated.credentialId).toBe('credential-2');
     expect(updated.otaHotelName).toBe('新酒店名');
     expect(updated.bindExtra).toEqual({ merchantGroupId: 'group-2' });
-    expect(updated.discoveredAt).toBe(2_000);
+    expect(countRows(database)).toBe(1);
   });
 
-  it('updateDiscovery 对不存在的记录 id 抛错', () => {
-    expect(() =>
-      repository.updateDiscovery('missing', {
-        credentialId: toOtaCredentialId('credential-2'),
-        otaHotelName: null,
-        bindExtra: null,
-        discoveredAt: 2,
-      }),
-    ).toThrow('未找到 OtaHotel');
+  it('同一凭证保存两家不同酒店时两条记录并存', () => {
+    repository.save(input());
+    repository.save(input({ id: 'ota-hotel-2', otaHotelId: toOtaHotelId('dy-222') }));
+
+    expect(countRows(database)).toBe(2);
+    expect(
+      repository.findByChannelAndHotelId(toChannelId('douyin'), toOtaHotelId('dy-222'))
+        ?.credentialId,
+    ).toBe('credential-1');
   });
 
-  it('create 正确写入 bindExtra 与 discoveredAt', () => {
-    const created = repository.create(
-      input({ bindExtra: { merchantGroupId: 'group-1' }, discoveredAt: 1_234 }),
-    );
+  it('save 正确写入 bindExtra，且记录不含绑定关系字段', () => {
+    const created = repository.save(input({ bindExtra: { merchantGroupId: 'group-1' } }));
 
     expect(created.bindExtra).toEqual({ merchantGroupId: 'group-1' });
-    expect(created.discoveredAt).toBe(1_234);
+    expect(created).not.toHaveProperty('discoveredAt');
+    expect(created).not.toHaveProperty('boundAt');
+    expect(created).not.toHaveProperty('rmsHotelId');
   });
 });

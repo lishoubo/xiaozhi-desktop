@@ -66,7 +66,6 @@ export function createWindowScope(scope: AppScope): WindowScope {
   new OtaHotelProbService({
     tabEventBus,
     probes: hotelProbes(scope.channelRegistry),
-    repository: scope.otaHotelRepository,
     logger,
   });
 

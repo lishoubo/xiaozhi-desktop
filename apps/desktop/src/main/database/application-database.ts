@@ -165,6 +165,33 @@ const migrations: readonly Migration[] = [
       `);
     },
   },
+  {
+    version: 7,
+    name: 'ota-hotel-stores-hotel-info-only',
+    apply(database) {
+      // `discovered_at` 是「探测即写库」的产物。写入时机后移到用户确认之后，
+      // 探测不再落库，该列不再有意义——留着会让人以为探测仍在写库。既有记录
+      // 都是探测自动写入、无用户确认背书的，一并丢弃（沿用 migration 6 的
+      // drop-and-recreate 做法）。绑定关系由远端持有，本地不新增相关字段。
+      database.exec(`
+        DROP TABLE ota_hotel;
+
+        CREATE TABLE ota_hotel (
+          id TEXT PRIMARY KEY,
+          credential_id TEXT NOT NULL REFERENCES ota_credential(id) ON UPDATE CASCADE ON DELETE RESTRICT,
+          channel TEXT NOT NULL,
+          ota_hotel_id TEXT NOT NULL,
+          ota_hotel_name TEXT,
+          bind_extra TEXT,
+          created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE UNIQUE INDEX ota_hotel_channel_hotel_idx ON ota_hotel(channel, ota_hotel_id);
+        CREATE INDEX ota_hotel_credential_idx ON ota_hotel(credential_id);
+      `);
+    },
+  },
 ];
 
 function migrate(database: ApplicationDatabase): number {

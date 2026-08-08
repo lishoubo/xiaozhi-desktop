@@ -5,10 +5,15 @@
  * 一次；不依赖 ota-credential 内部实现，只依赖这份事件契约。见
  * openspec/changes/split-ota-hotel-prob-feature/design.md 决策 2（及后续
  * 修复记录：为什么不能在 did-navigate 那一刻就拿到这份事件）。
+ *
+ * 探测是**无副作用的查询**：只产出候选，不写库。酒店信息仅在用户从候选中选定
+ * 后才保存（写入口是 `OtaHotelRepository.save()`）。这里也不做「探过就跳过」的
+ * 早退——用户否决候选后必须能对同一凭证再次探测。见
+ * openspec/changes/ota-hotel-stores-hotel-info-only/design.md 决策 3、4。
+ *
+ * 本次候选结果暂无消费者，只记日志；向上通知由后续「绑定流程」变更接通。
  */
-import { randomUUID } from 'node:crypto';
 import { toChannelId, type ChannelId } from '../ids';
-import type { OtaHotelRepository } from '../database/ota-hotel-repository';
 import type { AppLogger } from '../../shared/logging';
 import type { TabCredentialCheckedEvent, TabEventBus } from '../services/tab-event-bus';
 import type { HotelProbe } from '../channels/types';
@@ -16,7 +21,6 @@ import type { HotelProbe } from '../channels/types';
 export type OtaHotelProbFeatureDependencies = Readonly<{
   tabEventBus: TabEventBus;
   probes: ReadonlyMap<ChannelId, HotelProbe>;
-  repository: OtaHotelRepository;
   logger: AppLogger;
 }>;
 
@@ -35,8 +39,6 @@ export class OtaHotelProbService {
     const probe = this.deps.probes.get(toChannelId(event.channel));
     if (!probe || !probe.isProbeableUrl(event.url)) return;
 
-    if (this.deps.repository.findByCredentialId(credential.id)) return;
-
     let outcome;
     try {
       outcome = await probe.probe(credential, event.webContents);
@@ -49,32 +51,7 @@ export class OtaHotelProbService {
     }
     if (outcome.kind === 'none') return;
 
-    const now = Date.now();
-    for (const hotel of outcome.hotels) {
-      const existing = this.deps.repository.findByChannelAndHotelId(
-        credential.channel,
-        hotel.otaHotelId,
-      );
-      if (existing) {
-        this.deps.repository.updateDiscovery(existing.id, {
-          credentialId: credential.id,
-          otaHotelName: hotel.otaHotelName,
-          bindExtra: hotel.bindExtra,
-          discoveredAt: now,
-        });
-      } else {
-        this.deps.repository.create({
-          id: randomUUID(),
-          credentialId: credential.id,
-          channel: credential.channel,
-          otaHotelId: hotel.otaHotelId,
-          otaHotelName: hotel.otaHotelName,
-          bindExtra: hotel.bindExtra,
-          discoveredAt: now,
-        });
-      }
-    }
-    this.deps.logger.info('Hotel probe saved hotels', {
+    this.deps.logger.info('Hotel probe found candidates', {
       channel: event.channel,
       hotelCount: outcome.hotels.length,
     });

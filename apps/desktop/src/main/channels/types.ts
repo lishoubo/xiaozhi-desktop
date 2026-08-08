@@ -32,8 +32,10 @@ export type HotelProbeOutcome =
   | Readonly<{ kind: 'found'; hotels: readonly ProbedHotel[] }>;
 
 /**
- * 三渠道统一的酒店探测接口。触发机制、去重规则、落库逻辑对三个渠道完全一致
- * （见 `services/ota-hotel-prob-service.ts`），差异只体现在各渠道 `probe()`
+ * 三渠道统一的酒店探测接口。探测是**无副作用的查询**：只产出候选，不落库、
+ * 不去重、不跳过——酒店信息仅在用户从候选中选定后才保存（见
+ * `ota-hotel-stores-hotel-info-only/design.md` 决策 3、4）。触发机制对三个渠道
+ * 一致（见 `services/ota-hotel-prob-service.ts`），差异只体现在各渠道 `probe()`
  * 内部怎么拿到酒店数据——携程不碰页面，直接解析 `credential.credentialExtra`；
  * 抖音/美团真的操作页面。见 `split-ota-hotel-prob-feature/design.md` 决策 3。
  */
