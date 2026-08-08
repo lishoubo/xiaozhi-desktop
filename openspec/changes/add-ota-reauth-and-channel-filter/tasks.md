@@ -74,10 +74,22 @@
 - [x] 10.2 `npm run lint --workspace @hotel-butler/desktop` 通过（确认 `channels/` 新增 dispatcher 未引入违规依赖）
 - [x] 10.3 迭代期定向测试：改到哪个文件跑哪个
 - [x] 10.4 完成态跑一次 `npm run test:unit:desktop` 全量
+> ⚠ **真机测试前必读**：RMS 侧全是**内存 mock**（`gateway/rms/` 只有 types + 两个 mock，
+> `app-scope.ts` 无条件装配，没有环境开关），**应用一重启就回到 seed**。本地 sqlite 的
+> `ota_hotel` 不会重置，于是重启后会出现「本地有记录、远端没绑定」的不一致——是 mock
+> 的产物不是缺陷。
+>
+> `bind()` 只看 `hotelId + source`、**不看 status**，所以 seed 里 1001(ctrip/douyin) 与
+> 1002(meituan) 都挡着新绑定（LOGIN_EXPIRED 照样挡）。**验证绑定一律用 1003 苏州平江府**。
+>
+> 排查盲点：`Hotel binding failed` 只记 errorName——`Error` 是 mock 业务拒绝，
+> `InvalidIdentifierError` 才是本地 id 校验问题。
+
 - [ ] 10.5 **真机**：已绑定渠道的账号不出现在新增绑定弹窗
 - [ ] 10.6 **真机**：对失效账号点重新登录 → 选原账号 → 登录 → 提示成功 → 远端状态恢复、门店关系不变
 - [ ] 10.7 **真机**：故意登另一个账号 → 提示「不是所选账号」→ 远端未被更新 → 可回列表重选
 - [ ] 10.8 **真机**：`confirmBinding` 后远端记录的 `bindExtra` 含 `channelAccountId`
+- [ ] 10.8b **真机**：从「重新登录」点新登录账号 → 选一个与原绑定不同的门店 → 提示「需要先解绑」且确认按钮禁用（commit d396dd7）
 - [ ] 10.9 验证证据写入 `openspec/changes/add-ota-reauth-and-channel-filter/verification.md`
 
 ## 11. 文档

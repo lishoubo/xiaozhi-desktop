@@ -159,3 +159,10 @@ seed 把三个渠道占了两家酒店，正好覆盖这次试的全部组合：
 | 1001 | 上海云栖酒店 | ctrip、douyin |
 | 1002 | 杭州西溪悦榕酒店 | meituan |
 | **1003** | **苏州平江府** | **无——下次用这家** |
+
+⚠ 补充：`bind()` 的拒绝只看 `hotelId + source`、**不看 status**——LOGIN_EXPIRED 的记录
+照样挡住新绑定，所以「换个渠道试试」没用，必须换酒店。
+
+⚠ 另一个坑：RMS mock 是**内存态**，应用一重启就回到 seed，而本地 sqlite 的 `ota_hotel`
+不会重置。重启后看到「本地有酒店记录、远端却没有对应绑定」是 mock 的产物，不是缺陷。
+mock 全貌见 `openspec/changes/add-ota-reauth-and-channel-filter/tasks.md` 第 10 节的说明。
