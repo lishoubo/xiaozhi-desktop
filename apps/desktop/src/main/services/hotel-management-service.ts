@@ -3,9 +3,14 @@ import type { RmsHotelCreateInput, RmsHotel } from '../../shared/types/rms-hotel
 import type { RmsOtaAccount } from '../../shared/types/rms-ota-account';
 import type { OtaHotelRepository } from '../database/ota-hotel-repository';
 import type { OtaCredentialRepository } from '../database/ota-credential-repository';
-import type { ConfirmBindingInput } from '../../shared/browser';
+import type {
+  ConfirmBindingInput,
+  ConfirmReauthInput,
+  FindCredentialForAccountInput,
+} from '../../shared/browser';
 import type { AppLogger } from '../../shared/logging';
-import { toOtaCredentialId, toOtaHotelId } from '../ids';
+import { channelAccountIdFromBindExtra, withChannelAccountId } from '../channels/bind-extra';
+import { toChannelId, toOtaCredentialId, toOtaHotelId } from '../ids';
 
 export type RmsHotelOtaAccountsSnapshot = Readonly<{
   hotels: readonly RmsHotel[];
@@ -15,8 +20,11 @@ export type RmsHotelOtaAccountsSnapshot = Readonly<{
 export type HotelManagementServiceDependencies = Readonly<{
   hotelGateway: RmsHotelGateway;
   otaAccountGateway: RmsOtaAccountGateway;
-  otaHotelRepository: Pick<OtaHotelRepository, 'save'>;
-  otaCredentialRepository: Pick<OtaCredentialRepository, 'findById'>;
+  otaHotelRepository: Pick<OtaHotelRepository, 'save' | 'findByChannelAndHotelId'>;
+  otaCredentialRepository: Pick<
+    OtaCredentialRepository,
+    'findById' | 'findByChannelAndAccountId'
+  >;
   /** 按 partition 读取实时 cookie 快照；实现落在 composition root（services 不得 import browser/）。 */
   readCookieSnapshot: (partitionName: string) => Promise<readonly RmsCookieSnapshotEntry[]>;
   generateRequestId: () => string;
@@ -64,6 +72,79 @@ export class HotelManagementService {
     return { requestId: this.deps.generateRequestId() };
   }
 
+  /** 发起重新登录：同 `startBinding`，只发号，标签页由 renderer 开。 */
+  startReauth(): Readonly<{ requestId: string }> {
+    return { requestId: this.deps.generateRequestId() };
+  }
+
+  /**
+   * 「这条远端绑定当初是哪个本地凭证建的」——用于在重新登录弹窗里标注「上次绑定过」。
+   *
+   * 两条来源，新数据优先：
+   *
+   * ```
+   * bindExtra.channelAccountId ──直接匹配──→ OtaCredential          【新数据】
+   * (source, otaHotelId) ──→ ota_hotel ──→ credentialId ──→ Credential 【老数据】
+   * ```
+   *
+   * 新数据的关联是绑定那一刻写下的事实；老数据要绕本地 `ota_hotel` 反查，而那张表
+   * 可能被清理过，也可能因为绑定发生在别的设备上而根本没有记录。
+   *
+   * **找不到不是错误**：凭证可能已清理、用户可能换了设备。返回 null，UI 照常展示
+   * 列表，只是没有标注。
+   */
+  findCredentialForAccount(input: FindCredentialForAccountInput): string | null {
+    const channel = toChannelId(input.source);
+
+    const channelAccountId = channelAccountIdFromBindExtra(input.bindExtra);
+    if (channelAccountId !== null) {
+      const credential = this.deps.otaCredentialRepository.findByChannelAndAccountId(
+        channel,
+        channelAccountId,
+      );
+      if (credential) return credential.id;
+    }
+
+    if (input.otaHotelId !== null) {
+      // 远端的 otaHotelId 可能不满足本地 id 约束（空串、超长）。标注只是展示增强，
+      // 不该因为一条脏数据让整个弹窗报错。
+      try {
+        const hotel = this.deps.otaHotelRepository.findByChannelAndHotelId(
+          channel,
+          toOtaHotelId(input.otaHotelId),
+        );
+        if (hotel) return hotel.credentialId;
+      } catch {
+        return null;
+      }
+    }
+
+    return null;
+  }
+
+  /**
+   * 重新登录收尾：**只换凭证**，门店关系不动。
+   *
+   * 与 `confirmBinding` 的差别是没有本地写入那半段——`ota_hotel` 存的是门店信息，
+   * 这次没有任何门店信息发生变化，没有要更新的东西。
+   *
+   * 调用前提：账号身份已由 `OtaReauthDispatcher` 核对通过（见 design 决策 1b）。
+   */
+  async confirmReauth(input: ConfirmReauthInput): Promise<RmsOtaAccount> {
+    const credential = this.deps.otaCredentialRepository.findById(
+      toOtaCredentialId(input.credentialId),
+    );
+    if (!credential) throw new Error('未找到该登录凭据');
+
+    const cookies = await this.deps.readCookieSnapshot(credential.partitionName);
+    return this.deps.otaAccountGateway.reauthenticate({
+      operationId: this.deps.generateRequestId(),
+      otaAccountId: input.otaAccountId,
+      cookies,
+      channelAccountId: credential.channelAccountId,
+    });
+  }
+
   /**
    * 用户选定候选后收尾：**先远端、后本地**。远端是绑定关系的权威，先写本地会在
    * 远端失败时留下无从解释的孤儿记录（本地表根本不表达绑定关系）；反向最坏只是
@@ -83,7 +164,9 @@ export class HotelManagementService {
       source: credential.channel,
       otaHotelId: input.hotel.otaHotelId,
       otaHotelName: input.hotel.otaHotelName,
-      bindExtra: input.hotel.bindExtra,
+      // 带上本次使用的渠道账号标识：远端记录自带账号关联后，「这条绑定是哪个账号
+      // 建的」不必再绕本地 ota_hotel 反查。
+      bindExtra: withChannelAccountId(input.hotel.bindExtra, credential.channelAccountId),
       cookies,
     });
 

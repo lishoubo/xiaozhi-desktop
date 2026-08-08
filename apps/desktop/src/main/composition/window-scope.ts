@@ -24,6 +24,8 @@ import { AuthService } from '../services/auth-service';
 import { CalendarService } from '../services/calendar-service';
 import { CookieImportService } from '../services/cookie-import-service';
 import { HotelProbeDispatcher } from '../channels/hotel-probe-dispatcher';
+import { OtaReauthDispatcher } from '../channels/ota-reauth-dispatcher';
+import type { UiWaitingResultEnvelope } from '../../shared/types/ui-waiting-result-types';
 import { SystemService } from '../services/system-service';
 import { IPC_CHANNELS } from '../../shared/ipc-channels';
 import { createMainWindow } from '../windows/main-window';
@@ -60,26 +62,30 @@ export function createWindowScope(scope: AppScope): WindowScope {
     scope.setAccountBoundNotifier(null);
   });
 
+  // dispatcher 在 channels/，不认识 electron 与 ipc；这里把窄回调接到窗口上。
+  // 两个 dispatcher 共用同一条通道，靠信封的 kind 与 requestId 区分。
+  const notifyUiWaitingResult = (envelope: UiWaitingResultEnvelope): void => {
+    if (window.isDestroyed()) {
+      // 不记的话，dispatcher 已经打了 `delivered`，日志上看是送到了，
+      // 排查时会误判成渲染进程侧的问题。
+      logger.warn('UI waiting result dropped: window destroyed', {
+        requestId: envelope.requestId,
+        kind: envelope.kind,
+      });
+      return;
+    }
+    window.webContents.send(IPC_CHANNELS.uiWaitingResult.delivered, envelope);
+  };
+
   // 构造函数内部完成 tabEventBus 订阅；订阅回调闭包持有 this 引用，只要
   // tabEventBus 存活这个实例就不会被 GC，不需要变量持有它。
   new HotelProbeDispatcher({
     tabEventBus,
     probes: hotelProbes(scope.channelRegistry),
     logger,
-    // dispatcher 在 channels/，不认识 electron 与 ipc；这里把它接到窗口上。
-    notify: (envelope) => {
-      if (window.isDestroyed()) {
-        // 不记的话，dispatcher 已经打了 `candidates delivered`，日志上看是送到了，
-        // 排查时会误判成渲染进程侧的问题。
-        logger.warn('UI waiting result dropped: window destroyed', {
-          requestId: envelope.requestId,
-          kind: envelope.kind,
-        });
-        return;
-      }
-      window.webContents.send(IPC_CHANNELS.uiWaitingResult.delivered, envelope);
-    },
+    notify: notifyUiWaitingResult,
   });
+  new OtaReauthDispatcher({ tabEventBus, logger, notify: notifyUiWaitingResult });
 
   const loginDetector = new LoginDetector({
     browserManager,

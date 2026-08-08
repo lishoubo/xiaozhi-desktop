@@ -1,7 +1,9 @@
+import { withChannelAccountId } from '../../channels/bind-extra';
 import { toChannelId } from '../../ids';
 import type {
   RmsOtaAccountBindInput,
   RmsOtaAccountGateway,
+  RmsOtaAccountReauthInput,
 } from '../../../main/gateway/rms/types';
 import { createRmsOtaAccount, type RmsOtaAccount } from '../../../shared/types/rms-ota-account';
 
@@ -70,5 +72,25 @@ export class MockRmsOtaAccountGateway implements RmsOtaAccountGateway {
       throw new Error('绑定不存在或已被解除');
     }
     this.otaAccounts = this.otaAccounts.filter((account) => account.id !== otaAccountId);
+  }
+
+  /**
+   * 只把状态改回 `BOUND` 并补齐账号关联；`hotelId`/`source`/`otaHotelId` 一概不动
+   * ——门店关系不属于这次操作。
+   */
+  async reauthenticate(input: RmsOtaAccountReauthInput): Promise<RmsOtaAccount> {
+    const existing = this.otaAccounts.find((account) => account.id === input.otaAccountId);
+    if (!existing) {
+      throw new Error('绑定不存在或已被解除');
+    }
+    const updated = createRmsOtaAccount({
+      ...existing,
+      status: 'BOUND',
+      bindExtra: withChannelAccountId(existing.bindExtra, input.channelAccountId),
+    });
+    this.otaAccounts = this.otaAccounts.map((account) =>
+      account.id === updated.id ? updated : account,
+    );
+    return updated;
   }
 }

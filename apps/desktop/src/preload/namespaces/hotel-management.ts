@@ -9,6 +9,8 @@ import {
   startBindingResultSchema,
   uiWaitingResultEnvelopeSchema,
   type ConfirmBindingInput,
+  type ConfirmReauthInput,
+  type FindCredentialForAccountInput,
 } from '../../shared/browser';
 import { IPC_CHANNELS } from '../../shared/ipc-channels';
 import type { UiWaitingResultEnvelope } from '../../shared/types/ui-waiting-result-types';
@@ -35,6 +37,18 @@ export function createHotelManagementApi(invoke: ValidatedInvoke, subscribe: Val
     /** 用户选定候选后收尾：先远端后本地，任一步失败都会 reject。 */
     confirmBinding: (input: ConfirmBindingInput) =>
       invoke(rmsOtaAccountSchema, IPC_CHANNELS.hotelManagement.confirmBinding, input),
+    /** 发起重新登录：同 `startBinding`，只取号。 */
+    startReauth: () => invoke(startBindingResultSchema, IPC_CHANNELS.hotelManagement.startReauth),
+    /** 账号身份核对通过后收尾：只换凭证，不动门店关系。 */
+    confirmReauth: (input: ConfirmReauthInput) =>
+      invoke(rmsOtaAccountSchema, IPC_CHANNELS.hotelManagement.confirmReauth, input),
+    /** 查「这条远端绑定当初是哪个本地凭证建的」；找不到返回 null，不是错误。 */
+    findCredentialForAccount: (input: FindCredentialForAccountInput) =>
+      invoke(
+        z.string().nullable(),
+        IPC_CHANNELS.hotelManagement.findCredentialForAccount,
+        input,
+      ),
     /** 订阅「UI 在等的结果送达了」。信封里的 requestId 用来认领。 */
     onWaitingResult: (listener: (envelope: UiWaitingResultEnvelope) => void) =>
       subscribe(uiWaitingResultEnvelopeSchema, IPC_CHANNELS.uiWaitingResult.delivered, listener),

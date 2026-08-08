@@ -140,19 +140,42 @@ export const bindHotelIntentSchema = z.strictObject({
   requestId: nonEmptyStringSchema,
 });
 
-export const otaTabIntentSchema = bindHotelIntentSchema;
+/** 重新登录：`expectedChannelAccountId` 用于核对登录的是不是原账号，不可缺省。 */
+export const reauthOtaIntentSchema = z.strictObject({
+  kind: z.literal('reauth-ota'),
+  requestId: nonEmptyStringSchema,
+  expectedChannelAccountId: nonEmptyStringSchema,
+});
+
+export const otaTabIntentSchema = z.discriminatedUnion('kind', [
+  bindHotelIntentSchema,
+  reauthOtaIntentSchema,
+]);
 
 export type OtaTabIntentDto = Readonly<z.infer<typeof otaTabIntentSchema>>;
 
 /** 「UI 在等的结果送达了」——信封形状见 `shared/types/ui-waiting-result-types.ts`。 */
-export const uiWaitingResultEnvelopeSchema = z.strictObject({
-  requestId: nonEmptyStringSchema,
-  kind: z.literal('bind-hotel'),
-  payload: z.strictObject({
-    credentialId: nonEmptyStringSchema,
-    hotels: z.array(probedHotelSchema),
+export const uiWaitingResultEnvelopeSchema = z.discriminatedUnion('kind', [
+  z.strictObject({
+    requestId: nonEmptyStringSchema,
+    kind: z.literal('bind-hotel'),
+    payload: z.strictObject({
+      credentialId: nonEmptyStringSchema,
+      hotels: z.array(probedHotelSchema),
+    }),
   }),
-});
+  z.strictObject({
+    requestId: nonEmptyStringSchema,
+    kind: z.literal('reauth-ota'),
+    payload: z.union([
+      z.strictObject({ ok: z.literal(true), credentialId: nonEmptyStringSchema }),
+      z.strictObject({
+        ok: z.literal(false),
+        reason: z.enum(['account-mismatch', 'identity-unavailable']),
+      }),
+    ]),
+  }),
+]);
 
 export const startBindingResultSchema = z.strictObject({
   requestId: nonEmptyStringSchema,
@@ -165,6 +188,25 @@ export const confirmBindingInputSchema = z.strictObject({
 });
 
 export type ConfirmBindingInput = Readonly<z.infer<typeof confirmBindingInputSchema>>;
+
+/** 重新登录收尾：只需要「改哪条绑定」与「用哪个凭证的 cookie」。 */
+export const confirmReauthInputSchema = z.strictObject({
+  otaAccountId: z.number().int().positive(),
+  credentialId: nonEmptyStringSchema,
+});
+
+export type ConfirmReauthInput = Readonly<z.infer<typeof confirmReauthInputSchema>>;
+
+/** 「这条远端绑定当初是哪个本地凭证建的」——用于标注「上次绑定过」。 */
+export const findCredentialForAccountInputSchema = z.strictObject({
+  source: nonEmptyStringSchema,
+  otaHotelId: nonEmptyStringSchema.nullable(),
+  bindExtra: jsonObjectSchema.nullable(),
+});
+
+export type FindCredentialForAccountInput = Readonly<
+  z.infer<typeof findCredentialForAccountInputSchema>
+>;
 
 export const systemPreferencesSchema = z.strictObject({
   autoLaunch: z.boolean(),

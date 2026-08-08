@@ -44,6 +44,9 @@ describe('hotel management IPC handlers', () => {
       unbindOtaAccount: vi.fn(async () => undefined),
       startBinding: vi.fn(() => ({ requestId: 'req-1' })),
       confirmBinding: vi.fn(async () => ({}) as never),
+      startReauth: vi.fn(() => ({ requestId: 'req-1' })),
+      confirmReauth: vi.fn(async () => ({}) as never),
+      findCredentialForAccount: vi.fn(() => null),
     };
     registerHotelManagementHandlers({ window: { webContents: sender }, feature, logger });
 
@@ -71,6 +74,8 @@ describe('hotel management IPC handlers', () => {
         throw new Error('远端拒绝：存在关联 OTA 账号');
       }),
       unbindOtaAccount: vi.fn(), startBinding: vi.fn(), confirmBinding: vi.fn(),
+      startReauth: vi.fn(), confirmReauth: vi.fn(),
+      findCredentialForAccount: vi.fn(),
     };
     registerHotelManagementHandlers({ window: { webContents: sender }, feature, logger });
 
@@ -88,6 +93,8 @@ describe('hotel management IPC handlers', () => {
       createHotel: vi.fn(),
       deleteHotel: vi.fn(),
       unbindOtaAccount: vi.fn(), startBinding: vi.fn(), confirmBinding: vi.fn(),
+      startReauth: vi.fn(), confirmReauth: vi.fn(),
+      findCredentialForAccount: vi.fn(),
     };
     registerHotelManagementHandlers({ window: { webContents: sender }, feature, logger });
 

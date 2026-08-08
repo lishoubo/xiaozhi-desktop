@@ -4,7 +4,14 @@ import {
   rmsHotelIdSchema,
   rmsOtaAccountIdSchema,
 } from '../../shared/hotel-management';
-import { confirmBindingInputSchema, type ConfirmBindingInput } from '../../shared/browser';
+import {
+  confirmBindingInputSchema,
+  confirmReauthInputSchema,
+  findCredentialForAccountInputSchema,
+  type ConfirmBindingInput,
+  type ConfirmReauthInput,
+  type FindCredentialForAccountInput,
+} from '../../shared/browser';
 import type { RmsOtaAccount } from '../../shared/types/rms-ota-account';
 import { IPC_CHANNELS } from '../../shared/ipc-channels';
 import type { AppLogger } from '../../shared/logging';
@@ -19,6 +26,9 @@ export interface HotelManagementOrchestrator {
   unbindOtaAccount(otaAccountId: number): Promise<void>;
   startBinding(): Readonly<{ requestId: string }>;
   confirmBinding(input: ConfirmBindingInput): Promise<RmsOtaAccount>;
+  startReauth(): Readonly<{ requestId: string }>;
+  confirmReauth(input: ConfirmReauthInput): Promise<RmsOtaAccount>;
+  findCredentialForAccount(input: FindCredentialForAccountInput): string | null;
 }
 
 type RegisterHotelManagementHandlersOptions = Readonly<{
@@ -83,6 +93,26 @@ export function registerHotelManagementHandlers({
     '绑定参数无效',
     (input) =>
       logFailure(IPC_CHANNELS.hotelManagement.confirmBinding, () => feature.confirmBinding(input)),
+  );
+
+  registry.handle(
+    IPC_CHANNELS.hotelManagement.startReauth,
+    z.tuple([]),
+    '重新登录参数无效',
+    () => Promise.resolve(feature.startReauth()),
+  );
+  registry.handle(
+    IPC_CHANNELS.hotelManagement.confirmReauth,
+    z.tuple([confirmReauthInputSchema]),
+    '重新登录参数无效',
+    (input) =>
+      logFailure(IPC_CHANNELS.hotelManagement.confirmReauth, () => feature.confirmReauth(input)),
+  );
+  registry.handle(
+    IPC_CHANNELS.hotelManagement.findCredentialForAccount,
+    z.tuple([findCredentialForAccountInputSchema]),
+    '账号查询参数无效',
+    (input) => Promise.resolve(feature.findCredentialForAccount(input)),
   );
 
   return () => registry.dispose();

@@ -14,4 +14,17 @@ export type BindHotelIntent = Readonly<{
   requestId: string;
 }>;
 
-export type OtaTabIntent = BindHotelIntent;
+/**
+ * 重新登录：只为了刷新这条绑定的登录态，不重新选门店。
+ *
+ * `expectedChannelAccountId` 是**必须**的——「登录判定完成」不等于「登录的还是原来
+ * 那个账号」。不核对就把新 cookie 写上去，会把另一个账号的登录态更新到这条绑定上，
+ * 远端状态还会变正常，比原来的「过期」更糟且不报错。
+ */
+export type ReauthOtaIntent = Readonly<{
+  kind: 'reauth-ota';
+  requestId: string;
+  expectedChannelAccountId: string;
+}>;
+
+export type OtaTabIntent = BindHotelIntent | ReauthOtaIntent;

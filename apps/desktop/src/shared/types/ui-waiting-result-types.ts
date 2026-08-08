@@ -20,12 +20,21 @@ export type ProbedHotelDto = Readonly<{
   bindExtra: JsonObject | null;
 }>;
 
+/**
+ * 重新登录的核对结果。`ok: false` 不是「出错了」而是「登录的不是所选账号」——
+ * 用户可能在页面上登了另一个账号，这时必须拦住，不能把 cookie 写到这条绑定上。
+ */
+export type ReauthOutcomeDto =
+  | Readonly<{ ok: true; credentialId: string }>
+  | Readonly<{ ok: false; reason: 'account-mismatch' | 'identity-unavailable' }>;
+
 /** kind → payload 的唯一事实来源。 */
 export type UiWaitingResultPayloads = {
   'bind-hotel': Readonly<{
     credentialId: string;
     hotels: readonly ProbedHotelDto[];
   }>;
+  'reauth-ota': ReauthOutcomeDto;
 };
 
 export type UiWaitingResultKind = keyof UiWaitingResultPayloads;
