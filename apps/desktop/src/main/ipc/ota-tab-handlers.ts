@@ -28,8 +28,14 @@ export interface OtaTabOrchestrator {
     environment: PendingPartition['environment'],
     channel: ChannelId,
     url: string,
+    intent?: OtaTabIntent,
   ): Promise<BrowserTab>;
   openExisting(credentialId: string, intent?: OtaTabIntent): BrowserTab;
+  openExistingInFreshPartition(
+    environment: PendingPartition['environment'],
+    credentialId: string,
+    intent?: OtaTabIntent,
+  ): Promise<BrowserTab>;
 }
 
 type RegisterOtaTabHandlersOptions = Readonly<{
@@ -55,10 +61,11 @@ export function registerOtaTabHandlers({
   );
   registry.handle(
     IPC_CHANNELS.otaTab.openWithImportedCookie,
-    z.tuple([startLoginInputSchema]),
+    // intent 同上：可缺省，用 `.default()` 保持元组定长。
+    z.tuple([startLoginInputSchema, otaTabIntentSchema.nullish().default(null)]),
     '登录参数无效',
-    ({ channelId, environment, url }) =>
-      service.createFromCookie(environment, toChannelId(channelId), url),
+    ({ channelId, environment, url }, intent) =>
+      service.createFromCookie(environment, toChannelId(channelId), url, intent ?? undefined),
   );
   registry.handle(
     IPC_CHANNELS.otaTab.openExisting,
@@ -67,6 +74,13 @@ export function registerOtaTabHandlers({
     z.tuple([otaCredentialIdSchema, otaTabIntentSchema.nullish().default(null)]),
     '登录凭据标识无效',
     (credentialId, intent) => service.openExisting(credentialId, intent ?? undefined),
+  );
+  registry.handle(
+    IPC_CHANNELS.otaTab.openExistingInFreshPartition,
+    z.tuple([otaCredentialIdSchema, otaTabIntentSchema.nullish().default(null)]),
+    '登录凭据标识无效',
+    (credentialId, intent) =>
+      service.openExistingInFreshPartition('prod', credentialId, intent ?? undefined),
   );
 
   return () => registry.dispose();

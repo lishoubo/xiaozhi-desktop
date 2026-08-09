@@ -102,6 +102,8 @@ export function createWindowScope(scope: AppScope): WindowScope {
     browserManager,
     loginDetector,
     otaCredentialRepository: scope.otaCredentialRepository,
+    readInjectableCookies: (partitionName) =>
+      scope.sessionFactory.readInjectableCookies(partitionName),
   });
 
   onDispose(registerBrowserHandlers({ window, manager: browserManager, logger }));

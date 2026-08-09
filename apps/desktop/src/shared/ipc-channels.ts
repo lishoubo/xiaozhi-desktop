@@ -35,6 +35,7 @@ export const IPC_CHANNELS = {
   },
   otaTab: {
     openExisting: 'ota-tab:open-existing',
+    openExistingInFreshPartition: 'ota-tab:open-existing-in-fresh-partition',
     openForNewLogin: 'ota-tab:open-for-new-login',
     openWithImportedCookie: 'ota-tab:open-with-imported-cookie',
   },

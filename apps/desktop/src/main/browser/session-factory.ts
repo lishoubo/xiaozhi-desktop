@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { session, type Session } from 'electron';
+import { session, type CookiesSetDetails, type Session } from 'electron';
 import type { ChannelId } from '../ids';
 import { toPartitionName } from '../browser/partition';
 import { denyEmbeddedPagePermissions } from '../security/session-permissions';
@@ -53,6 +53,35 @@ export class SessionFactory {
     const partitionName = toPartitionName(environment, channel, shortId);
     this.logger.info('Login session created', { channel, environment });
     return { session: this.fromPartitionCached(partitionName), partitionName };
+  }
+
+  /**
+   * 把一份登录态的 cookie 读成**可再注入**的形状。
+   *
+   * 与 `readCookieSnapshot`（发给 RMS 的 `{domain,name,value}`）不是一回事：那份是
+   * 给远端看的摘要，缺了 `url`/`path`/`secure` 等字段，塞不回 `cookies.set`。这里
+   * 保留注入所需的全部字段，供「换一份干净 partition 重开同一个账号」使用。
+   *
+   * `url` 由 domain 反推：`cookies.set` 必须要它，而 `cookies.get` 不返回。前导点是
+   * domain 通配写法，不属于主机名，拼 URL 前要去掉。
+   */
+  async readInjectableCookies(partitionName: string): Promise<readonly CookiesSetDetails[]> {
+    const accountSession = this.fromPartitionCached(partitionName);
+    const cookies = await accountSession.cookies.get({});
+    return cookies.map((cookie) => {
+      const host = cookie.domain?.replace(/^\./, '') ?? '';
+      return {
+        url: `${cookie.secure ? 'https' : 'http'}://${host}${cookie.path ?? '/'}`,
+        name: cookie.name,
+        value: cookie.value,
+        domain: cookie.domain,
+        path: cookie.path,
+        secure: cookie.secure,
+        httpOnly: cookie.httpOnly,
+        expirationDate: cookie.expirationDate,
+        sameSite: cookie.sameSite,
+      };
+    });
   }
 
   /**

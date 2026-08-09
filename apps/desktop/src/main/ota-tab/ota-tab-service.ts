@@ -21,11 +21,18 @@ type BrowserManagerTabOpener = Pick<
   'createAndNewPartition' | 'createWithAlreadyPartition'
 >;
 
+type CookiesSetDetails = import('electron').CookiesSetDetails;
+
 export type OtaTabServiceDependencies = Readonly<{
   userDataDir: string;
   browserManager: BrowserManagerTabOpener;
   loginDetector: Pick<LoginDetector, 'register'>;
   otaCredentialRepository: Pick<OtaCredentialRepository, 'findById'>;
+  /**
+   * 读出一份登录态里可再注入的 cookie。由 composition root 接到
+   * `SessionFactory.readInjectableCookies`——本层不得 import `browser/`。
+   */
+  readInjectableCookies: (partitionName: string) => Promise<readonly CookiesSetDetails[]>;
 }>;
 
 export class OtaTabService {
@@ -59,11 +66,16 @@ export class OtaTabService {
    * `listImportedChannels` 判断该渠道是否已导入，这里没有 cookie 时直接
    * 报错，不静默退化为无 cookie 的新建登录）。携程与抖音均不消费/删除
    * 已导入的 cookie，允许反复登录/重建（design.md §10.2）。
+   *
+   * `intent` 与另外两个开口同义。缺了它，注入 cookie 这条路开出的标签页照样做
+   * 登录判定，却永远不探测门店——绑定流程走这条路就会卡在「登录成功了但没有候选
+   * 可选」。三个开口都收 intent，这一层才真正与渠道无关。
    */
   async createFromCookie(
     environment: PendingPartition['environment'],
     channel: ChannelId,
     url: string,
+    intent?: OtaTabIntent,
   ): Promise<BrowserTab> {
     const imported = await readImportedCookies(this.deps.userDataDir, channel);
     if (!imported) throw new Error('该渠道尚未导入 Cookie');
@@ -74,7 +86,7 @@ export class OtaTabService {
       url,
       { importedCookies: imported.cookies },
     );
-    this.deps.loginDetector.register(tab.id, channel);
+    this.deps.loginDetector.register(tab.id, channel, intent);
     await this.rememberPendingPartition(partitionName, channel, environment);
     return tab;
   }
@@ -85,6 +97,47 @@ export class OtaTabService {
    * intent 由 `LoginDetector` 保管（挂在 tab 记录上，随 tab 关闭一起消失），
    * 并随 `tab:credential-checked` 广播带给下游。
    */
+  /**
+   * 打开已有账号，但**换一份干净的 partition**——绑定流程专用。
+   *
+   * 与 `openExisting` 的差别只有一处：那边复用账号原有的 partition，这边新开一份
+   * 并把原 partition 的 cookie 注入进去。原因在渠道行为而非我们的偏好：
+   *
+   * ```
+   * 复用 partition → localStorage 里留着「上次选的是哪个 group」
+   *                → 抖音直接跳过选公司页，落到上次那个门店的首页
+   *                → 用户没有机会选这次要绑的门店
+   *
+   * 全新 partition → 没有任何选择记录，抖音必须重新问一次
+   *                → 停在选公司页（与「导入 Cookie 首次登录」完全同一条路）
+   * ```
+   *
+   * 只带 cookie、不带 localStorage，正是要点：cookie 是登录态（要保住），
+   * localStorage 才是那条挡路的选择记录（要丢掉）。
+   *
+   * 代价是每次绑定都会留下一份新 partition。已知，暂时接受——partition 的生命周期
+   * 治理是另一件事。
+   */
+  async openExistingInFreshPartition(
+    environment: PendingPartition['environment'],
+    credentialId: string,
+    intent?: OtaTabIntent,
+  ): Promise<BrowserTab> {
+    const credential = this.deps.otaCredentialRepository.findById(toOtaCredentialId(credentialId));
+    if (!credential) throw new Error('未找到该登录凭据');
+
+    const cookies = await this.deps.readInjectableCookies(credential.partitionName);
+    const { tab, partitionName } = await this.deps.browserManager.createAndNewPartition(
+      environment,
+      credential.channel,
+      otaChannelLandingUrl(credential.channel),
+      { importedCookies: cookies },
+    );
+    this.deps.loginDetector.register(tab.id, credential.channel, intent);
+    await this.rememberPendingPartition(partitionName, credential.channel, environment);
+    return tab;
+  }
+
   openExisting(credentialId: string, intent?: OtaTabIntent): BrowserTab {
     const credential = this.deps.otaCredentialRepository.findById(toOtaCredentialId(credentialId));
     if (!credential) throw new Error('未找到该登录凭据');

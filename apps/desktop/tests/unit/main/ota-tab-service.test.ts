@@ -30,13 +30,15 @@ function setup(credential?: unknown) {
     createWithAlreadyPartition: vi.fn().mockReturnValue(tab),
   };
   const loginDetector = { register: vi.fn() };
+  const readInjectableCookies = vi.fn().mockResolvedValue([]);
   const service = new OtaTabService({
     userDataDir,
     browserManager: browserManager as never,
     loginDetector,
     otaCredentialRepository: { findById: vi.fn().mockReturnValue(credential ?? null) },
+    readInjectableCookies,
   });
-  return { service, browserManager, loginDetector, userDataDir, tab };
+  return { service, browserManager, loginDetector, userDataDir, tab, readInjectableCookies };
 }
 
 describe('OtaTabService', () => {
@@ -127,5 +129,46 @@ describe('OtaTabService', () => {
     const { service } = setup();
 
     expect(() => service.openExisting('credential-1')).toThrow('未找到该登录凭据');
+  });
+
+  /**
+   * 绑定专用：**新 partition** + 原账号 cookie。复用旧 partition 会带上「上次选的
+   * 门店」，渠道据此跳过选择页，用户就选不了这次要绑的那家。
+   */
+  it('openExistingInFreshPartition() 新开 partition 并注入原账号 cookie', async () => {
+    const { service, browserManager, loginDetector, readInjectableCookies } = setup({
+      id: toOtaCredentialId('credential-1'),
+      channel: CTRIP,
+      partitionName: 'persist:existing',
+    });
+    readInjectableCookies.mockResolvedValue([{ name: 'sid', value: 'v1' }]);
+
+    await service.openExistingInFreshPartition('prod', 'credential-1', {
+      kind: 'bind-hotel',
+      requestId: 'req-1',
+    });
+
+    // cookie 取自账号原有的 partition……
+    expect(readInjectableCookies).toHaveBeenCalledWith('persist:existing');
+    // ……但开的是新 partition，不是复用那一个。
+    expect(browserManager.createWithAlreadyPartition).not.toHaveBeenCalled();
+    expect(browserManager.createAndNewPartition).toHaveBeenCalledWith(
+      'prod',
+      CTRIP,
+      expect.any(String),
+      { importedCookies: [{ name: 'sid', value: 'v1' }] },
+    );
+    expect(loginDetector.register).toHaveBeenCalledWith('tab-1', CTRIP, {
+      kind: 'bind-hotel',
+      requestId: 'req-1',
+    });
+  });
+
+  it('openExistingInFreshPartition() 找不到凭据时报错', async () => {
+    const { service } = setup();
+
+    await expect(service.openExistingInFreshPartition('prod', 'credential-1')).rejects.toThrow(
+      '未找到该登录凭据',
+    );
   });
 });

@@ -79,7 +79,9 @@
     // 空登录页，等用户登完再由探测产出候选。两条路带的是同一个 intent。
     const intent = { kind: 'bind-hotel', requestId: pending.requestId } as const;
     const opening = pending.credentialId
-      ? browserOtaTabs.openExisting(pending.credentialId, intent)
+      ? // 换干净 partition：复用旧的会带上「上次选的门店」，渠道据此跳过选择页，
+        // 用户就选不了这次要绑的那家（重新登录相反，它要的正是同一家，走 openExisting）。
+        browserOtaTabs.openExistingInFreshPartition(pending.credentialId, intent)
       : pending.newLoginChannel
         ? browserOtaTabs.openForNewLogin(
             pending.newLoginChannel.channelId,

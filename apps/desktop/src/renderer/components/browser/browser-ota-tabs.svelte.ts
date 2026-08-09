@@ -100,13 +100,19 @@ class BrowserOtaTabsStore {
     return this.adopt(tab);
   }
 
-  /** "用已导入的 Cookie 登录"：该渠道没有导入过 cookie 时主进程会报错。 */
-  async openWithImportedCookie(channelId: string, url: string): Promise<BrowserTab> {
-    const tab = await window.hotelButler.otaTab.openWithImportedCookie({
-      channelId,
-      environment: 'prod',
-      url,
-    });
+  /**
+   * "用已导入的 Cookie 登录"：该渠道没有导入过 cookie 时主进程会报错。
+   * `intent` 同 `openForNewLogin`——绑定入口走这条路时登录态已就绪，照样要探测门店。
+   */
+  async openWithImportedCookie(
+    channelId: string,
+    url: string,
+    intent?: OtaTabIntentDto,
+  ): Promise<BrowserTab> {
+    const tab = await window.hotelButler.otaTab.openWithImportedCookie(
+      { channelId, environment: 'prod', url },
+      intent,
+    );
     return this.adopt(tab);
   }
 
@@ -116,6 +122,18 @@ class BrowserOtaTabsStore {
    */
   async openExisting(credentialId: string, intent?: OtaTabIntentDto): Promise<BrowserTab> {
     const tab = await window.hotelButler.otaTab.openExisting(credentialId, intent);
+    return this.adopt(tab);
+  }
+
+  /**
+   * 绑定专用：同 `openExisting`，但换一份干净 partition。复用旧 partition 会带上
+   * 「上次选的哪个门店」，渠道据此跳过选择页，用户就没机会选这次要绑的那家。
+   */
+  async openExistingInFreshPartition(
+    credentialId: string,
+    intent?: OtaTabIntentDto,
+  ): Promise<BrowserTab> {
+    const tab = await window.hotelButler.otaTab.openExistingInFreshPartition(credentialId, intent);
     return this.adopt(tab);
   }
 

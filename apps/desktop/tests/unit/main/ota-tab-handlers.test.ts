@@ -36,6 +36,7 @@ function setup() {
     open: vi.fn(),
     createFromCookie: vi.fn(),
     openExisting: vi.fn(() => TAB as never),
+    openExistingInFreshPartition: vi.fn().mockResolvedValue(TAB as never),
   };
   registerOtaTabHandlers({
     window: { webContents: sender },
