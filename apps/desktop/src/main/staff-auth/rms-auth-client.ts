@@ -32,6 +32,18 @@ export type RmsAuthClientDependencies = Readonly<{
 /** 非业务码：网络/解析/契约层面的失败，RMS 那边没有对应枚举。 */
 const TRANSPORT_ERROR_CODE = -1;
 
+/**
+ * 覆盖 Electron 的默认 UA。
+ *
+ * 默认 UA 里带着中文应用名（"小智酒店管家"），而 rms-server 的
+ * `StrictHttpFirewall` 只接受 ASCII header 值，会在请求进 controller 之前就
+ * 拒掉它——表现为密码明明正确却返回 `INTERNAL_ERROR(10000)`。
+ *
+ * 只在这里覆盖，不动 `SessionFactory`：那份 session 的 cookie jar 还要服务
+ * 别的用途，OTA 浏览态更依赖真实浏览器 UA，不能被这个约束波及。
+ */
+const RMS_USER_AGENT = 'XiaozhiHotelButler/1.0.0 (Electron)';
+
 type ApiEnvelope = Readonly<{ code: number; message: string; data: unknown }>;
 
 type RequestSpec = Readonly<{
@@ -72,7 +84,10 @@ export function createRmsAuthClient(deps: RmsAuthClientDependencies): RmsAuthCli
    * 日志只记操作名与业务码——用户名、密码、token 一律不出现。
    */
   const call = async (spec: RequestSpec): Promise<unknown> => {
-    const headers: Record<string, string> = { accept: 'application/json' };
+    const headers: Record<string, string> = {
+      accept: 'application/json',
+      'user-agent': RMS_USER_AGENT,
+    };
     if (spec.body !== undefined) headers['content-type'] = 'application/json';
     if (spec.accessToken) headers.authorization = `Bearer ${spec.accessToken}`;
 
