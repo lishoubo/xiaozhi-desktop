@@ -11,10 +11,16 @@
   import { enter } from '../../motion';
   import AgentAvatar from '../agent/AgentAvatar.svelte';
   import AppNotificationCenter from './AppNotificationCenter.svelte';
+  import { weekdayLabel } from '../../session-greeting';
+  import { greetingName } from '../../session-greeting.svelte';
   import { Button } from '$lib/components/ui/button';
 
   let { children }: { children: Snippet } = $props();
   let sidebarOpen = $state(true);
+
+  const welcomeName = $derived(greetingName());
+  // 取一次即可：应用不会跨天常驻，为此挂个定时器不划算。
+  const weekday = weekdayLabel(new Date());
 
   const navigationClass =
     'grid size-11 place-items-center rounded-md text-muted-foreground no-underline transition-colors duration-150 ease-out hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2 focus-visible:ring-sidebar-ring focus-visible:outline-none motion-reduce:transition-none [&.active]:bg-sidebar-accent [&.active]:text-sidebar-accent-foreground';
@@ -120,7 +126,23 @@
     {/if}
   </aside>
 
-  <section class="min-h-0 min-w-0 overflow-hidden">
-    {@render children()}
+  <!--
+    内容区上方的通栏：只放欢迎语，所以不给它 `header` 语义，也不参与页面导航。
+    各页面自己的顶部（小智页的 68px header、浏览器页的标签栏）保持原样，这条
+    只是在它们之上多一行。
+  -->
+  <section class="grid min-h-0 min-w-0 grid-rows-[36px_minmax(0,1fr)] overflow-hidden">
+    <div class="flex min-w-0 items-center justify-end border-b border-border px-5">
+      {#if welcomeName}
+        <p class="m-0 min-w-0 truncate text-xs text-muted-foreground">
+          欢迎您，<span class="font-medium text-foreground">{welcomeName}</span>
+          <span class="mx-1.5 text-border">·</span>今天是{weekday}
+        </p>
+      {/if}
+    </div>
+
+    <div class="min-h-0 min-w-0 overflow-hidden">
+      {@render children()}
+    </div>
   </section>
 </div>

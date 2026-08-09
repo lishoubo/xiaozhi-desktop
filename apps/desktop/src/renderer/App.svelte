@@ -8,6 +8,7 @@
   import StaffLoginPage from './pages/StaffLoginPage.svelte';
   import { clearAuthSession, setAuthSession, type AuthSession } from './auth';
   import { clearStaffSession, setStaffSession, type StaffSession } from './staff-auth';
+  import { setGreetingIdentity } from './session-greeting.svelte';
   import { IS_STAFF_AUTH } from '../shared/auth-variant';
   import { routes } from './routes';
 
@@ -15,6 +16,12 @@
 
   let session = $state<Session | null>(null);
   let restoringSession = $state(true);
+
+  // 会话是所有登录变体的共同出口，欢迎语的身份就跟着它走——登录、恢复、登出
+  // 三条路径各自维护一遍容易漏。
+  $effect(() => {
+    setGreetingIdentity(session && { username: session.username, fullName: session.fullName });
+  });
 
   const clearSession = (): void => {
     if (IS_STAFF_AUTH) clearStaffSession();
