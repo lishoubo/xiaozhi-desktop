@@ -46,6 +46,18 @@
     return 'bg-muted-foreground';
   }
 
+  /**
+   * 状态文字也跟着语义色走——只靠一个 1.5px 的圆点区分健康与失败，扫一眼列表时
+   * 根本抓不住。取值比圆点深一档，保证浅色背景上的对比度。
+   */
+  function statusTextClass(tone: OtaAccountTone): string {
+    if (tone === 'healthy') return 'text-[#1f7a3d]';
+    if (tone === 'warning') return 'text-[#9a6b0f]';
+    if (tone === 'progress') return 'text-[#3a5f9e]';
+    if (tone === 'error') return 'text-[#b3352d]';
+    return 'text-muted-foreground';
+  }
+
   function runAction(): void {
     const action = presentation.action;
     if (action) onAction(action, account, channelName);
@@ -66,13 +78,15 @@
     onclick={() => (open = !open)}
   >
     {#if channel}
-      <img class="size-4 shrink-0 object-contain" src={channel.iconUrl} alt="" />
+      <img class="size-3.5 shrink-0 object-contain opacity-70" src={channel.iconUrl} alt="" />
     {:else}
-      <span class="text-[10px] font-semibold">OTA</span>
+      <span class="text-[9px] font-semibold text-muted-foreground">OTA</span>
     {/if}
-    <span class="min-w-0 truncate font-medium">{channelName}</span>
+    <span class="min-w-0 truncate text-[11px] text-muted-foreground">{channelName}</span>
     <span class={['size-1.5 shrink-0 rounded-full', dotClass(presentation.tone)]}></span>
-    <span class="shrink-0 text-[11px] text-muted-foreground">{presentation.label}</span>
+    <span class={['shrink-0 text-xs font-medium', statusTextClass(presentation.tone)]}>
+      {presentation.label}
+    </span>
   </button>
 
   {#if open}
@@ -83,7 +97,13 @@
     >
       <div class="flex items-start justify-between gap-3">
         <div class="min-w-0">
-          <p class="m-0 text-sm font-semibold">{channelName}</p>
+          <p class="m-0 flex items-center gap-1.5 text-sm font-semibold">
+            <span class="min-w-0 truncate">{channelName}</span>
+            <span class={['size-1.5 shrink-0 rounded-full', dotClass(presentation.tone)]}></span>
+            <span class={['shrink-0 text-xs', statusTextClass(presentation.tone)]}>
+              {presentation.label}
+            </span>
+          </p>
           <p class="mt-0.5 mb-0 truncate text-[11px] text-muted-foreground">
             {presentation.description}
           </p>
