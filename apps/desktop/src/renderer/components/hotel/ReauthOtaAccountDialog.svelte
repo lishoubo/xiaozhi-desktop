@@ -20,6 +20,7 @@
     otaReauthWaiting,
   } from '../../hotel-management/cross-route-intents';
   import { dismissAppNotification, showAppNotification } from '../../notifications';
+  import { toPlainJson } from '../../ipc-payload';
   import { Button } from '$lib/components/ui/button';
   import { Spinner } from '$lib/components/ui/spinner';
   import * as Dialog from '$lib/components/ui/dialog';
@@ -58,7 +59,11 @@
           .findCredentialForAccount({
             source: account.source,
             otaHotelId: account.otaHotelId,
-            bindExtra: account.bindExtra,
+            // `bindExtra` 来自远端响应、又进了 Svelte 的响应式状态，是个 Proxy。
+            // contextBridge 用结构化克隆传参，克隆 Proxy 会**同步**抛
+            // `An object could not be cloned`——挂在 Promise 上的 .catch() 拦不住，
+            // 会把同批次的 listByChannel 一起带崩。必须在进 IPC 前还原成纯对象。
+            bindExtra: toPlainJson(account.bindExtra),
           })
           // 标注只是展示增强，查不到就不标注，不影响用户继续操作。
           .catch(() => null),
