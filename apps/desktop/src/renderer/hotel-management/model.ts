@@ -61,7 +61,11 @@ export function groupOtaAccountsByHotelId(
   return grouped;
 }
 
-export type OtaAccountAction = 'login' | 'retry' | 'resolve';
+/**
+ * 用户能在客户端自己完成的动作。只有「重新登录」一种——初始化失败、酒店不匹配
+ * 这类状态刷 cookie 解决不了，一律指向管理员而不给自助入口。
+ */
+export type OtaAccountAction = 'login';
 export type OtaAccountTone = 'healthy' | 'warning' | 'progress' | 'error' | 'neutral';
 
 export type OtaAccountPresentation = Readonly<{
@@ -73,78 +77,71 @@ export type OtaAccountPresentation = Readonly<{
 
 export type OtaAccountBindDetail = Readonly<{ label: string; value: string }>;
 
-const STATUS_PRESENTATIONS: Readonly<Record<string, OtaAccountPresentation>> = {
-  BOUND: {
-    label: '已绑定',
-    description: '账号连接正常',
-    tone: 'healthy',
-    action: null,
-  },
-  PENDING_LOGIN: {
-    label: '待登录',
-    description: '完成登录后即可绑定',
-    tone: 'warning',
-    action: 'login',
-  },
-  IN_PROGRESS: {
-    label: '绑定中',
-    description: '正在获取酒店信息',
-    tone: 'progress',
-    action: null,
-  },
-  WAITING_CAPTCHA: {
-    label: '等待验证码',
-    description: '请继续完成平台验证',
-    tone: 'warning',
-    action: 'login',
-  },
-  LOGIN_FAILED: {
-    label: '登录失败',
-    description: '上次登录未成功，请重试',
-    tone: 'error',
-    action: 'login',
-  },
-  LOGIN_EXPIRED: {
-    label: '登录已失效',
-    description: '登录凭证已过期，请重新登录',
-    tone: 'error',
-    action: 'login',
-  },
-  HOTEL_NAME_MISMATCH: {
-    label: '酒店不匹配',
-    description: '平台酒店名称与当前酒店不一致',
-    tone: 'error',
-    action: 'resolve',
-  },
-  HOTEL_NAME_AMBIGUOUS: {
-    label: '待确认酒店',
-    description: '平台存在多家同名酒店',
-    tone: 'warning',
-    action: 'resolve',
-  },
-  INIT_FAILED: {
-    label: '初始化失败',
-    description: '酒店信息同步未完成',
-    tone: 'error',
-    action: 'retry',
-  },
-  UNBOUND: {
-    label: '已解绑',
-    description: '此账号已解除绑定',
-    tone: 'neutral',
-    action: 'login',
-  },
+/**
+ * 用户能自己解决的状态——只有这三个给「重新登录」入口。
+ *
+ * 其余状态要么是登录成功之后卡在初始化环节（重新登录解决不了），要么是 RPA
+ * 正在跑（重复提交会撞唯一键或打断流程），都不该让用户自助操作。
+ */
+const RECOVERABLE_BY_LOGIN: Readonly<Record<string, string>> = {
+  LOGIN_FAILED: '上次登录未成功，请重新登录',
+  LOGIN_EXPIRED: '登录凭证已过期，请重新登录',
+  UNBOUND: '此账号已解除绑定，可重新登录绑定',
 };
 
-const UNKNOWN_STATUS: OtaAccountPresentation = {
-  label: '状态待确认',
-  description: '暂时无法识别此账号状态',
-  tone: 'neutral',
+/** 后端流程进行中：不是错误，等它跑完即可。 */
+const IN_FLIGHT_STATUSES: readonly string[] = ['IN_PROGRESS', 'WAITING_CAPTCHA'];
+
+const BOUND_PRESENTATION: OtaAccountPresentation = {
+  label: '绑定成功',
+  description: '账号连接正常',
+  tone: 'healthy',
   action: null,
 };
 
+const IN_FLIGHT_PRESENTATION: OtaAccountPresentation = {
+  label: '处理中',
+  description: '登录流程进行中，请稍候',
+  tone: 'progress',
+  action: null,
+};
+
+/**
+ * 兜底档。未知状态也归到这里而不是「状态待确认」：服务端新增的取值多半也是
+ * 异常，与其让用户对着一个看不懂的标签干等，不如直接指向管理员。
+ */
+const BINDING_ERROR_PRESENTATION: OtaAccountPresentation = {
+  label: '绑定错误',
+  description: '请联系管理员',
+  tone: 'error',
+  action: null,
+};
+
+/**
+ * 绑定状态 → 展示。按用户能做什么分三档，而不是逐个映射服务端的九个取值：
+ *
+ * - `BOUND` —— 可用
+ * - `LOGIN_FAILED` / `LOGIN_EXPIRED` / `UNBOUND` —— 给重新登录入口
+ * - 其余（含 `PENDING_LOGIN`、初始化失败三兄弟、未知取值）—— 提示联系管理员
+ *
+ * 服务端取值清单见 `AppOtaAccountResponse` 的 `STATUS_*` 常量。
+ */
 export function getOtaAccountPresentation(status: string): OtaAccountPresentation {
-  return STATUS_PRESENTATIONS[status] ?? UNKNOWN_STATUS;
+  if (status === 'BOUND') return BOUND_PRESENTATION;
+
+  const recoverable = RECOVERABLE_BY_LOGIN[status];
+  if (recoverable) {
+    return {
+      label: status === 'UNBOUND' ? '已解绑' : '登录已失效',
+      description: recoverable,
+      tone: status === 'UNBOUND' ? 'neutral' : 'error',
+      action: 'login',
+    };
+  }
+
+  if (IN_FLIGHT_STATUSES.includes(status)) return IN_FLIGHT_PRESENTATION;
+
+  return BINDING_ERROR_PRESENTATION;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

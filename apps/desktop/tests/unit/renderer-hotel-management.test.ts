@@ -7,27 +7,49 @@ import {
 describe('hotel management OTA account presentation', () => {
   it('presents a healthy bound account without a recovery action', () => {
     expect(getOtaAccountPresentation('BOUND')).toEqual({
-      label: '已绑定',
+      label: '绑定成功',
       description: '账号连接正常',
       tone: 'healthy',
       action: null,
     });
   });
 
-  it('offers login recovery for an expired account', () => {
-    expect(getOtaAccountPresentation('LOGIN_EXPIRED')).toEqual({
-      label: '登录已失效',
-      description: '登录凭证已过期，请重新登录',
-      tone: 'error',
-      action: 'login',
-    });
-  });
+  it.each(['LOGIN_FAILED', 'LOGIN_EXPIRED', 'UNBOUND'])(
+    'offers login recovery for %s',
+    (status) => {
+      expect(getOtaAccountPresentation(status).action).toBe('login');
+    },
+  );
 
-  it('uses a safe neutral fallback for an unknown server status', () => {
-    expect(getOtaAccountPresentation('SERVER_ADDED_STATUS')).toEqual({
-      label: '状态待确认',
-      description: '暂时无法识别此账号状态',
-      tone: 'neutral',
+  it.each(['IN_PROGRESS', 'WAITING_CAPTCHA'])(
+    'asks the user to wait rather than act on %s',
+    (status) => {
+      // RPA 正在跑：此时重复提交会撞唯一键或打断流程，所以不给任何入口。
+      expect(getOtaAccountPresentation(status)).toMatchObject({
+        label: '处理中',
+        tone: 'progress',
+        action: null,
+      });
+    },
+  );
+
+  it.each(['PENDING_LOGIN', 'HOTEL_NAME_MISMATCH', 'HOTEL_NAME_AMBIGUOUS', 'INIT_FAILED'])(
+    'routes %s to the administrator instead of offering self-service',
+    (status) => {
+      // 这些卡在登录之后的环节，重新登录解决不了，只能在 Admin 侧处理。
+      expect(getOtaAccountPresentation(status)).toMatchObject({
+        label: '绑定错误',
+        description: '请联系管理员',
+        action: null,
+      });
+    },
+  );
+
+  it('treats a server-added status as a binding error rather than a silent unknown', () => {
+    // 新状态多半也是异常，与其显示"状态待确认"让用户干等，不如指向管理员。
+    expect(getOtaAccountPresentation('SERVER_ADDED_STATUS')).toMatchObject({
+      label: '绑定错误',
+      description: '请联系管理员',
       action: null,
     });
   });

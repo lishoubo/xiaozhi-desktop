@@ -28,15 +28,7 @@
   const bindDetails = $derived(getOtaAccountBindDetails(account.bindExtra));
   const channel = $derived(OTA_CHANNELS.find((candidate) => candidate.id === account.source));
   const channelName = $derived(channel?.name ?? account.source);
-  const actionLabel = $derived(
-    presentation.action === 'login'
-      ? '去登录'
-      : presentation.action === 'retry'
-        ? '重试初始化'
-        : presentation.action === 'resolve'
-          ? '处理问题'
-          : '',
-  );
+  const actionLabel = $derived(presentation.action === 'login' ? '去登录' : '');
 
   function dotClass(tone: OtaAccountTone): string {
     if (tone === 'healthy') return 'bg-[#2d9d50]';
