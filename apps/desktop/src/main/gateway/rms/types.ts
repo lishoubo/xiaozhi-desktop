@@ -33,8 +33,8 @@ export type RmsCookieSnapshotEntry = Readonly<{
 }>;
 
 /**
- * 只换登录凭证，**不动门店关系**——所以 `otaHotelId`/`hotelId`/`bindExtra` 都不在
- * 参数里：类型上就保证这次调用改不了绑定的是哪家店。
+ * 只换登录凭证，**不动门店关系**——所以 `otaHotelId`/`hotelId` 不在参数里：类型上
+ * 就保证这次调用改不了绑定的是哪家店。
  *
  * 不能复用 `bind()`：它有「同酒店+同渠道已存在活跃绑定」的拒绝规则，而挡住的正是
  * 要修的那条记录。也不做「先 unbind 再 bind」——中间失败会把一条只是过期的绑定变成
@@ -44,8 +44,12 @@ export type RmsOtaAccountReauthInput = Readonly<{
   operationId: string;
   otaAccountId: number;
   cookies: readonly RmsCookieSnapshotEntry[];
-  /** 顺带补齐老记录缺失的账号关联；为空则不改动远端已有值。 */
-  channelAccountId: string | null;
+  /**
+   * **整份**绑定上下文，不是增量：远端是整体替换 `bindExtra`，只发变化的键会把没发
+   * 的键（抖音的 `merchantGroupId`、美团的 `otaPartnerId`）抹掉。调用方负责在远端
+   * 现值之上合并，见 `HotelManagementService.confirmReauth`。
+   */
+  bindExtra: JsonObject | null;
 }>;
 
 export interface RmsOtaAccountGateway {

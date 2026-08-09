@@ -13,7 +13,7 @@ import type {
   FindCredentialForAccountInput,
 } from '../../shared/browser';
 import type { AppLogger } from '../../shared/logging';
-import { channelAccountIdFromBindExtra, withChannelAccountId } from '../channels/bind-extra';
+import { channelAccountIdFromBindExtra, withChannelAccount } from '../channels/bind-extra';
 import { toChannelId, toOtaCredentialId, toOtaHotelId } from '../ids';
 
 export type RmsHotelOtaAccountsSnapshot = Readonly<{
@@ -129,6 +129,10 @@ export class HotelManagementService {
    * 与 `confirmBinding` 的差别是没有本地写入那半段——`ota_hotel` 存的是门店信息，
    * 这次没有任何门店信息发生变化，没有要更新的东西。
    *
+   * `bindExtra` 只发账号身份：服务端按键合并而非整体替换，所以绑定时写下的渠道
+   * 上下文（抖音 `merchantGroupId`、美团 `otaPartnerId`）由远端自己保住，desktop
+   * 不必先读现值。
+   *
    * 调用前提：账号身份已由 `OtaReauthDispatcher` 核对通过（见 design 决策 1b）。
    */
   async confirmReauth(input: ConfirmReauthInput): Promise<RmsOtaAccount> {
@@ -138,11 +142,12 @@ export class HotelManagementService {
     if (!credential) throw new Error('未找到该登录凭据');
 
     const cookies = await this.deps.readCookieSnapshot(credential.partitionName);
+
     return this.deps.otaAccountGateway.reauthenticate({
       operationId: this.deps.generateRequestId(),
       otaAccountId: input.otaAccountId,
       cookies,
-      channelAccountId: credential.channelAccountId,
+      bindExtra: withChannelAccount(null, credential),
     });
   }
 
@@ -165,9 +170,9 @@ export class HotelManagementService {
       source: credential.channel,
       otaHotelId: input.hotel.otaHotelId,
       otaHotelName: input.hotel.otaHotelName,
-      // 带上本次使用的渠道账号标识：远端记录自带账号关联后，「这条绑定是哪个账号
+      // 带上本次使用的渠道账号身份：远端记录自带账号关联后，「这条绑定是哪个账号
       // 建的」不必再绕本地 ota_hotel 反查。
-      bindExtra: withChannelAccountId(input.hotel.bindExtra, credential.channelAccountId),
+      bindExtra: withChannelAccount(input.hotel.bindExtra, credential),
       cookies,
     });
 

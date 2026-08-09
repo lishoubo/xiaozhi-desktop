@@ -39,7 +39,7 @@ function setup(
     findByChannelAndHotelId: overrides.findByChannelAndHotelId ?? vi.fn(() => null),
   };
   const otaAccountGateway = {
-    listOtaAccounts: vi.fn(),
+    listOtaAccounts: vi.fn().mockResolvedValue([]),
     bind: overrides.bind ?? vi.fn().mockResolvedValue({ id: 7 }),
     unbind: vi.fn(),
     reauthenticate: overrides.reauthenticate ?? vi.fn().mockResolvedValue({ id: 7 }),
@@ -183,8 +183,14 @@ describe('HotelManagementService 重新登录', () => {
     expect(service.startReauth().requestId).toBe('id-2');
   });
 
-  it('confirmReauth 用该凭证的实时 cookie 调 reauthenticate，并带上账号标识', async () => {
-    const { service, otaAccountGateway } = setup();
+  /**
+   * 只发账号身份，**不读远端现值**：服务端按键合并，绑定时写下的渠道上下文（抖音
+   * `merchantGroupId`）由远端自己保住。
+   */
+  it('confirmReauth 用该凭证的实时 cookie 调 reauthenticate，并带上账号身份', async () => {
+    const { service, otaAccountGateway } = setup({
+      findById: vi.fn(() => credential({ credentialExtra: { name: '云朵酒店' } })),
+    });
 
     await expect(
       service.confirmReauth({ otaAccountId: 30102, credentialId: 'credential-1' }),
@@ -194,8 +200,23 @@ describe('HotelManagementService 重新登录', () => {
       expect.objectContaining({
         otaAccountId: 30102,
         cookies: [{ domain: 'a.com', name: 'k', value: 'v' }],
-        channelAccountId: 'account-1',
+        bindExtra: { channelAccountId: 'account-1', channelAccountName: '云朵酒店' },
       }),
+    );
+    // 服务端按键合并后这次查询就是多余的往返。
+    expect(otaAccountGateway.listOtaAccounts).not.toHaveBeenCalled();
+  });
+
+  /** 凭证没有账号身份——整个省略，让远端保持原值。 */
+  it('无账号身份时 bindExtra 为 null', async () => {
+    const { service, otaAccountGateway } = setup({
+      findById: vi.fn(() => credential({ channelAccountId: null })),
+    });
+
+    await service.confirmReauth({ otaAccountId: 30102, credentialId: 'credential-1' });
+
+    expect(otaAccountGateway.reauthenticate).toHaveBeenCalledWith(
+      expect.objectContaining({ bindExtra: null }),
     );
   });
 

@@ -89,8 +89,11 @@ export class HttpRmsOtaAccountGateway implements RmsOtaAccountGateway {
 
   /**
    * 重新登录只换凭证，**不动门店关系**——所以请求体里没有 `hotelId` / `otaHotelId`。
-   * 远端语义是「重新绑定」：会顺带把 bindSource 盖成 DESKTOP、补齐 channelAccountId，
-   * 并把同一登录凭据下其余酒店的 cookie 一并更新。
+   * 远端语义是「重新绑定」：会顺带把 bindSource 盖成 DESKTOP，并把同一登录凭据下
+   * 其余酒店的 cookie 一并更新。
+   *
+   * `bindExtra` 是**整体替换**而非合并，所以传的必须是合并好的整份上下文；为 null
+   * 时整个省略该键，让远端保持原值。
    */
   async reauthenticate(input: RmsOtaAccountReauthInput): Promise<RmsOtaAccount> {
     const data = await this.call(
@@ -100,11 +103,7 @@ export class HttpRmsOtaAccountGateway implements RmsOtaAccountGateway {
       {
         operationId: input.operationId,
         cookies: input.cookies,
-        // 没有 channelAccountId 时整个省略 bindExtra：传 null 会覆盖远端已有值，
-        // 而这里的语义是"不改动"。
-        ...(input.channelAccountId === null
-          ? {}
-          : { bindExtra: { channelAccountId: input.channelAccountId } }),
+        ...(input.bindExtra === null ? {} : { bindExtra: input.bindExtra }),
       },
     );
     return toRmsOtaAccount(otaAccountSchema.parse(data));

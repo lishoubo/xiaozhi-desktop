@@ -106,7 +106,7 @@ describe('HttpRmsOtaAccountGateway', () => {
       operationId: 'op-2',
       otaAccountId: 20,
       cookies: [{ domain: '.douyin.com', name: 'sid', value: 'v2' }],
-      channelAccountId: 'acc-1',
+      bindExtra: { merchantGroupId: 'group-1', channelAccountId: 'acc-1' },
     });
 
     const [url, init] = fetch.mock.calls[0] ?? [];
@@ -116,10 +116,12 @@ describe('HttpRmsOtaAccountGateway', () => {
     const body = JSON.parse(String(init?.body));
     expect(body).not.toHaveProperty('hotelId');
     expect(body).not.toHaveProperty('otaHotelId');
-    expect(body.bindExtra).toMatchObject({ channelAccountId: 'acc-1' });
+    // 远端整体替换 bindExtra，所以调用方合并好的整份要原样送达——少一个键，远端就
+    // 少一个键（正是 merchantGroupId 丢失的成因）。
+    expect(body.bindExtra).toEqual({ merchantGroupId: 'group-1', channelAccountId: 'acc-1' });
   });
 
-  it('omits bindExtra when reauthenticating without a channel account id', async () => {
+  it('omits bindExtra when reauthenticating without any bind context', async () => {
     // 传 null 会覆盖远端已有值，而这里的语义是"不改动"。
     const { gateway, fetch } = setup({
       code: 0,
@@ -130,7 +132,7 @@ describe('HttpRmsOtaAccountGateway', () => {
       operationId: 'op-3',
       otaAccountId: 20,
       cookies: [{ domain: '.douyin.com', name: 'sid', value: 'v2' }],
-      channelAccountId: null,
+      bindExtra: null,
     });
 
     const body = JSON.parse(String(fetch.mock.calls[0]?.[1]?.body));
