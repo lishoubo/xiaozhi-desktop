@@ -12,6 +12,7 @@
   import { hotelBindingWaiting } from '../../hotel-management/cross-route-intents';
   import { requiresUnbindBeforeBinding } from '../../hotel-management/model';
   import { dismissAppNotification, showAppNotification } from '../../notifications';
+  import { toPlainJson } from '../../ipc-payload';
   import { createWaitingUiResult } from '../../waiting-ui-result';
   import { bindingFailureMessage } from './binding-failure-message';
   import { browserOtaTabs } from './browser-ota-tabs.svelte';
@@ -125,7 +126,10 @@
       await window.hotelButler.hotelManagement.confirmBinding({
         credentialId,
         rmsHotelId,
-        hotel,
+        // `hotel` 出自 `$state` 的候选列表，是个 Proxy；它的 `bindExtra` 还是渠道
+        // 自定义的嵌套对象。contextBridge 用结构化克隆传参，克隆 Proxy 会**同步**
+        // 抛 `An object could not be cloned`，`.catch()` 拦不住。
+        hotel: toPlainJson(hotel),
       });
       closeDialog();
       showAppNotification({
