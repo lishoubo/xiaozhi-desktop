@@ -21,10 +21,16 @@ import {
 import { SqliteOtaCredentialRepository } from '../database/ota-credential-repository';
 import { SqliteOtaHotelRepository } from '../database/ota-hotel-repository';
 import { removePendingPartition } from '../file-store/pending-partitions-store';
-import { MockRmsHotelGateway } from '../gateway/rms/rms-hotel-gateway-mock';
-import { MockRmsOtaAccountGateway } from '../gateway/rms/rms-ota-account-gateway-mock';
+import { HttpRmsHotelGateway } from '../gateway/rms/rms-hotel-gateway-http';
+import { HttpRmsOtaAccountGateway } from '../gateway/rms/rms-ota-account-gateway-http';
 import type { ChannelId } from '../ids';
 import { SessionFactory } from '../browser/session-factory';
+import { createElectronSessionFetch } from '../server-client/trpc-client';
+import { createAuthenticatedRmsFetch } from '../staff-auth/authenticated-rms-fetch';
+import { createRmsAuthClient } from '../staff-auth/rms-auth-client';
+import { resolveRmsOrigin } from '../staff-auth/rms-endpoint';
+import { createRmsTokenProvider, type RmsTokenProvider } from '../staff-auth/rms-token-provider';
+import { createStaffTokenStore } from '../staff-auth/token-store';
 import { HotelManagementService } from '../services/hotel-management-service';
 import { OtaCredentialService } from '../services/ota-credential-service';
 
@@ -39,6 +45,14 @@ export type AppScope = Readonly<{
   hotelManagementService: HotelManagementService;
   otaCredentialService: OtaCredentialService;
   channelRegistry: ReadonlyMap<ChannelId, ChannelAdapter>;
+  /** rms-server 的认证栈——`StaffAuthService` 与业务 gateway 共用同一份。 */
+  rms: Readonly<{
+    origin: string;
+    authClient: ReturnType<typeof createRmsAuthClient>;
+    tokens: RmsTokenProvider;
+    /** 已注入 Bearer / UA、并在 401 时重试一次的 fetch。 */
+    fetch: typeof globalThis.fetch;
+  }>;
   /**
    * 由 window scope 在创建 BrowserManager 后回填 —— credential 归并时需要
    * 让旧 partition 退休，而 BrowserManager 是窗口级的。窗口不存在时为空操作。
@@ -79,6 +93,27 @@ export function createAppScope(logger: AppLogger): AppScope {
   const otaCredentialRepository = new SqliteOtaCredentialRepository(database);
   const otaHotelRepository = new SqliteOtaHotelRepository(database);
 
+  /**
+   * RMS 认证栈。放在进程级而非窗口级，是因为 gateway 也活在这一层——
+   * token 的读写、刷新和并发去重必须只有一份，否则多个 gateway 同时撞上过期
+   * 会各刷一次，而 RMS 的 refresh token 是单次使用的。
+   */
+  const rmsOrigin = resolveRmsOrigin(process.env);
+  const rmsFetch = createElectronSessionFetch(sessionFactory.sessionForRmsApi());
+  const rmsAuthClient = createRmsAuthClient({ origin: rmsOrigin, fetch: rmsFetch, logger });
+  const rmsTokens = createRmsTokenProvider({
+    tokenStore: createStaffTokenStore({ userDataDir, logger }),
+    client: rmsAuthClient,
+    now: () => Date.now(),
+    logger,
+  });
+  /** 业务 gateway 的请求出口：拿到它就只写业务请求，不必碰 token。 */
+  const authenticatedRmsFetch = createAuthenticatedRmsFetch({
+    fetch: rmsFetch,
+    provider: rmsTokens,
+    logger,
+  });
+
   // 窗口级能力的回填槽位：window scope 建好 BrowserManager / 主窗口后写入。
   let retirePartition: ((partitionName: string) => Promise<void>) | null = null;
   let notifyAccountBound: ((channel: ChannelId) => void) | null = null;
@@ -105,8 +140,16 @@ export function createAppScope(logger: AppLogger): AppScope {
     otaCredentialRepository,
     otaHotelRepository,
     hotelManagementService: new HotelManagementService({
-      hotelGateway: new MockRmsHotelGateway(),
-      otaAccountGateway: new MockRmsOtaAccountGateway(),
+      hotelGateway: new HttpRmsHotelGateway({
+        origin: rmsOrigin,
+        fetch: authenticatedRmsFetch,
+        logger,
+      }),
+      otaAccountGateway: new HttpRmsOtaAccountGateway({
+        origin: rmsOrigin,
+        fetch: authenticatedRmsFetch,
+        logger,
+      }),
       otaHotelRepository,
       otaCredentialRepository,
       readCookieSnapshot: (partitionName) => readCookieSnapshot(partitionName),
@@ -115,6 +158,12 @@ export function createAppScope(logger: AppLogger): AppScope {
     }),
     otaCredentialService,
     channelRegistry: createChannelRegistry(logger),
+    rms: {
+      origin: rmsOrigin,
+      authClient: rmsAuthClient,
+      tokens: rmsTokens,
+      fetch: authenticatedRmsFetch,
+    },
     setPartitionRetirer(retire) {
       retirePartition = retire;
     },

@@ -21,9 +21,6 @@ import { registerSystemHandlers } from '../ipc/system-handlers';
 import { LoginDetector, OtaTabService, TabEventBus } from '../ota-tab';
 import { resolveServerOrigin } from '../server-client/config';
 import { createElectronSessionFetch, createServerTrpcClient } from '../server-client/trpc-client';
-import { createRmsAuthClient } from '../staff-auth/rms-auth-client';
-import { resolveRmsOrigin } from '../staff-auth/rms-endpoint';
-import { createStaffTokenStore } from '../staff-auth/token-store';
 import { AUTH_VARIANT, IS_STAFF_AUTH } from '../../shared/auth-variant';
 import { AuthService } from '../services/auth-service';
 import { StaffAuthService } from '../services/staff-auth-service';
@@ -138,17 +135,12 @@ export function createWindowScope(scope: AppScope): WindowScope {
   // 依赖的 service 会被 DCE 摇掉，不会进产物；未选中那套的 session 也不会创建。
   logger.info('Authentication variant selected', { authVariant: AUTH_VARIANT });
   if (IS_STAFF_AUTH) {
-    const rmsSession = scope.sessionFactory.sessionForRmsApi();
+    // 认证栈建在 app scope：业务 gateway 也要用同一份 token，不能各持一套。
     onDispose(
       registerStaffAuthHandlers({
         service: new StaffAuthService({
-          client: createRmsAuthClient({
-            origin: resolveRmsOrigin(process.env),
-            fetch: createElectronSessionFetch(rmsSession),
-            logger,
-          }),
-          tokenStore: createStaffTokenStore({ userDataDir: scope.userDataDir, logger }),
-          now: () => Date.now(),
+          client: scope.rms.authClient,
+          tokens: scope.rms.tokens,
           logger,
         }),
         logger,

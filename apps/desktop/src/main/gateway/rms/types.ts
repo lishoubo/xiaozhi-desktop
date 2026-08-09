@@ -3,8 +3,7 @@
  *
  * 两个 Gateway 按远端聚合边界拆分：酒店与 OTA account 的生命周期和权限不同，
  * 绑定操作需要携带渠道 Cookie 快照，不应该出现在普通酒店 CRUD 接口上。
- * 本期由 main composition root 注入有状态 mock；真实接入时替换成调用
- * `apps/server` adapter 的实现，接口不变。
+ * 实现见同目录的 `*-gateway-http.ts`，直连 rms-server 的 `/api/v1/app/*`。
  */
 import type { ChannelId } from '../../ids';
 import type { JsonObject } from '../../../shared/types/json';
