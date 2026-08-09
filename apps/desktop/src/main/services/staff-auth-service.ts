@@ -7,68 +7,58 @@
  */
 import type { StaffIdentity } from '@hotel-butler/api';
 import type { AppLogger } from '../../shared/logging';
-import type { RmsAuthClient, RmsTokenPair } from '../staff-auth/rms-auth-client';
-import {
-  RmsAuthError,
-  isAccessTokenRejected,
-  messageForRmsError,
-} from '../staff-auth/rms-auth-errors';
-import type { StaffTokenStore, StoredStaffTokens } from '../staff-auth/token-store';
-
-/**
- * 判断 access 是否过期时预留的余量：卡在过期点上发出的请求，到达服务端时可能
- * 刚好越线，白白浪费一次往返。
- */
-const EXPIRY_SKEW_MS = 30_000;
+import type { RmsAuthClient } from '../staff-auth/rms-auth-client';
+import { RmsAuthError, messageForRmsError } from '../staff-auth/rms-auth-errors';
+import { RmsSessionMissingError, type RmsTokenProvider } from '../staff-auth/rms-token-provider';
 
 export type StaffAuthServiceDependencies = Readonly<{
   client: RmsAuthClient;
-  tokenStore: StaffTokenStore;
-  now: () => number;
+  /** token 的读写、过期判断与刷新都归它，本服务不再自己维护一份。 */
+  tokens: RmsTokenProvider;
   logger: AppLogger;
 }>;
 
 export class StaffAuthService {
-  /**
-   * 并发去重：`currentSession` 可能被多处同时调用。RMS 的 refresh 不是单次使用
-   * （只验签+查库，不作废旧 token），并发不会互相踢掉，但会白白刷出多对 token。
-   */
-  private inFlightRefresh: Promise<RmsTokenPair> | null = null;
-
   constructor(private readonly deps: StaffAuthServiceDependencies) {}
 
   async login(username: string, password: string): Promise<StaffIdentity> {
     const pair = await this.translate('login', '登录失败，请稍后重试', () =>
       this.deps.client.login(username, password),
     );
-    await this.deps.tokenStore.write(this.toStoredTokens(pair));
+    await this.deps.tokens.adopt(pair);
 
     try {
       return await this.deps.client.me(pair.accessToken);
     } catch (error) {
       // 拿到 token 却取不到身份：不能让"有凭证、无身份"的半截状态留在盘上。
-      await this.deps.tokenStore.clear();
+      await this.deps.tokens.clear();
       throw this.toUserFacingError('login-profile', '登录失败，请稍后重试', error);
     }
   }
 
+  /**
+   * 恢复会话。取 token 的过程（判过期、必要时刷新）已经收在 provider 里，
+   * 这里只需要区分"确实没登录"和"临时故障"两种失败。
+   */
   async currentSession(): Promise<StaffIdentity | null> {
-    const stored = await this.deps.tokenStore.read();
-    if (!stored) return null;
-
-    if (!this.isExpired(stored.accessExpiresAt)) {
-      try {
-        return await this.deps.client.me(stored.accessToken);
-      } catch (error) {
-        // 只有"access 被拒"才值得刷新；其余错误（网络、服务端故障）如实抛出，
-        // 否则会把一次临时故障误判成"登录已失效"，白白清掉用户的登录态。
-        if (!(error instanceof RmsAuthError) || !isAccessTokenRejected(error.code)) {
-          throw this.toUserFacingError('current-session', '无法验证登录状态，请重试', error);
-        }
+    let accessToken: string;
+    try {
+      accessToken = await this.deps.tokens.accessToken();
+    } catch (error) {
+      if (error instanceof RmsSessionMissingError) return null;
+      // refresh 被服务端拒绝：登录态确实结束了，清干净并回登录页。
+      if (error instanceof RmsAuthError) {
+        await this.deps.tokens.clear();
+        return null;
       }
+      throw this.toUserFacingError('current-session', '无法验证登录状态，请重试', error);
     }
 
-    return this.refreshAndLoadProfile(stored);
+    try {
+      return await this.deps.client.me(accessToken);
+    } catch (error) {
+      throw this.toUserFacingError('current-session', '无法验证登录状态，请重试', error);
+    }
   }
 
   /**
@@ -77,65 +67,19 @@ export class StaffAuthService {
    */
   async logout(): Promise<{ success: true }> {
     try {
-      const stored = await this.deps.tokenStore.read();
-      if (stored) await this.deps.client.logout(stored.accessToken);
+      // 已经登出（或从未登录）时 provider 会抛 RmsSessionMissingError——
+      // 本地清理仍要执行，所以放过这个错，其余照常上报。
+      const accessToken = await this.deps.tokens.accessToken().catch((error: unknown) => {
+        if (error instanceof RmsSessionMissingError) return null;
+        throw error;
+      });
+      if (accessToken) await this.deps.client.logout(accessToken);
       return { success: true };
     } catch (error) {
       throw this.toUserFacingError('logout', '退出登录失败，请重试', error);
     } finally {
-      await this.deps.tokenStore.clear();
+      await this.deps.tokens.clear();
     }
-  }
-
-  private async refreshAndLoadProfile(stored: StoredStaffTokens): Promise<StaffIdentity | null> {
-    if (this.isExpired(stored.refreshExpiresAt)) {
-      await this.deps.tokenStore.clear();
-      return null;
-    }
-
-    let refreshed: RmsTokenPair;
-    try {
-      refreshed = await this.refreshOnce(stored.refreshToken);
-    } catch (error) {
-      if (error instanceof RmsAuthError) {
-        // refresh 也被拒：登录态确实结束了，清干净并回登录页。
-        await this.deps.tokenStore.clear();
-        return null;
-      }
-      throw error;
-    }
-
-    await this.deps.tokenStore.write(this.toStoredTokens(refreshed));
-
-    try {
-      return await this.deps.client.me(refreshed.accessToken);
-    } catch (error) {
-      throw this.toUserFacingError('current-session', '无法验证登录状态，请重试', error);
-    }
-  }
-
-  private refreshOnce(refreshToken: string): Promise<RmsTokenPair> {
-    if (this.inFlightRefresh) return this.inFlightRefresh;
-
-    const pending = this.deps.client.refresh(refreshToken);
-    this.inFlightRefresh = pending;
-    return pending.finally(() => {
-      this.inFlightRefresh = null;
-    });
-  }
-
-  private isExpired(expiresAt: number): boolean {
-    return expiresAt - EXPIRY_SKEW_MS <= this.deps.now();
-  }
-
-  private toStoredTokens(pair: RmsTokenPair): StoredStaffTokens {
-    const issuedAt = this.deps.now();
-    return {
-      accessToken: pair.accessToken,
-      refreshToken: pair.refreshToken,
-      accessExpiresAt: issuedAt + pair.accessExpiresInSeconds * 1000,
-      refreshExpiresAt: issuedAt + pair.refreshExpiresInSeconds * 1000,
-    };
   }
 
   private async translate<T>(
