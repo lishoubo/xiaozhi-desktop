@@ -8,7 +8,11 @@
 import type { StaffIdentity } from '@hotel-butler/api';
 import type { AppLogger } from '../../shared/logging';
 import type { RmsAuthClient } from '../staff-auth/rms-auth-client';
-import { RmsAuthError, messageForRmsError } from '../staff-auth/rms-auth-errors';
+import {
+  RmsAuthError,
+  isAccessTokenRejected,
+  messageForRmsError,
+} from '../staff-auth/rms-auth-errors';
 import { RmsSessionMissingError, type RmsTokenProvider } from '../staff-auth/rms-token-provider';
 
 export type StaffAuthServiceDependencies = Readonly<{
@@ -38,27 +42,45 @@ export class StaffAuthService {
 
   /**
    * 恢复会话。取 token 的过程（判过期、必要时刷新）已经收在 provider 里，
-   * 这里只需要区分"确实没登录"和"临时故障"两种失败。
+   * 这里负责的是另一件事：**服务端不认这个 token 时再换一个试一次**。
+   *
+   * 为什么需要重试——本地算出的 `accessExpiresAt` 只是 `issuedAt + TTL`，与服务端
+   * 并不同步：时钟偏移、服务端主动吊销或轮换，都会让一个"本地看着还没过期"的
+   * token 被拒。此时盘上的 refresh token 往往仍然可用，直接放弃等于每次开机都
+   * 让用户重新输一遍账号密码。
    */
   async currentSession(): Promise<StaffIdentity | null> {
-    let accessToken: string;
     try {
-      accessToken = await this.deps.tokens.accessToken();
+      return await this.loadProfile();
     } catch (error) {
       if (error instanceof RmsSessionMissingError) return null;
-      // refresh 被服务端拒绝：登录态确实结束了，清干净并回登录页。
-      if (error instanceof RmsAuthError) {
+      if (!(error instanceof RmsAuthError)) {
+        // 网络抖动之类的临时故障：如实抛出。误判成"登录失效"会白白清掉一个
+        // 有效的登录态。
+        throw this.toUserFacingError('current-session', '无法验证登录状态，请重试', error);
+      }
+      if (!isAccessTokenRejected(error.code)) {
+        await this.deps.tokens.clear();
+        return null;
+      }
+    }
+
+    // access token 被拒——换一个再试一次。
+    this.deps.tokens.invalidate();
+    try {
+      return await this.loadProfile();
+    } catch (error) {
+      // 换过 token 仍被拒：登录态确实结束了，清干净并回登录页。
+      if (error instanceof RmsSessionMissingError || error instanceof RmsAuthError) {
         await this.deps.tokens.clear();
         return null;
       }
       throw this.toUserFacingError('current-session', '无法验证登录状态，请重试', error);
     }
+  }
 
-    try {
-      return await this.deps.client.me(accessToken);
-    } catch (error) {
-      throw this.toUserFacingError('current-session', '无法验证登录状态，请重试', error);
-    }
+  private async loadProfile(): Promise<StaffIdentity> {
+    return this.deps.client.me(await this.deps.tokens.accessToken());
   }
 
   /**

@@ -91,13 +91,39 @@ describe('createRmsTokenProvider', () => {
     await expect(provider.accessToken()).rejects.toThrow();
   });
 
-  it('forgets the cached token so the next call re-reads the store', async () => {
-    const { provider, store } = setup();
+  it('exchanges the rejected token for a new one instead of re-reading the same value', async () => {
+    // 服务端不认当前 token 时，光丢掉内存缓存没用——盘上那份还没过期，
+    // 会被原样读回来再发一次，重试必然又是 401。
+    const { provider, client } = setup();
 
-    await provider.accessToken();
+    expect(await provider.accessToken()).toBe('access-1');
     provider.invalidate();
-    await provider.accessToken();
 
-    expect(store.read).toHaveBeenCalledTimes(2);
+    expect(await provider.accessToken()).toBe('access-2');
+    expect(client.refresh).toHaveBeenCalledOnce();
+  });
+
+  it('clears the stored credentials once the refresh token itself has expired', async () => {
+    // 不清理的话，这对死凭证会永久留在盘上，之后每次调用都白读一次。
+    const { provider, store } = setup({
+      stored: tokens({ accessExpiresAt: NOW - 1, refreshExpiresAt: NOW - 1 }),
+    });
+
+    await expect(provider.accessToken()).rejects.toThrow();
+    expect(store.clear).toHaveBeenCalledOnce();
+  });
+
+  it('does not refresh twice with a refresh token the first call already consumed', async () => {
+    // RMS 的 refresh token 单次使用。第二个调用方若在 inFlightRefresh 清空后才
+    // 进来、却仍持有旧的 current，就会拿着已作废的 token 再刷一次并被拒。
+    const { provider, client } = setup({ stored: tokens({ accessExpiresAt: NOW - 1 }) });
+
+    const first = await provider.accessToken();
+    const second = await provider.accessToken();
+
+    expect(first).toBe('access-2');
+    expect(second).toBe('access-2');
+    expect(client.refresh).toHaveBeenCalledOnce();
+    expect(client.refresh).toHaveBeenCalledWith('refresh-1');
   });
 });
