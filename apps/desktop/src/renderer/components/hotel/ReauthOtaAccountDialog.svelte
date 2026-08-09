@@ -19,6 +19,7 @@
     hotelBindingWaiting,
     otaReauthWaiting,
   } from '../../hotel-management/cross-route-intents';
+  import { credentialPresentation } from '../../hotel-management/credential-presentation';
   import { dismissAppNotification, showAppNotification } from '../../notifications';
   import { toPlainJson } from '../../ipc-payload';
   import { Button } from '$lib/components/ui/button';
@@ -39,14 +40,6 @@
 
   const channel = $derived(OTA_CHANNELS.find((item) => item.id === target?.account.source));
   const channelName = $derived(channel?.name ?? target?.account.source ?? '');
-
-  /** 凭据没有酒店名时退回展示渠道账号 ID，避免出现空白行。 */
-  function credentialLabel(credential: OtaCredentialDto): string {
-    const extra = credential.credentialExtra;
-    const hotelName = typeof extra?.hotelName === 'string' ? extra.hotelName : null;
-    const name = typeof extra?.name === 'string' ? extra.name : null;
-    return hotelName ?? name ?? credential.channelAccountId ?? credential.id;
-  }
 
   async function loadCredentials(account: RmsOtaAccountDto): Promise<void> {
     loading = true;
@@ -174,25 +167,40 @@
     {:else}
       <ul class="max-h-72 space-y-1 overflow-y-auto py-1">
         {#each credentials as credential (credential.id)}
+          {@const presentation = credentialPresentation(credential)}
           <li>
             <label
-              class="flex cursor-pointer items-center gap-3 rounded-md px-3 py-2 hover:bg-accent"
+              class="flex cursor-pointer items-start gap-3 rounded-md px-3 py-2 hover:bg-accent"
             >
               <input
+                class="mt-1 shrink-0"
                 type="radio"
                 name="reauth-credential"
                 value={credential.id}
                 checked={selectedCredentialId === credential.id}
                 onchange={() => (selectedCredentialId = credential.id)}
               />
-              <span class="min-w-0 flex-1 text-sm">{credentialLabel(credential)}</span>
-              {#if credential.id === lastBoundCredentialId}
-                <span
-                  class="shrink-0 rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground"
-                >
-                  上次绑定过
+              <span class="min-w-0 flex-1 text-sm">
+                <span class="flex items-baseline gap-2">
+                  <span class="min-w-0 truncate">{presentation.title}</span>
+                  {#if credential.id === lastBoundCredentialId}
+                    <span
+                      class="shrink-0 rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground"
+                    >
+                      上次绑定过
+                    </span>
+                  {/if}
                 </span>
-              {/if}
+                {#if presentation.details.length > 0}
+                  <span
+                    class="mt-0.5 flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-muted-foreground"
+                  >
+                    {#each presentation.details as detail (detail.label)}
+                      <span>{detail.label} {detail.value}</span>
+                    {/each}
+                  </span>
+                {/if}
+              </span>
             </label>
           </li>
         {/each}
