@@ -32,24 +32,60 @@ describe('hotel management OTA account presentation', () => {
     });
   });
 
-  it('derives labeled channel details from structured bindExtra keys', () => {
+  it('shows the bound account identity and drops the per-channel RPA parameters', () => {
+    // merchantGroupId / otaPartnerId 是绑定与更新时传给远端的入参，运营看不懂也用不上。
     expect(
       getOtaAccountBindDetails({
+        bindSource: 'DESKTOP',
+        channelAccountId: '7129084416',
+        channelAccountName: '璞禾咖啡酒店',
         merchantGroupId: '7129084416',
         otaPartnerId: 'MT-883720',
-        loginMethod: 'SMS',
-        loginPhone: '180****2468',
       }),
     ).toEqual([
-      { label: '抖音商户 ID', value: '7129084416' },
-      { label: '美团 Partner ID', value: 'MT-883720' },
-      { label: '登录方式', value: '短信验证码' },
-      { label: '登录手机号', value: '180****2468' },
+      { label: '账号名称', value: '璞禾咖啡酒店' },
+      { label: '账号 ID', value: '7129084416' },
+      { label: '绑定来源', value: '桌面端' },
     ]);
   });
 
-  it('ignores null or unknown bindExtra content', () => {
-    expect(getOtaAccountBindDetails(null)).toEqual([]);
-    expect(getOtaAccountBindDetails({ unknown: 'value' })).toEqual([]);
+  it('spells out an unrecognised bind source rather than hiding it', () => {
+    expect(getOtaAccountBindDetails({ bindSource: 'RPA' })).toEqual([
+      { label: '绑定来源', value: 'RPA' },
+    ]);
+  });
+
+  it('treats a missing bind source as bound in RMS', () => {
+    // 服务端只在 desktop 绑定时写 bindSource=DESKTOP；缺失即后台绑的。
+    expect(getOtaAccountBindDetails({ channelAccountName: '璞禾咖啡酒店' })).toEqual([
+      { label: '账号名称', value: '璞禾咖啡酒店' },
+      { label: '绑定来源', value: 'RMS 绑定' },
+    ]);
+  });
+
+  it('labels an explicit RMS bind source the same way, whatever its casing', () => {
+    expect(getOtaAccountBindDetails({ bindSource: 'rms' })).toEqual([
+      { label: '绑定来源', value: 'RMS 绑定' },
+    ]);
+  });
+
+  it('ignores fields outside the response contract', () => {
+    // loginMethod / loginPhone 是 RPA 账密绑定的内部细节，服务端不回吐（loginPhone
+    // 还是手机号）。即便某个环境吐了，desktop 也不展示。
+    expect(getOtaAccountBindDetails({ loginMethod: 'SMS', loginPhone: '180****2468' })).toEqual([
+      { label: '绑定来源', value: 'RMS 绑定' },
+    ]);
+  });
+
+  it('shows only the source for a binding that carries channel parameters alone', () => {
+    // 后台绑的老记录往往只有这些渠道参数——没有账号身份可展示，但来源仍然要说清楚。
+    expect(
+      getOtaAccountBindDetails({ merchantGroupId: '7129084416', otaPartnerId: 'MT-883720' }),
+    ).toEqual([{ label: '绑定来源', value: 'RMS 绑定' }]);
+  });
+
+  it('still reports RMS as the source when bindExtra is absent entirely', () => {
+    // 没有 bindExtra 正是后台绑定最典型的样子——不写来源，不代表没有来源。
+    expect(getOtaAccountBindDetails(null)).toEqual([{ label: '绑定来源', value: 'RMS 绑定' }]);
   });
 });

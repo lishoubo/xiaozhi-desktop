@@ -155,31 +155,53 @@ function readNonBlankString(value: unknown): string | null {
   return typeof value === 'string' && value.trim() ? value : null;
 }
 
+/**
+ * 展示 `bindExtra` 里的绑定上下文——**只回答「这条绑定用的是哪个账号」**。
+ *
+ * 字段清单以 rms-server 的 `AppBindExtraResponse` 为准（五个字段），但并非全部
+ * 上屏：
+ *
+ * - `channelAccountName` / `channelAccountId` —— 账号身份，展示
+ * - `bindSource` —— 区分桌面端自绑还是后台绑，出问题时知道该找谁，展示
+ * - `merchantGroupId`（抖音）/ `otaPartnerId`（美团）—— **不展示**。它们是绑定与
+ *   更新时随请求送给远端、给 RPA worker 用的渠道参数，运营既看不懂也用不上，
+ *   摆在卡片上只是噪音
+ *
+ * 契约外字段一律忽略：`loginMethod` / `loginPhone` 是 RPA 账密绑定的内部细节，
+ * 服务端不回吐（`loginPhone` 还是手机号），desktop 也不展示。
+ */
 export function getOtaAccountBindDetails(
   bindExtra: Readonly<Record<string, unknown>> | null,
 ): OtaAccountBindDetail[] {
-  if (!bindExtra || !isRecord(bindExtra)) return [];
+  // 整条 bindExtra 缺失是后台绑定最典型的样子，不是数据异常——照常按空对象走下去，
+  // 让「绑定来源」仍然落到 RMS 这一档。
+  const extra = isRecord(bindExtra) ? bindExtra : {};
 
   const details: OtaAccountBindDetail[] = [];
-  const merchantGroupId = readNonBlankString(bindExtra.merchantGroupId);
-  const otaPartnerId = readNonBlankString(bindExtra.otaPartnerId);
-  const loginMethod = readNonBlankString(bindExtra.loginMethod);
-  const loginPhone = readNonBlankString(bindExtra.loginPhone);
+  const channelAccountName = readNonBlankString(extra.channelAccountName);
+  const channelAccountId = readNonBlankString(extra.channelAccountId);
 
-  if (merchantGroupId) details.push({ label: '抖音商户 ID', value: merchantGroupId });
-  if (otaPartnerId) details.push({ label: '美团 Partner ID', value: otaPartnerId });
-  if (loginMethod) {
-    details.push({
-      label: '登录方式',
-      value:
-        loginMethod === 'SMS'
-          ? '短信验证码'
-          : loginMethod === 'PASSWORD'
-            ? '账号密码'
-            : loginMethod,
-    });
-  }
-  if (loginPhone) details.push({ label: '登录手机号', value: loginPhone });
+  if (channelAccountName) details.push({ label: '账号名称', value: channelAccountName });
+  if (channelAccountId) details.push({ label: '账号 ID', value: channelAccountId });
+  details.push({ label: '绑定来源', value: describeBindSource(extra.bindSource) });
 
   return details;
+}
+
+/**
+ * `bindSource` → 展示文案。
+ *
+ * **缺失即 RMS 绑定**：服务端只在 desktop 绑定时写入 `DESKTOP`，后台绑的记录压根
+ * 没有这个字段（乃至整个 `bindExtra` 都没有），所以"没标来源"本身就是一种来源，
+ * 不是数据缺陷。
+ */
+function describeBindSource(raw: unknown): string {
+  const bindSource = readNonBlankString(raw);
+  if (!bindSource) return 'RMS 绑定';
+
+  const normalized = bindSource.toUpperCase();
+  if (normalized === 'DESKTOP') return '桌面端';
+  if (normalized === 'RMS') return 'RMS 绑定';
+  // 未知来源原样显示：编不出的名字不如让运营看到真实值，便于反馈排查。
+  return bindSource;
 }
