@@ -1,19 +1,18 @@
 import { randomUUID } from 'node:crypto';
-import { session, type Session } from 'electron';
-import type { ChannelId } from '../../domain/identity';
-import {
-  isCurrentLayoutPartition,
-  LEGACY_SHARED_PARTITION,
-  toPartitionName,
-} from '../../domain/policy/partition-policy';
+import { session, type CookiesSetDetails, type Session } from 'electron';
+import type { ChannelId } from '../ids';
+import { toPartitionName } from '../browser/partition';
 import { denyEmbeddedPagePermissions } from '../security/session-permissions';
 import type { AppLogger } from '../../shared/logging';
+
+const SERVER_API_PARTITION = 'persist:xiaozhi:server-api';
+const RMS_API_PARTITION = 'persist:xiaozhi:rms-api';
 
 /**
  * 把 partition 名字兑换成 Electron 的 `Session`。
  *
  * **这是全仓库唯一允许出现 partition 字符串的地方**（命名规则本身在
- * `domain/policy/partition-policy.ts`，那里可以裸测；这里只负责拿对象）。
+ * `browser/partition.ts`，那里可以裸测；这里只负责拿对象）。
  * 其他任何文件都不得调用 `session.fromPartition()` 或手工拼接 partition 名。
  */
 export class SessionFactory {
@@ -24,6 +23,21 @@ export class SessionFactory {
   /** 已有 credential：直接用它的 `partitionName`，不重新拼接。 */
   sessionForAccount(partitionName: string): Session {
     return this.fromPartitionCached(partitionName);
+  }
+
+  /** Desktop backend API cookie jar, isolated from every OTA browsing session. */
+  sessionForServerApi(): Session {
+    return this.fromPartitionCached(SERVER_API_PARTITION);
+  }
+
+  /**
+   * rms-server 直连用的 cookie jar，与 server API 和所有 OTA 浏览态都隔离。
+   *
+   * 认证本身走 Bearer token，用不上 cookie；但登录响应会带 `rms_current_hotel`，
+   * 单独给它一个 jar 存着，后续接酒店上下文时不用再改这里。
+   */
+  sessionForRmsApi(): Session {
+    return this.fromPartitionCached(RMS_API_PARTITION);
   }
 
   /**
@@ -39,6 +53,35 @@ export class SessionFactory {
     const partitionName = toPartitionName(environment, channel, shortId);
     this.logger.info('Login session created', { channel, environment });
     return { session: this.fromPartitionCached(partitionName), partitionName };
+  }
+
+  /**
+   * 把一份登录态的 cookie 读成**可再注入**的形状。
+   *
+   * 与 `readCookieSnapshot`（发给 RMS 的 `{domain,name,value}`）不是一回事：那份是
+   * 给远端看的摘要，缺了 `url`/`path`/`secure` 等字段，塞不回 `cookies.set`。这里
+   * 保留注入所需的全部字段，供「换一份干净 partition 重开同一个账号」使用。
+   *
+   * `url` 由 domain 反推：`cookies.set` 必须要它，而 `cookies.get` 不返回。前导点是
+   * domain 通配写法，不属于主机名，拼 URL 前要去掉。
+   */
+  async readInjectableCookies(partitionName: string): Promise<readonly CookiesSetDetails[]> {
+    const accountSession = this.fromPartitionCached(partitionName);
+    const cookies = await accountSession.cookies.get({});
+    return cookies.map((cookie) => {
+      const host = cookie.domain?.replace(/^\./, '') ?? '';
+      return {
+        url: `${cookie.secure ? 'https' : 'http'}://${host}${cookie.path ?? '/'}`,
+        name: cookie.name,
+        value: cookie.value,
+        domain: cookie.domain,
+        path: cookie.path,
+        secure: cookie.secure,
+        httpOnly: cookie.httpOnly,
+        expirationDate: cookie.expirationDate,
+        sameSite: cookie.sameSite,
+      };
+    });
   }
 
   /**
@@ -62,19 +105,5 @@ export class SessionFactory {
     denyEmbeddedPagePermissions(created);
     this.cache.set(partition, created);
     return created;
-  }
-
-  /**
-   * 旧的全局共享 session。**只读，不再写入。**
-   *
-   * 里面混着多个账号的登录态，无法判断哪条 cookie 属于谁 —— 自动迁移会把
-   * A 的登录态错配给 B，所以保留但不迁移（磁盘最便宜，登录态最贵）。
-   */
-  legacySharedSession(): Session {
-    return session.fromPartition(LEGACY_SHARED_PARTITION);
-  }
-
-  isLegacyPartition(name: string): boolean {
-    return !isCurrentLayoutPartition(name);
   }
 }

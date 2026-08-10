@@ -8,7 +8,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import type { CookiesSetDetails } from 'electron';
-import { parseChannelId, type ChannelId } from '../../domain/identity';
+import { parseChannelId, type ChannelId } from '../ids';
 import type { BrowserCookieSourceId } from '../../shared/browser';
 
 const COOKIE_IMPORTS_DIRNAME = 'cookie-imports';

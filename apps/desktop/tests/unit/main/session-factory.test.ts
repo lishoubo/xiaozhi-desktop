@@ -28,7 +28,7 @@ const electron = vi.hoisted(() => {
 
 vi.mock('electron', () => ({ session: electron.session }));
 
-import { toChannelId } from '../../../src/domain/identity';
+import { toChannelId } from '../../../src/main/ids';
 import { SessionFactory } from '../../../src/main/browser/session-factory';
 
 function createLogger() {
@@ -65,6 +65,17 @@ describe('SessionFactory', () => {
     const b = factory.sessionForAccount('persist:xiaozhi:prod:douyin:abcd1234');
     expect(a).toBe(b);
     expect(electron.session.fromPartition).toHaveBeenCalledOnce();
+  });
+
+  it('uses one dedicated persistent partition for the server API cookie jar', () => {
+    const factory = new SessionFactory(createLogger());
+
+    const first = factory.sessionForServerApi();
+    const second = factory.sessionForServerApi();
+
+    expect(first).toBe(second);
+    expect(electron.session.fromPartition).toHaveBeenCalledOnce();
+    expect(electron.session.fromPartition).toHaveBeenCalledWith('persist:xiaozhi:server-api');
   });
 
   it('通过 Electron Session API 清空退休 partition 并移出缓存', async () => {

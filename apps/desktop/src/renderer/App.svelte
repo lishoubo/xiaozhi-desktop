@@ -4,38 +4,96 @@
   import { onDestroy } from 'svelte';
   import AppFrame from './components/layout/AppFrame.svelte';
   import AppNotificationCenter from './components/layout/AppNotificationCenter.svelte';
-  import StartupAutomationDialog from './components/automation/StartupAutomationDialog.svelte';
   import LoginPage from './pages/LoginPage.svelte';
-  import { clearAuthSession, createAuthSession, readAuthSession, type AuthSession } from './auth';
+  import StaffLoginPage from './pages/StaffLoginPage.svelte';
+  import { clearAuthSession, setAuthSession, type AuthSession } from './auth';
+  import { clearStaffSession, setStaffSession, type StaffSession } from './staff-auth';
+  import { setGreetingIdentity } from './session-greeting.svelte';
+  import { IS_STAFF_AUTH } from '../shared/auth-variant';
   import { routes } from './routes';
 
-  let session = $state<AuthSession | null>(readAuthSession());
-  const sessionTimer = window.setInterval(() => {
-    if (session && !readAuthSession()) session = null;
-  }, 60_000);
-  const logout = (): void => {
-    clearAuthSession();
-    session = null;
-    log.info('User session cleared');
+  type Session = StaffSession | AuthSession;
+
+  let session = $state<Session | null>(null);
+  let restoringSession = $state(true);
+
+  // 会话是所有登录变体的共同出口，欢迎语的身份就跟着它走——登录、恢复、登出
+  // 三条路径各自维护一遍容易漏。
+  $effect(() => {
+    setGreetingIdentity(session && { username: session.username, fullName: session.fullName });
+  });
+
+  const clearSession = (): void => {
+    if (IS_STAFF_AUTH) clearStaffSession();
+    else clearAuthSession();
   };
-  const login = async (phone: string): Promise<void> => {
+
+  const restoreSession = async (): Promise<void> => {
+    try {
+      if (IS_STAFF_AUTH) {
+        const restored = await window.hotelButler.staffAuth.currentSession();
+        session = restored;
+        if (restored) setStaffSession(restored);
+        else clearStaffSession();
+      } else {
+        const restored = await window.hotelButler.auth.currentSession();
+        session = restored;
+        if (restored) setAuthSession(restored);
+        else clearAuthSession();
+      }
+    } catch {
+      clearSession();
+      session = null;
+    } finally {
+      restoringSession = false;
+    }
+  };
+
+  const logout = async (): Promise<void> => {
+    try {
+      if (IS_STAFF_AUTH) await window.hotelButler.staffAuth.logout();
+      else await window.hotelButler.auth.logout();
+    } catch {
+      log.warn('Remote user session could not be revoked');
+    } finally {
+      clearSession();
+      session = null;
+      log.info('User session cleared');
+    }
+  };
+  const loginWithStaff = async (employee: StaffSession): Promise<void> => {
     await replace('/');
-    session = createAuthSession(phone);
+    setStaffSession(employee);
+    session = employee;
     log.info('User session created');
   };
-  window.addEventListener('hotel-butler:logout', logout);
+  const loginWithPhone = async (employee: AuthSession): Promise<void> => {
+    await replace('/');
+    setAuthSession(employee);
+    session = employee;
+    log.info('User session created');
+  };
+  const handleLogout = (): void => void logout();
+  window.addEventListener('hotel-butler:logout', handleLogout);
+  void restoreSession();
   onDestroy(() => {
-    window.clearInterval(sessionTimer);
-    window.removeEventListener('hotel-butler:logout', logout);
+    window.removeEventListener('hotel-butler:logout', handleLogout);
   });
 </script>
 
-{#if session}
-  <StartupAutomationDialog />
+{#if restoringSession}
+  <main class="grid h-full place-items-center bg-background" aria-label="正在验证登录状态">
+    <p class="text-sm text-muted-foreground">正在验证登录状态…</p>
+  </main>
+{:else if session}
   <AppFrame>
     <Router {routes} />
   </AppFrame>
 {:else}
   <AppNotificationCenter />
-  <LoginPage onLogin={login} />
+  {#if IS_STAFF_AUTH}
+    <StaffLoginPage onLogin={loginWithStaff} />
+  {:else}
+    <LoginPage onLogin={loginWithPhone} />
+  {/if}
 {/if}

@@ -6,13 +6,16 @@ import CalendarPage from './pages/CalendarPage.svelte';
 import NotFoundPage from './pages/NotFoundPage.svelte';
 import SettingsPage from './pages/SettingsPage.svelte';
 import ProfilePage from './pages/ProfilePage.svelte';
+import StaffProfilePage from './pages/StaffProfilePage.svelte';
 import AgentPage from './pages/AgentPage.svelte';
 import HotelManagementPage from './pages/HotelManagementPage.svelte';
+import { IS_STAFF_AUTH } from '../shared/auth-variant';
 
 export const routes: RouteDefinition = {
   '/': BrowserPage,
   '/settings': SettingsPage,
-  '/profile': ProfilePage,
+  // 用户中心跟着登录变体走：两套身份的字段不同，同一个页面渲染不了。
+  '/profile': IS_STAFF_AUTH ? StaffProfilePage : ProfilePage,
   '/agent': AgentPage,
   '/calendar': CalendarPage,
   '/hotels': HotelManagementPage,

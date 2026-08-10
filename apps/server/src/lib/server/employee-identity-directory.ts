@@ -51,20 +51,26 @@ function mapEmployeeRow(row: EmployeeRow): EmployeeIdentity {
 export function createEmployeeIdentityDirectory(
 	executor: EmployeeQueryExecutor
 ): EmployeeIdentityDirectory {
+	const findActive = async (
+		field: 'id' | 'phone',
+		value: string
+	): Promise<EmployeeIdentity | null> => {
+		const [rows] = await executor.execute(
+			`SELECT id, org_id, username, full_name, phone, role_code
+			 FROM employee
+			 WHERE ${field} = ? AND status = 1
+			 ORDER BY id ASC
+			 LIMIT 1`,
+			[value]
+		);
+		if (!Array.isArray(rows) || rows.length === 0) return null;
+		const row = rows[0];
+		if (!isEmployeeRow(row)) throw new Error('RMS employee query returned an invalid row');
+		return mapEmployeeRow(row);
+	};
+
 	return {
-		findActiveByPhone: async (phone) => {
-			const [rows] = await executor.execute(
-				`SELECT id, org_id, username, full_name, phone, role_code
-				 FROM employee
-				 WHERE phone = ? AND status = 1
-				 ORDER BY id ASC
-				 LIMIT 1`,
-				[phone]
-			);
-			if (!Array.isArray(rows) || rows.length === 0) return null;
-			const row = rows[0];
-			if (!isEmployeeRow(row)) throw new Error('RMS employee query returned an invalid row');
-			return mapEmployeeRow(row);
-		}
+		findActiveById: (id) => findActive('id', id),
+		findActiveByPhone: (phone) => findActive('phone', phone)
 	};
 }

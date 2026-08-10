@@ -1,103 +1,25 @@
-import { z, type ZodType } from 'zod';
-import { ctripCheckInResultSchema, type CtripCheckInResult } from '../shared/automation';
-import {
-  browserCookieSourceSchema,
-  browserRequestInterceptionSchema,
-  browserTabSchema,
-  cookieImportResultSchema,
-  importedChannelSummarySchema,
-  otaAccountBoundEventSchema,
-  otaAccountSchema,
-  otaCredentialListSchema,
-  systemPreferencesSchema,
-  type BrowserBounds,
-  type BrowserCookieSource,
-  type BrowserCookieSourceId,
-  type BrowserRequestInterception,
-  type BrowserTab,
-  type CookieImportResult,
-  type ImportedChannelSummary,
-  type OtaAccountBoundEvent,
-  type OtaAccountDto,
-  type OtaCredentialDto,
-  type StartLoginInput,
-  type SystemPreferences,
-} from '../shared/browser';
-import { IPC_CHANNELS } from '../shared/ipc-channels';
-import {
-  calendarEventRecordSchema,
-  calendarSnapshotSchema,
-  type CalendarEventCreateInput,
-  type CalendarEventRecord,
-  type CalendarEventUpdateInput,
-  type CalendarSnapshot,
-} from '../shared/calendar';
-
-/*
- * IPC types protect compile-time callers; these schemas protect the renderer from
- * malformed values crossing the process boundary at runtime.
+/**
+ * 暴露给渲染进程的 API 门面 —— 只做组装，每个 namespace 的实现在
+ * `namespaces/` 下各自一个文件。
+ *
+ * `DesktopApi` 由实现推导（`ReturnType`），不再手写一份大类型：手写的那份
+ * 需要和实现逐字段同步，改一处漏一处就会静默失配。
  */
-const browserTabListSchema = z.array(browserTabSchema);
-const browserCookieSourceListSchema = z.array(browserCookieSourceSchema);
-const importedChannelSummaryListSchema = z.array(importedChannelSummarySchema);
-const otaAccountListSchema = z.array(otaAccountSchema);
-const booleanSchema = z.boolean();
-const optionalCtripCheckInResultSchema = ctripCheckInResultSchema.nullable();
-const voidSchema = z.undefined();
-
-export type DesktopApi = Readonly<{
-  automation: Readonly<{
-    getCtripCheckIn: () => Promise<CtripCheckInResult | null>;
-  }>;
-  versions: Readonly<{
-    chrome: string;
-    electron: string;
-    node: string;
-  }>;
-  browser: Readonly<{
-    acknowledgeInterception: () => Promise<void>;
-    create: (channelId: string, url: string) => Promise<BrowserTab>;
-    activate: (tabId: string) => Promise<BrowserTab>;
-    close: (tabId: string) => Promise<void>;
-    goBack: (tabId: string) => Promise<void>;
-    goForward: (tabId: string) => Promise<void>;
-    getAudioMuted: () => Promise<boolean>;
-    hide: () => Promise<void>;
-    list: () => Promise<BrowserTab[]>;
-    reload: (tabId: string) => Promise<void>;
-    setBounds: (bounds: BrowserBounds) => Promise<void>;
-    setAudioMuted: (muted: boolean) => Promise<boolean>;
-    onRequestIntercepted: (listener: (event: BrowserRequestInterception) => void) => () => void;
-    onStateChanged: (listener: (tab: BrowserTab) => void) => () => void;
-  }>;
-  calendar: Readonly<{
-    load: () => Promise<CalendarSnapshot>;
-    createEvent: (input: CalendarEventCreateInput) => Promise<CalendarEventRecord>;
-    updateEvent: (input: CalendarEventUpdateInput) => Promise<CalendarEventRecord>;
-    deleteEvent: (id: string) => Promise<void>;
-  }>;
-  cookies: Readonly<{
-    listSources: () => Promise<BrowserCookieSource[]>;
-    import: (sourceId: BrowserCookieSourceId) => Promise<CookieImportResult>;
-    listImportedChannels: () => Promise<ImportedChannelSummary[]>;
-  }>;
-  otaAccount: Readonly<{
-    startLogin: (input: StartLoginInput) => Promise<BrowserTab>;
-    listByChannel: (channelId: string) => Promise<OtaAccountDto[]>;
-    openExisting: (accountId: string) => Promise<BrowserTab>;
-    createFromCookie: (input: StartLoginInput) => Promise<BrowserTab>;
-    createFromExistingSession: (accountId: string) => Promise<BrowserTab>;
-    onAccountBound: (listener: (event: OtaAccountBoundEvent) => void) => () => void;
-  }>;
-  otaCredential: Readonly<{
-    listByChannel: (channelId: string) => Promise<OtaCredentialDto[]>;
-    openExisting: (credentialId: string) => Promise<BrowserTab>;
-  }>;
-  system: Readonly<{
-    getPreferences: () => Promise<SystemPreferences>;
-    setAutoLaunch: (enabled: boolean) => Promise<SystemPreferences>;
-  }>;
-}>;
+import {
+  createValidatedInvoke,
+  createValidatedSubscribe,
+  type Invoke,
+  type Subscribe,
+} from './invoke';
+import { createAuthApi } from './namespaces/auth';
+import { createBrowserApi } from './namespaces/browser';
+import { createCalendarApi } from './namespaces/calendar';
+import { createCookiesApi } from './namespaces/cookies';
+import { createHotelManagementApi } from './namespaces/hotel-management';
+import { createOtaCredentialApi } from './namespaces/ota-credential';
+import { createOtaTabApi } from './namespaces/ota-tab';
+import { createStaffAuthApi } from './namespaces/staff-auth';
+import { createSystemApi } from './namespaces/system';
 
 type RuntimeVersions = Readonly<{
   chrome: string;
@@ -105,129 +27,32 @@ type RuntimeVersions = Readonly<{
   node: string;
 }>;
 
-type Invoke = (channel: string, ...args: unknown[]) => Promise<unknown>;
-type Subscribe = (channel: string, listener: (value: unknown) => void) => () => void;
-
 export function createDesktopApi(
   versions: RuntimeVersions,
   invoke: Invoke,
   subscribe: Subscribe = () => () => undefined,
-): DesktopApi {
-  const invokeValidated = <T>(
-    schema: ZodType<T>,
-    channel: string,
-    ...args: unknown[]
-  ): Promise<T> =>
-    invoke(channel, ...args).then((value) => {
-      const result = schema.safeParse(value);
-      if (!result.success) throw new Error('主进程返回的数据格式无效');
-      return result.data;
-    });
-  const subscribeValidated = <T>(
-    schema: ZodType<T>,
-    channel: string,
-    listener: (value: T) => void,
-  ): (() => void) =>
-    subscribe(channel, (value) => {
-      const result = schema.safeParse(value);
-      if (result.success) listener(result.data);
-    });
-
-  const automation = Object.freeze({
-    getCtripCheckIn: () =>
-      invokeValidated(optionalCtripCheckInResultSchema, IPC_CHANNELS.automation.getCtripCheckIn),
-  });
-  const browser = Object.freeze({
-    acknowledgeInterception: () =>
-      invokeValidated(voidSchema, IPC_CHANNELS.browser.acknowledgeInterception),
-    create: (channelId: string, url: string) =>
-      invokeValidated(browserTabSchema, IPC_CHANNELS.browser.create, { channelId, url }),
-    activate: (tabId: string) =>
-      invokeValidated(browserTabSchema, IPC_CHANNELS.browser.activate, tabId),
-    close: (tabId: string) => invokeValidated(voidSchema, IPC_CHANNELS.browser.close, tabId),
-    goBack: (tabId: string) => invokeValidated(voidSchema, IPC_CHANNELS.browser.goBack, tabId),
-    goForward: (tabId: string) =>
-      invokeValidated(voidSchema, IPC_CHANNELS.browser.goForward, tabId),
-    getAudioMuted: () => invokeValidated(booleanSchema, IPC_CHANNELS.browser.getAudioMuted),
-    hide: () => invokeValidated(voidSchema, IPC_CHANNELS.browser.hide),
-    list: () => invokeValidated(browserTabListSchema, IPC_CHANNELS.browser.list),
-    reload: (tabId: string) => invokeValidated(voidSchema, IPC_CHANNELS.browser.reload, tabId),
-    setBounds: (bounds: BrowserBounds) =>
-      invokeValidated(voidSchema, IPC_CHANNELS.browser.setBounds, bounds),
-    setAudioMuted: (muted: boolean) =>
-      invokeValidated(booleanSchema, IPC_CHANNELS.browser.setAudioMuted, muted),
-    onRequestIntercepted: (listener: (event: BrowserRequestInterception) => void) =>
-      subscribeValidated(
-        browserRequestInterceptionSchema,
-        IPC_CHANNELS.browser.requestIntercepted,
-        listener,
-      ),
-    onStateChanged: (listener: (tab: BrowserTab) => void) =>
-      subscribeValidated(browserTabSchema, IPC_CHANNELS.browser.stateChanged, listener),
-  });
-  const cookies = Object.freeze({
-    listSources: () =>
-      invokeValidated(browserCookieSourceListSchema, IPC_CHANNELS.cookies.listSources),
-    import: (sourceId: BrowserCookieSourceId) =>
-      invokeValidated(cookieImportResultSchema, IPC_CHANNELS.cookies.import, sourceId),
-    listImportedChannels: () =>
-      invokeValidated(importedChannelSummaryListSchema, IPC_CHANNELS.cookies.listImportedChannels),
-  });
-  const otaAccount = Object.freeze({
-    startLogin: (input: StartLoginInput) =>
-      invokeValidated(browserTabSchema, IPC_CHANNELS.otaAccount.startLogin, input),
-    listByChannel: (channelId: string) =>
-      invokeValidated(otaAccountListSchema, IPC_CHANNELS.otaAccount.listByChannel, channelId),
-    openExisting: (accountId: string) =>
-      invokeValidated(browserTabSchema, IPC_CHANNELS.otaAccount.openExisting, accountId),
-    createFromCookie: (input: StartLoginInput) =>
-      invokeValidated(browserTabSchema, IPC_CHANNELS.otaAccount.createFromCookie, input),
-    createFromExistingSession: (accountId: string) =>
-      invokeValidated(
-        browserTabSchema,
-        IPC_CHANNELS.otaAccount.createFromExistingSession,
-        accountId,
-      ),
-    onAccountBound: (listener: (event: OtaAccountBoundEvent) => void) =>
-      subscribeValidated(
-        otaAccountBoundEventSchema,
-        IPC_CHANNELS.otaAccount.accountBound,
-        listener,
-      ),
-  });
-  const otaCredential = Object.freeze({
-    listByChannel: (channelId: string) =>
-      invokeValidated(otaCredentialListSchema, IPC_CHANNELS.otaCredential.listByChannel, channelId),
-    openExisting: (credentialId: string) =>
-      invokeValidated(browserTabSchema, IPC_CHANNELS.otaCredential.openExisting, credentialId),
-  });
-  const calendar = Object.freeze({
-    load: () => invokeValidated(calendarSnapshotSchema, IPC_CHANNELS.calendar.load),
-    createEvent: (input: CalendarEventCreateInput) =>
-      invokeValidated(calendarEventRecordSchema, IPC_CHANNELS.calendar.createEvent, input),
-    updateEvent: (input: CalendarEventUpdateInput) =>
-      invokeValidated(calendarEventRecordSchema, IPC_CHANNELS.calendar.updateEvent, input),
-    deleteEvent: (id: string) => invokeValidated(voidSchema, IPC_CHANNELS.calendar.deleteEvent, id),
-  });
-  const system = Object.freeze({
-    getPreferences: () =>
-      invokeValidated(systemPreferencesSchema, IPC_CHANNELS.system.getPreferences),
-    setAutoLaunch: (enabled: boolean) =>
-      invokeValidated(systemPreferencesSchema, IPC_CHANNELS.system.setAutoLaunch, enabled),
-  });
+) {
+  const validatedInvoke = createValidatedInvoke(invoke);
+  const validatedSubscribe = createValidatedSubscribe(subscribe);
 
   return Object.freeze({
-    automation,
+    auth: createAuthApi(validatedInvoke),
+    browser: createBrowserApi(validatedInvoke, validatedSubscribe),
+    calendar: createCalendarApi(validatedInvoke),
+    cookies: createCookiesApi(validatedInvoke),
+    hotelManagement: createHotelManagementApi(validatedInvoke, validatedSubscribe),
+    otaCredential: createOtaCredentialApi(validatedInvoke, validatedSubscribe),
+    otaTab: createOtaTabApi(validatedInvoke),
+    // 两个 auth namespace 长期共存：preload 是 IPC 白名单，挂上不代表对端注册了
+    // handler。真正的隔离在 main —— composition 只注册命中变体的那一套。
+    staffAuth: createStaffAuthApi(validatedInvoke),
+    system: createSystemApi(validatedInvoke),
     versions: Object.freeze({
       chrome: versions.chrome,
       electron: versions.electron,
       node: versions.node,
     }),
-    browser,
-    calendar,
-    cookies,
-    otaAccount,
-    otaCredential,
-    system,
   });
 }
+
+export type DesktopApi = ReturnType<typeof createDesktopApi>;

@@ -42,4 +42,33 @@ describe('RMS employee identity directory', () => {
 
 		await expect(directory.findActiveByPhone('13900139000')).resolves.toBeNull();
 	});
+
+	it('restores an active employee by parameterized RMS identifier', async () => {
+		const execute = vi.fn().mockResolvedValue([
+			[
+				{
+					id: '9007199254740993',
+					org_id: '42',
+					username: 'front-desk-1',
+					full_name: '测试员工',
+					phone: '13800138000',
+					role_code: 'FRONT_DESK'
+				}
+			],
+			[]
+		]);
+		const directory = createEmployeeIdentityDirectory({ execute });
+
+		await expect(directory.findActiveById('9007199254740993')).resolves.toEqual({
+			id: '9007199254740993',
+			orgId: '42',
+			username: 'front-desk-1',
+			fullName: '测试员工',
+			phone: '13800138000',
+			roleCode: 'FRONT_DESK'
+		});
+		const [sql, values] = execute.mock.calls[0] ?? [];
+		expect(sql.replace(/\s+/g, ' ')).toContain('WHERE id = ? AND status = 1');
+		expect(values).toEqual(['9007199254740993']);
+	});
 });

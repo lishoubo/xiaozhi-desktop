@@ -3,6 +3,41 @@ import { IPC_CHANNELS } from '../../../src/shared/ipc-channels';
 import { createDesktopApi } from '../../../src/preload/api';
 
 describe('createDesktopApi', () => {
+  it('maps the narrow auth API without exposing a session token', async () => {
+    const employee = {
+      id: '2',
+      orgId: '42',
+      username: 'desktop-demo',
+      fullName: '桌面体验员工',
+      phone: '13800138000',
+      roleCode: 'FRONT_DESK',
+    };
+    const invoke = vi.fn(async (channel: string) => {
+      if (channel === IPC_CHANNELS.auth.requestPhoneCode) {
+        return { accepted: true, expiresInSeconds: 300 };
+      }
+      if (channel === IPC_CHANNELS.auth.currentSession) return null;
+      if (channel === IPC_CHANNELS.auth.logout) return { success: true };
+      return employee;
+    });
+    const api = createDesktopApi({ chrome: '1', electron: '2', node: '3' }, invoke);
+
+    await expect(api.auth.requestPhoneCode('13800138000')).resolves.toEqual({
+      accepted: true,
+      expiresInSeconds: 300,
+    });
+    await expect(api.auth.loginWithPhoneCode('13800138000', '654321')).resolves.toEqual(employee);
+    await expect(api.auth.currentSession()).resolves.toBeNull();
+    await expect(api.auth.logout()).resolves.toEqual({ success: true });
+    expect(JSON.stringify(api)).not.toContain('token');
+    expect(invoke.mock.calls).toEqual([
+      [IPC_CHANNELS.auth.requestPhoneCode, '13800138000'],
+      [IPC_CHANNELS.auth.loginWithPhoneCode, '13800138000', '654321'],
+      [IPC_CHANNELS.auth.currentSession],
+      [IPC_CHANNELS.auth.logout],
+    ]);
+  });
+
   it('exposes only the supported runtime versions', () => {
     const invoke = vi.fn();
     const api = createDesktopApi(
@@ -42,9 +77,7 @@ describe('createDesktopApi', () => {
       partitionName: 'persist:xiaozhi:prod:ctrip:short',
     };
     const invoke = vi.fn(async (channel: string) => {
-      if (channel === IPC_CHANNELS.browser.create || channel === IPC_CHANNELS.browser.activate) {
-        return tab;
-      }
+      if (channel === IPC_CHANNELS.browser.activate) return tab;
       if (channel === IPC_CHANNELS.browser.list) return [tab];
       if (channel === IPC_CHANNELS.browser.getAudioMuted) return false;
       if (channel === IPC_CHANNELS.browser.setAudioMuted) return true;
@@ -55,13 +88,10 @@ describe('createDesktopApi', () => {
       if (channel === IPC_CHANNELS.cookies.listImportedChannels) {
         return [{ channel: 'ctrip', importedAt: '2026-08-05T00:00:00.000Z' }];
       }
-      if (channel === IPC_CHANNELS.automation.getCtripCheckIn) return null;
       return undefined;
     });
     const api = createDesktopApi({ chrome: '1', electron: '2', node: '3' }, invoke);
 
-    await api.browser.acknowledgeInterception();
-    await api.browser.create('ctrip', 'https://ebooking.ctrip.com/');
     await api.browser.activate('tab-1');
     await api.browser.close('tab-1');
     await api.browser.goBack('tab-1');
@@ -75,11 +105,8 @@ describe('createDesktopApi', () => {
     await api.cookies.listSources();
     await api.cookies.import('edge');
     await api.cookies.listImportedChannels();
-    await api.automation.getCtripCheckIn();
 
     expect(invoke.mock.calls).toEqual([
-      [IPC_CHANNELS.browser.acknowledgeInterception],
-      [IPC_CHANNELS.browser.create, { channelId: 'ctrip', url: 'https://ebooking.ctrip.com/' }],
       [IPC_CHANNELS.browser.activate, 'tab-1'],
       [IPC_CHANNELS.browser.close, 'tab-1'],
       [IPC_CHANNELS.browser.goBack, 'tab-1'],
@@ -93,24 +120,7 @@ describe('createDesktopApi', () => {
       [IPC_CHANNELS.cookies.listSources],
       [IPC_CHANNELS.cookies.import, 'edge'],
       [IPC_CHANNELS.cookies.listImportedChannels],
-      [IPC_CHANNELS.automation.getCtripCheckIn],
     ]);
-  });
-
-  it('subscribes to sanitized embedded-browser interception events', () => {
-    const subscribe = vi.fn();
-    const listener = vi.fn();
-    const api = createDesktopApi({ chrome: '1', electron: '2', node: '3' }, vi.fn(), subscribe);
-
-    api.browser.onRequestIntercepted(listener);
-    const subscription = subscribe.mock.calls[0][1] as (value: unknown) => void;
-    subscription({ ruleId: 'ctrip-soa2' });
-
-    expect(subscribe).toHaveBeenCalledWith(
-      IPC_CHANNELS.browser.requestIntercepted,
-      expect.any(Function),
-    );
-    expect(listener).toHaveBeenCalledWith({ ruleId: 'ctrip-soa2' });
   });
 
   it('exposes a typed calendar data source over fixed IPC channels', async () => {
@@ -173,18 +183,13 @@ describe('createDesktopApi', () => {
 
   it('drops malformed main-process events before they reach renderer listeners', () => {
     const subscribe = vi.fn();
-    const interceptionListener = vi.fn();
     const stateListener = vi.fn();
     const api = createDesktopApi({ chrome: '1', electron: '2', node: '3' }, vi.fn(), subscribe);
 
-    api.browser.onRequestIntercepted(interceptionListener);
     api.browser.onStateChanged(stateListener);
-    const interceptionSubscription = subscribe.mock.calls[0][1] as (value: unknown) => void;
-    const stateSubscription = subscribe.mock.calls[1][1] as (value: unknown) => void;
-    interceptionSubscription({ ruleId: 'unexpected-rule' });
+    const stateSubscription = subscribe.mock.calls[0][1] as (value: unknown) => void;
     stateSubscription({ id: 'tab-1' });
 
-    expect(interceptionListener).not.toHaveBeenCalled();
     expect(stateListener).not.toHaveBeenCalled();
   });
 
@@ -195,42 +200,6 @@ describe('createDesktopApi', () => {
     );
 
     await expect(api.system.getPreferences()).rejects.toThrow('主进程返回的数据格式无效');
-  });
-
-  it('maps otaAccount actions to fixed IPC channels', async () => {
-    const account = {
-      id: 'a1',
-      credentialId: 'credential-1',
-      channel: 'douyin',
-      otaHotelId: 'dy-1',
-      otaHotelName: '门店A',
-      partitionName: 'persist:xiaozhi:prod:douyin:short',
-      bindExtra: { merchantGroupId: 'group-1' },
-      discoveredAt: 1000,
-    };
-    const tab = {
-      id: 'tab-1',
-      channelId: 'douyin',
-      title: '抖音来客',
-      url: 'https://life.douyin.com/p/home?groupid=group-1',
-      canGoBack: false,
-      canGoForward: false,
-      loading: false,
-      partitionName: 'persist:xiaozhi:prod:douyin:short',
-    };
-    const invoke = vi.fn(async (channel: string) => {
-      if (channel === IPC_CHANNELS.otaAccount.listByChannel) return [account];
-      if (channel === IPC_CHANNELS.otaAccount.openExisting) return tab;
-      return undefined;
-    });
-    const api = createDesktopApi({ chrome: '1', electron: '2', node: '3' }, invoke);
-
-    await expect(api.otaAccount.listByChannel('douyin')).resolves.toEqual([account]);
-    await expect(api.otaAccount.openExisting('a1')).resolves.toEqual(tab);
-    expect(invoke.mock.calls).toEqual([
-      [IPC_CHANNELS.otaAccount.listByChannel, 'douyin'],
-      [IPC_CHANNELS.otaAccount.openExisting, 'a1'],
-    ]);
   });
 
   it('maps otaCredential reads and opens to fixed IPC channels', async () => {
@@ -255,32 +224,79 @@ describe('createDesktopApi', () => {
     };
     const invoke = vi.fn(async (channel: string) => {
       if (channel === IPC_CHANNELS.otaCredential.listByChannel) return [credential];
-      if (channel === IPC_CHANNELS.otaCredential.openExisting) return tab;
+      if (channel === IPC_CHANNELS.otaTab.openExisting) return tab;
       return undefined;
     });
     const api = createDesktopApi({ chrome: '1', electron: '2', node: '3' }, invoke);
 
     await expect(api.otaCredential.listByChannel('douyin')).resolves.toEqual([credential]);
-    await expect(api.otaCredential.openExisting('credential-1')).resolves.toEqual(tab);
+    await expect(api.otaTab.openExisting('credential-1')).resolves.toEqual(tab);
     expect(invoke.mock.calls).toEqual([
       [IPC_CHANNELS.otaCredential.listByChannel, 'douyin'],
-      [IPC_CHANNELS.otaCredential.openExisting, 'credential-1'],
+      // 不带意图时第二个参数是 undefined——普通打开，探测候选无人接收。
+      [IPC_CHANNELS.otaTab.openExisting, 'credential-1', undefined],
     ]);
   });
 
-  it('subscribes to sanitized ota-account bound events', () => {
+  it('subscribes to sanitized ota-credential discovery-completed events', () => {
     const subscribe = vi.fn();
     const listener = vi.fn();
     const api = createDesktopApi({ chrome: '1', electron: '2', node: '3' }, vi.fn(), subscribe);
 
-    api.otaAccount.onAccountBound(listener);
+    api.otaCredential.onDiscoveryCompleted(listener);
     const subscription = subscribe.mock.calls[0][1] as (value: unknown) => void;
     subscription({ channel: 'douyin' });
 
     expect(subscribe).toHaveBeenCalledWith(
-      IPC_CHANNELS.otaAccount.accountBound,
+      IPC_CHANNELS.otaCredential.discoveryCompleted,
       expect.any(Function),
     );
     expect(listener).toHaveBeenCalledWith({ channel: 'douyin' });
+  });
+
+  it('maps hotel management reads and mutations to fixed IPC channels', async () => {
+    const snapshot = {
+      hotels: [{ id: 1, name: '示例酒店', status: 1 }],
+      otaAccounts: [
+        {
+          id: 30101,
+          hotelId: 1,
+          otaHotelId: 'ota-1',
+          otaHotelName: '示例 OTA 酒店',
+          status: 'BOUND',
+          source: 'douyin',
+          bindExtra: null,
+        },
+      ],
+    };
+    const createdHotel = { id: 2, name: '新酒店', status: 1 };
+    const invoke = vi.fn(async (channel: string) => {
+      if (channel === IPC_CHANNELS.hotelManagement.load) return snapshot;
+      if (channel === IPC_CHANNELS.hotelManagement.createHotel) return createdHotel;
+      return undefined;
+    });
+    const api = createDesktopApi({ chrome: '1', electron: '2', node: '3' }, invoke);
+
+    await expect(api.hotelManagement.load()).resolves.toEqual(snapshot);
+    await expect(api.hotelManagement.createHotel({ name: '新酒店' })).resolves.toEqual(
+      createdHotel,
+    );
+    await expect(api.hotelManagement.deleteHotel(1)).resolves.toBeUndefined();
+    await expect(api.hotelManagement.unbindOtaAccount(30101)).resolves.toBeUndefined();
+    expect(invoke.mock.calls).toEqual([
+      [IPC_CHANNELS.hotelManagement.load],
+      [IPC_CHANNELS.hotelManagement.createHotel, { name: '新酒店' }],
+      [IPC_CHANNELS.hotelManagement.deleteHotel, 1],
+      [IPC_CHANNELS.hotelManagement.unbindOtaAccount, 30101],
+    ]);
+  });
+
+  it('rejects malformed hotel management snapshots before returning them to the renderer', async () => {
+    const api = createDesktopApi(
+      { chrome: '1', electron: '2', node: '3' },
+      vi.fn().mockResolvedValue({ hotels: [{ id: 1, name: '示例酒店' }], otaAccounts: [] }),
+    );
+
+    await expect(api.hotelManagement.load()).rejects.toThrow('主进程返回的数据格式无效');
   });
 });

@@ -1,42 +1,34 @@
 <script lang="ts">
   import ArrowUpRight from '@lucide/svelte/icons/arrow-up-right';
-  import Clock3 from '@lucide/svelte/icons/clock-3';
   import RotateCcw from '@lucide/svelte/icons/rotate-ccw';
+  import Unlink from '@lucide/svelte/icons/unlink';
   import X from '@lucide/svelte/icons/x';
   import { Button } from '$lib/components/ui/button';
   import { OTA_CHANNELS } from '../../data/ota-channels';
   import {
     getOtaAccountBindDetails,
     getOtaAccountPresentation,
-    type BoundOtaAccount,
     type OtaAccountAction,
     type OtaAccountTone,
   } from '../../hotel-management/model';
+  import type { RmsOtaAccountDto } from '../../../shared/hotel-management';
 
   let {
     account,
     onAction,
+    onUnbind,
   }: {
-    account: BoundOtaAccount;
-    onAction: (action: OtaAccountAction, account: BoundOtaAccount, channelName: string) => void;
+    account: RmsOtaAccountDto;
+    onAction: (action: OtaAccountAction, account: RmsOtaAccountDto, channelName: string) => void;
+    onUnbind: (account: RmsOtaAccountDto, channelName: string) => void;
   } = $props();
 
   let open = $state(false);
   const presentation = $derived(getOtaAccountPresentation(account.status));
   const bindDetails = $derived(getOtaAccountBindDetails(account.bindExtra));
-  const channel = $derived(
-    OTA_CHANNELS.find((candidate) => candidate.id === account.source.toLowerCase()),
-  );
+  const channel = $derived(OTA_CHANNELS.find((candidate) => candidate.id === account.source));
   const channelName = $derived(channel?.name ?? account.source);
-  const actionLabel = $derived(
-    presentation.action === 'login'
-      ? '去登录'
-      : presentation.action === 'retry'
-        ? '重试初始化'
-        : presentation.action === 'resolve'
-          ? '处理问题'
-          : '',
-  );
+  const actionLabel = $derived(presentation.action === 'login' ? '去登录' : '');
 
   function dotClass(tone: OtaAccountTone): string {
     if (tone === 'healthy') return 'bg-[#2d9d50]';
@@ -46,20 +38,26 @@
     return 'bg-muted-foreground';
   }
 
-  function formatTime(value: string | null): string {
-    if (!value) return '暂无记录';
-    return new Intl.DateTimeFormat('zh-CN', {
-      month: 'numeric',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-      hour12: false,
-    }).format(new Date(value));
+  /**
+   * 状态文字也跟着语义色走——只靠一个 1.5px 的圆点区分健康与失败，扫一眼列表时
+   * 根本抓不住。取值比圆点深一档，保证浅色背景上的对比度。
+   */
+  function statusTextClass(tone: OtaAccountTone): string {
+    if (tone === 'healthy') return 'text-[#1f7a3d]';
+    if (tone === 'warning') return 'text-[#9a6b0f]';
+    if (tone === 'progress') return 'text-[#3a5f9e]';
+    if (tone === 'error') return 'text-[#b3352d]';
+    return 'text-muted-foreground';
   }
 
   function runAction(): void {
     const action = presentation.action;
     if (action) onAction(action, account, channelName);
+  }
+
+  function runUnbind(): void {
+    open = false;
+    onUnbind(account, channelName);
   }
 </script>
 
@@ -72,13 +70,15 @@
     onclick={() => (open = !open)}
   >
     {#if channel}
-      <img class="size-4 shrink-0 object-contain" src={channel.iconUrl} alt="" />
+      <img class="size-3.5 shrink-0 object-contain opacity-70" src={channel.iconUrl} alt="" />
     {:else}
-      <span class="text-[10px] font-semibold">OTA</span>
+      <span class="text-[9px] font-semibold text-muted-foreground">OTA</span>
     {/if}
-    <span class="min-w-0 truncate font-medium">{channelName}</span>
+    <span class="min-w-0 truncate text-[11px] text-muted-foreground">{channelName}</span>
     <span class={['size-1.5 shrink-0 rounded-full', dotClass(presentation.tone)]}></span>
-    <span class="shrink-0 text-[11px] text-muted-foreground">{presentation.label}</span>
+    <span class={['shrink-0 text-xs font-medium', statusTextClass(presentation.tone)]}>
+      {presentation.label}
+    </span>
   </button>
 
   {#if open}
@@ -89,9 +89,15 @@
     >
       <div class="flex items-start justify-between gap-3">
         <div class="min-w-0">
-          <p class="m-0 text-sm font-semibold">{channelName}</p>
+          <p class="m-0 flex items-center gap-1.5 text-sm font-semibold">
+            <span class="min-w-0 truncate">{channelName}</span>
+            <span class={['size-1.5 shrink-0 rounded-full', dotClass(presentation.tone)]}></span>
+            <span class={['shrink-0 text-xs', statusTextClass(presentation.tone)]}>
+              {presentation.label}
+            </span>
+          </p>
           <p class="mt-0.5 mb-0 truncate text-[11px] text-muted-foreground">
-            账号 {account.username} · {presentation.description}
+            {presentation.description}
           </p>
         </div>
         <button
@@ -121,25 +127,18 @@
             <dd class="mt-0.5 mb-0 truncate text-xs font-medium">{field.value}</dd>
           </div>
         {/each}
-        <div class="min-w-0">
-          <dt class="text-[10px] text-muted-foreground">最近登录</dt>
-          <dd class="mt-0.5 mb-0 truncate text-xs font-medium">
-            {formatTime(account.lastLoginAt)}
-          </dd>
-        </div>
-        <div class="min-w-0">
-          <dt class="text-[10px] text-muted-foreground">最近初始化</dt>
-          <dd class="mt-0.5 mb-0 truncate text-xs font-medium">
-            {formatTime(account.lastInitAt)}
-          </dd>
-        </div>
       </dl>
 
-      <div class="mt-3 flex items-center justify-between gap-3 border-t border-border pt-3">
-        <span class="flex min-w-0 items-center gap-1 text-[10px] text-muted-foreground">
-          <Clock3 size={12} />
-          更新时间 {formatTime(account.updatedAt)}
-        </span>
+      <div class="mt-3 flex items-center justify-between gap-2 border-t border-border pt-3">
+        <Button
+          size="xs"
+          variant="outline"
+          aria-label={`解绑${channelName}账号`}
+          onclick={runUnbind}
+        >
+          <Unlink />
+          解绑
+        </Button>
         {#if presentation.action}
           <Button
             size="xs"

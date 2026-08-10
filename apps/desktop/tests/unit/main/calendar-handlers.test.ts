@@ -51,7 +51,7 @@ describe('calendar IPC handlers', () => {
       updateEvent: vi.fn(() => ({ ...event, title: '夏季需求复盘' })),
       deleteEvent: vi.fn(),
     };
-    registerCalendarHandlers({ window: { webContents: sender }, repository, logger });
+    registerCalendarHandlers({ window: { webContents: sender }, service: repository, logger });
     const input = {
       id: event.id,
       calendarId: event.calendarId,
@@ -71,15 +71,13 @@ describe('calendar IPC handlers', () => {
       }),
     ).toEqual({ ...event, title: '夏季需求复盘' });
     expect(invoke(IPC_CHANNELS.calendar.deleteEvent, sender, event.id)).toBeUndefined();
-    expect(logger.info.mock.calls).toEqual([
-      ['Calendar event created', { source: 'user' }],
-      ['Calendar event updated', { source: 'user' }],
-      ['Calendar event deleted'],
-    ]);
-    expect(JSON.stringify(logger.info.mock.calls)).not.toContain('需求复盘');
+    // 日志归 CalendarService 负责，此处只验证 handler 把校验后的入参原样转发。
+    expect(repository.createEvent).toHaveBeenCalledWith(input);
+    expect(repository.deleteEvent).toHaveBeenCalledWith(event.id);
   });
 
-  it('rejects untrusted senders and malformed ranges without calling the repository', () => {
+  // 信任校验由 create-handler-registry.test.ts 覆盖；这里只留日程自身的业务约束。
+  it('rejects an event whose end precedes its start, without leaking the title into logs', () => {
     const sender = {};
     const logger = createLogger();
     const repository = {
@@ -88,9 +86,8 @@ describe('calendar IPC handlers', () => {
       updateEvent: vi.fn(),
       deleteEvent: vi.fn(),
     };
-    registerCalendarHandlers({ window: { webContents: sender }, repository, logger });
+    registerCalendarHandlers({ window: { webContents: sender }, service: repository, logger });
 
-    expect(() => invoke(IPC_CHANNELS.calendar.load, {})).toThrow('拒绝来自非主应用窗口的请求');
     expect(() =>
       invoke(IPC_CHANNELS.calendar.createEvent, sender, {
         id: 'event-1',

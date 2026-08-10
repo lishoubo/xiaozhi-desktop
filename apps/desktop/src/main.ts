@@ -1,1 +1,1 @@
-import './main/application';
+import './main/index';

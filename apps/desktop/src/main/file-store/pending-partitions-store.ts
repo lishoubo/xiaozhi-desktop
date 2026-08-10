@@ -1,5 +1,5 @@
 /**
- * 记录"新建了 partition、但还没被任何 OtaAccount 认领"的登录态——
+ * 记录"新建了 partition、但还没被任何 OtaCredential 认领"的登录态——
  * `<userData>/pending-partitions.json`。
  *
  * 为什么不写进 partition 自己的磁盘目录：那是 Electron/Chromium 管理的
@@ -22,7 +22,7 @@
  */
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import type { ChannelId } from '../../domain/identity';
+import type { ChannelId } from '../ids';
 
 const PENDING_PARTITIONS_FILENAME = 'pending-partitions.json';
 
@@ -64,10 +64,7 @@ function withMutex<T>(task: () => Promise<T>): Promise<T> {
   return next;
 }
 
-export function addPendingPartition(
-  userDataDir: string,
-  entry: PendingPartition,
-): Promise<void> {
+export function addPendingPartition(userDataDir: string, entry: PendingPartition): Promise<void> {
   return withMutex(async () => {
     const entries = await readAll(userDataDir);
     await writeAll(userDataDir, [...entries, entry]);

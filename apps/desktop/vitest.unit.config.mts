@@ -17,7 +17,8 @@ export default defineConfig({
         'src/shared/**/*.ts',
       ],
       exclude: [
-        'src/main/application.ts',
+        'src/main/index.ts',
+        'src/main/composition/**',
         'src/main/windows/main-window.ts',
         'src/preload/index.ts',
       ],

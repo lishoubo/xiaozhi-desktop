@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import type { JsonObject, JsonValue } from '../domain/json';
+import type { JsonObject, JsonValue } from '../shared/types/json';
 
 const nonEmptyStringSchema = z
   .string()
@@ -43,12 +43,6 @@ export const browserTabSchema = z.strictObject({
 
 export type BrowserTab = Readonly<z.infer<typeof browserTabSchema>>;
 
-export const browserRequestInterceptionSchema = z.strictObject({
-  ruleId: z.literal('ctrip-soa2'),
-});
-
-export type BrowserRequestInterception = Readonly<z.infer<typeof browserRequestInterceptionSchema>>;
-
 export const browserCookieSourceIdSchema = z.enum([
   'chrome',
   'edge',
@@ -91,10 +85,6 @@ export const startLoginInputSchema = z.strictObject({
 
 export type StartLoginInput = Readonly<z.infer<typeof startLoginInputSchema>>;
 
-export const otaAccountChannelSchema = nonEmptyStringSchema;
-
-export const otaAccountIdSchema = nonEmptyStringSchema;
-
 const jsonValueSchema: z.ZodType<JsonValue> = z.lazy(() =>
   z.union([
     z.string(),
@@ -107,27 +97,6 @@ const jsonValueSchema: z.ZodType<JsonValue> = z.lazy(() =>
 );
 
 const jsonObjectSchema: z.ZodType<JsonObject> = z.record(z.string(), jsonValueSchema);
-
-export const createFromExistingSessionInputSchema = z.strictObject({
-  accountId: nonEmptyStringSchema,
-});
-
-export type CreateFromExistingSessionInput = Readonly<
-  z.infer<typeof createFromExistingSessionInputSchema>
->;
-
-export const otaAccountSchema = z.strictObject({
-  id: nonEmptyStringSchema,
-  credentialId: nonEmptyStringSchema,
-  channel: nonEmptyStringSchema,
-  otaHotelId: nonEmptyStringSchema,
-  otaHotelName: z.string().nullable(),
-  partitionName: nonEmptyStringSchema,
-  bindExtra: jsonObjectSchema.nullable(),
-  discoveredAt: z.number(),
-});
-
-export type OtaAccountDto = Readonly<z.infer<typeof otaAccountSchema>>;
 
 export const otaCredentialSchema = z.strictObject({
   id: nonEmptyStringSchema,
@@ -147,11 +116,95 @@ export const otaCredentialChannelSchema = nonEmptyStringSchema;
 
 export const otaCredentialIdSchema = nonEmptyStringSchema;
 
-export const otaAccountBoundEventSchema = z.strictObject({
+export const otaDiscoveryCompletedEventSchema = z.strictObject({
   channel: nonEmptyStringSchema,
 });
 
-export type OtaAccountBoundEvent = Readonly<z.infer<typeof otaAccountBoundEventSchema>>;
+export type OtaDiscoveryCompletedEvent = Readonly<z.infer<typeof otaDiscoveryCompletedEventSchema>>;
+
+/** 探测出的候选酒店，尚未保存。 */
+export const probedHotelSchema = z.strictObject({
+  otaHotelId: nonEmptyStringSchema,
+  otaHotelName: z.string().nullable(),
+  bindExtra: jsonObjectSchema.nullable(),
+});
+
+/**
+ * 打开 OTA 标签页时携带的意图。目前只有绑定酒店一种：带上它才会触发酒店探测并把
+ * 候选通知到 UI；不带则只是普通打开，完全不探测。
+ */
+export const bindHotelIntentSchema = z.strictObject({
+  kind: z.literal('bind-hotel'),
+  requestId: nonEmptyStringSchema,
+});
+
+/** 重新登录：`expectedChannelAccountId` 用于核对登录的是不是原账号，不可缺省。 */
+export const reauthOtaIntentSchema = z.strictObject({
+  kind: z.literal('reauth-ota'),
+  requestId: nonEmptyStringSchema,
+  expectedChannelAccountId: nonEmptyStringSchema,
+});
+
+export const otaTabIntentSchema = z.discriminatedUnion('kind', [
+  bindHotelIntentSchema,
+  reauthOtaIntentSchema,
+]);
+
+export type OtaTabIntentDto = Readonly<z.infer<typeof otaTabIntentSchema>>;
+
+/** 「UI 在等的结果送达了」——信封形状见 `shared/types/ui-waiting-result-types.ts`。 */
+export const uiWaitingResultEnvelopeSchema = z.discriminatedUnion('kind', [
+  z.strictObject({
+    requestId: nonEmptyStringSchema,
+    kind: z.literal('bind-hotel'),
+    payload: z.strictObject({
+      credentialId: nonEmptyStringSchema,
+      hotels: z.array(probedHotelSchema),
+    }),
+  }),
+  z.strictObject({
+    requestId: nonEmptyStringSchema,
+    kind: z.literal('reauth-ota'),
+    payload: z.union([
+      z.strictObject({ ok: z.literal(true), credentialId: nonEmptyStringSchema }),
+      z.strictObject({
+        ok: z.literal(false),
+        reason: z.enum(['account-mismatch', 'identity-unavailable']),
+      }),
+    ]),
+  }),
+]);
+
+export const startBindingResultSchema = z.strictObject({
+  requestId: nonEmptyStringSchema,
+});
+
+export const confirmBindingInputSchema = z.strictObject({
+  credentialId: nonEmptyStringSchema,
+  rmsHotelId: z.number().int().positive(),
+  hotel: probedHotelSchema,
+});
+
+export type ConfirmBindingInput = Readonly<z.infer<typeof confirmBindingInputSchema>>;
+
+/** 重新登录收尾：只需要「改哪条绑定」与「用哪个凭证的 cookie」。 */
+export const confirmReauthInputSchema = z.strictObject({
+  otaAccountId: z.number().int().positive(),
+  credentialId: nonEmptyStringSchema,
+});
+
+export type ConfirmReauthInput = Readonly<z.infer<typeof confirmReauthInputSchema>>;
+
+/** 「这条远端绑定当初是哪个本地凭证建的」——用于标注「上次绑定过」。 */
+export const findCredentialForAccountInputSchema = z.strictObject({
+  source: nonEmptyStringSchema,
+  otaHotelId: nonEmptyStringSchema.nullable(),
+  bindExtra: jsonObjectSchema.nullable(),
+});
+
+export type FindCredentialForAccountInput = Readonly<
+  z.infer<typeof findCredentialForAccountInputSchema>
+>;
 
 export const systemPreferencesSchema = z.strictObject({
   autoLaunch: z.boolean(),

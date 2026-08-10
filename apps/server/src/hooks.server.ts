@@ -2,7 +2,8 @@ import type { Handle, HandleServerError, ServerInit } from '@sveltejs/kit';
 import { sequence } from '@sveltejs/kit/hooks';
 import { building } from '$app/environment';
 import { auth } from '$lib/server/auth';
-import { safeErrorType, serverLogger } from '$lib/server/logging/logger';
+import { isDesktopTrpcPath } from '$lib/server/desktop-trpc-path';
+import { safeErrorDetails, safeErrorType, serverLogger } from '$lib/server/logging/logger';
 import { executeLoggedRequest } from '$lib/server/logging/request-logging';
 import { svelteKitHandler } from 'better-auth/svelte-kit';
 
@@ -28,6 +29,8 @@ const handleRequestLogging: Handle = ({ event, resolve }) =>
 	});
 
 const handleBetterAuth: Handle = async ({ event, resolve }) => {
+	if (isDesktopTrpcPath(event.url.pathname)) return resolve(event);
+
 	const session = await auth.api.getSession({ headers: event.request.headers });
 
 	if (session) {
@@ -45,6 +48,7 @@ export const handleError: HandleServerError = ({ error, event, status }) => {
 	const logger = event.locals.logger ?? serverLogger.child({ requestId });
 	logger.error(
 		{
+			error: safeErrorDetails(error),
 			errorType: safeErrorType(error),
 			event: 'sveltekit.request.failed',
 			method: event.request.method,

@@ -7,16 +7,26 @@ import {
   type Rectangle,
   type Session,
   type WebContents,
-  type WebRequestFilter,
 } from 'electron';
+import { EventEmitter } from 'node:events';
 import { randomUUID } from 'node:crypto';
-import type { ChannelId } from '../../domain/identity';
-import { LEGACY_SHARED_PARTITION } from '../../domain/policy/partition-policy';
-import type { LoginUrlMatcher } from '../../domain/ports/discovery';
+import type { ChannelId } from '../ids';
 import { IPC_CHANNELS } from '../../shared/ipc-channels';
 import { browserWebUrlSchema, type BrowserTab } from '../../shared/browser';
 import type { AppLogger } from '../../shared/logging';
 import { SessionFactory } from './session-factory';
+
+/** 标签页发生一次导航（含 SPA 内部路由变化）后广播的原始事实，不含任何登录语义判断。 */
+export type TabNavigatedEvent = Readonly<{
+  tabId: string;
+  partitionName: string;
+  channelId: string;
+  url: string;
+  webContents: WebContents;
+}>;
+
+/** 标签页关闭后广播的事实，供订阅方清理自己按 tabId 维护的状态。 */
+export type TabClosedEvent = Readonly<{ tabId: string }>;
 
 type ManagedTab = {
   id: string;
@@ -26,21 +36,6 @@ type ManagedTab = {
   loading: boolean;
   view: WebContentsView;
   partitionName: string;
-  /**
-   * 仅登录标签页设置；URL 判定已登录（见 design.md 决策 8）时调用一次，
-   * 触发账号探测。不再有"标签页关闭时触发"的兜底路径。`landingUrl` 是
-   * 命中判定那一刻的完整 URL——部分渠道（如抖音）的门店身份参数只存在
-   * 于这个 URL 里，探测层需要它才能定位到正确的门店。
-   */
-  onUrlPastLogin?: (partitionName: string, landingUrl: string, webContents: WebContents) => void;
-  /** 该渠道的登录页 URL 判据；未注册时不参与 URL 触发。 */
-  loginUrlMatcher?: LoginUrlMatcher;
-  /** 本次登录标签页是否已经触发过探测——命中一次后不再重复调用。 */
-  urlPastLoginTriggered: boolean;
-};
-
-const CTRIP_API_REQUEST_FILTER: WebRequestFilter = {
-  urls: ['https://m.ctrip.com/restapi/soa2/*'],
 };
 
 function isReloadShortcut(
@@ -60,9 +55,8 @@ function assertWebUrl(url: string): void {
   }
 }
 
-export class BrowserManager {
+export class BrowserManager extends EventEmitter {
   /** @deprecated 旧的全局共享 session（D1 缺陷本身）。仅供未迁移的调用方过渡使用。 */
-  readonly browserSession: Session;
   private readonly sessionFactory: SessionFactory;
   private readonly tabs = new Map<string, ManagedTab>();
   private readonly retiredPartitions = new Set<string>();
@@ -83,61 +77,27 @@ export class BrowserManager {
     private readonly logger: AppLogger,
     sessionFactory: SessionFactory = new SessionFactory(logger),
   ) {
+    super();
     this.sessionFactory = sessionFactory;
-    this.browserSession = this.sessionFactory.sessionForAccount(LEGACY_SHARED_PARTITION);
     this.window.webContents.on('before-input-event', this.handleShellInput);
-    this.installRequestInterceptor();
-  }
-
-  /** @deprecated 用 `createWithAlreadyPartition` 替代，指定明确的 partition。 */
-  create(channelId: string, url: string): BrowserTab {
-    return this.createWithAlreadyPartition(LEGACY_SHARED_PARTITION, channelId, url);
   }
 
   /**
-   * 已有 credential：直接用它的 `partitionName` 开标签页。
-   * `options` 默认不传，行为与流程B（打开已有账号）现状完全一致；传入
-   * `onUrlPastLogin`/`loginUrlMatcher` 时用于"从其他登录态创建账号"——
-   * 复用已有 partition 打开页面后，用户在页面内切换到另一个门店/公司，
-   * 仍能触发一次账号探测（add-account-flow-per-channel/design.md §4）。
+   * 已有 credential：直接用它的 `partitionName` 开标签页。流程B（打开已有
+   * 账号）及"从其他登录态创建账号"（add-account-flow-per-channel/design.md
+   * §4）均走这里；是否需要登录判定由调用方（`OtaTabOpener`）订阅
+   * `tab:navigated` 自行决定，这里不再关心。
    */
-  createWithAlreadyPartition(
-    partitionName: string,
-    channelId: string,
-    url: string,
-    options: Readonly<{
-      onUrlPastLogin?: (
-        partitionName: string,
-        landingUrl: string,
-        webContents: WebContents,
-      ) => void;
-      loginUrlMatcher?: LoginUrlMatcher;
-    }> = {},
-  ): BrowserTab {
+  createWithAlreadyPartition(partitionName: string, channelId: string, url: string): BrowserTab {
     const tabSession = this.sessionFactory.sessionForAccount(partitionName);
-    const tab = this.createTab(
-      channelId,
-      url,
-      partitionName,
-      tabSession,
-      options.onUrlPastLogin,
-      options.loginUrlMatcher,
-    );
+    const tab = this.createTab(channelId, url, partitionName, tabSession);
     return this.snapshot(tab);
   }
 
   /**
    * 走登录流程：新建一份 partition，若调用方注入了 cookie 则先写入，
-   * 再加载渠道后台页面。
-   *
-   * 两种探测触发方式二选一（互斥，不同时传）：
-   * - `onUrlPastLogin`/`loginUrlMatcher`：等待用户手动登录交互，URL 判定
-   *   命中登录成功时触发（design.md 决策 8）——"新建账号"与抖音"从cookie
-   *   创建"/"从其他登录态创建"用这条
-   * - `onLoadFinished`：不等待用户交互，页面首次加载完成（无论是否登录
-   *   成功）即触发一次，由调用方自行判断落地结果——携程"从cookie创建"
-   *   静默判定用这条（add-account-flow-per-channel/design.md §3，携程
-   *   cookie 有效直接落地，无效会被重定向回登录页，交给探测层区分）
+   * 再加载渠道后台页面。是否/如何判定登录成功由调用方订阅
+   * `tab:navigated` 自行处理，这里只负责开 tab。
    */
   async createAndNewPartition(
     environment: 'prod' | 'dev',
@@ -145,17 +105,6 @@ export class BrowserManager {
     url: string,
     options: Readonly<{
       importedCookies?: readonly CookiesSetDetails[];
-      onUrlPastLogin?: (
-        partitionName: string,
-        landingUrl: string,
-        webContents: WebContents,
-      ) => void;
-      loginUrlMatcher?: LoginUrlMatcher;
-      onLoadFinished?: (
-        partitionName: string,
-        landingUrl: string,
-        webContents: WebContents,
-      ) => void;
     }> = {},
   ): Promise<Readonly<{ tab: BrowserTab; partitionName: string }>> {
     const { session: tabSession, partitionName } = this.sessionFactory.sessionForLogin(
@@ -165,15 +114,7 @@ export class BrowserManager {
     if (options.importedCookies) {
       await Promise.all(options.importedCookies.map((cookie) => tabSession.cookies.set(cookie)));
     }
-    const tab = this.createTab(
-      channelId,
-      url,
-      partitionName,
-      tabSession,
-      options.onUrlPastLogin,
-      options.loginUrlMatcher,
-      options.onLoadFinished,
-    );
+    const tab = this.createTab(channelId, url, partitionName, tabSession);
     return { tab: this.snapshot(tab), partitionName };
   }
 
@@ -182,9 +123,6 @@ export class BrowserManager {
     url: string,
     partitionName: string,
     tabSession: Session,
-    onUrlPastLogin?: (partitionName: string, landingUrl: string, webContents: WebContents) => void,
-    loginUrlMatcher?: LoginUrlMatcher,
-    onLoadFinished?: (partitionName: string, landingUrl: string, webContents: WebContents) => void,
   ): ManagedTab {
     assertWebUrl(url);
     if (!channelId.trim()) throw new Error('渠道标识不能为空');
@@ -207,27 +145,21 @@ export class BrowserManager {
       loading: true,
       view,
       partitionName,
-      onUrlPastLogin,
-      loginUrlMatcher,
-      urlPastLoginTriggered: false,
     };
     this.tabs.set(id, tab);
     view.webContents.setAudioMuted(this.audioMuted);
     this.bindTabEvents(tab);
     this.activate(id);
     this.logger.info('Browser tab created', { channelId, partitionName });
-    void view.webContents
-      .loadURL(url)
-      .then(() => onLoadFinished?.(partitionName, view.webContents.getURL(), view.webContents))
-      .catch((error: unknown) => {
-        tab.loading = false;
-        tab.title = '页面加载失败';
-        this.logger.error('Browser page load failed', {
-          channelId,
-          errorName: error instanceof Error ? error.name : 'UnknownError',
-        });
-        this.emit(tab);
+    void view.webContents.loadURL(url).catch((error: unknown) => {
+      tab.loading = false;
+      tab.title = '页面加载失败';
+      this.logger.error('Browser page load failed', {
+        channelId,
+        errorName: error instanceof Error ? error.name : 'UnknownError',
       });
+      this.emitStateChanged(tab);
+    });
     return tab;
   }
 
@@ -253,6 +185,7 @@ export class BrowserManager {
     this.managedWebContentsIds.delete(tab.view.webContents.id);
     tab.view.webContents.close();
     this.logger.info('Browser tab closed', { channelId: tab.channelId });
+    this.emit('tab:closed', { tabId } satisfies TabClosedEvent);
     for (const retiredPartition of this.retiredPartitions) {
       void this.clearRetiredPartitionWhenUnused(retiredPartition).catch(() => {});
     }
@@ -265,11 +198,6 @@ export class BrowserManager {
   async retirePartition(partitionName: string): Promise<void> {
     this.retiredPartitions.add(partitionName);
     await this.clearRetiredPartitionWhenUnused(partitionName);
-  }
-
-  acknowledgeInterception(): void {
-    // Kept for preload compatibility with older renderer bundles. Interception feedback is
-    // non-blocking now, so there is no browser view to restore.
   }
 
   goBack(tabId: string): void {
@@ -342,27 +270,7 @@ export class BrowserManager {
     if (!this.window.isDestroyed()) {
       this.window.webContents.removeListener('before-input-event', this.handleShellInput);
     }
-    this.browserSession.webRequest.onBeforeRequest(CTRIP_API_REQUEST_FILTER, null);
     if (tabCount > 0) this.logger.info('Browser workspace closed', { tabCount });
-  }
-
-  private installRequestInterceptor(): void {
-    this.browserSession.webRequest.onBeforeRequest(
-      CTRIP_API_REQUEST_FILTER,
-      (details, callback) => {
-        if (!this.managedWebContentsIds.has(details.webContentsId ?? -1)) {
-          callback({});
-          return;
-        }
-
-        callback({ cancel: true });
-        if (this.window.isDestroyed()) return;
-        this.logger.info('Embedded browser request intercepted', { ruleId: 'ctrip-soa2' });
-        this.window.webContents.send(IPC_CHANNELS.browser.requestIntercepted, {
-          ruleId: 'ctrip-soa2',
-        });
-      },
-    );
   }
 
   private async clearRetiredPartitionWhenUnused(partitionName: string): Promise<void> {
@@ -384,7 +292,8 @@ export class BrowserManager {
     const { webContents } = tab.view;
     webContents.setWindowOpenHandler(({ url }) => {
       try {
-        this.create(tab.channelId, url);
+        // 弹窗继承发起方的 partition：同一账号打开的新窗口不应掉进共享 session。
+        this.createWithAlreadyPartition(tab.partitionName, tab.channelId, url);
       } catch {
         // Invalid and non-web popup targets stay blocked.
         this.logger.warn('Blocked invalid browser popup', { channelId: tab.channelId });
@@ -407,52 +316,41 @@ export class BrowserManager {
     });
     webContents.on('did-start-loading', () => {
       tab.loading = true;
-      this.emit(tab);
+      this.emitStateChanged(tab);
     });
     webContents.on('did-stop-loading', () => {
       tab.loading = false;
       tab.url = webContents.getURL() || tab.url;
       tab.title = webContents.getTitle() || tab.title;
-      this.emit(tab);
+      this.emitStateChanged(tab);
     });
     webContents.on('did-navigate', (_event, url) => {
       tab.url = url;
-      this.checkUrlPastLogin(tab, url);
-      this.emit(tab);
+      this.emitTabNavigated(tab, url, webContents);
+      this.emitStateChanged(tab);
     });
     webContents.on('did-navigate-in-page', (_event, url) => {
       tab.url = url;
-      this.checkUrlPastLogin(tab, url);
-      this.emit(tab);
+      this.emitTabNavigated(tab, url, webContents);
+      this.emitStateChanged(tab);
     });
     webContents.on('page-title-updated', (_event, title) => {
       tab.title = title || tab.title;
-      this.emit(tab);
+      this.emitStateChanged(tab);
     });
   }
 
-  /**
-   * URL 触发探测（design.md 决策 8）：命中一次即把 `urlPastLoginTriggered`
-   * 置位，此后同一标签页的任何后续导航都在这里短路返回——不会重复创建
-   * 探测用的 `WebContentsView`、不会重复请求渠道接口。防重入/查重创建
-   * 属于探测层自己的职责（见 `main/account-discovery/discover-and-create.ts`），
-   * 这里只保证"每个标签页最多调用一次 `onUrlPastLogin`"。
-   */
-  private checkUrlPastLogin(tab: ManagedTab, url: string): void {
-    if (tab.urlPastLoginTriggered) return;
-    if (!tab.loginUrlMatcher || !tab.onUrlPastLogin) return;
-    const isPastLogin = tab.loginUrlMatcher.isPastLogin(url);
-    this.logger.info('Login URL matcher checked', {
+  private emitTabNavigated(tab: ManagedTab, url: string, webContents: WebContents): void {
+    this.emit('tab:navigated', {
+      tabId: tab.id,
+      partitionName: tab.partitionName,
       channelId: tab.channelId,
-      isPastLogin,
-    });
-    if (!isPastLogin) return;
-
-    tab.urlPastLoginTriggered = true;
-    tab.onUrlPastLogin(tab.partitionName, url, tab.view.webContents);
+      url,
+      webContents,
+    } satisfies TabNavigatedEvent);
   }
 
-  private emit(tab: ManagedTab): void {
+  private emitStateChanged(tab: ManagedTab): void {
     if (!this.window.isDestroyed()) {
       this.window.webContents.send(IPC_CHANNELS.browser.stateChanged, this.snapshot(tab));
     }

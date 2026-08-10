@@ -92,48 +92,9 @@ const migrations: readonly Migration[] = [
   },
   {
     version: 3,
-    name: 'create-ota-account',
+    name: 'create-ota-credential',
     apply(database) {
       database.exec(`
-        CREATE TABLE ota_account (
-          id TEXT PRIMARY KEY,
-          channel TEXT NOT NULL,
-          ota_hotel_id TEXT NOT NULL,
-          display_name TEXT,
-          partition_name TEXT NOT NULL,
-          created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-          updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-        );
-
-        CREATE UNIQUE INDEX ota_account_channel_hotel_idx ON ota_account(channel, ota_hotel_id);
-      `);
-    },
-  },
-  {
-    version: 4,
-    name: 'rename-ota-account-display-name',
-    apply(database) {
-      database.exec(`ALTER TABLE ota_account RENAME COLUMN display_name TO ota_hotel_name;`);
-    },
-  },
-  {
-    version: 5,
-    name: 'add-ota-account-channel-context-and-discovered-at',
-    apply(database) {
-      database.exec(`
-        ALTER TABLE ota_account ADD COLUMN channel_context TEXT;
-        ALTER TABLE ota_account ADD COLUMN discovered_at INTEGER NOT NULL DEFAULT 0;
-        UPDATE ota_account SET discovered_at = CAST(strftime('%s', created_at) AS INTEGER) * 1000;
-      `);
-    },
-  },
-  {
-    version: 6,
-    name: 'split-ota-credential-from-account',
-    apply(database) {
-      database.exec(`
-        DROP TABLE ota_account;
-
         CREATE TABLE ota_credential (
           id TEXT PRIMARY KEY,
           channel TEXT NOT NULL,
@@ -144,8 +105,26 @@ const migrations: readonly Migration[] = [
           created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
           updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         );
-
-        CREATE TABLE ota_account (
+      `);
+    },
+  },
+  {
+    version: 4,
+    name: 'add-ota-credential-channel-account-id',
+    apply(database) {
+      database.exec(`
+        ALTER TABLE ota_credential ADD COLUMN channel_account_id TEXT;
+        CREATE INDEX ota_credential_channel_account_idx
+          ON ota_credential(channel, channel_account_id);
+      `);
+    },
+  },
+  {
+    version: 5,
+    name: 'create-ota-hotel-prob',
+    apply(database) {
+      database.exec(`
+        CREATE TABLE ota_hotel_prob (
           id TEXT PRIMARY KEY,
           credential_id TEXT NOT NULL REFERENCES ota_credential(id) ON UPDATE CASCADE ON DELETE RESTRICT,
           channel TEXT NOT NULL,
@@ -157,19 +136,59 @@ const migrations: readonly Migration[] = [
           updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
         );
 
-        CREATE UNIQUE INDEX ota_account_channel_hotel_idx ON ota_account(channel, ota_hotel_id);
-        CREATE INDEX ota_account_credential_idx ON ota_account(credential_id);
+        CREATE UNIQUE INDEX ota_hotel_prob_channel_hotel_idx ON ota_hotel_prob(channel, ota_hotel_id);
+        CREATE INDEX ota_hotel_prob_credential_idx ON ota_hotel_prob(credential_id);
+      `);
+    },
+  },
+  {
+    version: 6,
+    name: 'rename-ota-hotel-prob-to-ota-hotel',
+    apply(database) {
+      database.exec(`
+        DROP TABLE ota_hotel_prob;
+
+        CREATE TABLE ota_hotel (
+          id TEXT PRIMARY KEY,
+          credential_id TEXT NOT NULL REFERENCES ota_credential(id) ON UPDATE CASCADE ON DELETE RESTRICT,
+          channel TEXT NOT NULL,
+          ota_hotel_id TEXT NOT NULL,
+          ota_hotel_name TEXT,
+          bind_extra TEXT,
+          discovered_at INTEGER NOT NULL,
+          created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE UNIQUE INDEX ota_hotel_channel_hotel_idx ON ota_hotel(channel, ota_hotel_id);
+        CREATE INDEX ota_hotel_credential_idx ON ota_hotel(credential_id);
       `);
     },
   },
   {
     version: 7,
-    name: 'add-ota-credential-channel-account-id',
+    name: 'ota-hotel-stores-hotel-info-only',
     apply(database) {
+      // `discovered_at` 是「探测即写库」的产物。写入时机后移到用户确认之后，
+      // 探测不再落库，该列不再有意义——留着会让人以为探测仍在写库。既有记录
+      // 都是探测自动写入、无用户确认背书的，一并丢弃（沿用 migration 6 的
+      // drop-and-recreate 做法）。绑定关系由远端持有，本地不新增相关字段。
       database.exec(`
-        ALTER TABLE ota_credential ADD COLUMN channel_account_id TEXT;
-        CREATE INDEX ota_credential_channel_account_idx
-          ON ota_credential(channel, channel_account_id);
+        DROP TABLE ota_hotel;
+
+        CREATE TABLE ota_hotel (
+          id TEXT PRIMARY KEY,
+          credential_id TEXT NOT NULL REFERENCES ota_credential(id) ON UPDATE CASCADE ON DELETE RESTRICT,
+          channel TEXT NOT NULL,
+          ota_hotel_id TEXT NOT NULL,
+          ota_hotel_name TEXT,
+          bind_extra TEXT,
+          created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+
+        CREATE UNIQUE INDEX ota_hotel_channel_hotel_idx ON ota_hotel(channel, ota_hotel_id);
+        CREATE INDEX ota_hotel_credential_idx ON ota_hotel(credential_id);
       `);
     },
   },

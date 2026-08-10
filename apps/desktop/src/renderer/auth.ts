@@ -1,43 +1,21 @@
-import { z } from 'zod';
+import type { EmployeeIdentity } from '@hotel-butler/api';
 
-const AUTH_STORAGE_KEY = 'hotel-butler.auth-session';
-const SESSION_DURATION_MS = 7 * 24 * 60 * 60 * 1000;
+export const EXPERIENCE_PHONE = '13800138000';
 
-export const MOCK_PHONE = '13800138000';
-export const MOCK_CODE = '123456';
-export const CODE_DURATION_MS = 5 * 60 * 1000;
+export type AuthSession = EmployeeIdentity;
 
-const authSessionSchema = z.strictObject({
-  phone: z.string().regex(/^1\d{10}$/),
-  expiresAt: z.number(),
-});
+let currentSession: AuthSession | null = null;
 
-export type AuthSession = Readonly<z.infer<typeof authSessionSchema>>;
-
-export function createAuthSession(phone: string, now = Date.now()): AuthSession {
-  const session = authSessionSchema.parse({ phone, expiresAt: now + SESSION_DURATION_MS });
-  localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(session));
-  return session;
+export function setAuthSession(session: AuthSession): void {
+  currentSession = session;
 }
 
-export function readAuthSession(now = Date.now()): AuthSession | null {
-  try {
-    const value = localStorage.getItem(AUTH_STORAGE_KEY);
-    if (!value) return null;
-    const parsed = authSessionSchema.safeParse(JSON.parse(value));
-    if (!parsed.success || parsed.data.expiresAt <= now) {
-      clearAuthSession();
-      return null;
-    }
-    return parsed.data;
-  } catch {
-    clearAuthSession();
-    return null;
-  }
+export function readAuthSession(): AuthSession | null {
+  return currentSession;
 }
 
 export function clearAuthSession(): void {
-  localStorage.removeItem(AUTH_STORAGE_KEY);
+  currentSession = null;
 }
 
 export function maskPhone(phone: string): string {

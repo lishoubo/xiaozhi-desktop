@@ -12,6 +12,8 @@
     "src/renderer.ts",
     "src/renderer/**/*.ts",
     "src/renderer/**/*.svelte",
-    "src/vite-env.d.ts"
+    "src/shared/**/*.ts",
+    "src/vite-env.d.ts",
+    "forge.env.d.ts"
   ]
 }

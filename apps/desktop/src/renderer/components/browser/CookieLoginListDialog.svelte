@@ -5,8 +5,7 @@
   import type { ImportedChannelSummary } from '../../../shared/browser';
   import { OTA_CHANNELS } from '../../data/ota-channels';
   import { dismissAppNotification, showAppNotification } from '../../notifications';
-  import { setPendingTabActivation } from '../../pending-tab-activation';
-  import { consumeCookieListAutoOpen } from '../../pending-cookie-list-open';
+  import { cookieListAutoOpen, tabActivation } from './cross-route-intents';
   import { Button } from '$lib/components/ui/button';
   import { Spinner } from '$lib/components/ui/spinner';
   import * as Dialog from '$lib/components/ui/dialog';
@@ -54,26 +53,31 @@
   }
 
   onMount(() => {
-    if (consumeCookieListAutoOpen()) void openDialog();
+    if (cookieListAutoOpen.consume()) void openDialog();
   });
 
   function reportFailure(message: string, reason: unknown): void {
     log.warn('Cookie login list action failed', {
       errorName: reason instanceof Error ? reason.name : 'UnknownError',
     });
-    showAppNotification({ id: 'cookie-login-list-error', title: '登录账号失败', message, tone: 'error' });
+    showAppNotification({
+      id: 'cookie-login-list-error',
+      title: '登录账号失败',
+      message,
+      tone: 'error',
+    });
   }
 
   async function loginWithCookie(channelId: string): Promise<void> {
     dismissAppNotification('cookie-login-list-error');
     busyChannel = channelId;
     try {
-      const tab = await window.hotelButler.otaAccount.createFromCookie({
+      const tab = await window.hotelButler.otaTab.openWithImportedCookie({
         channelId,
         environment: 'prod',
         url: channelUrl(channelId),
       });
-      setPendingTabActivation(tab);
+      tabActivation.set(tab);
       open = false;
       await push('/');
     } catch (reason) {
@@ -98,6 +102,7 @@
         triggerLabel="导入 Cookie"
         triggerVariant="outline"
         triggerSize="sm"
+        showSuccessNotification
         onComplete={refreshList}
       />
     </div>
@@ -114,10 +119,14 @@
     {:else}
       <ul class="grid gap-2">
         {#each summaries as summary (summary.channel)}
-          <li class="flex items-center justify-between gap-3 rounded-md border border-border px-4 py-3">
+          <li
+            class="flex items-center justify-between gap-3 rounded-md border border-border px-4 py-3"
+          >
             <div class="min-w-0">
               <p class="truncate text-sm font-medium">{channelName(summary.channel)}</p>
-              <p class="text-xs text-muted-foreground">导入于 {formatImportedAt(summary.importedAt)}</p>
+              <p class="text-xs text-muted-foreground">
+                导入于 {formatImportedAt(summary.importedAt)}
+              </p>
             </div>
             <Button
               size="sm"

@@ -3,7 +3,7 @@ import type {
   CalendarEventCreateInput as DomainCalendarEventCreateInput,
   CalendarEventRecord as DomainCalendarEventRecord,
   CalendarGroup as DomainCalendarGroup,
-} from '../domain/calendar';
+} from '../shared/types/calendar';
 
 export const calendarGroupSchema = z.object({
   id: z.string().min(1).max(80),
@@ -52,7 +52,7 @@ export const calendarEventUpdateInputSchema = z.object({
 
 export const calendarEventIdSchema = z.string().min(1).max(128);
 
-// 领域类型的权威在 domain/，这里只做 re-export —— 依赖方向是 shared 引 domain。
+// 类型的权威在 shared/types/calendar.ts，这里只做 re-export。
 export type {
   CalendarEventCreateInput,
   CalendarEventRecord,
@@ -60,17 +60,26 @@ export type {
   CalendarEventUpdateInput,
   CalendarGroup,
   CalendarSnapshot,
-} from '../domain/calendar';
+} from './types/calendar';
 
-// 编译期守卫：schema 推导出的形状必须与 domain 类型一致。
-// 任一侧改了字段而另一侧没跟上，这里会立刻报错。
-type AssertExtends<A extends B, B> = [A, B] extends [B, A] ? true : true;
+/*
+ * 编译期守卫：schema 推导出的形状必须与 shared/types/calendar.ts 的类型一致，
+ * 任一侧改了字段而另一侧没跟上就报错。
+ *
+ * 这里曾经写成 `type AssertExtends<A extends B, B> = [A, B] extends [B, A] ? true : true`
+ * —— 三元的两个分支同为 `true`，条件永远不影响结果，是个只有形式没有作用的
+ * 假守卫。现在改为把约束放在类型参数上（`A extends B`），不满足时 TS 在实例化
+ * 处直接报错。
+ */
+// 只比字段结构，不比 readonly 修饰：z.infer 出的是可变对象，而这边的类型统一
+// 包了 Readonly<>，那是形式差异而非字段不一致。
+type Expect<T extends true> = T;
+type MutuallyExtends<A, B> = A extends B ? (B extends A ? true : false) : false;
 
-export type _CalendarSchemasMatchDomain = [
-  AssertExtends<z.infer<typeof calendarGroupSchema>, DomainCalendarGroup>,
-  AssertExtends<DomainCalendarGroup, z.infer<typeof calendarGroupSchema>>,
-  AssertExtends<z.infer<typeof calendarEventRecordSchema>, DomainCalendarEventRecord>,
-  AssertExtends<DomainCalendarEventRecord, z.infer<typeof calendarEventRecordSchema>>,
-  AssertExtends<z.infer<typeof calendarEventCreateInputSchema>, DomainCalendarEventCreateInput>,
-  AssertExtends<DomainCalendarEventCreateInput, z.infer<typeof calendarEventCreateInputSchema>>,
+export type _CalendarSchemasMatchTypes = [
+  Expect<MutuallyExtends<z.infer<typeof calendarGroupSchema>, DomainCalendarGroup>>,
+  Expect<MutuallyExtends<z.infer<typeof calendarEventRecordSchema>, DomainCalendarEventRecord>>,
+  Expect<
+    MutuallyExtends<z.infer<typeof calendarEventCreateInputSchema>, DomainCalendarEventCreateInput>
+  >,
 ];

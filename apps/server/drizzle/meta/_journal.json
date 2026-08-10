@@ -29,6 +29,13 @@
       "when": 1785987046416,
       "tag": "0003_curved_wendigo",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1786070504358,
+      "tag": "0004_optimal_wrecking_crew",
+      "breakpoints": true
     }
   ]
 }

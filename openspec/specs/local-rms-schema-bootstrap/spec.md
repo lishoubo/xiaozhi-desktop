@@ -25,6 +25,16 @@ The local development startup SHALL NOT re-import `rms-schema.sql` when the MySQ
 - **THEN** the initialization script is skipped
 - **AND** existing tables and data are not replaced by the dump
 
+### Requirement: Fresh local RMS includes a desktop experience employee
+
+The checked-in RMS development schema SHALL create one deterministic active employee whose phone matches the desktop login hint.
+
+#### Scenario: Initialize a fresh local RMS database
+
+- **WHEN** MySQL imports `apps/server/rms-schema.sql`
+- **THEN** active employee `desktop-demo` exists with phone `13800138000`, organization `42`, and role `FRONT_DESK`
+- **AND** desktop displays `13800138000` as the experience phone
+
 ### Requirement: Production does not import the development dump
 
 The production deployment SHALL NOT mount or execute `apps/server/rms-schema.sql`.

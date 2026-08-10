@@ -1,43 +1,31 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { createAuthSession, readAuthSession } from '../../src/renderer/auth';
+import { beforeEach, describe, expect, it } from 'vitest';
+import { clearAuthSession, readAuthSession, setAuthSession } from '../../src/renderer/auth';
 
-const AUTH_STORAGE_KEY = 'hotel-butler.auth-session';
-
-function createStorage(): Storage {
-  const values = new Map<string, string>();
-  return {
-    get length() {
-      return values.size;
-    },
-    clear: () => values.clear(),
-    getItem: (key) => values.get(key) ?? null,
-    key: (index) => [...values.keys()][index] ?? null,
-    removeItem: (key) => values.delete(key),
-    setItem: (key, value) => values.set(key, value),
-  };
-}
+const employee = {
+  id: '2',
+  orgId: '42',
+  username: 'desktop-demo',
+  fullName: '桌面体验员工',
+  phone: '13800138000',
+  roleCode: 'FRONT_DESK',
+} as const;
 
 beforeEach(() => {
-  vi.stubGlobal('localStorage', createStorage());
+  clearAuthSession();
 });
 
-describe('auth session validation', () => {
-  it('round-trips a valid session', () => {
-    const session = createAuthSession('13800138000', 1_000);
+describe('renderer auth identity', () => {
+  it('keeps only safe employee identity in memory', () => {
+    setAuthSession(employee);
 
-    expect(session).toEqual({ phone: '13800138000', expiresAt: 604_801_000 });
-    expect(readAuthSession(2_000)).toEqual(session);
+    expect(readAuthSession()).toEqual(employee);
   });
 
-  it.each([
-    { phone: 'guest', expiresAt: 2_000 },
-    { phone: '13800138000', expiresAt: 'never' },
-    { phone: '13800138000', expiresAt: Number.NaN },
-    { phone: '13800138000', expiresAt: 2_000, elevated: true },
-  ])('removes a malformed stored session: %o', (value) => {
-    localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(value));
+  it('clears the in-memory identity', () => {
+    setAuthSession(employee);
 
-    expect(readAuthSession(1_000)).toBeNull();
-    expect(localStorage.getItem(AUTH_STORAGE_KEY)).toBeNull();
+    clearAuthSession();
+
+    expect(readAuthSession()).toBeNull();
   });
 });

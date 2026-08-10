@@ -1,19 +1,24 @@
 export const IPC_CHANNELS = {
-  automation: {
-    getCtripCheckIn: 'automation:get-ctrip-check-in',
+  auth: {
+    currentSession: 'auth:current-session',
+    loginWithPhoneCode: 'auth:login-with-phone-code',
+    logout: 'auth:logout',
+    requestPhoneCode: 'auth:request-phone-code',
+  },
+  staffAuth: {
+    currentSession: 'staff-auth:current-session',
+    login: 'staff-auth:login',
+    logout: 'staff-auth:logout',
   },
   browser: {
-    acknowledgeInterception: 'browser:acknowledge-interception',
     activate: 'browser:activate',
     close: 'browser:close',
-    create: 'browser:create',
     goBack: 'browser:go-back',
     goForward: 'browser:go-forward',
     getAudioMuted: 'browser:get-audio-muted',
     hide: 'browser:hide',
     list: 'browser:list',
     reload: 'browser:reload',
-    requestIntercepted: 'browser:request-intercepted',
     setBounds: 'browser:set-bounds',
     setAudioMuted: 'browser:set-audio-muted',
     stateChanged: 'browser:state-changed',
@@ -24,22 +29,34 @@ export const IPC_CHANNELS = {
     updateEvent: 'calendar:update-event',
     deleteEvent: 'calendar:delete-event',
   },
-  otaAccount: {
-    startLogin: 'ota-account:start-login',
-    listByChannel: 'ota-account:list-by-channel',
-    openExisting: 'ota-account:open-existing',
-    accountBound: 'ota-account:account-bound',
-    createFromCookie: 'ota-account:create-from-cookie',
-    createFromExistingSession: 'ota-account:create-from-existing-session',
-  },
   otaCredential: {
     listByChannel: 'ota-credential:list-by-channel',
-    openExisting: 'ota-credential:open-existing',
+    discoveryCompleted: 'ota-credential:discovery-completed',
+  },
+  otaTab: {
+    openExisting: 'ota-tab:open-existing',
+    openExistingInFreshPartition: 'ota-tab:open-existing-in-fresh-partition',
+    openForNewLogin: 'ota-tab:open-for-new-login',
+    openWithImportedCookie: 'ota-tab:open-with-imported-cookie',
   },
   cookies: {
     import: 'cookies:import',
     listSources: 'cookies:list-sources',
     listImportedChannels: 'cookies:list-imported-channels',
+  },
+  hotelManagement: {
+    load: 'hotel-management:load',
+    createHotel: 'hotel-management:create-hotel',
+    deleteHotel: 'hotel-management:delete-hotel',
+    unbindOtaAccount: 'hotel-management:unbind-ota-account',
+    startBinding: 'hotel-management:start-binding',
+    confirmBinding: 'hotel-management:confirm-binding',
+    startReauth: 'hotel-management:start-reauth',
+    confirmReauth: 'hotel-management:confirm-reauth',
+    findCredentialForAccount: 'hotel-management:find-credential-for-account',
+  },
+  uiWaitingResult: {
+    delivered: 'ui-waiting-result:delivered',
   },
   system: {
     getPreferences: 'system:get-preferences',

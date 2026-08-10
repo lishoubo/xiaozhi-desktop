@@ -26,7 +26,7 @@
 | 依赖 | 层级 | 提供什么 |
 |------|------|---------|
 | superpowers | 流程层 | brainstorming / writing-plans / executing-plans / TDD / systematic-debugging / verification / code-review |
-| OpenSpec | 规范层 | `/opsx:propose` → proposal.md + design.md + tasks.md |
+| OpenSpec | 规范层 | `/opsx:propose` → design.md + tasks.md（默认，格式见「输出目录」） |
 
 安装方式不在此维护。依赖缺失时**明确告知用户，不要静默降级到自己编的流程**。
 
@@ -40,7 +40,7 @@
 
 | 层级 | 工具 | 职责 | 产物 |
 |------|------|------|------|
-| 规范层（蓝图） | OpenSpec | 需求分析、方案确认 | `proposal.md` + `design.md` + `tasks.md` |
+| 规范层（蓝图） | OpenSpec | 需求分析、方案确认 | `design.md` + `tasks.md`（默认） |
 | 流程层（大脑） | superpowers | brainstorm → plan → TDD → debug → review → verify | 代码 + 验证证据 |
 
 两层通过**文件**传递信息（`tasks.md` 是规范层交给流程层的唯一输入），不通过共享内存或隐式状态。
@@ -49,7 +49,7 @@
 
 ## 核心原则
 
-1. **规范先行**：中/大任务先调 `/opsx:propose` 产出三份文档，再动手写代码。小任务和只读任务不走（见任务分流）。
+1. **规范先行**：中/大任务先调 `/opsx:propose` 产出 design.md + tasks.md，再动手写代码。小任务和只读任务不走（见任务分流）。
 2. **流程归 superpowers**：brainstorm、plan、TDD、debug、verify、code-review 全走 superpowers skill，不走同名第三方。
 3. **职责分离**：规范层只产文档；流程层只按 `tasks.md` 执行编码流程。
 4. **独立 reviewer 通道**：verification 和 code-review 分两个 pass，不能在同一上下文里合并。
@@ -71,11 +71,11 @@
 
 ### 中任务
 多文件但边界清晰，新功能或明确的重构。
-`/opsx:propose`（必须首先调用）→ 简短 brainstorming → 实现 → 验证 → verification。
+`/opsx:propose`（必须首先调用，产出 design.md + tasks.md）→ 简短 brainstorming → 实现 → 验证 → verification。
 
 ### 大任务
 跨模块、共享逻辑、新架构、公共 API 变更。
-`/opsx:propose`（必须首先调用）→ brainstorming → writing-plans → executing-plans + worktrees + TDD → verification → code-review → 交付（发布/部署需用户确认）。
+`/opsx:propose`（必须首先调用，产出 design.md + tasks.md）→ brainstorming → writing-plans → executing-plans + worktrees + TDD → verification → code-review → 交付（发布/部署需用户确认）。
 
 ## 测试粒度控制
 
@@ -95,10 +95,10 @@ openspec/                        规范事实来源（OpenSpec 管理，必须�
 │   └── <capability>/spec.md
 └── changes/                     进行中的提案
     ├── <change-name>/
-    │   ├── proposal.md          为什么做（背景、目标、成功标准）
-    │   ├── design.md            怎么做（架构决策、接口、数据流）
+    │   ├── design.md            怎么做（架构决策、接口、数据流，格式见下）
     │   ├── tasks.md             任务清单（流程层的唯一输入）
-    │   ├── specs/               本次变更的 delta（验收后合并进顶层 specs/）
+    │   ├── specs/               仅当触发完成门禁（见下）才产出：本次变更的
+    │   │                        delta，验收后合并进顶层 specs/
     │   └── verification.md      验证证据
     └── archive/YYYY-MM-DD-<name>/   已完成并归档
 
@@ -110,7 +110,26 @@ docs/                            规范之外的文档
 
 **`openspec/` 必须在仓库根目录**，OpenSpec 工具硬编码此路径，不能挪进 `docs/`。
 
-`specs/` 与 `changes/` 的区别只有一条：**`specs/` 是已稳定的事实，`changes/` 是进行中的提案。** 提案先在 `changes/<name>/specs/` 里写差量，验收后才合并进顶层 `specs/`，然后归档。
+**默认把 `proposal.md` 精简到工具要求的最小内容（1-2 句 Why + 变更清单），重心放
+在 `design.md` + `tasks.md`**：OpenSpec CLI 的产物依赖链要求 `proposal` 先
+`done`，`design`/`specs` 才能解锁（没有"跳过 proposal 单独产 design"的开关），
+所以 `proposal.md` 不能不写，但"为什么做"这类背景/动机已经在跟用户对话中确认过
+的，不必在 `proposal.md` 里重新铺陈一遍，写到刚好满足产物依赖链即可；需要更长
+背景铺垫（跨团队评审、需要留痕的决策依据）时再展开，不是默认动作。
+
+`specs/` 与 `changes/` 的区别只有一条：**`specs/` 是已稳定的事实，`changes/` 是进行中的提案。** `specs/` delta 不是每次 change 的默认产物，只有触发下方"完成门禁触发标准"（跨模块接口/架构/部署变更）时才在 `changes/<name>/specs/` 里写差量，验收后合并进顶层 `specs/`，然后归档。
+
+### design.md 格式规范
+
+`design.md` 不套用 OpenSpec 默认模板的大段解释性文字，参照
+`/Users/lishoubo/p/projects/xiaozhi-rms-workspace/docs/通用/改价清单展示技术方案.md`
+的风格：
+
+- **短表格代替长段落**：字段/接口/取舍点用表格列出，不写"本方案旨在……"这类过渡句
+- **ASCII 图代替纯文字描述**：涉及流程、调用链、目录结构的地方画图，不用"首先……然后……接着……"逐句描述
+- **决策落到表格**：多个候选方案的取舍用一张对比表（方案 / 优点 / 缺点 / 结论），不用叙事口吻讲"我们考虑过 A，但因为……所以选了 B"
+- **代码骨架而非文字描述接口**：新增的类型/接口直接给 TypeScript 骨架（字段+类型），不用文字复述字段含义
+- 篇幅上不设硬性上限，但每一节先问"这段能不能换成表格/图/代码块"，能换就换，不能换的地方才留叙述性文字
 
 ### 路由规则
 
@@ -119,7 +138,7 @@ docs/                            规范之外的文档
 | 文档类型 | 目标位置 |
 |---|---|
 | 架构/接口/部署等全局事实（已稳定） | `openspec/specs/<capability>/spec.md` |
-| 单次需求的 proposal/design/tasks | `openspec/changes/<name>/` |
+| 单次需求的 design/tasks（默认不产出 proposal，见上） | `openspec/changes/<name>/` |
 | 测试计划/QA 报告/验证证据 | 中/大任务：`openspec/changes/<name>/verification.md`；小任务：内联汇报，**不建文件** |
 | 架构设计文档、技术方案 | `docs/arch/YYYY-MM-DD-<topic>.md` |
 | 调研、竞品分析、选型对比 | `docs/research/<topic>.md` |
@@ -140,15 +159,21 @@ docs/                            规范之外的文档
 
 测试细则见 `docs/TESTING_STANDARDS.md`。通用工程与 Electron 安全必须遵守以下硬约束：
 
-- **核心业务逻辑与框架解耦**：`src/domain/` 零框架依赖，不 import `electron` / `better-sqlite3` / `svelte` / harness SDK / `node:fs`。判定标准 = 验收标准：domain 的测试用裸 vitest 跑，不需要 mock 任何东西
-- 依赖方向：`renderer` 只通过 `preload` 访问 `main`；`domain` 不依赖任何一端；只有 composition root 能 import Gateway 实现
+- **分层边界由 eslint 强制**，不靠约定（见 `apps/desktop/.eslintrc.json`）：
+  - `shared/`（跨进程契约与纯类型）与 `main/ids.ts`（标识符校验）零框架依赖，且 `shared` 不得依赖 `main`
+  - `main/ipc/` 只做边界：信任校验 → 参数校验 → 调**恰好一个** service → 错误转换；不得 import `electron`（`ipcMain` 收在 `create-handler-registry.ts`）、不得直连仓储与基础设施
+  - `main/services/` 是业务编排，不得直接开 tab —— OTA 标签页的唯一开口是 `main/ota-tab/`
+  - `main/channels/` 是被注入的渠道适配器，不得反向依赖 `services`/`ipc`/`composition`
+  - `renderer` 只通过 `preload` 访问 `main`
+- 只有 composition root（`main/composition/`）能 import 实现类；其余各层依赖窄接口
+- `main/index.ts` 是进程入口，不含任何业务对象 `new`
 - 保持既有行为，不顺手重构、重命名、升级无关代码
 - 优先简单显式的写法，不做投机抽象；只有"确定会有第二种实现"才值得抽象
 - 错误在有足够上下文的层处理，或保留 cause 向上抛，**不静默吞掉**
 - 严格 TypeScript，避免 `any`、非空断言、类型断言；不可避免时说明原因
 - 删除废弃代码，不留注释掉的实现
 
-架构定稿见 `docs/arch/2026-08-03-final-architecture.md`。
+desktop 主进程分层定稿见 `openspec/specs/desktop-main-layering/spec.md`。
 
 ## 安全护栏
 
@@ -197,7 +222,7 @@ docs/                            规范之外的文档
 ## 职责边界
 
 **只走 OpenSpec：**
-需求分析、proposal / design / tasks 文档编写、规范评审、技术方案确认。`tasks.md` 是 superpowers 的唯一输入。
+需求分析、design / tasks 文档编写（默认不产出 proposal，见「输出目录」）、规范评审、技术方案确认。`tasks.md` 是 superpowers 的唯一输入。
 
 **只走 superpowers：**
 brainstorming / writing-plans / executing-plans、TDD、systematic-debugging、verification、code-review、subagent、worktrees、分支收尾。
