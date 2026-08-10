@@ -19,7 +19,11 @@
     "noUnusedLocals": true,
     "noUnusedParameters": true,
     "forceConsistentCasingInFileNames": true,
-    "skipLibCheck": true
+    "skipLibCheck": true,
+    "paths": {
+      "$lib": ["./src/renderer"],
+      "$lib/*": ["./src/renderer/*"]
+    }
   },
   "exclude": [
     "node_modules",

@@ -1,26 +1,74 @@
-import { initTRPC, TRPCError } from '@trpc/server';
+import { initTRPC, tracked, TRPCError } from '@trpc/server';
 import { z } from 'zod';
 import {
+  agentCapabilitiesSchema,
+  agentConversationIdInputSchema,
+  agentConversationSchema,
+  agentConversationSummarySchema,
+  agentQuickActionSchema,
+  agentRunEventsInputSchema,
+  createAgentConversationInputSchema,
   employeeIdentitySchema,
   logoutResponseSchema,
   phoneCodeRequestResponseSchema,
   phoneCodeSchema,
   phoneNumberSchema,
+  startAgentRunInputSchema,
+  startAgentRunResponseSchema,
+  type AgentCapabilities,
+  type AgentConversation,
+  type AgentConversationSummary,
+  type AgentQuickAction,
+  type AgentRunEvent,
   type EmployeeIdentity,
+  type StartAgentRunResponse,
+  type StartAgentRunInput,
 } from './contracts';
 
 export {
+  agentCapabilitiesSchema,
+  agentConversationIdInputSchema,
+  agentConversationSchema,
+  agentConversationSummarySchema,
+  agentMessageSchema,
+  agentQuickActionIdSchema,
+  agentQuickActionSchema,
+  agentRunEventSchema,
+  agentRunEventsInputSchema,
+  createAgentConversationInputSchema,
   employeeIdentitySchema,
   logoutResponseSchema,
   phoneCodeRequestResponseSchema,
   phoneCodeSchema,
   phoneNumberSchema,
+  generativeUiElementSchema,
+  generativeUiSpecSchema,
+  hotelDistributionChartPropsSchema,
+  hotelRadarChartPropsSchema,
+  hotelRadialChartPropsSchema,
+  hotelTrendChartPropsSchema,
   staffIdentitySchema,
   staffLogoutResponseSchema,
   staffPasswordSchema,
   staffUsernameSchema,
+  startAgentRunInputSchema,
+  startAgentRunResponseSchema,
+  type AgentCapabilities,
+  type AgentConversation,
+  type AgentConversationSummary,
+  type AgentMessage,
+  type AgentQuickAction,
+  type AgentQuickActionId,
+  type AgentRunEvent,
   type EmployeeIdentity,
+  type GenerativeUiSpec,
+  type HotelDistributionChartProps,
+  type HotelRadarChartProps,
+  type HotelRadialChartProps,
+  type HotelTrendChartProps,
   type StaffIdentity,
+  type StartAgentRunResponse,
+  type StartAgentRunInput,
 } from './contracts';
 
 type ApiLogFields = Record<string, string | number | boolean | null | undefined>;
@@ -55,7 +103,27 @@ export interface DesktopSessionGateway {
   revoke(): Promise<void>;
 }
 
+export type AgentPrincipal = Readonly<{ employeeId: string; orgId: string }>;
+
+/* eslint-disable no-unused-vars -- parameter names document the server-owned gateway contract. */
+export interface AgentGateway {
+  capabilities(): Promise<AgentCapabilities>;
+  quickActions(): Promise<readonly AgentQuickAction[]>;
+  listConversations(principal: AgentPrincipal): Promise<AgentConversationSummary[]>;
+  createConversation(principal: AgentPrincipal, title?: string): Promise<AgentConversationSummary>;
+  getConversation(principal: AgentPrincipal, conversationId: string): Promise<AgentConversation>;
+  startRun(principal: AgentPrincipal, input: StartAgentRunInput): Promise<StartAgentRunResponse>;
+  events(
+    principal: AgentPrincipal,
+    input: Readonly<{ runId: string; lastEventId?: string | null }>,
+    signal?: AbortSignal,
+  ): AsyncIterable<AgentRunEvent>;
+}
+/* eslint-enable no-unused-vars */
+
 export interface ApiContext {
+  agent: AgentGateway;
+  agentPrincipal(): Promise<AgentPrincipal | null>;
   desktopSession: DesktopSessionGateway;
   employeeDirectory: EmployeeIdentityDirectory;
   phoneOtp: PhoneOtpGateway;
@@ -63,7 +131,12 @@ export interface ApiContext {
   requestId: string;
 }
 
-const t = initTRPC.context<ApiContext>().create();
+const t = initTRPC.context<ApiContext>().create({
+  sse: {
+    ping: { enabled: true, intervalMs: 2_000 },
+    client: { reconnectAfterInactivityMs: 5_000 },
+  },
+});
 
 const serviceUnavailableError = (message: string, cause: unknown): TRPCError =>
   new TRPCError({
@@ -107,6 +180,17 @@ const protectedProcedure = publicProcedure.use(async ({ ctx, next }) => {
   return next({ ctx: { ...ctx, employee } });
 });
 
+const agentProcedure = publicProcedure.use(async ({ ctx, next }) => {
+  let principal: AgentPrincipal | null;
+  try {
+    principal = await ctx.agentPrincipal();
+  } catch (cause) {
+    throw serviceUnavailableError('Agent 身份验证服务暂时不可用，请稍后重试', cause);
+  }
+  if (!principal) throw new TRPCError({ code: 'UNAUTHORIZED', message: '请先登录' });
+  return next({ ctx: { ...ctx, agentPrincipal: principal } });
+});
+
 const healthResponseSchema = z.object({
   status: z.literal('ok'),
 });
@@ -118,6 +202,40 @@ const invalidPhoneCodeError = (): TRPCError =>
   });
 
 export const appRouter = t.router({
+  agent: t.router({
+    capabilities: agentProcedure
+      .output(agentCapabilitiesSchema)
+      .query(({ ctx }) => ctx.agent.capabilities()),
+    quickActions: agentProcedure
+      .output(z.array(agentQuickActionSchema))
+      .query(async ({ ctx }) => [...(await ctx.agent.quickActions())]),
+    listConversations: agentProcedure
+      .output(z.array(agentConversationSummarySchema))
+      .query(async ({ ctx }) => [...(await ctx.agent.listConversations(ctx.agentPrincipal))]),
+    createConversation: agentProcedure
+      .input(createAgentConversationInputSchema)
+      .output(agentConversationSummarySchema)
+      .mutation(({ ctx, input }) => ctx.agent.createConversation(ctx.agentPrincipal, input.title)),
+    getConversation: agentProcedure
+      .input(agentConversationIdInputSchema)
+      .output(agentConversationSchema)
+      .query(({ ctx, input }) =>
+        ctx.agent.getConversation(ctx.agentPrincipal, input.conversationId),
+      ),
+    startRun: agentProcedure
+      .input(startAgentRunInputSchema)
+      .output(startAgentRunResponseSchema)
+      .mutation(({ ctx, input }) => ctx.agent.startRun(ctx.agentPrincipal, input)),
+    events: agentProcedure.input(agentRunEventsInputSchema).subscription(async function* ({
+      ctx,
+      input,
+      signal,
+    }) {
+      for await (const event of ctx.agent.events(ctx.agentPrincipal, input, signal)) {
+        yield tracked(event.id, event);
+      }
+    }),
+  }),
   auth: t.router({
     requestPhoneCode: publicProcedure
       .input(z.strictObject({ phone: phoneNumberSchema }))

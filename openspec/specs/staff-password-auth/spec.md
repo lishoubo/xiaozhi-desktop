@@ -9,7 +9,7 @@
 |---|---|
 | 密码校验方 | rms-server，desktop 不接触 BCrypt |
 | 凭证 | RMS 签发的 JWT（access 8h / refresh 7d），只在 main 进程持有 |
-| 不经过 | `apps/server`（无 tRPC procedure 参与） |
+| 登录不经过 | `apps/server`（登录 procedure 不参与；Agent tRPC 会转发 Bearer 给 RMS `/api/v1/me` 验证） |
 | 酒店上下文 | 登录响应带 `rms_current_hotel` cookie，**本期不消费** |
 
 ## 接口契约（rms-server）

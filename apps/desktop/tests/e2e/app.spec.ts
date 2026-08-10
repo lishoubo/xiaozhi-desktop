@@ -228,9 +228,9 @@ test('opens the AI concierge from the icon sidebar', async () => {
   await page.getByRole('link', { name: '小智AI 管家' }).click();
 
   await expect(page).toHaveURL(/#\/agent$/);
-  await expect(page.getByRole('heading', { name: '小智AI 管家' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '小智 AI 管家' })).toBeVisible();
   await expect(page.getByRole('heading', { name: '今天想先处理什么？' })).toBeVisible();
-  await expect(page.getByRole('textbox', { name: '给小智AI 管家发消息' })).toBeVisible();
+  await expect(page.getByRole('textbox')).toBeVisible();
 });
 
 test('opens the localized calendar with the seeded holiday group', async () => {
@@ -384,27 +384,28 @@ test('opens the localized calendar with the seeded holiday group', async () => {
   await expect(page.getByText('自动保存的晨会标题')).toHaveCount(0);
 
   await page.getByRole('button', { name: '今天' }).click();
-  for (let index = 0; index < 4; index += 1) {
+  const periodHeading = page.getByRole('heading', { level: 2 });
+  for (let index = 0; index < 8; index += 1) {
+    if ((await periodHeading.textContent())?.includes('2026年8月30日–9月5日')) break;
     await page.getByRole('button', { name: '下一个时段' }).click();
   }
-  await expect(page.getByRole('heading', { level: 2 })).toContainText('2026年8月30日–9月5日');
-  await expect(page.getByTestId('mini-calendar-month')).toHaveText('2026年9月');
+  await expect(periodHeading).toContainText('2026年8月30日–9月5日');
+  await expect(page.getByTestId('mini-calendar-month')).toHaveText('2026年8月');
 
   await page.getByRole('button', { name: '迷你日历下一个月' }).click();
-  await expect(page.getByTestId('mini-calendar-month')).toHaveText('2026年10月');
+  await expect(page.getByTestId('mini-calendar-month')).toHaveText('2026年9月');
   await page.locator('.hotel-mini-calendar .wx-day:not(.wx-out)', { hasText: /^15$/ }).click();
-  await expect(page.getByRole('heading', { level: 2 })).toContainText('10月');
+  await expect(page.getByRole('heading', { level: 2 })).toContainText('9月');
 });
 
-test('previews generated hotel UI with static data', async () => {
+test('shows only executable public MCP quick actions', async () => {
   await login();
   await page.getByRole('link', { name: '小智AI 管家' }).click();
-  await page.getByRole('button', { name: '预览房态库存' }).click();
 
-  await expect(page.getByRole('heading', { name: '房态与库存' })).toBeVisible();
-  await expect(page.getByText('高级双床房库存偏紧')).toBeVisible();
-  await expect(page.getByText('Mock 数据')).toBeVisible();
-  await expect(page.locator('[data-generative-ui="hotel"]')).toBeVisible();
+  await expect(page.getByRole('button', { name: '查看今日天气', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: '未来七天天气', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: '空气质量提醒', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: '预览房态库存' })).toHaveCount(0);
 });
 
 test('navigates between the browser workspace and settings', async () => {

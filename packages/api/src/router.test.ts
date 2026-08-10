@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { vi } from 'vitest';
 import { appRouter } from './router';
+import type { AgentGateway } from './router';
 
 describe('appRouter', () => {
   const activeEmployee = {
@@ -25,8 +26,20 @@ describe('appRouter', () => {
       warn: vi.fn(),
       error: vi.fn(),
     },
+    agent = {
+      capabilities: vi.fn(),
+      quickActions: vi.fn(),
+      listConversations: vi.fn(),
+      createConversation: vi.fn(),
+      getConversation: vi.fn(),
+      startRun: vi.fn(),
+      events: vi.fn(),
+    } as AgentGateway,
+    agentPrincipal = vi.fn().mockResolvedValue(null),
   } = {}) {
     return appRouter.createCaller({
+      agent,
+      agentPrincipal,
       employeeDirectory: { findActiveById: vi.fn().mockResolvedValue(null), findActiveByPhone },
       desktopSession: { currentEmployee, issue, revoke },
       phoneOtp: { requestCode, verifyCode },
@@ -38,6 +51,8 @@ describe('appRouter', () => {
   it('reports the server transport as healthy', async () => {
     const debug = vi.fn();
     const caller = appRouter.createCaller({
+      agent: {} as never,
+      agentPrincipal: vi.fn().mockResolvedValue(null),
       employeeDirectory: {
         findActiveById: vi.fn().mockResolvedValue(null),
         findActiveByPhone: vi.fn().mockResolvedValue(null),
@@ -71,6 +86,125 @@ describe('appRouter', () => {
       'tRPC procedure completed',
     );
     expect(JSON.stringify(debug.mock.calls)).not.toContain('input');
+  });
+
+  it('derives Agent ownership from the authenticated session and never from client input', async () => {
+    const getConversation = vi.fn().mockResolvedValue({
+      conversation: {
+        id: '11111111-1111-4111-8111-111111111111',
+        title: '用户 A 会话',
+        createdAt: '2026-08-10T00:00:00.000Z',
+        updatedAt: '2026-08-10T00:00:00.000Z',
+      },
+      messages: [],
+    });
+    const agent = {
+      capabilities: vi.fn(),
+      quickActions: vi.fn(),
+      listConversations: vi.fn(),
+      createConversation: vi.fn(),
+      getConversation,
+      startRun: vi.fn(),
+      events: vi.fn(),
+    } as AgentGateway;
+    const principal = { employeeId: '1001', orgId: '42' } as const;
+    const caller = createCaller({
+      agent,
+      agentPrincipal: vi.fn().mockResolvedValue(principal),
+    });
+
+    await caller.agent.getConversation({
+      conversationId: '11111111-1111-4111-8111-111111111111',
+    });
+
+    expect(getConversation).toHaveBeenCalledWith(principal, '11111111-1111-4111-8111-111111111111');
+    await expect(
+      caller.agent.getConversation({
+        conversationId: '11111111-1111-4111-8111-111111111111',
+        ownerEmployeeId: '2002',
+      } as never),
+    ).rejects.toMatchObject({ code: 'BAD_REQUEST' });
+  });
+
+  it('rejects Agent access before calling the gateway when no session principal exists', async () => {
+    const getConversation = vi.fn();
+    const agent = {
+      capabilities: vi.fn(),
+      quickActions: vi.fn(),
+      listConversations: vi.fn(),
+      createConversation: vi.fn(),
+      getConversation,
+      startRun: vi.fn(),
+      events: vi.fn(),
+    } as AgentGateway;
+    const caller = createCaller({ agent });
+
+    await expect(
+      caller.agent.getConversation({
+        conversationId: '11111111-1111-4111-8111-111111111111',
+      }),
+    ).rejects.toMatchObject({ code: 'UNAUTHORIZED' });
+    expect(getConversation).not.toHaveBeenCalled();
+  });
+
+  it('returns the server-owned quick-action catalog and accepts only its identifier', async () => {
+    const principal = { employeeId: '1001', orgId: '42' } as const;
+    const quickActions = vi.fn().mockResolvedValue([
+      {
+        id: 'today_weather',
+        label: '查看今日天气',
+        description: '查询酒店所在地天气',
+        category: 'operations',
+        requiresMcp: true,
+        available: true,
+      },
+    ]);
+    const startRun = vi.fn().mockResolvedValue({
+      runId: '33333333-3333-4333-8333-333333333333',
+      userMessage: {
+        id: '22222222-2222-4222-8222-222222222222',
+        conversationId: '11111111-1111-4111-8111-111111111111',
+        role: 'user',
+        content: '生成交班摘要',
+        ui: null,
+        createdAt: '2026-08-10T00:00:00.000Z',
+      },
+    });
+    const agent = {
+      capabilities: vi.fn(),
+      quickActions,
+      listConversations: vi.fn(),
+      createConversation: vi.fn(),
+      getConversation: vi.fn(),
+      startRun,
+      events: vi.fn(),
+    } as AgentGateway;
+    const caller = createCaller({
+      agent,
+      agentPrincipal: vi.fn().mockResolvedValue(principal),
+    });
+
+    await expect(caller.agent.quickActions()).resolves.toHaveLength(1);
+    await caller.agent.startRun({
+      conversationId: '11111111-1111-4111-8111-111111111111',
+      quickActionId: 'today_weather',
+      clientRequestId: '44444444-4444-4444-8444-444444444444',
+    });
+
+    expect(quickActions).toHaveBeenCalledWith();
+    expect(startRun).toHaveBeenCalledWith(principal, {
+      conversationId: '11111111-1111-4111-8111-111111111111',
+      quickActionId: 'today_weather',
+      clientRequestId: '44444444-4444-4444-8444-444444444444',
+    });
+    await expect(
+      caller.agent.startRun({
+        conversationId: '11111111-1111-4111-8111-111111111111',
+        quickActionId: 'today_weather',
+        prompt: '覆盖服务端提示词',
+        clientRequestId: '55555555-5555-4555-8555-555555555555',
+      } as never),
+    ).rejects.toMatchObject({ code: 'BAD_REQUEST' });
   });
 
   it('accepts a phone-code request without consulting the employee directory', async () => {

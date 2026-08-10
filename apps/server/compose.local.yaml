@@ -68,8 +68,12 @@ services:
       LOCAL_HTTPS_CERT_DIR: /certs
       NODE_EXTRA_CA_CERTS: /certs/rootCA.pem
       SHOW_LOCAL_ADMIN_CREDENTIALS: 'true'
+      XIAOZHI_RMS_SERVER_URL: ${XIAOZHI_RMS_SERVER_URL:-http://host.docker.internal:8080}
+      AI_PUBLIC_WEATHER_MCP_ENABLED: ${AI_PUBLIC_WEATHER_MCP_ENABLED:-true}
     ports:
       - '${SERVER_HTTPS_PORT:-4173}:4173'
+    extra_hosts:
+      - 'host.docker.internal:host-gateway'
     volumes:
       - ./.cert:/certs:ro
     depends_on:

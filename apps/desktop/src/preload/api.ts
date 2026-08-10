@@ -12,6 +12,7 @@ import {
   type Subscribe,
 } from './invoke';
 import { createAuthApi } from './namespaces/auth';
+import { createAgentApi } from './namespaces/agent';
 import { createBrowserApi } from './namespaces/browser';
 import { createCalendarApi } from './namespaces/calendar';
 import { createCookiesApi } from './namespaces/cookies';
@@ -36,6 +37,7 @@ export function createDesktopApi(
   const validatedSubscribe = createValidatedSubscribe(subscribe);
 
   return Object.freeze({
+    agent: createAgentApi(validatedInvoke, validatedSubscribe),
     auth: createAuthApi(validatedInvoke),
     browser: createBrowserApi(validatedInvoke, validatedSubscribe),
     calendar: createCalendarApi(validatedInvoke),

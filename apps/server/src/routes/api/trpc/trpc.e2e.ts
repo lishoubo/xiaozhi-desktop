@@ -66,3 +66,54 @@ test('requests a temporary phone code and logs in an active RMS employee', async
 	expect(revokedSessionResponse.status()).toBe(200);
 	expect((await revokedSessionResponse.json()).result.data).toBeNull();
 });
+
+test('persists Agent conversations under the authenticated desktop session', async ({
+	request
+}) => {
+	const unauthenticated = await request.get('/api/trpc/agent.listConversations');
+	expect(unauthenticated.status()).toBe(401);
+
+	const login = await request.post('/api/trpc/auth.loginWithPhoneCode', {
+		data: { phone: '13800138000', code: '654321' }
+	});
+	expect(login.status()).toBe(200);
+
+	const capabilities = await request.get('/api/trpc/agent.capabilities');
+	expect(capabilities.status()).toBe(200);
+	expect((await capabilities.json()).result.data).toMatchObject({
+		model: 'kimi-k3',
+		generativeUi: true,
+		longTermMemory: true,
+		skillCount: 0,
+		quickActionCount: 3
+	});
+
+	const quickActions = await request.get('/api/trpc/agent.quickActions');
+	expect(quickActions.status()).toBe(200);
+	const actionCatalog = (await quickActions.json()).result.data;
+	expect(actionCatalog.map((action: { id: string }) => action.id)).toEqual([
+		'today_weather',
+		'weather_outlook',
+		'air_quality'
+	]);
+	expect(actionCatalog).not.toContainEqual(expect.objectContaining({ prompt: expect.anything() }));
+
+	const created = await request.post('/api/trpc/agent.createConversation', {
+		data: { title: 'E2E Agent 会话' }
+	});
+	expect(created.status()).toBe(200);
+	const conversation = (await created.json()).result.data;
+
+	const loaded = await request.get(
+		`/api/trpc/agent.getConversation?input=${encodeURIComponent(JSON.stringify({ conversationId: conversation.id }))}`
+	);
+	expect(loaded.status()).toBe(200);
+	expect((await loaded.json()).result.data).toEqual({ conversation, messages: [] });
+
+	const forgedOwner = await request.get(
+		`/api/trpc/agent.getConversation?input=${encodeURIComponent(
+			JSON.stringify({ conversationId: conversation.id, ownerEmployeeId: 'another-user' })
+		)}`
+	);
+	expect(forgedOwner.status()).toBe(400);
+});

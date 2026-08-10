@@ -36,6 +36,13 @@
       "when": 1786070504358,
       "tag": "0004_optimal_wrecking_crew",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1786335919383,
+      "tag": "0005_aspiring_ghost_rider",
+      "breakpoints": true
     }
   ]
 }

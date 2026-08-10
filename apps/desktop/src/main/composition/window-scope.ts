@@ -10,6 +10,7 @@ import { BrowserManager } from '../browser/browser-manager';
 import { hotelProbes, loginUrlMatchers } from '../channels/registry';
 import { BrowserCookieImporter } from '../cookie-import/browser-cookie-importer';
 import { registerAuthHandlers } from '../ipc/auth-handlers';
+import { registerAgentHandlers } from '../ipc/agent-handlers';
 import { registerBrowserHandlers } from '../ipc/browser-handlers';
 import { registerCalendarHandlers } from '../ipc/calendar-handlers';
 import { registerCookieHandlers } from '../ipc/cookie-handlers';
@@ -20,7 +21,12 @@ import { registerStaffAuthHandlers } from '../ipc/staff-auth-handlers';
 import { registerSystemHandlers } from '../ipc/system-handlers';
 import { LoginDetector, OtaTabService, TabEventBus } from '../ota-tab';
 import { resolveServerOrigin } from '../server-client/config';
-import { createElectronSessionFetch, createServerTrpcClient } from '../server-client/trpc-client';
+import {
+  createElectronSessionFetch,
+  createServerTrpcClient,
+  createServerTrpcStreamingClient,
+} from '../server-client/trpc-client';
+import { createStaffServerFetch } from '../server-client/staff-server-fetch';
 import { AUTH_VARIANT, IS_STAFF_AUTH } from '../../shared/auth-variant';
 import { AuthService } from '../services/auth-service';
 import { StaffAuthService } from '../services/staff-auth-service';
@@ -30,6 +36,7 @@ import { HotelProbeDispatcher } from '../channels/hotel-probe-dispatcher';
 import { OtaReauthDispatcher } from '../channels/ota-reauth-dispatcher';
 import type { UiWaitingResultEnvelope } from '../../shared/types/ui-waiting-result-types';
 import { SystemService } from '../services/system-service';
+import { AgentService } from '../services/agent-service';
 import { IPC_CHANNELS } from '../../shared/ipc-channels';
 import { createMainWindow } from '../windows/main-window';
 import type { AppScope } from './app-scope';
@@ -133,6 +140,21 @@ export function createWindowScope(scope: AppScope): WindowScope {
   onDispose(
     registerHotelManagementHandlers({ window, feature: scope.hotelManagementService, logger }),
   );
+  const serverOrigin = resolveServerOrigin(process.env);
+  const apiSession = scope.sessionFactory.sessionForServerApi();
+  const serverFetch = createElectronSessionFetch(apiSession);
+  const agentFetch = IS_STAFF_AUTH
+    ? createStaffServerFetch(serverFetch, scope.rms.tokens, logger)
+    : serverFetch;
+  const agentService = new AgentService(
+    createServerTrpcStreamingClient({ baseUrl: serverOrigin, fetch: agentFetch }),
+    (envelope) => {
+      if (!window.isDestroyed()) window.webContents.send(IPC_CHANNELS.agent.streamEvent, envelope);
+    },
+    logger,
+  );
+  onDispose(() => agentService.dispose());
+  onDispose(registerAgentHandlers({ window, service: agentService, logger }));
   // 登录体系按构建变体二选一。`IS_STAFF_AUTH` 是编译期常量，未命中的分支连同它
   // 依赖的 service 会被 DCE 摇掉，不会进产物；未选中那套的 session 也不会创建。
   logger.info('Authentication variant selected', { authVariant: AUTH_VARIANT });
@@ -150,8 +172,6 @@ export function createWindowScope(scope: AppScope): WindowScope {
       }),
     );
   } else {
-    const serverOrigin = resolveServerOrigin(process.env);
-    const apiSession = scope.sessionFactory.sessionForServerApi();
     onDispose(
       registerAuthHandlers({
         service: new AuthService({

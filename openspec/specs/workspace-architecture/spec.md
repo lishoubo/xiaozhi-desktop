@@ -27,6 +27,12 @@ Desktop-to-server communication SHALL use tRPC over `/api/trpc`, and the desktop
 - **THEN** Electron main uses the shared tRPC contract
 - **AND** renderer does not import or call the server implementation directly
 
+#### Scenario: Desktop streams Agent events
+
+- **WHEN** desktop runs a long-lived Agent task
+- **THEN** Electron main uses the shared tRPC SSE subscription over HTTPS
+- **AND** preload forwards validated events to renderer without exposing the server credential
+
 #### Scenario: Desktop performs authentication operations
 
 - **WHEN** renderer requests login or session operations

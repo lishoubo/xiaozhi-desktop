@@ -1,4 +1,14 @@
 export const IPC_CHANNELS = {
+  agent: {
+    capabilities: 'agent:capabilities',
+    quickActions: 'agent:quick-actions',
+    listConversations: 'agent:list-conversations',
+    createConversation: 'agent:create-conversation',
+    getConversation: 'agent:get-conversation',
+    startRun: 'agent:start-run',
+    cancelRun: 'agent:cancel-run',
+    streamEvent: 'agent:stream-event',
+  },
   auth: {
     currentSession: 'auth:current-session',
     loginWithPhoneCode: 'auth:login-with-phone-code',
