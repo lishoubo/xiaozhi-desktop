@@ -6,6 +6,8 @@ export default defineConfig({
   define: {
     MAIN_WINDOW_VITE_DEV_SERVER_URL: JSON.stringify(''),
     MAIN_WINDOW_VITE_NAME: JSON.stringify('main_window'),
+    // E2E 跑在本机，固定指向本地 rms-server。
+    __RMS_ORIGIN__: JSON.stringify('http://localhost:8080'),
   },
   build: {
     target: 'node24',

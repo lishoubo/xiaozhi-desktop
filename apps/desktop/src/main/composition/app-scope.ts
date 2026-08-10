@@ -98,7 +98,7 @@ export function createAppScope(logger: AppLogger): AppScope {
    * token 的读写、刷新和并发去重必须只有一份，否则多个 gateway 同时撞上过期
    * 会各刷一次，而 RMS 的 refresh token 是单次使用的。
    */
-  const rmsOrigin = resolveRmsOrigin(process.env);
+  const rmsOrigin = resolveRmsOrigin();
   const rmsFetch = createElectronSessionFetch(sessionFactory.sessionForRmsApi());
   const rmsAuthClient = createRmsAuthClient({ origin: rmsOrigin, fetch: rmsFetch, logger });
   const rmsTokens = createRmsTokenProvider({
