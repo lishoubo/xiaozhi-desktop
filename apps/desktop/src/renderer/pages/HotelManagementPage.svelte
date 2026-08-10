@@ -3,6 +3,7 @@
   import ChevronLeft from '@lucide/svelte/icons/chevron-left';
   import ChevronRight from '@lucide/svelte/icons/chevron-right';
   import Plus from '@lucide/svelte/icons/plus';
+  import RefreshCw from '@lucide/svelte/icons/refresh-cw';
   import Trash2 from '@lucide/svelte/icons/trash-2';
   import log from 'electron-log/renderer';
   import { onMount } from 'svelte';
@@ -14,6 +15,7 @@
   import BoundOtaAccountCard from '../components/hotel/BoundOtaAccountCard.svelte';
   import ReauthOtaAccountDialog from '../components/hotel/ReauthOtaAccountDialog.svelte';
   import {
+    formatLastRefreshedAt,
     groupOtaAccountsByHotelId,
     paginate,
     type OtaAccountAction,
@@ -25,8 +27,16 @@
 
   let loading = $state(true);
   let loadError = $state(false);
+  let refreshing = $state(false);
   let hotels = $state<readonly RmsHotelDto[]>([]);
   let otaAccounts = $state<readonly RmsOtaAccountDto[]>([]);
+  let lastRefreshedAt = $state<Date | null>(null);
+  // 时刻本身不会走，但「是不是今天」会：跨过午夜后要补回日期前缀，
+  // 否则昨晚的数据只显示 `19:54`，看着像刚拉的。
+  let clockTick = $state(new Date());
+  const lastRefreshedLabel = $derived(
+    lastRefreshedAt === null ? null : formatLastRefreshedAt(lastRefreshedAt, clockTick),
+  );
   const accountsByHotelId = $derived(groupOtaAccountsByHotelId(otaAccounts));
   const totalAccounts = $derived(otaAccounts.length);
   const attentionAccounts = $derived(
@@ -54,26 +64,50 @@
   let unbindTarget = $state<{ account: RmsOtaAccountDto; channelName: string } | null>(null);
   let unbinding = $state(false);
 
-  async function loadHotelManagement(): Promise<void> {
-    loading = true;
+  /**
+   * `silent` 用于手动刷新：不清空已有数据、不进骨架态，只让按钮转起来。整页闪回
+   * loading 会把用户正在看的那一行抽走，手动刷新反而更难用。
+   */
+  async function loadHotelManagement(options: { silent?: boolean } = {}): Promise<void> {
+    const silent = options.silent ?? false;
+    if (silent) refreshing = true;
+    else loading = true;
     loadError = false;
     try {
       const snapshot = await window.hotelButler.hotelManagement.load();
       hotels = snapshot.hotels;
       otaAccounts = snapshot.otaAccounts;
+      lastRefreshedAt = new Date();
+      clockTick = lastRefreshedAt;
       dismissAppNotification('hotel-management-load-error');
     } catch (reason) {
       log.warn('Hotel management data could not be loaded', {
         errorName: reason instanceof Error ? reason.name : 'UnknownError',
       });
-      loadError = true;
+      // 静默刷新失败时保留旧数据：手上这份过时但可用，清空只会让用户什么都看不到。
+      if (silent) {
+        showAppNotification({
+          id: 'hotel-management-refresh-error',
+          title: '刷新失败',
+          message: '未能获取最新数据，当前显示的仍是上次结果。',
+          tone: 'error',
+        });
+      } else {
+        loadError = true;
+      }
     } finally {
       loading = false;
+      refreshing = false;
     }
   }
 
   onMount(() => {
     void loadHotelManagement();
+
+    const timer = setInterval(() => {
+      clockTick = new Date();
+    }, 60_000);
+    return () => clearInterval(timer);
   });
 
   function openCreateDialog(): void {
@@ -177,7 +211,25 @@
           <Building2 size={13} />
           资产与渠道
         </div>
-        <h1 class="m-0 text-xl font-semibold tracking-[-0.02em]">酒店管理</h1>
+        <div class="flex items-center gap-2.5">
+          <h1 class="m-0 text-xl font-semibold tracking-[-0.02em]">酒店管理</h1>
+          {#if lastRefreshedLabel !== null}
+            <span class="text-[11px] text-muted-foreground" aria-live="polite">
+              更新于 {lastRefreshedLabel}
+            </span>
+          {/if}
+          <Button
+            size="sm"
+            variant="ghost"
+            class="h-7 gap-1.5 px-2 text-[11px] text-muted-foreground"
+            disabled={loading || refreshing}
+            aria-label="刷新酒店数据"
+            onclick={() => void loadHotelManagement({ silent: true })}
+          >
+            <RefreshCw size={13} class={refreshing ? 'animate-spin' : undefined} />
+            刷新
+          </Button>
+        </div>
       </div>
       <div class="flex items-center gap-3">
         {#if !loading && !loadError}
