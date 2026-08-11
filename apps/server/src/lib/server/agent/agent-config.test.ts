@@ -68,4 +68,45 @@ describe('agent configuration', () => {
 			)
 		).toHaveProperty('rates.capabilities', ['hotel_rates']);
 	});
+
+	it('adds the fixed hotel data MCP only when a server-side token is configured', () => {
+		const withoutToken = readAgentEnvironment({
+			AI_KIMI_API_KEY: 'secret',
+			AI_PUBLIC_WEATHER_MCP_ENABLED: 'false'
+		});
+		const withToken = readAgentEnvironment({
+			AI_KIMI_API_KEY: 'secret',
+			AI_PUBLIC_WEATHER_MCP_ENABLED: 'false',
+			AI_DMS_MCP_BEARER_TOKEN: 'rotated-token'
+		});
+
+		expect(withoutToken.mcpServers).toEqual({});
+		expect(withToken.mcpServers['aliyun-dms-hotel-data']).toEqual({
+			transport: 'sse',
+			url: 'https://dms-mcpr-bfobse-vcyndjbctk.cn-hangzhou.fcapp.run/sse',
+			headers: { Authorization: 'Bearer rotated-token' },
+			capabilities: ['hotel_data']
+		});
+	});
+
+	it('rejects header injection in the DMS token', () => {
+		expect(() =>
+			readAgentEnvironment({
+				AI_KIMI_API_KEY: 'secret',
+				AI_DMS_MCP_BEARER_TOKEN: 'token\nX-Injected: yes'
+			})
+		).toThrow('contains invalid characters');
+	});
+
+	it('accepts either a raw DMS token or a complete Bearer value', () => {
+		const environment = readAgentEnvironment({
+			AI_PUBLIC_WEATHER_MCP_ENABLED: 'false',
+			AI_DMS_MCP_BEARER_TOKEN: 'Bearer rotated-token'
+		});
+
+		expect(environment.mcpServers['aliyun-dms-hotel-data']).toHaveProperty(
+			'headers.Authorization',
+			'Bearer rotated-token'
+		);
+	});
 });

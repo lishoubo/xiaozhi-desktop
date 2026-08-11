@@ -1,8 +1,11 @@
 import { createRequire } from 'node:module';
 import { z } from 'zod';
 
-export const mcpCapabilitySchema = z.enum(['weather', 'hotel_rates']);
+export const mcpCapabilitySchema = z.enum(['weather', 'hotel_rates', 'hotel_data']);
 export type McpCapability = z.infer<typeof mcpCapabilitySchema>;
+
+export const HOTEL_DATA_MCP_SERVER_NAME = 'aliyun-dms-hotel-data';
+const HOTEL_DATA_MCP_URL = 'https://dms-mcpr-bfobse-vcyndjbctk.cn-hangzhou.fcapp.run/sse';
 
 const mcpMetadataSchema = z.object({
 	capabilities: z.array(mcpCapabilitySchema).default([])
@@ -81,18 +84,32 @@ function publicWeatherServer(): McpServerConfig {
 	};
 }
 
+function hotelDataServer(token: string): McpServerConfig {
+	if (/\r|\n/.test(token)) throw new Error('AI_DMS_MCP_BEARER_TOKEN contains invalid characters');
+	const credential = token.replace(/^Bearer\s+/i, '').trim();
+	if (!credential) throw new Error('AI_DMS_MCP_BEARER_TOKEN is empty');
+	return {
+		transport: 'sse',
+		url: HOTEL_DATA_MCP_URL,
+		headers: { Authorization: `Bearer ${credential}` },
+		capabilities: ['hotel_data']
+	};
+}
+
 export function readAgentEnvironment(environment: NodeJS.ProcessEnv): AgentEnvironment {
 	const configuredServers = parseMcpServers(environment.AI_MCP_SERVERS_JSON);
 	const publicWeatherEnabled = !['0', 'false', 'no', 'off'].includes(
 		(environment.AI_PUBLIC_WEATHER_MCP_ENABLED ?? '').trim().toLowerCase()
 	);
+	const dmsBearerToken = environment.AI_DMS_MCP_BEARER_TOKEN?.trim() ?? '';
+	const bundledServers: Record<string, McpServerConfig> = { ...configuredServers };
+	if (publicWeatherEnabled) bundledServers['public-weather'] = publicWeatherServer();
+	if (dmsBearerToken) bundledServers[HOTEL_DATA_MCP_SERVER_NAME] = hotelDataServer(dmsBearerToken);
 	return {
 		apiKey: environment.AI_KIMI_API_KEY?.trim() ?? '',
 		baseUrl: parseKimiBaseUrl(environment.AI_KIMI_BASE_URL),
 		model: environment.AI_KIMI_MODEL?.trim() || 'kimi-k3',
-		mcpServers: publicWeatherEnabled
-			? { ...configuredServers, 'public-weather': publicWeatherServer() }
-			: configuredServers,
+		mcpServers: bundledServers,
 		allowMcpWriteTools: ['1', 'true', 'yes', 'on'].includes(
 			(environment.AI_MCP_ALLOW_WRITE_TOOLS ?? '').trim().toLowerCase()
 		)

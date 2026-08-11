@@ -85,4 +85,24 @@ describe('validateHotelUi', () => {
 			})
 		).toThrow();
 	});
+
+	it('rejects data tables that are too large for the conversation UI', () => {
+		expect(() =>
+			validateHotelUi({
+				root: 'root',
+				state: {},
+				elements: {
+					root: {
+						type: 'Table',
+						props: {
+							columns: ['日期', '收入'],
+							rows: Array.from({ length: 51 }, (_, index) => [index, index * 100])
+						},
+						children: [],
+						visible: true
+					}
+				}
+			})
+		).toThrow('cannot exceed 50 rows');
+	});
 });

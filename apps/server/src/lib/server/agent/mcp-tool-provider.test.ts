@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { isReadOnlyMcpToolName } from './mcp-tool-provider';
+import {
+	compactHotelDataResult,
+	constrainHotelDataQueryArgs,
+	constrainHotelDataSqlArgs,
+	constrainHotelDataTableListArgs,
+	isAllowedHotelDataMcpToolName
+} from './hotel-data-mcp';
 
 describe('isReadOnlyMcpToolName', () => {
 	it('allows explicit read operations', () => {
@@ -11,5 +18,104 @@ describe('isReadOnlyMcpToolName', () => {
 		expect(isReadOnlyMcpToolName('reservation.get_and_delete')).toBe(false);
 		expect(isReadOnlyMcpToolName('inventory.update')).toBe(false);
 		expect(isReadOnlyMcpToolName('refund.execute')).toBe(false);
+	});
+});
+
+describe('hotel data MCP guardrails', () => {
+	it('allows only read-oriented DMS data tools and blocks management tools', () => {
+		expect(isAllowedHotelDataMcpToolName('askDatabase')).toBe(true);
+		expect(isAllowedHotelDataMcpToolName('executeScript')).toBe(true);
+		expect(isAllowedHotelDataMcpToolName('listTables')).toBe(true);
+		expect(isAllowedHotelDataMcpToolName('getTableDetailInfo')).toBe(true);
+		expect(isAllowedHotelDataMcpToolName('addInstance')).toBe(false);
+		expect(isAllowedHotelDataMcpToolName('createDataChangeOrder')).toBe(false);
+		expect(isAllowedHotelDataMcpToolName('submitOrderApproval')).toBe(false);
+	});
+
+	it('injects bounded and privacy-safe result requirements', () => {
+		const result = constrainHotelDataQueryArgs({
+			question: '查询最近一个月的渠道收入趋势'
+		});
+
+		expect(result).toMatchObject({
+			question: expect.stringContaining('最多 50 行')
+		});
+		expect(result).toMatchObject({
+			question: expect.stringContaining('优先查询统计')
+		});
+	});
+
+	it('rejects a data call without a recognizable natural-language question', () => {
+		expect(() => constrainHotelDataQueryArgs({ databaseId: '1' })).toThrow('缺少自然语言查询参数');
+	});
+
+	it('bounds table metadata pagination before calling DMS', () => {
+		expect(constrainHotelDataTableListArgs({ page_number: 0, page_size: 10_000 })).toEqual({
+			page_number: 1,
+			page_size: 50
+		});
+	});
+
+	it('wraps a single SELECT with a result limit', () => {
+		expect(
+			constrainHotelDataSqlArgs({
+				script: 'SELECT hotel_id, SUM(gmv) AS gmv FROM fact_business_daily GROUP BY hotel_id'
+			})
+		).toEqual({
+			script:
+				'SELECT * FROM (SELECT hotel_id, SUM(gmv) AS gmv FROM fact_business_daily GROUP BY hotel_id) AS data_agent_result LIMIT 50'
+		});
+	});
+
+	it('rejects writes, multiple statements, comments, files, locks, and dangerous functions', () => {
+		for (const script of [
+			'DELETE FROM ota_order',
+			'SELECT 1; SELECT 2',
+			'SELECT * FROM hotel -- bypass',
+			"SELECT * FROM hotel INTO OUTFILE '/tmp/hotels'",
+			'SELECT SLEEP(10)',
+			'SELECT * FROM hotel FOR UPDATE'
+		]) {
+			expect(() => constrainHotelDataSqlArgs({ script })).toThrow();
+		}
+	});
+
+	it('preserves business fields and filters oversized result sets before model ingestion', () => {
+		const rows = Array.from({ length: 55 }, (_, index) => ({
+			hotel_id: 7,
+			date: `2026-08-${String(index + 1).padStart(2, '0')}`,
+			revenue: index * 100,
+			guest_name: `guest-${index}`,
+			phone: '13800138000'
+		}));
+
+		const compacted = compactHotelDataResult(JSON.stringify(rows));
+
+		expect(compacted).toContain('DATA_RESULT_FILTERED');
+		expect(compacted).toContain('省略 5 行');
+		expect(compacted).toContain('13800138000');
+		expect(compacted).toContain('guest-0');
+	});
+
+	it('redacts DMS credentials even when a remote error echoes them as plain text', () => {
+		const compacted = compactHotelDataResult(
+			'upstream rejected DMS-1234567890abcdef-1234567890abcdef'
+		);
+
+		expect(compacted).toContain('[REDACTED_DMS_TOKEN]');
+		expect(compacted).not.toContain('DMS-1234567890abcdef');
+	});
+
+	it('parses embedded MCP JSON while preserving business metadata', () => {
+		const compacted = compactHotelDataResult([
+			{
+				type: 'text',
+				text: JSON.stringify({ OwnerNames: ['Alice'], OwnerIds: [123], TableName: 'hotel' })
+			}
+		]);
+
+		expect(compacted).toContain('Alice');
+		expect(compacted).toContain('123');
+		expect(compacted).toContain('hotel');
 	});
 });

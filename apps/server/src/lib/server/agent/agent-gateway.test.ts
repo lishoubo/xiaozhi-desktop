@@ -1,7 +1,7 @@
 import type { AgentRunEvent } from '@hotel-butler/api';
 import { describe, expect, it, vi } from 'vitest';
 import { AgentAccessDeniedError } from './agent-repository';
-import { HotelAgentGateway } from './agent-gateway';
+import { describeAgentRunFailure, HotelAgentGateway } from './agent-gateway';
 
 const event: AgentRunEvent = {
 	id: '22222222-2222-4222-8222-222222222222',
@@ -154,5 +154,19 @@ describe('HotelAgentGateway hotel quick actions', () => {
 				prompt: expect.stringContaining('公共天气 MCP')
 			})
 		);
+	});
+});
+
+describe('describeAgentRunFailure', () => {
+	it('returns a friendly data-service message without exposing transport details', () => {
+		const failure = describeAgentRunFailure(
+			new Error('MCP askDatabase ETIMEDOUT at secret.internal.example')
+		);
+
+		expect(failure).toEqual({
+			message: '酒店经营数据服务暂时没有响应。请确认酒店和日期范围后重试，或稍后再试。',
+			retryable: true
+		});
+		expect(failure.message).not.toContain('secret.internal.example');
 	});
 });

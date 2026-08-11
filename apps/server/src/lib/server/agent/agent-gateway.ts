@@ -38,6 +38,22 @@ type McpToolProviderPort = Pick<McpToolProvider, 'serverCount' | 'capabilities'>
 const terminal = (event: AgentRunEvent): boolean =>
 	event.type === 'run_completed' || event.type === 'run_failed';
 
+export function describeAgentRunFailure(
+	error: unknown
+): Readonly<{ message: string; retryable: boolean }> {
+	const detail = error instanceof Error ? `${error.name} ${error.message}` : String(error);
+	if (/AI_KIMI_API_KEY|not configured/i.test(detail)) {
+		return { message: 'Agent 模型服务尚未配置，请联系管理员。', retryable: false };
+	}
+	if (/askDatabase|executeScript|aliyun-dms-hotel-data|dms-mcpr/i.test(detail)) {
+		return {
+			message: '酒店经营数据服务暂时没有响应。请确认酒店和日期范围后重试，或稍后再试。',
+			retryable: true
+		};
+	}
+	return { message: '小智暂时无法完成这次请求，请稍后重试。', retryable: true };
+}
+
 export class HotelAgentGateway implements AgentGateway {
 	private readonly eventBus = new EventEmitter();
 	private readonly activeRuns = new Set<string>();
@@ -185,10 +201,10 @@ export class HotelAgentGateway implements AgentGateway {
 				'Agent run failed'
 			);
 			const context = await this.repository.getRunContext(principal, runId);
+			const failure = describeAgentRunFailure(error);
 			await this.publish(principal, runId, context.conversation.id, {
 				type: 'run_failed',
-				message: '小智暂时无法完成这次请求，请稍后重试。',
-				retryable: true
+				...failure
 			});
 			await this.repository.completeRun(runId, 'failed');
 		}
