@@ -47,7 +47,7 @@
   - 边界：无适配器的渠道不 attach
   - 边界：同页多次 `tab:navigated` 只 attach 一次
 
-## T4 抖音适配器（本次唯一实装的渠道）
+## T4 抖音适配器（第一个实装的渠道）
 
 - [x] `channels/douyin/amount-change-adapter.ts` 🆕
   - `isWatchableUrl`：host `life.douyin.com` + path 含 `/p/travel-ari/hotel/price`
@@ -95,6 +95,34 @@
   - 确认一个 `lifeAccountId` 是否对应多个 `poi_id`
   - 故意改一个会被限价规则拒的价 → 确认**不上报**
 - [ ] 把真机验证结果写进 `verification.md`
+
+## T8 携程适配器（2026-08-11，踩点 `docs/踩点/携程/改价.md`）
+
+> 机制层与 `AmountChangeAdapter` 接口**一行未改** —— 新增只有一个适配器文件 + registry 一行。
+
+- [x] `channels/ctrip/amount-change-adapter.ts` 🆕
+  - `isWatchableUrl`：host `ebooking.ctrip.com` + path 以 `/ebkovsroom/inventory` 开头
+    （复用 `trusted-hotel-url.ts`）
+  - `saveEndpoints`：`batchsetroomprice` 一项
+  - `isSuccessful`：外层 `code === 200` **且** `data.roomPriceSetResults` 非空且每条
+    `resultCode === 0`（保守口径，部分成功也判失败）
+  - `parse`：从**请求体**取 `roomPriceInfoList[].hotelID`（携程与抖音相反，门店 ID 明写在 body 里）；
+    一个都取不到 → `null`（硬错误）
+    → `otaHotelId` 取第一家，`channelExtra: { hotelIds, roomTypeIds }`
+  - `roomTypeIds` 同时收 `roomTypeID` 与 `refRoomIDs`（联动房型，踩点响应的 `roomTypeList` 证实）
+- [x] `channels/registry.ts` ✏️ 给携程那项赋 `amountChangeAdapter`
+- [x] 测试 `ctrip-amount-change-adapter.test.ts` —— 10 个用例，样本全部取自真实踩点
+  - happy path：`parse()` 输出门店/房型/透传请求体
+  - 边界：跨多家门店 → `otaHotelId` 取第一家 + `hotelIds` 全量 + 记 info
+  - 边界：`isSuccessful` 对「部分 `resultCode` 非 0」返回 false
+  - 边界：请求体无 `hotelID` → `parse()` 返回 null
+- [x] `npm run lint` + `check:types` + `test:unit`（72 文件 420 用例全过，无回归）
+- [ ] **真机验证**（design.md §12.4，必做）
+  - 登录真实携程 ebooking → 房价日历页改一次价 → 看日志有无完整上报 payload
+  - **把改价页所有能触发保存的入口都点一遍**，确认是否有其他端点没被拦到
+  - 确认 referer 是否稳定为 `/ebkovsroom/inventory/*`（`pageUrl` 的来源）
+  - 确认是否存在「前端先 check 再 save」的双请求（抖音有，携程踩点未见）
+  - 故意改一个会被佣金/限价规则拒的价 → 确认**不上报**
 
 ---
 

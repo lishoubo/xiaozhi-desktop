@@ -9,6 +9,7 @@
  */
 import { toChannelId, type ChannelId } from '../ids';
 import type { AppLogger } from '../../shared/logging';
+import { createCtripAmountChangeAdapter } from './ctrip/amount-change-adapter';
 import { ctripHotelProbe } from './ctrip/hotel-prob';
 import { ctripLoginUrlMatcher } from './ctrip/login-url-matcher';
 import { createDouyinAmountChangeAdapter } from './douyin/amount-change-adapter';
@@ -23,7 +24,7 @@ export type ChannelAdapter = Readonly<{
   loginUrlMatcher: LoginUrlMatcher;
   hotelProbe: HotelProbe;
   /**
-   * 价量态改动监听能力。**可选**：本期只有抖音做了，携程/美团尚无改价踩点。
+   * 价量态改动监听能力。**可选**：抖音与携程已实装，美团尚无改价踩点。
    *
    * 用可选字段而不是给那两个渠道写空实现：空实现的 `isWatchableUrl` 永远返回 false，
    * 读代码的人得点进去才知道「这渠道其实没做」；可选字段在下面的注册表里一眼看得出
@@ -38,6 +39,7 @@ export function createChannelRegistry(logger: AppLogger): ReadonlyMap<ChannelId,
       channel: toChannelId('ctrip'),
       loginUrlMatcher: ctripLoginUrlMatcher,
       hotelProbe: ctripHotelProbe,
+      amountChangeAdapter: createCtripAmountChangeAdapter(logger),
     },
     {
       channel: toChannelId('douyin'),

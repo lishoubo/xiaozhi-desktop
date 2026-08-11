@@ -181,9 +181,10 @@ describe('AmountChangeWatcher', () => {
     const parsed = {
       source: toChannelId('douyin'),
       endpointId: 'save_amount_calendar',
+      endpointUrl: 'https://life.douyin.com/life/trip/hotel/save_amount_calendar',
       otaHotelId: '777',
-      channelExtra: { merchantGroupId: '1', lifeAccountId: '2' },
       requestBody: { a: 1 },
+      responseBody: '{"BaseResp":{"StatusCode":0}}',
     };
     const adapter = createAdapter({ parse: () => parsed });
     new AmountChangeWatcher({
@@ -203,6 +204,7 @@ describe('AmountChangeWatcher', () => {
     listener(null, 'Network.loadingFinished', { requestId: '1.1' });
     await flushMicrotasks();
 
-    expect(report).toHaveBeenCalledWith(parsed);
+    // 第二个参数是 partitionName —— service 侧靠它查渠道账号。
+    expect(report).toHaveBeenCalledWith(parsed, expect.any(String));
   });
 });

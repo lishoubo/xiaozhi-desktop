@@ -98,6 +98,36 @@ export function createWindowScope(scope: AppScope): WindowScope {
   // gateway 目前是 mock —— RMS 侧接收端点尚未定义，见 rms-amount-change-gateway-mock.ts。
   const amountChangeReportService = new AmountChangeReportService({
     gateway: new MockRmsAmountChangeGateway(logger),
+    // 上报体要带「谁改的」和「用哪个渠道账号改的」。两者分别来自认证栈与凭证仓储，
+    // 都够不着 channels/，所以在这里以窄查询注入。
+    identity: {
+      currentStaff: async () => {
+        // 只有 staff 认证形态才有 RMS 登录人；另一套形态下没有这个概念。
+        if (!IS_STAFF_AUTH) return null;
+        const identity = await new StaffAuthService({
+          client: scope.rms.authClient,
+          tokens: scope.rms.tokens,
+          logger,
+        }).currentSession();
+        if (!identity) return null;
+        return {
+          userId: identity.userId,
+          username: identity.username,
+          fullName: identity.fullName,
+        };
+      },
+      credentialByPartition: (partitionName) => {
+        const credential = scope.otaCredentialRepository.findByPartitionName(partitionName);
+        return Promise.resolve(
+          credential
+            ? {
+                channelAccountId: credential.channelAccountId,
+                credentialExtra: credential.credentialExtra,
+              }
+            : null,
+        );
+      },
+    },
     logger,
   });
   new AmountChangeWatcher({
@@ -105,7 +135,8 @@ export function createWindowScope(scope: AppScope): WindowScope {
     adapters: amountChangeAdapters(scope.channelRegistry),
     logger,
     // watcher 在 channels/，不认识 services/；窄回调在这里接起来。
-    report: (observed) => void amountChangeReportService.report(observed),
+    report: (observed, partitionName) =>
+      void amountChangeReportService.report(observed, partitionName),
   });
 
   const loginDetector = new LoginDetector({

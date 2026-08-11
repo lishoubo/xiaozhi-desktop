@@ -14,12 +14,47 @@ import type {
   OtaAmountChangeObserved,
   OtaAmountChangeReport,
 } from '../../shared/types/amount-change';
+import type { JsonObject } from '../../shared/types/json';
 import type { RmsAmountChangeGateway } from '../gateway/rms/types';
+
+/**
+ * 身份补齐所需的两个窄查询。用函数而不是直接注入 service/仓储对象：这里只需要「查一下」
+ * 的能力，注入整个 `StaffAuthService`/`OtaCredentialRepository` 会把不相干的写操作也带进来。
+ */
+export type AmountChangeIdentityLookup = Readonly<{
+  /** 当前登录的操作人。未登录或查不到时返回 null —— 不阻断上报。 */
+  currentStaff: () => Promise<{
+    userId: number;
+    username: string;
+    fullName: string | null;
+  } | null>;
+  /** 这个 partition 对应的渠道账号凭证。查不到返回 null。 */
+  credentialByPartition: (partitionName: string) => Promise<{
+    channelAccountId: string | null;
+    credentialExtra: JsonObject | null;
+  } | null>;
+}>;
 
 export type AmountChangeReportServiceDependencies = Readonly<{
   gateway: RmsAmountChangeGateway;
+  identity: AmountChangeIdentityLookup;
   logger: AppLogger;
 }>;
+
+/**
+ * 从凭证的 `credentialExtra` 里取渠道账号名。各渠道存的键不一样（携程存 `hotelName`），
+ * 按优先级依次尝试，都没有就返回 null —— 名字只是给人看的，缺了不阻断上报。
+ */
+const ACCOUNT_NAME_KEYS: readonly string[] = ['hotelName', 'accountName', 'shopName', 'name'];
+
+function accountNameOf(credentialExtra: JsonObject | null): string | null {
+  if (!credentialExtra) return null;
+  for (const key of ACCOUNT_NAME_KEYS) {
+    const value = credentialExtra[key];
+    if (typeof value === 'string' && value.trim().length > 0) return value.trim();
+  }
+  return null;
+}
 
 export class AmountChangeReportService {
   constructor(private readonly deps: AmountChangeReportServiceDependencies) {}
@@ -32,11 +67,29 @@ export class AmountChangeReportService {
    * 那边可能已经不适用了；而落盘队列会牵出「重启后补报」「顺序保证」一串问题。代价是偶发漏报
    * —— 已知，日志留痕。
    */
-  async report(observed: OtaAmountChangeObserved): Promise<void> {
+  async report(observed: OtaAmountChangeObserved, partitionName: string): Promise<void> {
+    // 身份查询失败不阻断上报：改价事实本身比「是谁改的」重要得多，缺了身份 RMS 照样能
+    // 靠 otaHotelId/房型反查跟价。所以这里吞掉异常，只留一条 warn。
+    const [staff, credential] = await Promise.all([
+      this.deps.identity.currentStaff().catch(() => null),
+      this.deps.identity.credentialByPartition(partitionName).catch(() => null),
+    ]);
+
+    if (!staff) {
+      this.deps.logger.warn('Amount change report: no signed-in staff, reporting without operator', {
+        source: observed.source,
+        endpointId: observed.endpointId,
+      });
+    }
+
     const report: OtaAmountChangeReport = {
       ...observed,
       operationId: randomUUID(),
-      observedAt: new Date().toISOString(),
+      loginUserId: staff?.userId ?? null,
+      loginUserName: staff?.fullName?.trim() || staff?.username || null,
+      channelAccountId: credential?.channelAccountId ?? null,
+      channelAccountName: accountNameOf(credential?.credentialExtra ?? null),
+      submitAt: new Date().toISOString(),
     };
 
     for (let attempt = 1; attempt <= 2; attempt += 1) {

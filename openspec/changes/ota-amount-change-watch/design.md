@@ -4,8 +4,9 @@
 > `stock_state_write.py`）。本次做**反向**的一半：用户在渠道后台**手工**改价时，desktop 被动
 > 观测并上报 RMS，由 RMS 决定跟哪些渠道的价。
 >
-> **范围**：架构面向**三个渠道**（抖音 / 携程 / 美团），本次只实装**抖音**，另两个在 registry
-> 留空位。携程/美团尚无改价踩点，契约由抖音单样本反推 —— 见 §9 风险 1。
+> **范围**：架构面向**三个渠道**（抖音 / 携程 / 美团）。已实装**抖音**（2026-08-10）与
+> **携程**（2026-08-11，踩点 `docs/踩点/携程/改价.md`）；美团尚无踩点，在 registry 留空位。
+> 携程接入验证了机制层的渠道无关性（机制层一行未改），也暴露了契约的一处不合身 —— 见 §12。
 >
 > **与 `hotel-probe-dispatcher` 的根本差异**：那条链路是 **intent 触发、一次性、会操作页面**；
 > 这条是 **URL 触发、常驻监听、绝不碰页面**。触发模型不同，不复用分发器。
@@ -37,8 +38,8 @@
   │  调适配器 parse() → 得到上报体                     │
   └───────────────────────────────────────────────────┘
               │
-              ├── channels/douyin/amount-change-adapter.ts   ✅ 本次实装
-              ├── channels/ctrip/...                         ⬜ 空位
+              ├── channels/douyin/amount-change-adapter.ts   ✅ 已实装
+              ├── channels/ctrip/amount-change-adapter.ts    ✅ 已实装
               └── channels/meituan/...                        ⬜ 空位
               │
               │  OtaAmountChangeObserved（窄回调注出）
@@ -75,7 +76,7 @@ browser/browser-manager.ts ──── tab:navigated ────┐   ✅ 复�
                     ┌─────────────┴──┐         │
                     ▼                ▼         │
         channels/douyin/       ctrip/  meituan/│   渠道适配器
-          amount-change-        ⬜      ⬜      │   （AmountChangeAdapter）
+          amount-change-        ✅      ⬜      │   （AmountChangeAdapter）
           adapter.ts ✅                        │
                                                ▼
                         services/amount-change-report-service.ts  🆕
@@ -183,7 +184,7 @@ tab:closed → detach() + 清 pending
 | 渠道 | 监听页 | 本期 |
 |---|---|---|
 | 抖音 | `life.douyin.com` + path 含 `/p/travel-ari/hotel/price` | ✅ |
-| 携程 | 待踩点 | ⬜ |
+| 携程 | `ebooking.ctrip.com` + path 以 `/ebkovsroom/inventory` 开头 | ✅ |
 | 美团 | 待踩点 | ⬜ |
 
 ### 与酒店探测的 attach 冲突
@@ -406,7 +407,9 @@ export class MockRmsAmountChangeGateway implements RmsAmountChangeGateway {
 
 | 场景 | 处理 |
 |---|---|
-| 渠道无 `amountChangeAdapter`（携程/美团本期） | watcher 直接返回，不 attach |
+| 渠道无 `amountChangeAdapter`（美团本期） | watcher 直接返回，不 attach |
+| 携程一次保存跨多家门店 | `otaHotelId` 取第一家，完整清单进 `channelExtra.hotelIds` 并记 info（§12） |
+| 携程部分门店写入失败（`resultCode` 非 0） | 整体判失败，**不上报**（保守口径，§12） |
 | 用户在**未绑定** RMS 的账号里改价 | 照常上报，RMS 反查不到自行丢弃（决策 11 的代价） |
 | `postData` 缺失（body 过大） | `getRequestPostData` 兜底；仍失败则 warn 不上报 |
 | 渠道返回失败（限价规则等） | warn 记渠道错误文案，**不上报** |
@@ -440,7 +443,7 @@ export class MockRmsAmountChangeGateway implements RmsAmountChangeGateway {
 
 | # | 风险 / 权衡 | 应对 |
 |---|---|---|
-| 1 | ⚠️ **契约由抖音单样本反推**。携程/美团实际形状可能塞不进 `source` + `channelExtra` + `requestBody`（比如酒店 ID 在 body 里、一次请求含多家酒店） | 已知的抽象风险。`channelExtra: JsonObject` 是逃逸阀；真接第二个渠道时若契约不合身，**接受调整契约**，不硬塞 |
+| 1 | ✅ **已验证（2026-08-11，携程接入）**：预言的两条都命中了 —— 携程酒店 ID 确实在 body 里，且一次请求确实含多家酒店 | 契约扛住了：机制层与 `AmountChangeAdapter` 一行未改，`channelExtra` 这个逃逸阀装下了差异。唯一不合身的是 `otaHotelId` 单值，处理见 §12 |
 | 2 | ⚠️ **未验证**：抖音改价页是否还有其他入口走不同端点 | 踩点只覆盖「勾房型+改价」一条路。`saveEndpoints` 可扩展，发现新端点加一行。**仍需在真实账号把改价页所有入口点一遍** |
 | 3 | ✅ **已验证并纠正**（2026-08-10）：门店 ID 不在请求体、也不在菜单进入时的 URL 上 | 见 §11。改为靠 `product_id` 定位，`otaHotelId` 降级为尽力而为 |
 | 4 | 未绑定账号的改价也上报 → RMS 收到无效流量 | 可接受。**但 RMS 侧要把「反查失败」当正常情况，不按错误告警** |
@@ -504,10 +507,69 @@ URL（带参跳入 /hotel/price）            ✅        ✅   ← 踩点那份�
 
 ## 11. 本期不做
 
-- **携程 / 美团适配器** —— 无踩点。架构留位，registry 可选字段
-- **房态房量** `batch_save_stock_state_calendar` 的解析与上报（机制已就位，二期只加一行端点 + 解析分支）
+- **美团适配器** —— 无踩点。架构留位，registry 可选字段
+- **房态房量**（抖音 `batch_save_stock_state_calendar`、携程对应端点未踩点）的解析与上报
+  （机制已就位，二期加端点常量 + 放开对应页面路径，见 §10.3）
+- 携程改价页的其他入口是否走同一端点 —— 踩点只覆盖房价日历页批量设价一条路（§12 风险）
 - 真实 RMS HTTP gateway（本次 mock；真实实现照 `HttpRmsHotelGateway` 抄）
 - 上报失败的落盘队列与重启补报
 - 任何 UI —— 用户无感，只在日志可见
 - 共享 CDP 会话层（`CdpSession`）—— 页面不重叠，暂不需要
 - `Fetch.requestPaused` 阻塞式拦截与「先问 RMS 再放行」
+
+---
+
+## 12. 携程接入（2026-08-11）
+
+踩点：`docs/踩点/携程/改价.md`。**机制层与 `AmountChangeAdapter` 接口一行未改** ——
+新增只有一个适配器文件 + registry 一行，验证了 §2.1「渠道差异只有一个落点」的设计。
+
+### 12.1 与抖音的三处结构性差异
+
+| 维度 | 抖音 | 携程 |
+|---|---|---|
+| 监听页 | `life.douyin.com` `/p/travel-ari/hotel/price*` | `ebooking.ctrip.com` `/ebkovsroom/inventory*` |
+| 保存端点 | `/life/trip/hotel/save_amount_calendar` | `/ebkovsroom/api/inventory/batchsetroomprice` |
+| 门店 ID 在哪 | 三处都没有，靠 `product_id` 让 RMS 反查 | **请求体里直接有**：`roomPriceInfoList[].hotelID` |
+| 一次请求几家店 | 一家 | **可能多家**（踩点响应回了 `115348672` + `115582769`） |
+| 成功判定 | `BaseResp.StatusCode === 0` 一处 | 外层 `code === 200` **且**内层每条 `resultCode === 0` |
+| 房型 ID | `product_list[].product_id` | `roomTypeID` + `refRoomIDs`（联动房型，两者都要收） |
+
+抖音那套「门店 ID 三处都找不到」的麻烦在携程不存在 —— 携程把 `hotelID` 明写在请求体里，
+所以携程的**硬错误判定是「取不到任何 `hotelID`」**（对应抖音的「取不到任何 `product_id`」）。
+
+### 12.2 契约的一处不合身：`otaHotelId` 是单值
+
+§9 风险 1 预言的情况实际发生了：携程一次保存能跨多家门店，而
+`OtaAmountChangeReport.otaHotelId` 是单值。
+
+| 方案 | 结论 |
+|---|---|
+| A. 改契约为 `otaHotelIds: string[]` | ❌ 要动抖音适配器 + service + RMS 侧契约，为一个尚未真机确认频率的场景 |
+| B. 一次保存拆成多条上报（每家一条） | ❌ `requestBody` 是整体证据，拆开后每条都带着别家的数据，反而更难复盘 |
+| C. `otaHotelId` 取第一家 + 完整清单进 `channelExtra.hotelIds` | ✅ 采用。与抖音显式带出 `productIds` 同一套路，`channelExtra` 本就是逃逸阀 |
+
+> ⚠️ **RMS 侧约定**：处理 `source === 'ctrip'` 时必须读 `channelExtra.hotelIds` 全量，
+> **不能只认 `otaHotelId`** —— 那样会漏掉同一次保存里的其他门店。
+> 真出现多店时 desktop 会记一条 info 日志备查。
+
+### 12.3 成功判定取保守口径
+
+携程是两层结果：外层 `code` 表示「请求处理完了」，每家门店的实际写入结果在
+`data.roomPriceSetResults[].resultCode`。判定规则：
+
+```
+code === 200  且  roomPriceSetResults 非空  且  每条 resultCode === 0   → 成功
+其余（含部分成功、结果明细为空、非法 JSON）                              → 失败，不上报
+```
+
+部分成功也整体判失败，理由与决策 1 一致：**跟错价是脏数据，漏跟一次只是少跟一次**。
+请求体里的 `checkIllegalCommission: "T"` 说明携程服务端确实存在拒绝路径（佣金/限价校验）。
+
+### 12.4 待验证
+
+| # | 事项 |
+|---|---|
+| 1 | ⚠️ 真机验证：携程房价日历页的**所有改价入口**是否都走 `batchsetroomprice`（踩点只覆盖「批量设价」一条路） |
+| 2 | ⚠️ 真机验证：`ebooking.ctrip.com` 上改价页的实际 referer 是否稳定为 `/ebkovsroom/inventory/*`（与抖音一样，referer 才是 `pageUrl` 的来源，不是地址栏） |
+| 3 | 携程是否也存在「前端先 check 再 save」的双请求（抖音有，靠只收 `save_*` 规避）；踩点未见 check 请求 |

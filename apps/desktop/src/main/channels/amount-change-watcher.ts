@@ -40,8 +40,13 @@ export type AmountChangeWatcherDependencies = Readonly<{
    */
   adapters: ReadonlyMap<ChannelId, AmountChangeAdapter>;
   logger: AppLogger;
-  /** 窄回调：把解读好的改动送出去。见文件头。 */
-  report: (observed: OtaAmountChangeObserved) => void;
+  /**
+   * 窄回调：把解读好的改动送出去。见文件头。
+   *
+   * 带上 `partitionName` 是因为上报体要补渠道账号信息，而凭证是按 partition 存的。
+   * `channels/` 够不着仓储（eslint 禁止），所以只把这个键交出去，由 service 侧去查。
+   */
+  report: (observed: OtaAmountChangeObserved, partitionName: string) => void;
 }>;
 
 export class AmountChangeWatcher {
@@ -92,7 +97,7 @@ export class AmountChangeWatcher {
           endpointId: parsed.endpointId,
           otaHotelId: parsed.otaHotelId,
         });
-        this.deps.report(parsed);
+        this.deps.report(parsed, event.partitionName);
       },
     );
 
@@ -120,5 +125,9 @@ export class AmountChangeWatcher {
     if (!capture) return;
     this.captures.delete(tabId);
     capture.detach();
+    // 这条日志不是可有可无的：detach 之后这个 tab 就再也拦不到改价了。真机排查时
+    // 「监听被悄悄停掉」与「用户没改价」在日志上长得一模一样，没有这条就无从区分
+    // —— 2026-08-11 携程路由认错时，正是缺了它导致排查绕了几轮。
+    this.deps.logger.info('Amount change watching stopped', { tabId });
   }
 }

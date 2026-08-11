@@ -23,6 +23,8 @@ import type { JsonObject } from './json';
 export type AmountSaveObserved = Readonly<{
   /** 命中的是哪个保存端点。取值由渠道适配器的 `saveEndpoints` 定义。 */
   endpointId: string;
+  /** 这次保存请求的完整 URL（含 query）—— 上报给 RMS 当复盘依据。 */
+  endpointUrl: string;
   /** 渠道原始请求体，一字不改——透传给 RMS 当证据。 */
   requestBody: JsonObject;
   /** 渠道原始响应体（未解析的字符串）。适配器据此判定这次保存是否成功。 */
@@ -52,23 +54,52 @@ export type AmountSaveObserved = Readonly<{
 export type OtaAmountChangeReport = Readonly<{
   /** 幂等键，desktop 生成。RMS 据此去重（同一次改价重试上报不该跟两次价）。 */
   operationId: string;
+
+  /** 操作人 —— 谁在这台 desktop 上登录并改了价（`StaffIdentity.userId`）。 */
+  loginUserId: number | null;
+  /** 操作人名字：优先 `fullName`，回退 `username`。 */
+  loginUserName: string | null;
+
   source: ChannelId;
+  /** 实际访问的完整 URL —— 出问题时凭这个复现「改的是哪个页面的哪个接口」。 */
+  endpointUrl: string;
   /** 渠道内区分这次改的是价格还是房态房量。 */
   endpointId: string;
+
   /**
-   * 渠道侧的门店 ID，**可能是空串** —— 渠道不一定在请求或页面上暴露它（抖音走菜单进入改价页
-   * 时 URL 上就没有 `poi_id`）。此时 RMS 靠 `channelExtra` 里的房型 ID 反查门店。
+   * 渠道侧的门店 ID。**尽力而为，可能是空串** —— 渠道不一定暴露它（抖音走菜单进入时
+   * URL 上没有 `poi_id`；携程新模块 `setRCRoomPrice` 的请求体里根本没有门店 ID）。
+   * 为空时 RMS 靠 `channelExtra` 里的房型 ID 反查门店。
    */
   otaHotelId: string;
-  /** 渠道专有的定位字段（抖音：merchantGroupId / lifeAccountId / productIds）。 */
-  channelExtra: JsonObject | null;
+
+  /** 渠道账号 ID —— 用哪个 OTA 账号改的（`OtaCredential.channelAccountId`）。 */
+  channelAccountId: string | null;
+  /** 渠道账号名 —— 取自凭证的 `credentialExtra`（携程是 hotelName）。缺则 null。 */
+  channelAccountName: string | null;
+
+  /** 渠道原始请求体（剔除框架噪音字段，**不做语义转换**）。 */
   requestBody: JsonObject;
-  /** ISO 时间戳。 */
-  observedAt: string;
+  /** 渠道原始响应体。RMS 复盘时据此确认渠道到底认没认这次改价。 */
+  responseBody: string;
+
+  /** 用户点保存的时刻，ISO 时间戳。 */
+  submitAt: string;
 }>;
 
 /**
- * 渠道适配器解读原始事实后交出的东西。`operationId` 与 `observedAt` 不在这里——
- * 生成幂等键和打时间戳是上报环节的职责，适配器只负责「这次改动是什么」。
+ * 渠道适配器解读原始事实后交出的东西 —— **只包含适配器看得见的部分**。
+ *
+ * 身份字段（操作人、渠道账号）不在这里：适配器活在 `channels/`，eslint 禁止它依赖
+ * `services/` 与 `database/`，够不着 `StaffIdentity` 和 `OtaCredential`。这些由
+ * `AmountChangeReportService` 在上报环节补齐 —— 与幂等键、时间戳同一个道理。
  */
-export type OtaAmountChangeObserved = Omit<OtaAmountChangeReport, 'operationId' | 'observedAt'>;
+export type OtaAmountChangeObserved = Omit<
+  OtaAmountChangeReport,
+  | 'operationId'
+  | 'submitAt'
+  | 'loginUserId'
+  | 'loginUserName'
+  | 'channelAccountId'
+  | 'channelAccountName'
+>;

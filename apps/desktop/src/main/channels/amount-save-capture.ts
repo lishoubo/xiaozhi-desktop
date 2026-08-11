@@ -47,6 +47,8 @@ const PENDING_MAX_AGE_MS = 60_000;
 
 type PendingSave = Readonly<{
   endpointId: string;
+  /** 保存请求的完整 URL（含 query）—— 透传给 RMS 当复盘依据。 */
+  endpointUrl: string;
   requestBody: JsonObject;
   /** 发起请求那一刻的页面 URL 快照。见 `AmountSaveObserved.pageUrl` 的注释。 */
   pageUrl: string;
@@ -57,6 +59,7 @@ type CdpRequestWillBeSentParams = Readonly<{
   requestId: string;
   request: Readonly<{
     url: string;
+    method?: string;
     postData?: string;
     hasPostData?: boolean;
     headers?: Readonly<Record<string, string>>;
@@ -187,6 +190,7 @@ export class AmountSaveCapture {
     this.evictStalePending();
     this.pending.set(params.requestId, {
       endpointId,
+      endpointUrl: params.request.url,
       requestBody,
       pageUrl,
       at: Date.now(),
@@ -248,6 +252,7 @@ export class AmountSaveCapture {
 
     this.onObserved({
       endpointId: saved.endpointId,
+      endpointUrl: saved.endpointUrl,
       requestBody: saved.requestBody,
       responseBody,
       pageUrl: saved.pageUrl,

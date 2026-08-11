@@ -28,6 +28,7 @@ function createLogger() {
 function observed(overrides: Partial<AmountSaveObserved> = {}): AmountSaveObserved {
   return {
     endpointId: 'save_amount_calendar',
+    endpointUrl: 'https://life.douyin.com/life/trip/hotel/save_amount_calendar',
     requestBody: REAL_REQUEST_BODY,
     responseBody: '{"BaseResp":{"StatusCode":0}}',
     pageUrl: REAL_PAGE_URL,
@@ -97,13 +98,10 @@ describe('douyin amount change adapter', () => {
       expect(adapter.parse(observed())).toEqual({
         source: 'douyin',
         endpointId: 'save_amount_calendar',
+        endpointUrl: 'https://life.douyin.com/life/trip/hotel/save_amount_calendar',
         otaHotelId: '7245504927202543672',
-        channelExtra: {
-          merchantGroupId: '1813179858562059',
-          lifeAccountId: '7426783989676935218',
-          productIds: ['1788600508917772'],
-        },
         requestBody: REAL_REQUEST_BODY,
+        responseBody: '{"BaseResp":{"StatusCode":0}}',
       });
     });
 
@@ -122,12 +120,8 @@ describe('douyin amount change adapter', () => {
       );
       expect(result).not.toBeNull();
       expect(result?.otaHotelId).toBe('');
-      // lifeAccountId 不在 URL 上，但请求体的 permission_common_param 里有 —— 要回退去取。
-      expect(result?.channelExtra).toEqual({
-        merchantGroupId: '1813179858562059',
-        lifeAccountId: '7426783989676935218',
-        productIds: ['1788600508917772'],
-      });
+      // 房型 ID 留在原始 requestBody 里，RMS 靠它反查门店。
+      expect(result?.requestBody).toEqual(REAL_REQUEST_BODY);
     });
 
     it('请求体没有任何 product_id 时返回 null —— 拦到的不是改价请求', () => {
@@ -154,7 +148,8 @@ describe('douyin amount change adapter', () => {
           },
         }),
       );
-      expect(result?.channelExtra).toMatchObject({ productIds: ['1788600508917804'] });
+      expect(result).not.toBeNull();
+      expect(result?.endpointId).toBe('batch_save_stock_state_calendar');
     });
   });
 

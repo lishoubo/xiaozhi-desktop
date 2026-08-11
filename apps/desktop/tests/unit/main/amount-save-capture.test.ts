@@ -91,6 +91,7 @@ describe('AmountSaveCapture', () => {
     expect(onObserved).toHaveBeenCalledTimes(1);
     expect(onObserved.mock.calls[0][0]).toEqual({
       endpointId: 'save_amount_calendar',
+      endpointUrl: SAVE_URL,
       requestBody: { product_list: [{ product_id: '1', normal_price: 100 }] },
       responseBody: SUCCESS_RESPONSE,
       pageUrl: PAGE_URL,
