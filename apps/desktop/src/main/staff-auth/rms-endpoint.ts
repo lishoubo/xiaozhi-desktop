@@ -1,20 +1,14 @@
-const DEFAULT_RMS_ORIGIN = 'http://localhost:8080';
-
 /**
  * 解析 rms-server 地址。
  *
- * 刻意不复用 `server-client/config.ts` 的 `resolveServerOrigin`：那个强制 https，
- * 而 rms-server 本地默认跑在 `http://localhost:8080`（无 TLS）。这里放宽到
- * 「loopback 允许 http，其余一律要求 https」——JWT 是明文可用的凭证，
- * 出了本机就不能裸奔。
+ * 取值和校验都在构建期完成（见 vite-plugins/rms-origin.ts）：`__RMS_ORIGIN__`
+ * 是被 Rollup 折叠掉的字面量。刻意不在运行时读 `process.env`——打包产物是被
+ * 双击启动的，父进程环境里没有那个变量，运行时读取会静默兜底到 localhost，
+ * 打出一个"看起来正常、却连着本机"的包。
+ *
+ * 也刻意不复用 `server-client/config.ts` 的 `resolveServerOrigin`：那个强制
+ * https，而 rms-server 本地默认跑在 `http://localhost:8080`（无 TLS）。
  */
-export function resolveRmsOrigin(environment: NodeJS.ProcessEnv): string {
-  const url = new URL(environment.XIAOZHI_RMS_SERVER_URL ?? DEFAULT_RMS_ORIGIN);
-  const isLoopback = url.hostname === 'localhost' || url.hostname === '127.0.0.1';
-
-  if (url.protocol !== 'https:' && !isLoopback) {
-    throw new Error('远端 RMS 地址必须使用 HTTPS');
-  }
-
-  return url.origin;
+export function resolveRmsOrigin(): string {
+  return __RMS_ORIGIN__;
 }

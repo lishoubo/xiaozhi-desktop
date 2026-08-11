@@ -6,6 +6,7 @@
  * 实现见同目录的 `*-gateway-http.ts`，直连 rms-server 的 `/api/v1/app/*`。
  */
 import type { ChannelId } from '../../ids';
+import type { OtaAmountChangeReport } from '../../../shared/types/amount-change';
 import type { JsonObject } from '../../../shared/types/json';
 import type { RmsHotel, RmsHotelCreateInput } from '../../../shared/types/rms-hotel';
 import type { RmsOtaAccount } from '../../../shared/types/rms-ota-account';
@@ -57,4 +58,15 @@ export interface RmsOtaAccountGateway {
   bind(input: RmsOtaAccountBindInput): Promise<RmsOtaAccount>;
   unbind(otaAccountId: number): Promise<void>;
   reauthenticate(input: RmsOtaAccountReauthInput): Promise<RmsOtaAccount>;
+}
+
+/**
+ * 上报「用户在渠道后台手工改了价量态」。RMS 收到后自己反查绑定、展开日期×房型、决定跟哪些
+ * 渠道的价 —— desktop 只当探针。
+ *
+ * 单独一个 Gateway 而不是并进上面两个：这条链路的触发方是浏览器里的用户操作（不是 UI 上的
+ * 某个按钮），失败处理也不同（无人在等结果，失败只能记日志），跟酒店/账号的 CRUD 不是一类。
+ */
+export interface RmsAmountChangeGateway {
+  reportAmountChange(report: OtaAmountChangeReport): Promise<void>;
 }

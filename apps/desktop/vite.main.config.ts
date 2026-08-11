@@ -1,9 +1,10 @@
 import { defineConfig } from 'vite';
 import { authVariantDefine } from './vite-plugins/auth-variant';
+import { rmsOriginDefine } from './vite-plugins/rms-origin';
 
 // https://vitejs.dev/config
 export default defineConfig({
-  plugins: [authVariantDefine()],
+  plugins: [authVariantDefine(), rmsOriginDefine()],
   build: {
     rollupOptions: {
       // Keep the native binding on disk so Forge can rebuild and unpack it for Electron.

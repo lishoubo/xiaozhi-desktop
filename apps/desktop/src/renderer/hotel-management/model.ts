@@ -202,3 +202,29 @@ function describeBindSource(raw: unknown): string {
   // 未知来源原样显示：编不出的名字不如让运营看到真实值，便于反馈排查。
   return bindSource;
 }
+
+/**
+ * 「上次刷新」的时刻文案。
+ *
+ * 刻意用绝对时刻而不是「刚刚 / N 分钟前」：这页每次刷新都真打远端，看的人要判断
+ * 手上这份新不新，"刚刚"到底是多久说不清，`19:54` 能直接跟自己的表对上。
+ *
+ * 跨天时补上日期前缀——只显示 `19:54` 会让昨天的数据看着像刚拉的。
+ */
+export function formatLastRefreshedAt(refreshedAt: Date, now: Date): string {
+  const time = refreshedAt.toLocaleTimeString('zh-CN', {
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  });
+
+  const sameDay =
+    refreshedAt.getFullYear() === now.getFullYear() &&
+    refreshedAt.getMonth() === now.getMonth() &&
+    refreshedAt.getDate() === now.getDate();
+
+  if (sameDay) return time;
+
+  const date = refreshedAt.toLocaleDateString('zh-CN', { month: 'numeric', day: 'numeric' });
+  return `${date} ${time}`;
+}
