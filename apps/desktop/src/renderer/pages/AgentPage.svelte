@@ -2,11 +2,9 @@
   import type {
     AgentConversationSummary,
     AgentExecutionTrace,
-    AgentMessage,
     AgentQuickAction,
     AgentQuickActionId,
     AgentRunEvent,
-    GenerativeUiSpec,
   } from '@hotel-butler/api';
   import ArrowUp from '@lucide/svelte/icons/arrow-up';
   import Hotel from '@lucide/svelte/icons/hotel';
@@ -24,6 +22,14 @@
   import AgentExecutionTimeline from '../components/agent/AgentExecutionTimeline.svelte';
   import AgentMarkdown from '../components/agent/AgentMarkdown.svelte';
   import HotelGenerativeUi from '../components/agent/HotelGenerativeUi.svelte';
+  import {
+    addStartedRun,
+    applyRunEvent,
+    createEmptyConversationView,
+    hydrateConversationView,
+    withConversationError,
+    type AgentConversationViewState,
+  } from '../agent-conversation-state';
   import { executionForDisplayedMessage, formatConversationUpdatedAt } from '../agent-presentation';
   import {
     LAYOUT_ANIMATION_OPTIONS,
@@ -45,22 +51,30 @@
   let conversations = $state.raw<AgentConversationSummary[]>([]);
   let quickActions = $state.raw<AgentQuickAction[]>([]);
   let activeConversationId = $state<string | null>(null);
-  let messages = $state.raw<AgentMessage[]>([]);
-  let executions = $state.raw<AgentExecutionTrace[]>([]);
-  let activeRunId = $state<string | null>(null);
-  let draftContent = $state('');
-  let draftUi = $state.raw<GenerativeUiSpec | null>(null);
-  let preparingUi = $state(false);
+  const conversationViews = new SvelteMap<string, AgentConversationViewState>();
   let loading = $state(true);
-  let sending = $state(false);
-  let stopping = $state(false);
-  let errorMessage = $state('');
+  let starting = $state(false);
+  let stoppingRunId = $state<string | null>(null);
+  let pageErrorMessage = $state('');
   let deleteTarget = $state.raw<AgentConversationSummary | null>(null);
   let clearHistoryOpen = $state(false);
   let deleting = $state(false);
   let composer = $state<HTMLTextAreaElement | null>(null);
   const pendingRunEvents = new SvelteMap<string, AgentRunEvent[]>();
 
+  const activeView = $derived(
+    activeConversationId ? (conversationViews.get(activeConversationId) ?? null) : null,
+  );
+  const messages = $derived(activeView?.messages ?? []);
+  const executions = $derived(activeView?.executions ?? []);
+  const activeRunId = $derived(activeView?.activeRunId ?? null);
+  const draftContent = $derived(activeView?.draftContent ?? '');
+  const draftUi = $derived(activeView?.draftUi ?? null);
+  const preparingUi = $derived(activeView?.preparingUi ?? false);
+  const sending = $derived(starting || activeRunId !== null);
+  const stopping = $derived(activeRunId !== null && stoppingRunId === activeRunId);
+  const errorMessage = $derived(pageErrorMessage || activeView?.errorMessage || '');
+  const hasActiveRuns = $derived(conversations.some((conversation) => conversation.activeRunId));
   const activeConversation = $derived(
     conversations.find((conversation) => conversation.id === activeConversationId) ?? null,
   );
@@ -72,13 +86,12 @@
     void initialize();
     return () => {
       unsubscribe();
-      if (activeRunId) void window.hotelButler.agent.cancelRun(activeRunId);
     };
   });
 
   async function initialize(): Promise<void> {
     loading = true;
-    errorMessage = '';
+    pageErrorMessage = '';
     try {
       const [nextQuickActions, nextConversations] = await Promise.all([
         window.hotelButler.agent.quickActions(),
@@ -86,8 +99,13 @@
       ]);
       quickActions = nextQuickActions;
       conversations = nextConversations;
+      await Promise.all(
+        nextConversations
+          .filter((conversation) => conversation.activeRunId !== null)
+          .map((conversation) => loadConversationState(conversation.id)),
+      );
     } catch {
-      errorMessage = 'Agent 服务暂时不可用，请确认 server 已启动且当前账号已登录。';
+      pageErrorMessage = 'Agent 服务暂时不可用，请确认 server 已启动且当前账号已登录。';
     } finally {
       loading = false;
     }
@@ -97,103 +115,101 @@
     conversations = await window.hotelButler.agent.listConversations();
   }
 
-  async function startNewConversation(): Promise<void> {
-    if (!(await cancelActiveRun())) return;
-    resetConversationState();
+  function startNewConversation(): void {
+    pageErrorMessage = '';
+    activeConversationId = null;
     composer?.focus();
   }
 
-  function resetConversationState(): void {
-    errorMessage = '';
+  function resetActiveConversation(): void {
+    pageErrorMessage = '';
     activeConversationId = null;
-    messages = [];
-    executions = [];
-    draftContent = '';
-    draftUi = null;
-    preparingUi = false;
   }
 
   async function confirmDeleteConversation(): Promise<void> {
     const target = deleteTarget;
-    if (!target || deleting || sending) return;
+    if (!target || deleting || target.activeRunId) return;
     deleting = true;
-    errorMessage = '';
+    pageErrorMessage = '';
     try {
       await window.hotelButler.agent.deleteConversation(target.id);
       conversations = conversations.filter((conversation) => conversation.id !== target.id);
-      if (activeConversationId === target.id) resetConversationState();
+      conversationViews.delete(target.id);
+      if (activeConversationId === target.id) resetActiveConversation();
       deleteTarget = null;
     } catch {
-      errorMessage = '删除会话失败，请稍后重试。';
+      pageErrorMessage = '删除会话失败，请稍后重试。';
     } finally {
       deleting = false;
     }
   }
 
   async function confirmClearConversations(): Promise<void> {
-    if (deleting || sending) return;
+    if (deleting || hasActiveRuns) return;
     deleting = true;
-    errorMessage = '';
+    pageErrorMessage = '';
     try {
       await window.hotelButler.agent.clearConversations();
       conversations = [];
-      resetConversationState();
+      conversationViews.clear();
+      resetActiveConversation();
       clearHistoryOpen = false;
     } catch {
-      errorMessage = '清空历史会话失败，请稍后重试。';
+      pageErrorMessage = '清空历史会话失败，请稍后重试。';
     } finally {
       deleting = false;
     }
   }
 
   async function openConversation(conversationId: string): Promise<void> {
-    if (conversationId === activeConversationId && messages.length > 0) return;
-    if (!(await cancelActiveRun())) return;
-    errorMessage = '';
+    activeConversationId = conversationId;
+    pageErrorMessage = '';
+    const cached = conversationViews.get(conversationId);
+    if (cached) {
+      if (cached.activeRunId && cached.errorMessage) void loadConversationState(conversationId);
+      return;
+    }
     try {
-      const conversation = await window.hotelButler.agent.getConversation(conversationId);
-      activeConversationId = conversationId;
-      messages = conversation.messages;
-      executions = conversation.executions;
-      draftContent = '';
-      draftUi = null;
-      preparingUi = false;
+      await loadConversationState(conversationId);
     } catch {
-      errorMessage = '无法读取该会话，或它不属于当前登录用户。';
+      pageErrorMessage = '无法读取该会话，或它不属于当前登录用户。';
     }
   }
 
-  async function cancelActiveRun(): Promise<boolean> {
+  async function loadConversationState(conversationId: string): Promise<void> {
+    const snapshot = await window.hotelButler.agent.getConversation(conversationId);
+    conversations = conversations.map((conversation) =>
+      conversation.id === conversationId ? snapshot.conversation : conversation,
+    );
+    const view = hydrateConversationView(snapshot);
+    if (!snapshot.activeRun) {
+      conversationViews.set(conversationId, view);
+      return;
+    }
+    pendingRunEvents.delete(snapshot.activeRun.runId);
+    await window.hotelButler.agent.resumeRun(
+      snapshot.activeRun.runId,
+      conversationId,
+      snapshot.activeRun.lastEventId,
+    );
+    conversationViews.set(conversationId, view);
+    drainPendingRunEvents(snapshot.activeRun.runId);
+  }
+
+  async function cancelActiveRun(): Promise<void> {
     const runId = activeRunId;
-    if (!runId) return true;
-    if (stopping) return false;
-    stopping = true;
-    errorMessage = '';
+    const conversationId = activeConversationId;
+    if (!runId || !conversationId || stoppingRunId) return;
+    stoppingRunId = runId;
+    pageErrorMessage = '';
     try {
-      const result = await window.hotelButler.agent.cancelRun(runId);
-      updateExecution(runId, (execution) => ({
-        ...execution,
-        status: result.status,
-        completedAt: new Date().toISOString(),
-      }));
-      const conversationId = activeConversationId;
-      if (conversationId) {
-        const conversation = await window.hotelButler.agent.getConversation(conversationId);
-        messages = conversation.messages;
-        executions = conversation.executions;
-      }
-      draftContent = '';
-      draftUi = null;
-      preparingUi = false;
-      activeRunId = null;
-      sending = false;
+      await window.hotelButler.agent.cancelRun(runId);
+      await loadConversationState(conversationId);
       composer?.focus();
-      return true;
     } catch {
-      errorMessage = '停止当前执行失败，任务仍在继续，请稍后重试。';
-      return false;
+      pageErrorMessage = '停止当前执行失败，任务仍在继续，请稍后重试。';
     } finally {
-      stopping = false;
+      stoppingRunId = null;
     }
   }
 
@@ -213,11 +229,8 @@
     request: { prompt: string } | { quickActionId: AgentQuickActionId },
     restorePrompt = '',
   ): Promise<void> {
-    errorMessage = '';
-    sending = true;
-    draftContent = '';
-    draftUi = null;
-    preparingUi = false;
+    pageErrorMessage = '';
+    starting = true;
 
     try {
       let conversationId = activeConversationId;
@@ -226,36 +239,35 @@
         conversations = [conversation, ...conversations];
         activeConversationId = conversation.id;
         conversationId = conversation.id;
+        conversationViews.set(conversationId, createEmptyConversationView(conversationId));
       }
+      const currentView = conversationViews.get(conversationId);
+      if (!currentView) throw new Error('Agent conversation view is unavailable');
+      conversationViews.set(conversationId, { ...currentView, errorMessage: '' });
       const started = await window.hotelButler.agent.startRun({
         conversationId,
         ...request,
         clientRequestId: crypto.randomUUID(),
       });
-      activeRunId = started.runId;
-      messages = [...messages, started.userMessage];
-      executions = [
-        ...executions,
-        {
-          runId: started.runId,
-          userMessageId: started.userMessage.id,
-          assistantMessageId: null,
-          status: 'running',
-          steps: [],
-          createdAt: new Date().toISOString(),
-          completedAt: null,
-        },
-      ];
-      for (const event of pendingRunEvents.get(started.runId) ?? []) handleRunEvent(event);
-      pendingRunEvents.delete(started.runId);
+      conversationViews.set(
+        conversationId,
+        addStartedRun(currentView, started, new Date().toISOString()),
+      );
+      conversations = conversations.map((conversation) =>
+        conversation.id === conversationId
+          ? { ...conversation, activeRunId: started.runId }
+          : conversation,
+      );
+      drainPendingRunEvents(started.runId);
       await refreshConversations();
     } catch {
-      sending = false;
       if (restorePrompt) prompt = restorePrompt;
-      errorMessage =
+      pageErrorMessage =
         'quickActionId' in request
           ? '快捷操作启动失败，请确认所需酒店 MCP 数据源已配置。'
           : '消息发送失败，请检查登录状态或稍后重试。';
+    } finally {
+      starting = false;
     }
   }
 
@@ -263,125 +275,46 @@
     envelope: Parameters<Parameters<typeof window.hotelButler.agent.onStreamEvent>[0]>[0],
   ): void {
     if (envelope.kind === 'transport_error') {
-      if (envelope.runId !== activeRunId) return;
-      errorMessage = envelope.message;
-      updateExecution(envelope.runId, (execution) => ({
-        ...execution,
-        status: 'failed',
-        completedAt: new Date().toISOString(),
-      }));
-      preparingUi = false;
-      sending = false;
-      activeRunId = null;
+      const entry = [...conversationViews.entries()].find(
+        ([, state]) => state.activeRunId === envelope.runId,
+      );
+      if (entry) conversationViews.set(entry[0], withConversationError(entry[1], envelope.message));
       return;
     }
     handleRunEvent(envelope.event);
   }
 
   function handleRunEvent(event: AgentRunEvent): void {
-    if (event.runId !== activeRunId) {
-      if (!activeRunId && pendingRunEvents.size < 4) {
-        pendingRunEvents.set(event.runId, [...(pendingRunEvents.get(event.runId) ?? []), event]);
-      }
+    const view = conversationViews.get(event.conversationId);
+    if (!view || view.activeRunId !== event.runId) {
+      bufferRunEvent(event);
       return;
     }
-    if (event.type === 'text_delta') {
-      draftContent += event.delta;
-      return;
-    }
-    if (event.type === 'tool_started') {
-      if (event.toolName === 'render_hotel_ui') preparingUi = true;
-      updateExecution(event.runId, (execution) => ({
-        ...execution,
-        steps: [
-          ...execution.steps.filter((step) => step.toolCallId !== event.toolCallId),
-          {
-            toolCallId: event.toolCallId,
-            toolName: event.toolName,
-            status: 'running',
-            summary: '',
-          },
-        ],
-      }));
-      return;
-    }
-    if (event.type === 'tool_completed') {
-      updateExecution(event.runId, (execution) => ({
-        ...execution,
-        steps: execution.steps.some((step) => step.toolCallId === event.toolCallId)
-          ? execution.steps.map((step) =>
-              step.toolCallId === event.toolCallId
-                ? { ...step, status: 'completed', summary: event.summary }
-                : step,
-            )
-          : [
-              ...execution.steps,
-              {
-                toolCallId: event.toolCallId,
-                toolName: event.toolName,
-                status: 'completed',
-                summary: event.summary,
-              },
-            ],
-      }));
-      return;
-    }
-    if (event.type === 'ui_spec') {
-      draftUi = event.spec;
-      preparingUi = false;
-      return;
-    }
-    if (event.type === 'run_completed') {
-      updateExecution(event.runId, (execution) => ({
-        ...execution,
-        assistantMessageId: event.message.id,
-        status: 'completed',
-        completedAt: event.createdAt,
-      }));
-      if (!messages.some((message) => message.id === event.message.id)) {
-        messages = [...messages, event.message];
-      }
-      draftContent = '';
-      draftUi = null;
-      preparingUi = false;
-      sending = false;
-      activeRunId = null;
+    conversationViews.set(event.conversationId, applyRunEvent(view, event));
+    if (
+      event.type === 'run_completed' ||
+      event.type === 'run_failed' ||
+      event.type === 'run_cancelled'
+    ) {
+      conversations = conversations.map((conversation) =>
+        conversation.id === event.conversationId
+          ? { ...conversation, activeRunId: null, updatedAt: event.createdAt }
+          : conversation,
+      );
       void refreshConversations();
-      return;
-    }
-    if (event.type === 'run_failed') {
-      updateExecution(event.runId, (execution) => ({
-        ...execution,
-        status: 'failed',
-        completedAt: event.createdAt,
-      }));
-      errorMessage = event.message;
-      preparingUi = false;
-      sending = false;
-      activeRunId = null;
-      return;
-    }
-    if (event.type === 'run_cancelled') {
-      updateExecution(event.runId, (execution) => ({
-        ...execution,
-        status: 'cancelled',
-        completedAt: event.createdAt,
-      }));
-      draftContent = '';
-      draftUi = null;
-      preparingUi = false;
-      sending = false;
-      activeRunId = null;
     }
   }
 
-  function updateExecution(
-    runId: string,
-    update: (execution: AgentExecutionTrace) => AgentExecutionTrace,
-  ): void {
-    executions = executions.map((execution) =>
-      execution.runId === runId ? update(execution) : execution,
-    );
+  function bufferRunEvent(event: AgentRunEvent): void {
+    if (pendingRunEvents.size >= 16 && !pendingRunEvents.has(event.runId)) return;
+    const events = pendingRunEvents.get(event.runId) ?? [];
+    pendingRunEvents.set(event.runId, [...events.slice(-511), event]);
+  }
+
+  function drainPendingRunEvents(runId: string): void {
+    const events = pendingRunEvents.get(runId) ?? [];
+    pendingRunEvents.delete(runId);
+    for (const event of events) handleRunEvent(event);
   }
 
   function activeExecution(): AgentExecutionTrace | null {
@@ -427,7 +360,7 @@
             type="button"
             aria-label="清空"
             title="清空全部历史会话"
-            disabled={sending || deleting}
+            disabled={hasActiveRuns || deleting}
             onclick={() => (clearHistoryOpen = true)}><ListX size={14} /></button
           >
         {/if}
@@ -455,15 +388,24 @@
             onclick={() => void openConversation(conversation.id)}
           >
             <span class="line-clamp-2 text-[13px] leading-5 font-medium">{conversation.title}</span>
-            <span class="mt-0.5 block text-[10px] leading-4 text-muted-foreground/70">
-              {formatConversationUpdatedAt(conversation.updatedAt)}
+            <span
+              class="mt-0.5 flex items-center gap-1.5 text-[10px] leading-4 text-muted-foreground/70"
+            >
+              {#if conversation.activeRunId}
+                <span class="inline-flex items-center gap-1 font-medium text-primary">
+                  <span class="size-1.5 animate-pulse rounded-full bg-primary"></span>运行中
+                </span>
+              {:else}
+                {formatConversationUpdatedAt(conversation.updatedAt)}
+              {/if}
             </span>
           </button>
           <button
             class="absolute top-1/2 right-1.5 grid size-6 -translate-y-1/2 place-items-center rounded-md text-muted-foreground opacity-0 transition-[color,background-color,opacity] hover:bg-destructive/10 hover:text-destructive focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none group-hover/history:opacity-100 group-focus-within/history:opacity-100"
             type="button"
             aria-label={`删除会话：${conversation.title}`}
-            disabled={sending || deleting}
+            disabled={conversation.activeRunId !== null || deleting}
+            title={conversation.activeRunId ? '运行中的会话不能删除' : '删除会话'}
             onclick={() => (deleteTarget = conversation)}
           >
             <Trash2 size={13} />
@@ -697,19 +639,15 @@
   <AlertDialog.Content>
     <AlertDialog.Header>
       <AlertDialog.Title>删除这次会话？</AlertDialog.Title>
-      <AlertDialog.Description>
-        「{deleteTarget?.title}」及其消息和执行记录将永久删除，长期记忆不受影响。
-      </AlertDialog.Description>
+      <AlertDialog.Description>删除后无法恢复，长期记忆不受影响。</AlertDialog.Description>
     </AlertDialog.Header>
     <AlertDialog.Footer>
       <AlertDialog.Cancel disabled={deleting}>取消</AlertDialog.Cancel>
       <AlertDialog.Action
         class="bg-destructive text-destructive-foreground hover:bg-destructive/90"
         disabled={deleting}
-        onclick={() => void confirmDeleteConversation()}
+        onclick={() => void confirmDeleteConversation()}>删除</AlertDialog.Action
       >
-        {#if deleting}<LoaderCircle class="animate-spin" size={14} />正在删除{:else}删除{/if}
-      </AlertDialog.Action>
     </AlertDialog.Footer>
   </AlertDialog.Content>
 </AlertDialog.Root>

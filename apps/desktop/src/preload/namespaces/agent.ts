@@ -34,6 +34,8 @@ export function createAgentApi(invoke: ValidatedInvoke, subscribe: ValidatedSubs
       invoke(agentConversationDeletionResultSchema, IPC_CHANNELS.agent.clearConversations),
     startRun: (input: StartAgentRunInput) =>
       invoke(startAgentRunResponseSchema, IPC_CHANNELS.agent.startRun, input),
+    resumeRun: (runId: string, conversationId: string, lastEventId: string | null) =>
+      invoke(z.undefined(), IPC_CHANNELS.agent.resumeRun, runId, conversationId, lastEventId),
     cancelRun: (runId: string) =>
       invoke(cancelAgentRunResultSchema, IPC_CHANNELS.agent.cancelRun, runId),
     onStreamEvent: (listener: (event: AgentStreamEnvelope) => void) =>

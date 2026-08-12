@@ -90,4 +90,50 @@ describe('AgentService', () => {
     service.dispose();
     expect(unsubscribe).toHaveBeenCalledOnce();
   });
+
+  it('replaces an existing subscription and resumes after the persisted event cursor', () => {
+    const firstUnsubscribe = vi.fn();
+    const secondUnsubscribe = vi.fn();
+    const subscribe = vi
+      .fn()
+      .mockReturnValueOnce({ unsubscribe: firstUnsubscribe })
+      .mockReturnValueOnce({ unsubscribe: secondUnsubscribe });
+    const client = {
+      agent: {
+        capabilities: { query: vi.fn() },
+        quickActions: { query: vi.fn() },
+        listConversations: { query: vi.fn() },
+        createConversation: { mutate: vi.fn() },
+        getConversation: { query: vi.fn() },
+        deleteConversation: { mutate: vi.fn() },
+        clearConversations: { mutate: vi.fn() },
+        startRun: { mutate: vi.fn() },
+        cancelRun: { mutate: vi.fn() },
+        events: { subscribe },
+      },
+    } satisfies AgentClient;
+    const service = new AgentService(client, vi.fn(), {
+      info: vi.fn(),
+      warn: vi.fn(),
+      error: vi.fn(),
+    });
+    const runId = '11111111-1111-4111-8111-111111111111';
+    const conversationId = '22222222-2222-4222-8222-222222222222';
+    const cursor = '33333333-3333-4333-8333-333333333333';
+
+    service.resumeRun(runId, conversationId, null);
+    service.resumeRun(runId, conversationId, cursor);
+
+    expect(firstUnsubscribe).toHaveBeenCalledOnce();
+    expect(subscribe).toHaveBeenLastCalledWith(
+      { runId, lastEventId: cursor },
+      expect.objectContaining({
+        onData: expect.any(Function),
+        onError: expect.any(Function),
+        onComplete: expect.any(Function),
+      }),
+    );
+    service.dispose();
+    expect(secondUnsubscribe).toHaveBeenCalledOnce();
+  });
 });

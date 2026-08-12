@@ -17,3 +17,9 @@ The runtime SHALL avoid repeated external work when equivalent context has alrea
 - **WHEN** more than one MCP server is configured and its tool catalog is first requested
 - **THEN** independent server catalogs load concurrently
 - **AND** transformed tools retain deterministic server configuration order
+
+#### Scenario: Model retries a successful UI render
+
+- **WHEN** one valid UI spec has been emitted and the model requests `render_hotel_ui` again
+- **THEN** the duplicate render is not executed or displayed as another execution step
+- **AND** the Run completes with the first UI instead of exhausting its recursion limit

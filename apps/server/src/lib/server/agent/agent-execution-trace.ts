@@ -1,4 +1,4 @@
-import type { AgentExecutionTrace, AgentRunEvent } from '@hotel-butler/api';
+import type { AgentActiveRun, AgentExecutionTrace, AgentRunEvent } from '@hotel-butler/api';
 
 export type StoredAgentRun = Readonly<{
 	id: string;
@@ -51,4 +51,29 @@ export function buildAgentExecutionTraces(
 			completedAt: run.completedAt?.toISOString() ?? null
 		};
 	});
+}
+
+export function buildActiveRunDraft(
+	runId: string,
+	events: readonly AgentRunEvent[]
+): AgentActiveRun {
+	let content = '';
+	let ui: AgentActiveRun['ui'] = null;
+	let preparingUi = false;
+	let lastEventId: string | null = null;
+
+	for (const event of events) {
+		if (event.runId !== runId) continue;
+		lastEventId = event.id;
+		if (event.type === 'text_delta') {
+			content += event.delta;
+		} else if (event.type === 'tool_started' && event.toolName === 'render_hotel_ui') {
+			preparingUi = true;
+		} else if (event.type === 'ui_spec') {
+			ui = event.spec;
+			preparingUi = false;
+		}
+	}
+
+	return { runId, content, ui, preparingUi, lastEventId };
 }

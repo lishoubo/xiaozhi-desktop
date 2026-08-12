@@ -75,7 +75,9 @@ allow an authenticated employee to cancel an owned active run.
 ### Requirement: Explicit conversation selection
 
 The desktop SHALL start on a new-conversation state and SHALL allow the employee to select,
-continue, delete one or clear all owned historical conversations.
+continue, delete one or clear all owned historical conversations. Conversation navigation SHALL be
+independent from Run execution: switching conversations or leaving the Agent page SHALL NOT cancel
+an active Run; only an explicit Stop action SHALL request cancellation.
 
 #### Scenario: Start a new conversation
 
@@ -89,6 +91,23 @@ continue, delete one or clear all owned historical conversations.
 - **THEN** the desktop loads and displays that conversation's complete stored messages
 - **AND** a later run sends the conversation ID and new request rather than trusting a
   client-supplied history
+
+#### Scenario: Switch away from an active conversation
+
+- **WHEN** an employee selects a new or historical conversation while the current Run is active
+- **THEN** the Run continues and its events update only its own conversation state
+- **AND** the history list marks that conversation as running
+
+#### Scenario: Return to an active conversation
+
+- **WHEN** an employee returns to a conversation whose Run is still active
+- **THEN** the desktop restores its persisted partial text, generative UI and execution trace
+- **AND** resumes its event subscription after the last persisted event ID
+
+#### Scenario: Leave the Agent page during a Run
+
+- **WHEN** the renderer unmounts while a Run is active
+- **THEN** it removes only its renderer event listener and does not request cancellation
 
 #### Scenario: Delete one historical conversation
 
@@ -177,13 +196,21 @@ messages, and bound a generated summary to 4,096 tokens. Unknown models SHALL us
 
 Agent progress and cancellation SHALL be delivered through a tRPC v11 SSE subscription using
 tracked event IDs. Persisted lifecycle events SHALL also project to an SDK-neutral execution trace
-returned with the owned conversation.
+returned with the owned conversation. An active conversation response SHALL additionally project the
+partial text, latest generative UI, UI preparation state and last persisted event ID for its newest
+running Run.
 
 #### Scenario: Reconnect a run
 
 - **WHEN** the SSE client reconnects with its last tracked event ID
 - **THEN** the server replays later persisted events in order
 - **AND** does not emit an event twice within that subscription
+
+#### Scenario: Recreate the renderer during an active Run
+
+- **WHEN** the desktop loads a conversation with an active Run after navigation or renderer restart
+- **THEN** it hydrates from the persisted active-Run projection
+- **AND** Electron main replaces or starts the SSE subscription from that projection's event cursor
 
 #### Scenario: Publish a live event
 
@@ -289,6 +316,12 @@ readable within the conversation width.
 - **WHEN** the model submits a UI spec
 - **THEN** the server validates component names, references, size and link protocols
 - **AND** rejects arbitrary code or unregistered components
+
+#### Scenario: Prevent repeated UI rendering
+
+- **WHEN** a Run has already produced one valid generated UI spec
+- **THEN** a later `render_hotel_ui` attempt is not executed or displayed as another tool step
+- **AND** the Run completes with the first UI instead of exhausting the Agent recursion limit
 
 #### Scenario: Render a dense date trend
 

@@ -96,11 +96,13 @@ describe('appRouter', () => {
       conversation: {
         id: '11111111-1111-4111-8111-111111111111',
         title: '用户 A 会话',
+        activeRunId: null,
         createdAt: '2026-08-10T00:00:00.000Z',
         updatedAt: '2026-08-10T00:00:00.000Z',
       },
       messages: [],
       executions: [],
+      activeRun: null,
     });
     const agent = {
       capabilities: vi.fn(),

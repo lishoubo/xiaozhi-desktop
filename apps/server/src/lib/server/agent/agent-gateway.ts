@@ -115,8 +115,19 @@ export class HotelAgentGateway implements AgentGateway {
 		return listHotelQuickActions(this.mcpTools.capabilities());
 	}
 
-	listConversations(principal: AgentPrincipal): Promise<AgentConversationSummary[]> {
-		return this.repository.listConversations(principal);
+	async listConversations(principal: AgentPrincipal): Promise<AgentConversationSummary[]> {
+		const startedAt = performance.now();
+		const conversations = await this.repository.listConversations(principal);
+		this.logger.debug(
+			{
+				event: 'agent.conversations.listed',
+				conversationCount: conversations.length,
+				activeRunCount: conversations.filter((conversation) => conversation.activeRunId).length,
+				durationMs: Math.max(0, Math.round(performance.now() - startedAt))
+			},
+			'Agent conversations listed'
+		);
+		return conversations;
 	}
 
 	createConversation(principal: AgentPrincipal, title?: string): Promise<AgentConversationSummary> {
@@ -127,8 +138,21 @@ export class HotelAgentGateway implements AgentGateway {
 		principal: AgentPrincipal,
 		conversationId: string
 	): Promise<AgentConversation> {
+		const startedAt = performance.now();
 		try {
-			return await this.repository.getConversation(principal, conversationId);
+			const conversation = await this.repository.getConversation(principal, conversationId);
+			this.logger.debug(
+				{
+					event: 'agent.conversation.loaded',
+					conversationId,
+					activeRunId: conversation.activeRun?.runId ?? null,
+					messageCount: conversation.messages.length,
+					executionCount: conversation.executions.length,
+					durationMs: Math.max(0, Math.round(performance.now() - startedAt))
+				},
+				'Agent conversation loaded'
+			);
+			return conversation;
 		} catch (error) {
 			throw this.toTrpcError(error);
 		}

@@ -249,7 +249,8 @@ test('opens the AI concierge from the icon sidebar', async () => {
 
   await historicalConversation.hover();
   await page.getByRole('button', { name: '删除会话：历史经营复盘' }).click();
-  await expect(page.getByRole('alertdialog')).toContainText('长期记忆不受影响');
+  await expect(page.getByRole('alertdialog')).toContainText('删除后无法恢复，长期记忆不受影响。');
+  await expect(page.getByRole('alertdialog')).not.toContainText('消息和执行记录');
   await page.getByRole('button', { name: '删除', exact: true }).click();
   await expect(page.getByRole('button', { name: '历史经营复盘', exact: true })).toHaveCount(0);
   await expect(page.getByRole('heading', { name: '新会话' })).toBeVisible();
@@ -268,6 +269,16 @@ test('opens the AI concierge from the icon sidebar', async () => {
   await composer.fill('分析今天的经营情况');
   await page.getByRole('button', { name: '发送消息' }).click();
   const stopRun = page.getByRole('button', { name: '停止执行' });
+  await expect(stopRun).toBeEnabled();
+  await newConversation.click();
+  await expect(composer).toBeEnabled();
+  await expect(stopRun).toHaveCount(0);
+  const runningConversation = page.getByRole('button', {
+    name: '分析今天的经营情况',
+    exact: true,
+  });
+  await expect(runningConversation.locator('..')).toContainText('运行中');
+  await runningConversation.click();
   await expect(stopRun).toBeEnabled();
   await stopRun.click();
   await expect(page.getByText('已停止', { exact: true })).toBeVisible();

@@ -1,10 +1,10 @@
 import { generativeUiSpecSchema } from '@hotel-butler/api';
 import type { GenerativeUiSpec } from '@hotel-butler/api';
-import { AIMessageChunk, ToolMessage } from '@langchain/core/messages';
+import { AIMessage, AIMessageChunk, ToolMessage } from '@langchain/core/messages';
 import type { BaseMessageLike } from '@langchain/core/messages';
 import { tool, type StructuredToolInterface } from '@langchain/core/tools';
 import { ChatOpenAI } from '@langchain/openai';
-import { createAgent } from 'langchain';
+import { createAgent, createMiddleware } from 'langchain';
 import { z } from 'zod';
 import type { AgentRepository } from './agent-repository';
 import type { AgentEnvironment } from './agent-config';
@@ -27,6 +27,50 @@ function textContent(value: unknown): string {
 			return '';
 		})
 		.join('');
+}
+
+export class DuplicateUiRenderError extends Error {
+	constructor() {
+		super('A valid generated UI has already been emitted for this Run');
+		this.name = 'DuplicateUiRenderError';
+	}
+}
+
+export function shouldStopDuplicateUiRender(
+	hasGeneratedUi: boolean,
+	toolNames: readonly string[]
+): boolean {
+	return hasGeneratedUi && toolNames.includes('render_hotel_ui');
+}
+
+function singleSuccessfulUiRenderMiddleware(hasGeneratedUi: () => boolean) {
+	return createMiddleware({
+		name: 'SingleSuccessfulUiRender',
+		afterModel: (state) => {
+			const lastAiMessage = [...state.messages].reverse().find(AIMessage.isInstance);
+			if (
+				shouldStopDuplicateUiRender(
+					hasGeneratedUi(),
+					lastAiMessage?.tool_calls?.map((call) => call.name) ?? []
+				)
+			) {
+				throw new DuplicateUiRenderError();
+			}
+		}
+	});
+}
+
+export function recoverCompletedUiAfterRenderLimit(
+	error: unknown,
+	content: string,
+	ui: GenerativeUiSpec | null
+): Readonly<{ content: string; ui: GenerativeUiSpec }> | null {
+	if (!(error instanceof DuplicateUiRenderError) || !ui) return null;
+	const conclusion = '结果视图已经生成，请结合上方数据查看。';
+	return {
+		content: content.trim() ? `${content.trimEnd()}\n\n${conclusion}` : conclusion,
+		ui
+	};
 }
 
 export class LangChainAgentRuntime implements AgentRuntime {
@@ -70,10 +114,10 @@ export class LangChainAgentRuntime implements AgentRuntime {
 		const hotelDataAvailable = loadedMcpTools.some((candidate) =>
 			isHotelDataToolName(candidate.name)
 		);
-
 		const agent = createAgent({
 			model: this.model,
 			tools,
+			middleware: [singleSuccessfulUiRenderMiddleware(() => generatedUi !== null)],
 			systemPrompt: buildHotelAgentSystemPrompt({
 				date: new Date().toISOString().slice(0, 10),
 				conversationSummary: options.conversationSummary,
@@ -90,53 +134,61 @@ export class LangChainAgentRuntime implements AgentRuntime {
 		let content = '';
 		const startedTools = new Set<string>();
 		const completedTools = new Set<string>();
-		const stream = await agent.stream(
-			{ messages },
-			{ streamMode: 'messages', signal: options.signal, recursionLimit: 16 }
-		);
-		for await (const [message] of stream) {
-			options.signal.throwIfAborted();
-			if (AIMessageChunk.isInstance(message)) {
-				const delta = textContent(message.content);
-				if (delta) {
-					content += delta;
-					await options.emit({ type: 'text_delta', delta });
+		try {
+			const stream = await agent.stream(
+				{ messages },
+				{ streamMode: 'messages', signal: options.signal, recursionLimit: 16 }
+			);
+			for await (const [message] of stream) {
+				options.signal.throwIfAborted();
+				if (AIMessageChunk.isInstance(message)) {
+					const delta = textContent(message.content);
+					if (delta) {
+						content += delta;
+						await options.emit({ type: 'text_delta', delta });
+					}
+					for (const call of message.tool_call_chunks ?? []) {
+						if (!call.id || !call.name || startedTools.has(call.id)) continue;
+						startedTools.add(call.id);
+						if (call.name === 'render_hotel_ui' && generatedUi) continue;
+						await options.emit({
+							type: 'tool_started',
+							toolCallId: call.id,
+							toolName: call.name
+						});
+					}
+					for (const call of message.tool_calls ?? []) {
+						if (!call.id || startedTools.has(call.id)) continue;
+						startedTools.add(call.id);
+						if (call.name === 'render_hotel_ui' && generatedUi) continue;
+						await options.emit({
+							type: 'tool_started',
+							toolCallId: call.id,
+							toolName: call.name
+						});
+					}
+					continue;
 				}
-				for (const call of message.tool_call_chunks ?? []) {
-					if (!call.id || !call.name || startedTools.has(call.id)) continue;
-					startedTools.add(call.id);
+				if (ToolMessage.isInstance(message)) {
+					const callId = message.tool_call_id;
+					if (completedTools.has(callId)) continue;
+					completedTools.add(callId);
 					await options.emit({
-						type: 'tool_started',
-						toolCallId: call.id,
-						toolName: call.name
+						type: 'tool_completed',
+						toolCallId: callId,
+						toolName: message.name ?? 'tool',
+						summary: isHotelDataToolName(message.name ?? '')
+							? message.status === 'error'
+								? '经营数据查询未成功，正在调整查询条件'
+								: '酒店经营数据查询完成'
+							: '工具调用已完成'
 					});
 				}
-				for (const call of message.tool_calls ?? []) {
-					if (!call.id || startedTools.has(call.id)) continue;
-					startedTools.add(call.id);
-					await options.emit({
-						type: 'tool_started',
-						toolCallId: call.id,
-						toolName: call.name
-					});
-				}
-				continue;
 			}
-			if (ToolMessage.isInstance(message)) {
-				const callId = message.tool_call_id;
-				if (completedTools.has(callId)) continue;
-				completedTools.add(callId);
-				await options.emit({
-					type: 'tool_completed',
-					toolCallId: callId,
-					toolName: message.name ?? 'tool',
-					summary: isHotelDataToolName(message.name ?? '')
-						? message.status === 'error'
-							? '经营数据查询未成功，正在调整查询条件'
-							: '酒店经营数据查询完成'
-						: '工具调用已完成'
-				});
-			}
+		} catch (error) {
+			const recovered = recoverCompletedUiAfterRenderLimit(error, content, generatedUi);
+			if (!recovered) throw error;
+			return recovered;
 		}
 		return { content, ui: generatedUi };
 	}
@@ -178,7 +230,7 @@ export class LangChainAgentRuntime implements AgentRuntime {
 			{
 				name: 'render_hotel_ui',
 				description:
-					'数据工具返回足够数据后立即调用：当趋势图、表格、告警、进度或卡片比纯文本更清晰时，渲染受限的酒店业务 UI。先发送 UI，再生成最终文字结论。',
+					'每次任务最多调用一次。把所需图表、表格和卡片合并到同一个 spec；成功后直接生成最终文字结论，不要再次调用。拿不准图表格式时使用 Table。',
 				schema: z.object({ spec: generativeUiSpecSchema })
 			}
 		);

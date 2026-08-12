@@ -1,6 +1,6 @@
 import type { AgentRunEvent } from '@hotel-butler/api';
 import { describe, expect, it } from 'vitest';
-import { buildAgentExecutionTraces } from './agent-execution-trace';
+import { buildActiveRunDraft, buildAgentExecutionTraces } from './agent-execution-trace';
 
 const runId = '33333333-3333-4333-8333-333333333333';
 const conversationId = '44444444-4444-4444-8444-444444444444';
@@ -93,5 +93,33 @@ describe('buildAgentExecutionTraces', () => {
 		);
 
 		expect(trace).toMatchObject({ status: 'cancelled', assistantMessageId: null });
+	});
+});
+
+describe('buildActiveRunDraft', () => {
+	it('restores partial text, UI preparation and the persisted replay cursor', () => {
+		const spec = {
+			root: 'root',
+			state: {},
+			elements: { root: { type: 'MetricGrid', props: {}, children: [], visible: true } }
+		};
+		const textEvent = event({ type: 'text_delta', delta: '正在查询' });
+		const toolEvent = event({
+			type: 'tool_started',
+			toolCallId: 'render-1',
+			toolName: 'render_hotel_ui'
+		});
+		const uiEvent = event({
+			type: 'ui_spec',
+			spec
+		});
+
+		expect(buildActiveRunDraft(runId, [textEvent, toolEvent, uiEvent])).toEqual({
+			runId,
+			content: '正在查询',
+			ui: spec,
+			preparingUi: false,
+			lastEventId: uiEvent.id
+		});
 	});
 });

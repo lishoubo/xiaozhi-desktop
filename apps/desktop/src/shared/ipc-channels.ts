@@ -8,6 +8,7 @@ export const IPC_CHANNELS = {
     deleteConversation: 'agent:delete-conversation',
     clearConversations: 'agent:clear-conversations',
     startRun: 'agent:start-run',
+    resumeRun: 'agent:resume-run',
     cancelRun: 'agent:cancel-run',
     streamEvent: 'agent:stream-event',
   },

@@ -6,6 +6,7 @@ const isoDateSchema = z.string().datetime({ offset: true });
 export const agentConversationSummarySchema = z.strictObject({
   id: idSchema,
   title: z.string().min(1).max(120),
+  activeRunId: idSchema.nullable(),
   createdAt: isoDateSchema,
   updatedAt: isoDateSchema,
 });
@@ -128,10 +129,20 @@ export const agentExecutionTraceSchema = z.strictObject({
 });
 export type AgentExecutionTrace = Readonly<z.infer<typeof agentExecutionTraceSchema>>;
 
+export const agentActiveRunSchema = z.strictObject({
+  runId: idSchema,
+  content: z.string(),
+  ui: generativeUiSpecSchema.nullable(),
+  preparingUi: z.boolean(),
+  lastEventId: idSchema.nullable(),
+});
+export type AgentActiveRun = Readonly<z.infer<typeof agentActiveRunSchema>>;
+
 export const agentConversationSchema = z.strictObject({
   conversation: agentConversationSummarySchema,
   messages: z.array(agentMessageSchema),
   executions: z.array(agentExecutionTraceSchema),
+  activeRun: agentActiveRunSchema.nullable(),
 });
 export type AgentConversation = Readonly<z.infer<typeof agentConversationSchema>>;
 

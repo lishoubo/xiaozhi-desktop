@@ -22,6 +22,7 @@ export interface AgentOrchestrator {
   deleteConversation(conversationId: string): Promise<AgentConversationDeletionResult>;
   clearConversations(): Promise<AgentConversationDeletionResult>;
   startRun(input: z.infer<typeof startAgentRunInputSchema>): Promise<StartAgentRunResponse>;
+  resumeRun(runId: string, conversationId: string, lastEventId: string | null): void;
   cancelRun(runId: string): Promise<CancelAgentRunResult>;
 }
 
@@ -70,6 +71,12 @@ export function registerAgentHandlers({
     z.tuple([startAgentRunInputSchema]),
     'Agent 请求参数无效',
     (input) => service.startRun(input),
+  );
+  registry.handle(
+    IPC_CHANNELS.agent.resumeRun,
+    z.tuple([z.string().uuid(), z.string().uuid(), z.string().uuid().nullable()]),
+    'Agent 恢复参数无效',
+    (runId, conversationId, lastEventId) => service.resumeRun(runId, conversationId, lastEventId),
   );
   registry.handle(
     IPC_CHANNELS.agent.cancelRun,

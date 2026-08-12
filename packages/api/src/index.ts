@@ -1,5 +1,6 @@
 export {
   agentCapabilitiesSchema,
+  agentActiveRunSchema,
   agentRunIdInputSchema,
   agentRunStatusSchema,
   cancelAgentRunResultSchema,
@@ -34,6 +35,7 @@ export {
   startAgentRunInputSchema,
   startAgentRunResponseSchema,
   type AgentCapabilities,
+  type AgentActiveRun,
   type AgentRunStatus,
   type CancelAgentRunResult,
   type AgentConversation,

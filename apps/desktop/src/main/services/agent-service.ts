@@ -90,6 +90,7 @@ export class AgentService {
     this.logger.info('Agent conversation opened', {
       event: 'agent.client.conversation.opened',
       conversationId,
+      activeRunId: conversation.activeRun?.runId ?? null,
       messageCount: conversation.messages.length,
       executionCount: conversation.executions.length,
       durationMs: Math.max(0, Math.round(performance.now() - startedAt)),
@@ -142,9 +143,29 @@ export class AgentService {
       requestKind: 'prompt' in input ? 'prompt' : 'quick_action',
       durationMs: Math.max(0, Math.round(performance.now() - startedAt)),
     });
-    this.subscriptions.get(started.runId)?.unsubscribe();
+    this.subscribeToRun(started.runId, input.conversationId, null, startedAt);
+    return started;
+  }
+
+  resumeRun(runId: string, conversationId: string, lastEventId: string | null): void {
+    this.logger.info('Agent event subscription recovery requested', {
+      event: 'agent.client.events.recovery_requested',
+      runId,
+      conversationId,
+      hasCursor: lastEventId !== null,
+    });
+    this.subscribeToRun(runId, conversationId, lastEventId, performance.now());
+  }
+
+  private subscribeToRun(
+    runId: string,
+    conversationId: string,
+    lastEventId: string | null,
+    startedAt: number,
+  ): void {
+    this.subscriptions.get(runId)?.unsubscribe();
     const subscription = this.client.agent.events.subscribe(
-      { runId: started.runId, lastEventId: null },
+      { runId, lastEventId },
       {
         onData: (trackedEvent) => {
           const event = trackedEvent.data;
@@ -173,28 +194,30 @@ export class AgentService {
         onError: (error) => {
           this.logger.warn('Agent event subscription failed', {
             event: 'agent.client.events.failed',
-            runId: started.runId,
-            conversationId: input.conversationId,
+            runId,
+            conversationId,
             durationMs: Math.max(0, Math.round(performance.now() - startedAt)),
             errorName: error.name,
           });
           this.notify({
             kind: 'transport_error',
-            runId: started.runId,
+            runId,
             message: '与小智的流式连接已中断，请重新打开会话。',
           });
-          this.subscriptions.delete(started.runId);
+          if (this.subscriptions.get(runId) === subscription) this.subscriptions.delete(runId);
         },
-        onComplete: () => this.subscriptions.delete(started.runId),
+        onComplete: () => {
+          if (this.subscriptions.get(runId) === subscription) this.subscriptions.delete(runId);
+        },
       },
     );
-    this.subscriptions.set(started.runId, subscription);
+    this.subscriptions.set(runId, subscription);
     this.logger.info('Agent event subscription connected', {
       event: 'agent.client.events.connected',
-      runId: started.runId,
-      conversationId: input.conversationId,
+      runId,
+      conversationId,
+      hasCursor: lastEventId !== null,
     });
-    return started;
   }
 
   async cancelRun(runId: string): Promise<CancelAgentRunResult> {

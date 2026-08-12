@@ -8,6 +8,8 @@ The `ChatOpenAI` instance is created once per runtime adapter. It is configurati
 
 `McpToolProvider` loads each configured server catalog with `Promise.all`, transforms each server's tools independently, then flattens results in configuration order. The existing promise cache continues to deduplicate concurrent and later loads.
 
+Generated UI is bounded to one successful `render_hotel_ui` call per Run. If the model attempts another render after a valid spec was emitted, the runtime stops the redundant loop and completes with the first UI plus the text already streamed. Duplicate attempts are not projected as additional execution steps.
+
 ## Boundaries
 
 This change does not batch persisted streaming events or weaken the persist-before-publish guarantee. Hotel-specific facts still require MCP grounding, and DMS calls remain constrained and read-only.

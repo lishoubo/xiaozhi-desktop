@@ -19,7 +19,8 @@ describe('buildHotelAgentSystemPrompt', () => {
 		expect(prompt).toContain('答案依赖某家酒店的当前或历史事实');
 		expect(prompt).toContain('通用酒店知识、指标定义或方法建议');
 		expect(prompt).toContain('不得声称业务操作已经执行');
-		expect(prompt).toContain('立即调用 render_hotel_ui');
+		expect(prompt).toContain('调用一次 render_hotel_ui');
+		expect(prompt).toContain('成功后不得');
 	});
 
 	it('states that hotel data is unavailable when no data tool is loaded', () => {

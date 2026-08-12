@@ -31,6 +31,7 @@ import {
 } from './contracts';
 
 export {
+  agentActiveRunSchema,
   agentCapabilitiesSchema,
   agentRunIdInputSchema,
   cancelAgentRunResultSchema,
@@ -64,6 +65,7 @@ export {
   startAgentRunInputSchema,
   startAgentRunResponseSchema,
   type AgentCapabilities,
+  type AgentActiveRun,
   type CancelAgentRunResult,
   type AgentConversation,
   type AgentConversationDeletionResult,

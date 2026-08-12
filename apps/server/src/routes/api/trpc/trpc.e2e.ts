@@ -113,7 +113,8 @@ test('persists Agent conversations under the authenticated desktop session', asy
 	expect((await loaded.json()).result.data).toEqual({
 		conversation,
 		messages: [],
-		executions: []
+		executions: [],
+		activeRun: null
 	});
 
 	const forgedOwner = await request.get(

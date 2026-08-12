@@ -18,15 +18,17 @@ import {
 	agentRunEvent
 } from '$lib/server/db/agent.schema';
 import type { StoredConversationContext } from './conversation-context';
-import { buildAgentExecutionTraces } from './agent-execution-trace';
+import { buildActiveRunDraft, buildAgentExecutionTraces } from './agent-execution-trace';
 
 const toIso = (value: Date): string => value.toISOString();
 
 const toConversationSummary = (
-	row: Pick<typeof agentConversation.$inferSelect, 'id' | 'title' | 'createdAt' | 'updatedAt'>
+	row: Pick<typeof agentConversation.$inferSelect, 'id' | 'title' | 'createdAt' | 'updatedAt'>,
+	activeRunId: string | null = null
 ): AgentConversationSummary => ({
 	id: row.id,
 	title: row.title,
+	activeRunId,
 	createdAt: toIso(row.createdAt),
 	updatedAt: toIso(row.updatedAt)
 });
@@ -75,12 +77,29 @@ export class AgentRepository {
 	}
 
 	async listConversations(principal: AgentPrincipal): Promise<AgentConversationSummary[]> {
-		const rows = await this.database
-			.select()
-			.from(agentConversation)
-			.where(eq(agentConversation.ownerEmployeeId, principal.employeeId))
-			.orderBy(desc(agentConversation.updatedAt));
-		return rows.map(toConversationSummary);
+		const [rows, runningRuns] = await Promise.all([
+			this.database
+				.select()
+				.from(agentConversation)
+				.where(eq(agentConversation.ownerEmployeeId, principal.employeeId))
+				.orderBy(desc(agentConversation.updatedAt)),
+			this.database
+				.select({ id: agentRun.id, conversationId: agentRun.conversationId })
+				.from(agentRun)
+				.where(
+					and(eq(agentRun.ownerEmployeeId, principal.employeeId), eq(agentRun.status, 'running'))
+				)
+				.orderBy(desc(agentRun.createdAt))
+		]);
+		const activeRunByConversation = new Map<string, string>();
+		for (const run of runningRuns) {
+			if (!activeRunByConversation.has(run.conversationId)) {
+				activeRunByConversation.set(run.conversationId, run.id);
+			}
+		}
+		return rows.map((row) =>
+			toConversationSummary(row, activeRunByConversation.get(row.id) ?? null)
+		);
 	}
 
 	async createConversation(
@@ -160,13 +179,13 @@ export class AgentRepository {
 				)
 				.orderBy(asc(agentRunEvent.sequence))
 		]);
+		const activeRun = [...runs].reverse().find((run) => run.status === 'running') ?? null;
+		const payloads = events.map((event) => event.payload);
 		return {
-			conversation: toConversationSummary(conversation),
+			conversation: toConversationSummary(conversation, activeRun?.id ?? null),
 			messages: messages.map(toMessage),
-			executions: buildAgentExecutionTraces(
-				runs,
-				events.map((event) => event.payload)
-			)
+			executions: buildAgentExecutionTraces(runs, payloads),
+			activeRun: activeRun ? buildActiveRunDraft(activeRun.id, payloads) : null
 		};
 	}
 

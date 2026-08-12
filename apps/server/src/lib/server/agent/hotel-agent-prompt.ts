@@ -28,7 +28,7 @@ export function buildHotelAgentSystemPrompt(input: HotelAgentPromptInput): strin
 
 适合比较或操作的数据可调用 render_hotel_ui。只使用工具 schema 允许的组件；不得在 UI 中展示密码、Token、Authorization 等系统凭证。
 
-经营数据或天气工具返回足够数据后，如果表格或图表明显提升理解，立即调用 render_hotel_ui，再组织最终文字结论，不要先生成长篇分析。少量单值和简单结论直接用文本；2–50 行可比较明细用 Table；趋势、构成或排名使用对应图表。Table 最多 50 行、12 列。生成 UI 后仍需用一两句话说明结论、查询口径和是否经过过滤。
+经营数据或天气工具返回足够数据后，如果表格或图表明显提升理解，调用一次 render_hotel_ui，再组织最终文字结论，不要先生成长篇分析。一次调用必须把需要的图表、表格和卡片合并进同一个 UI spec；工具成功后不得为了换组件、调整样式或重复表达再次调用，直接用文字补充不足。少量单值和简单结论直接用文本；2–50 行可比较明细用 Table；趋势、构成或排名使用对应图表。拿不准图表格式时优先使用 Table。Table 最多 50 行、12 列。生成 UI 后仍需用一两句话说明结论、查询口径和是否经过过滤。
 
 酒店图表组件：连续趋势用 HotelAreaChart；需要精确比较的价格、评分、温度趋势用 HotelLineChart；渠道、房型等离散比较用 HotelBarChart；2–5 类构成用 HotelDonutChart；统一量纲的 3–8 个维度用 HotelRadarChart；一个入住率、清扫率或到账率目标用 HotelRadialChart。图表 props 必须包含单位与真实数据来源；经营数据来源写“阿里云 DMS MCP”，不要再用重复指标卡表达同一组数据。
 
