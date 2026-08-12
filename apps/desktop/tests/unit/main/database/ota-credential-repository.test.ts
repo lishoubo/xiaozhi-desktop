@@ -15,6 +15,7 @@ function input(overrides: Partial<Parameters<SqliteOtaCredentialRepository['crea
     id: toOtaCredentialId('credential-1'),
     channel: toChannelId('douyin'),
     channelAccountId: null,
+    channelAccountName: null,
     partitionName: 'persist:xiaozhi:prod:douyin:short-1',
     credentialExtra: null,
     discoveredAt: 1_700_000_000_000,
@@ -40,6 +41,39 @@ describe('SqliteOtaCredentialRepository', () => {
     expect(repository.findById(created.id)).toEqual(created);
     expect(repository.findByPartitionName(created.partitionName)).toEqual(created);
     expect(repository.findByChannelAndAccountId(created.channel, 'account-1')).toEqual(created);
+  });
+
+  /**
+   * `channel_account_name` 是 migration 8 加的顶层列。历史记录不回填，所以读取方
+   * 必须容忍 null——上面的 `input()` 默认就是 null，这里只补「有值时能存能取」。
+   */
+  it('渠道账号名能往返存取，更新时可以从 null 补上', () => {
+    const created = repository.create(
+      input({ channelAccountId: 'account-1', channelAccountName: '银际酒店(包头市青山店)' }),
+    );
+
+    expect(created.channelAccountName).toBe('银际酒店(包头市青山店)');
+    expect(repository.findById(created.id)?.channelAccountName).toBe('银际酒店(包头市青山店)');
+
+    // 老记录（name 为 null）在下次探测时被补上——不回填历史数据的前提下，这是名字
+    // 唯一的补齐途径。
+    const legacy = repository.create(
+      input({
+        id: toOtaCredentialId('credential-legacy'),
+        partitionName: 'persist:xiaozhi:prod:douyin:legacy',
+        channelAccountId: 'account-legacy',
+      }),
+    );
+    expect(legacy.channelAccountName).toBeNull();
+
+    const refreshed = repository.updateIdentity(legacy.id, {
+      channelAccountId: 'account-legacy',
+      channelAccountName: 'Btphhldxm',
+      credentialExtra: { login: 'Btphhldxm' },
+      lastRefreshedAt: 1_700_000_000_100,
+    });
+    expect(refreshed.channelAccountName).toBe('Btphhldxm');
+    expect(repository.findById(legacy.id)?.channelAccountName).toBe('Btphhldxm');
   });
 
   it('查询不存在的 credential 返回 null', () => {
@@ -78,13 +112,16 @@ describe('SqliteOtaCredentialRepository', () => {
 
     const updated = repository.updateIdentity(created.id, {
       channelAccountId: 'account-2',
+      channelAccountName: null,
       credentialExtra: { partnerId: 'partner-1' },
       lastRefreshedAt: 1_700_000_000_100,
     });
 
+
     expect(updated).toEqual({
       ...created,
       channelAccountId: 'account-2',
+      channelAccountName: null,
       credentialExtra: { partnerId: 'partner-1' },
       lastRefreshedAt: 1_700_000_000_100,
     });
@@ -99,6 +136,7 @@ describe('SqliteOtaCredentialRepository', () => {
     const updated = repository.updatePartitionAndIdentity(created.id, {
       partitionName: 'persist:xiaozhi:prod:douyin:short-2',
       channelAccountId: 'account-2',
+      channelAccountName: null,
       credentialExtra: { login: 'new-login' },
       lastRefreshedAt: 1_700_000_000_100,
     });
@@ -119,6 +157,7 @@ describe('SqliteOtaCredentialRepository', () => {
     expect(() =>
       repository.updateIdentity(created.id, {
         channelAccountId: ' ',
+        channelAccountName: null,
         credentialExtra: { partnerId: 'partner-1' },
         lastRefreshedAt: 1_700_000_000_100,
       }),

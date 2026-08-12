@@ -5,6 +5,14 @@ export type OtaCredential = Readonly<{
   id: OtaCredentialId;
   channel: ChannelId;
   channelAccountId: string | null;
+  /**
+   * 「人能认出来」的账号名。渠道差异（携程 `hotelName`、抖音 `name`、美团 `login`）
+   * 在写入时就抹平了，见 `channelAccountNameOf`。
+   *
+   * **可能为 null**：探测拿不到名字，或记录建于 migration 8 之前（历史数据不回填，
+   * 下次重新探测时自然写上）。名字只做展示，缺了不该阻断任何流程。
+   */
+  channelAccountName: string | null;
   partitionName: string;
   credentialExtra: JsonObject | null;
   discoveredAt: number;
@@ -14,11 +22,21 @@ export type OtaCredential = Readonly<{
 export type OtaCredentialCreateInput = OtaCredential;
 
 export type OtaCredentialIdentityUpdate = Readonly<
-  Pick<OtaCredential, 'channelAccountId' | 'credentialExtra' | 'lastRefreshedAt'>
+  Pick<
+    OtaCredential,
+    'channelAccountId' | 'channelAccountName' | 'credentialExtra' | 'lastRefreshedAt'
+  >
 >;
 
 export type OtaCredentialPartitionUpdate = Readonly<
-  Pick<OtaCredential, 'partitionName' | 'channelAccountId' | 'credentialExtra' | 'lastRefreshedAt'>
+  Pick<
+    OtaCredential,
+    | 'partitionName'
+    | 'channelAccountId'
+    | 'channelAccountName'
+    | 'credentialExtra'
+    | 'lastRefreshedAt'
+  >
 >;
 
 export class InvalidOtaCredentialError extends Error {

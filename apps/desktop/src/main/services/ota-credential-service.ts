@@ -15,6 +15,7 @@ import type { ChannelId } from '../ids';
 import { toOtaCredentialId } from '../ids';
 import type { OtaCredential } from '../../shared/types/ota-credential';
 import type { OtaCredentialRepository } from '../database/ota-credential-repository';
+import { channelAccountNameOf } from '../channels/bind-extra';
 import type { AppLogger } from '../../shared/logging';
 import type { DiscoverCtrip } from '../channels/ctrip/discovery';
 import type { DiscoverDouyin } from '../channels/douyin/discovery';
@@ -143,6 +144,9 @@ export class OtaCredentialService {
     }>,
   ): Promise<OtaCredential> {
     const now = Date.now();
+    // 渠道差异只在这里抹平一次：三条写入路径共用同一个值，读取方只认顶层列。
+    // 取不到就是 null——名字只做展示，缺了不该阻断绑定。
+    const channelAccountName = channelAccountNameOf(identity.credentialExtra);
     const existing = this.deps.credentialRepository.findByPartitionName(partitionName);
     const identified = this.deps.credentialRepository.findByChannelAndAccountId(
       channel,
@@ -161,6 +165,7 @@ export class OtaCredentialService {
       credential = this.deps.credentialRepository.updatePartitionAndIdentity(identified.id, {
         partitionName,
         channelAccountId: identity.channelAccountId,
+        channelAccountName,
         credentialExtra: identity.credentialExtra,
         lastRefreshedAt: now,
       });
@@ -170,6 +175,7 @@ export class OtaCredentialService {
       }
       credential = this.deps.credentialRepository.updateIdentity(existing.id, {
         channelAccountId: identity.channelAccountId,
+        channelAccountName,
         credentialExtra: identity.credentialExtra,
         lastRefreshedAt: now,
       });
@@ -178,6 +184,7 @@ export class OtaCredentialService {
         id: toOtaCredentialId(this.deps.generateCredentialId()),
         channel,
         channelAccountId: identity.channelAccountId,
+        channelAccountName,
         partitionName,
         credentialExtra: identity.credentialExtra,
         discoveredAt: now,

@@ -10,6 +10,7 @@ function input(overrides: Partial<Parameters<typeof createOtaCredential>[0]> = {
     id: toOtaCredentialId('credential-1'),
     channel: toChannelId('douyin'),
     channelAccountId: null,
+    channelAccountName: null,
     partitionName: 'persist:xiaozhi:prod:douyin:short-id',
     credentialExtra: null,
     discoveredAt: 1_700_000_000_000,

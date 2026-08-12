@@ -192,6 +192,21 @@ const migrations: readonly Migration[] = [
       `);
     },
   },
+  {
+    version: 8,
+    name: 'add-ota-credential-channel-account-name',
+    apply(database) {
+      // 账号名此前只存在 `credential_extra` 里，键随渠道不同（携程 `hotelName`、
+      // 抖音 `name`、美团 `login`），每个读取方都得知道这张键表。提到顶层后读取方
+      // 只认一个列名，渠道差异收在写入那一侧（见 `channelAccountNameOf`）。
+      //
+      // 不回填历史数据：`credential_extra` 原样保留，老记录这一列为 NULL，下次该
+      // 账号重新探测时自然写上。**读取方必须容忍 NULL。**
+      database.exec(`
+        ALTER TABLE ota_credential ADD COLUMN channel_account_name TEXT;
+      `);
+    },
+  },
 ];
 
 function migrate(database: ApplicationDatabase): number {
