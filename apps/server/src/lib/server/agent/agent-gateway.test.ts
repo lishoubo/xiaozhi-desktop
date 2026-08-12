@@ -1,5 +1,6 @@
 import type { AgentRunEvent } from '@hotel-butler/api';
 import { describe, expect, it, vi } from 'vitest';
+import type { McpCapability } from './agent-config';
 import { AgentAccessDeniedError } from './agent-repository';
 import { describeAgentRunFailure, HotelAgentGateway } from './agent-gateway';
 
@@ -21,7 +22,7 @@ type ListEvents = (
 
 function createGatewayHarness(
 	listEvents: ListEvents,
-	mcpCapabilities: readonly ('weather' | 'hotel_rates')[] = []
+	mcpCapabilities: readonly McpCapability[] = []
 ) {
 	const repository = {
 		listConversations: vi.fn(),
@@ -107,6 +108,23 @@ describe('HotelAgentGateway hotel quick actions', () => {
 		expect(actions.every((action) => !('prompt' in action))).toBe(true);
 	});
 
+	it('keeps one weather action and exposes hotel operating data when DMS is configured', async () => {
+		const { gateway } = createGatewayHarness(
+			vi.fn(async () => []),
+			['weather', 'hotel_data']
+		);
+
+		const actions = await gateway.quickActions();
+
+		expect(actions.map((action) => action.id)).toEqual(['today_weather', 'hotel_operating_data']);
+		expect(actions[1]).toMatchObject({
+			label: '查看酒店经营概览',
+			category: 'operations',
+			requiresMcp: true,
+			available: true
+		});
+	});
+
 	it('rejects a live-data action before persistence when no hotel MCP is configured', async () => {
 		const { gateway, repository } = createGatewayHarness(vi.fn(async () => []));
 
@@ -126,7 +144,7 @@ describe('HotelAgentGateway hotel quick actions', () => {
 	it('maps a quick action to its server-owned prompt', async () => {
 		const { gateway, repository } = createGatewayHarness(
 			vi.fn(async () => []),
-			['weather']
+			['hotel_data']
 		);
 		repository.startRun.mockResolvedValue({
 			created: false,
@@ -147,7 +165,7 @@ describe('HotelAgentGateway hotel quick actions', () => {
 			{ employeeId: '1001', orgId: '42' },
 			{
 				conversationId: '44444444-4444-4444-8444-444444444444',
-				quickActionId: 'today_weather',
+				quickActionId: 'hotel_operating_data',
 				clientRequestId: '55555555-5555-4555-8555-555555555555'
 			}
 		);
@@ -157,7 +175,7 @@ describe('HotelAgentGateway hotel quick actions', () => {
 			expect.objectContaining({
 				conversationId: '44444444-4444-4444-8444-444444444444',
 				clientRequestId: '55555555-5555-4555-8555-555555555555',
-				prompt: expect.stringContaining('公共天气 MCP')
+				prompt: expect.stringContaining('DMS 酒店经营数据 MCP')
 			})
 		);
 	});

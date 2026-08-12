@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest';
-import { isReadOnlyMcpToolName } from './mcp-tool-provider';
+import { describe, expect, it, vi } from 'vitest';
+import { isReadOnlyMcpToolName, loadMcpServerToolsInOrder } from './mcp-tool-provider';
 import {
 	compactHotelDataResult,
 	constrainHotelDataQueryArgs,
@@ -18,6 +18,26 @@ describe('isReadOnlyMcpToolName', () => {
 		expect(isReadOnlyMcpToolName('reservation.get_and_delete')).toBe(false);
 		expect(isReadOnlyMcpToolName('inventory.update')).toBe(false);
 		expect(isReadOnlyMcpToolName('refund.execute')).toBe(false);
+	});
+});
+
+describe('loadMcpServerToolsInOrder', () => {
+	it('starts independent catalogs concurrently and preserves configured order', async () => {
+		const releases = new Map<string, (tools: readonly string[]) => void>();
+		const load = vi.fn(
+			(name: string) =>
+				new Promise<readonly string[]>((resolve) => {
+					releases.set(name, resolve);
+				})
+		);
+
+		const loading = loadMcpServerToolsInOrder(['weather', 'hotel-data'], load);
+		expect(load).toHaveBeenCalledTimes(2);
+
+		releases.get('hotel-data')?.(['hotel-tool']);
+		releases.get('weather')?.(['weather-tool']);
+
+		await expect(loading).resolves.toEqual([['weather-tool'], ['hotel-tool']]);
 	});
 });
 

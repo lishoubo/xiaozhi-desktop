@@ -147,9 +147,8 @@ export type AgentCapabilities = Readonly<z.infer<typeof agentCapabilitiesSchema>
 
 export const agentQuickActionIdSchema = z.enum([
   'today_weather',
-  'weather_outlook',
-  'air_quality',
   'public_hotel_rates',
+  'hotel_operating_data',
 ]);
 export type AgentQuickActionId = z.infer<typeof agentQuickActionIdSchema>;
 

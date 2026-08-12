@@ -31,6 +31,7 @@ function textContent(value: unknown): string {
 
 export class LangChainAgentRuntime implements AgentRuntime {
 	private readonly localToolHandlers: HotelAgentToolHandlers;
+	private readonly model: ChatOpenAI;
 
 	constructor(
 		private readonly environment: AgentEnvironment,
@@ -39,6 +40,15 @@ export class LangChainAgentRuntime implements AgentRuntime {
 		private readonly skills: SkillProvider
 	) {
 		this.localToolHandlers = new HotelAgentToolHandlers(repository);
+		this.model = new ChatOpenAI({
+			model: this.environment.model,
+			apiKey: this.environment.apiKey,
+			streaming: true,
+			maxTokens: 8192,
+			maxRetries: 2,
+			timeout: 120_000,
+			configuration: { baseURL: this.environment.baseUrl }
+		});
 	}
 
 	async run(options: AgentRuntimeRunOptions) {
@@ -61,17 +71,8 @@ export class LangChainAgentRuntime implements AgentRuntime {
 			isHotelDataToolName(candidate.name)
 		);
 
-		const model = new ChatOpenAI({
-			model: this.environment.model,
-			apiKey: this.environment.apiKey,
-			streaming: true,
-			maxTokens: 8192,
-			maxRetries: 2,
-			timeout: 120_000,
-			configuration: { baseURL: this.environment.baseUrl }
-		});
 		const agent = createAgent({
-			model,
+			model: this.model,
 			tools,
 			systemPrompt: buildHotelAgentSystemPrompt({
 				date: new Date().toISOString().slice(0, 10),
@@ -144,16 +145,6 @@ export class LangChainAgentRuntime implements AgentRuntime {
 		options: AgentRuntimeRunOptions,
 		setUi: (spec: GenerativeUiSpec) => void
 	): StructuredToolInterface[] {
-		const recall = tool(async () => {
-			options.signal.throwIfAborted();
-			const result = await this.localToolHandlers.recall(options.principal);
-			options.signal.throwIfAborted();
-			return result;
-		}, {
-			name: 'recall_long_term_memory',
-			description: '读取当前员工跨会话保存的酒店工作偏好和长期事实。',
-			schema: z.object({})
-		});
 		const remember = tool(
 			async ({ key, content, importance }) => {
 				options.signal.throwIfAborted();
@@ -186,10 +177,11 @@ export class LangChainAgentRuntime implements AgentRuntime {
 			},
 			{
 				name: 'render_hotel_ui',
-				description: '当表格、告警、进度或卡片比纯文本更清晰时，渲染受限的酒店业务 UI。',
+				description:
+					'数据工具返回足够数据后立即调用：当趋势图、表格、告警、进度或卡片比纯文本更清晰时，渲染受限的酒店业务 UI。先发送 UI，再生成最终文字结论。',
 				schema: z.object({ spec: generativeUiSpecSchema })
 			}
 		);
-		return [recall, remember, renderUi];
+		return [remember, renderUi];
 	}
 }

@@ -202,6 +202,12 @@ returned with the owned conversation.
 - **THEN** a replayable `run_cancelled` terminal event is persisted and delivered
 - **AND** reopening the conversation presents the run as cancelled rather than failed
 
+#### Scenario: Continue after a cancelled Run
+
+- **WHEN** a cancelled Run is followed by new user input and a new Run
+- **THEN** the cancelled trace remains next to its original user message
+- **AND** the later execution and answer remain in chronological order
+
 ### Requirement: Persistent conversations and memory
 
 Conversation messages SHALL survive process restarts, and employee-scoped long-term memory SHALL be available across that employee's conversations.
@@ -218,6 +224,12 @@ Conversation messages SHALL survive process restarts, and employee-scoped long-t
 - **THEN** the server upserts the employee-and-key memory record
 - **AND** conversation summaries and long-term memories remain separate data sets
 
+#### Scenario: Prepare memory for a Run
+
+- **WHEN** the runtime prepares a Run
+- **THEN** it loads employee memory once into the guarded system context
+- **AND** does not offer the model a redundant memory-recall tool
+
 ### Requirement: Controlled extensibility
 
 MCP tools SHALL load only from server-side configuration, and business Skills SHALL be supplied through a Skill provider that may be empty.
@@ -232,6 +244,7 @@ MCP tools SHALL load only from server-side configuration, and business Skills SH
 - **WHEN** MCP servers are configured
 - **THEN** remote URLs use HTTPS except loopback development
 - **AND** write-like tools remain disabled unless the operator explicitly enables them
+- **AND** independent server tool catalogs initialize concurrently and retain configuration order
 
 #### Scenario: Query hotel operating data
 
@@ -239,15 +252,54 @@ MCP tools SHALL load only from server-side configuration, and business Skills SH
 - **THEN** the provider exposes only approved read tools, constrains arguments before the call and
   compacts oversized results afterward
 
+#### Scenario: Ground a hotel-specific business answer
+
+- **WHEN** an answer depends on a specific hotel's current or historical operating facts
+- **THEN** the Agent queries the configured hotel-data MCP before answering
+- **AND** general hospitality concepts may still be answered without an unnecessary lookup
+- **AND** the read-only Agent never claims that a requested business write operation was executed
+
+### Requirement: Capability-backed quick actions
+
+The Agent SHALL advertise a compact quick-action catalog derived from configured MCP capabilities,
+and SHALL resolve quick-action prompts on the server rather than accepting prompt text from the
+client. The representative catalog SHALL contain only one weather action and SHALL expose a hotel
+operating-data action when the DMS hotel-data capability is configured.
+
+#### Scenario: Show representative test shortcuts
+
+- **WHEN** weather and hotel-data MCP capabilities are configured
+- **THEN** the catalog exposes `查看今日天气` and `查看酒店经营概览`
+- **AND** clicking the operating-data action starts a Run that requires the read-only hotel-data MCP
+
+#### Scenario: Hotel-data MCP is unavailable
+
+- **WHEN** the `hotel_data` capability is not configured
+- **THEN** the operating-data shortcut is not advertised
+- **AND** a direct request for it is rejected before Run persistence
+
 ### Requirement: Constrained generative UI
 
-The model SHALL generate UI only through the server-side `render_hotel_ui` tool and the desktop SHALL render it with the established json-render registry.
+The model SHALL generate UI only through the server-side `render_hotel_ui` tool and the desktop SHALL
+render it with the established json-render registry. Generated charts and tables SHALL remain
+readable within the conversation width.
 
 #### Scenario: Validate generated UI
 
 - **WHEN** the model submits a UI spec
 - **THEN** the server validates component names, references, size and link protocols
 - **AND** rejects arbitrary code or unregistered components
+
+#### Scenario: Render a dense date trend
+
+- **WHEN** a trend contains more date labels than fit without collision
+- **THEN** the desktop displays compact, bounded x-axis labels while retaining exact tooltip values
+
+#### Scenario: Prepare generated UI
+
+- **WHEN** the runtime starts `render_hotel_ui`
+- **THEN** the desktop immediately indicates that the result view is being prepared
+- **AND** renders only the validated UI spec when it arrives
 
 ### Requirement: Safe Markdown presentation
 

@@ -16,6 +16,10 @@ describe('buildHotelAgentSystemPrompt', () => {
 		expect(prompt).toContain('已确认分析人民广场店');
 		expect(prompt).toContain('## night-audit\n优先核对夜审异常。');
 		expect(prompt).toContain('必须使用 DMS 数据工具');
+		expect(prompt).toContain('答案依赖某家酒店的当前或历史事实');
+		expect(prompt).toContain('通用酒店知识、指标定义或方法建议');
+		expect(prompt).toContain('不得声称业务操作已经执行');
+		expect(prompt).toContain('立即调用 render_hotel_ui');
 	});
 
 	it('states that hotel data is unavailable when no data tool is loaded', () => {

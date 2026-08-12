@@ -88,7 +88,7 @@ test('persists Agent conversations under the authenticated desktop session', asy
 		generativeUi: true,
 		longTermMemory: true,
 		skillCount: 0,
-		quickActionCount: 3
+		quickActionCount: 2
 	});
 
 	const quickActions = await request.get('/api/trpc/agent.quickActions');
@@ -96,8 +96,7 @@ test('persists Agent conversations under the authenticated desktop session', asy
 	const actionCatalog = (await quickActions.json()).result.data;
 	expect(actionCatalog.map((action: { id: string }) => action.id)).toEqual([
 		'today_weather',
-		'weather_outlook',
-		'air_quality'
+		'hotel_operating_data'
 	]);
 	expect(actionCatalog).not.toContainEqual(expect.objectContaining({ prompt: expect.anything() }));
 

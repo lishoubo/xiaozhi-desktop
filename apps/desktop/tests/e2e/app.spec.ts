@@ -272,12 +272,30 @@ test('opens the AI concierge from the icon sidebar', async () => {
   await stopRun.click();
   await expect(page.getByText('已停止', { exact: true })).toBeVisible();
   await expect(composer).toBeEnabled();
+  const firstPromptRow = page.locator('article[data-agent-message-role="user"]', {
+    hasText: '分析今天的经营情况',
+  });
+  const firstPromptId = await firstPromptRow.getAttribute('data-agent-message-id');
+  expect(firstPromptId).not.toBeNull();
+  const firstExecution = page.locator(
+    `article[data-agent-execution-for-message="${firstPromptId}"] [data-agent-execution-status="cancelled"]`,
+  );
+  await expect(firstExecution).toHaveCount(1);
 
   await composer.fill('继续');
   await page.getByRole('button', { name: '发送消息' }).click();
   await expect(stopRun).toBeEnabled();
   await stopRun.click();
   await expect(page.getByText('已停止', { exact: true })).toHaveCount(2);
+  const continueRow = page.locator('article[data-agent-message-role="user"]', { hasText: '继续' });
+  const continueMessageId = await continueRow.getAttribute('data-agent-message-id');
+  expect(continueMessageId).not.toBeNull();
+  await expect(
+    page.locator(
+      `article[data-agent-execution-for-message="${continueMessageId}"] [data-agent-execution-status="cancelled"]`,
+    ),
+  ).toHaveCount(1);
+  await expect(firstExecution).toHaveCount(1);
 });
 
 test('opens the localized calendar with the seeded holiday group', async () => {
@@ -450,8 +468,9 @@ test('shows only executable public MCP quick actions', async () => {
   await page.getByRole('link', { name: '小智AI 管家' }).click();
 
   await expect(page.getByRole('button', { name: '查看今日天气', exact: true })).toBeVisible();
-  await expect(page.getByRole('button', { name: '未来七天天气', exact: true })).toBeVisible();
-  await expect(page.getByRole('button', { name: '空气质量提醒', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: '查看酒店经营概览', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: '未来七天天气', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: '空气质量提醒', exact: true })).toHaveCount(0);
   await expect(page.getByRole('button', { name: '预览房态库存' })).toHaveCount(0);
 });
 

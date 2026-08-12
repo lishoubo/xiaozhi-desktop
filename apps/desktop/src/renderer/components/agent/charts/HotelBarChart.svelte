@@ -3,6 +3,7 @@
   import { BarChart } from 'layerchart';
   import * as Chart from '$lib/components/ui/chart';
   import type { HotelTrendChartProps } from '../../../generative-ui/chart-types';
+  import { compactTrendAxisLabel, trendAxisTickSpacing } from '../../../agent-presentation';
 
   let { props }: BaseComponentProps<HotelTrendChartProps> = $props();
 
@@ -20,6 +21,13 @@
       ? [{ key: 'comparison', label: config.comparison.label, color: config.comparison.color }]
       : []),
   ]);
+  const xAxis = $derived({
+    placement: 'bottom' as const,
+    tickSpacing: trendAxisTickSpacing(props.data),
+    tickMarks: false,
+    format: compactTrendAxisLabel,
+    tickLabelProps: { fontSize: 11 },
+  });
 </script>
 
 <section class="rounded-xl border border-border bg-card p-4 text-card-foreground">
@@ -33,7 +41,7 @@
     <BarChart
       data={props.data}
       x="label"
-      axis="x"
+      axis={xAxis}
       {series}
       seriesLayout={hasComparison ? 'group' : 'overlap'}
       legend={hasComparison}

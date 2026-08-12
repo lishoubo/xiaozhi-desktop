@@ -19,22 +19,13 @@ const definitions = [
 			'询问用户要查询的酒店名称或城市（如果当前会话尚未明确），然后使用公共天气 MCP 查询当地今天的实时天气、最高最低温、降水概率、风力和有效预警。结合酒店运营给出简短的到店、户外设施和出行提醒，并标注数据来源与更新时间；不得把预报写成确定事实。'
 	},
 	{
-		id: 'weather_outlook',
-		label: '未来七天天气',
-		description: '查看酒店所在地未来七天趋势和风险日期',
+		id: 'hotel_operating_data',
+		label: '查看酒店经营概览',
+		description: '通过酒店数据 MCP 查询指定酒店的核心经营指标',
 		category: 'operations',
-		requiredCapability: 'weather',
+		requiredCapability: 'hotel_data',
 		prompt:
-			'询问用户要查询的酒店名称或城市（如果当前会话尚未明确），使用公共天气 MCP 查询未来七天预报。用酒店主题的趋势图展示最高温、最低温或降水概率，突出暴雨、大风、高温、低温等风险日期，并标注数据来源、更新时间和预报不确定性。'
-	},
-	{
-		id: 'air_quality',
-		label: '空气质量提醒',
-		description: '查询空气质量、紫外线和宾客出行建议',
-		category: 'guest',
-		requiredCapability: 'weather',
-		prompt:
-			'询问用户要查询的酒店名称或城市（如果当前会话尚未明确），通过公共天气 MCP 查询当地空气质量、主要污染物和紫外线信息。按数据源给出的健康分级生成简短宾客出行提醒；不要进行医学诊断，并标注数据时间与来源。'
+			'查询某个酒店的经营概览。如果当前会话尚未明确酒店或日期范围，先请用户补充；信息明确后必须使用 DMS 酒店经营数据 MCP 查询真实数据，不得凭记忆回答。优先汇总营业收入、出租率、平均房价、RevPAR、间夜量等实际可用指标，说明查询口径和日期范围；存在趋势或对比数据时调用 render_hotel_ui 生成简洁图表。'
 	},
 	{
 		id: 'public_hotel_rates',

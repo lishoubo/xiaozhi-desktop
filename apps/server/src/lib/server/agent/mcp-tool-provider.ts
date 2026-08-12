@@ -26,6 +26,13 @@ export function isReadOnlyMcpToolName(name: string): boolean {
 	return READ_ONLY_TOOL_NAME.test(name) && !WRITE_TOOL_NAME.test(name);
 }
 
+export function loadMcpServerToolsInOrder<T>(
+	serverNames: readonly string[],
+	load: (serverName: string) => Promise<readonly T[]>
+): Promise<readonly (readonly T[])[]> {
+	return Promise.all(serverNames.map((serverName) => load(serverName)));
+}
+
 function configureHotelDataTool(tool: DynamicStructuredTool): DynamicStructuredTool {
 	if (tool.name === DMS_QUERY_TOOL_NAME) {
 		tool.name = HOTEL_DATA_TOOL_NAME;
@@ -98,7 +105,7 @@ export class McpToolProvider {
 				];
 			})
 		);
-		this.client = new MultiServerMCPClient({
+		const client = new MultiServerMCPClient({
 			mcpServers: connections,
 			defaultToolTimeout: 45_000,
 			onConnectionError: ({ serverName, error }) => {
@@ -117,10 +124,15 @@ export class McpToolProvider {
 				return { result: compactHotelDataToolResult(result) };
 			}
 		});
+		this.client = client;
 
+		const serverNames = Object.keys(this.servers);
+		const loadedByServer = await loadMcpServerToolsInOrder(serverNames, (name) =>
+			client.getTools(name)
+		);
 		const selected: DynamicStructuredTool[] = [];
-		for (const name of Object.keys(this.servers)) {
-			const loaded = await this.client.getTools(name);
+		for (const [index, name] of serverNames.entries()) {
+			const loaded = loadedByServer[index] ?? [];
 			if (name === HOTEL_DATA_MCP_SERVER_NAME) {
 				selected.push(
 					...loaded

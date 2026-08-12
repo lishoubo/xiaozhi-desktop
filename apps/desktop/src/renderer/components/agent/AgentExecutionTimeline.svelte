@@ -30,6 +30,8 @@
 
 <div
   class="mt-3 overflow-hidden rounded-xl border border-border/70 bg-background/75 shadow-[0_8px_24px_-20px_rgba(15,23,42,0.45)]"
+  data-agent-execution-id={trace.runId}
+  data-agent-execution-status={trace.status}
   in:enter={{ ...SURFACE_TRANSITION_OPTIONS, y: 4 }}
 >
   <button

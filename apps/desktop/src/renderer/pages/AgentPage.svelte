@@ -9,15 +9,14 @@
     GenerativeUiSpec,
   } from '@hotel-butler/api';
   import ArrowUp from '@lucide/svelte/icons/arrow-up';
-  import CloudSun from '@lucide/svelte/icons/cloud-sun';
   import Hotel from '@lucide/svelte/icons/hotel';
   import LoaderCircle from '@lucide/svelte/icons/loader-circle';
+  import ListX from '@lucide/svelte/icons/list-x';
   import Plus from '@lucide/svelte/icons/plus';
   import Square from '@lucide/svelte/icons/square';
   import Sun from '@lucide/svelte/icons/sun';
   import TriangleAlert from '@lucide/svelte/icons/triangle-alert';
   import Trash2 from '@lucide/svelte/icons/trash-2';
-  import Wind from '@lucide/svelte/icons/wind';
   import { autoAnimate } from '@formkit/auto-animate';
   import { onMount } from 'svelte';
   import { SvelteMap } from 'svelte/reactivity';
@@ -25,6 +24,7 @@
   import AgentExecutionTimeline from '../components/agent/AgentExecutionTimeline.svelte';
   import AgentMarkdown from '../components/agent/AgentMarkdown.svelte';
   import HotelGenerativeUi from '../components/agent/HotelGenerativeUi.svelte';
+  import { executionForDisplayedMessage, formatConversationUpdatedAt } from '../agent-presentation';
   import {
     LAYOUT_ANIMATION_OPTIONS,
     PAGE_ENTER_OPTIONS,
@@ -37,9 +37,8 @@
 
   const quickActionPresentation: Record<AgentQuickActionId, { icon: typeof Sun; tone: string }> = {
     today_weather: { icon: Sun, tone: 'bg-[#fef7d6] text-[#793400]' },
-    weather_outlook: { icon: CloudSun, tone: 'bg-[#dcecfa] text-[#005bab]' },
-    air_quality: { icon: Wind, tone: 'bg-[#d9f3e1] text-[#176c2b]' },
     public_hotel_rates: { icon: Hotel, tone: 'bg-[#e6e0f5] text-[#3a2a99]' },
+    hotel_operating_data: { icon: Hotel, tone: 'bg-[#dff2eb] text-[#176548]' },
   };
 
   let prompt = $state('');
@@ -51,6 +50,7 @@
   let activeRunId = $state<string | null>(null);
   let draftContent = $state('');
   let draftUi = $state.raw<GenerativeUiSpec | null>(null);
+  let preparingUi = $state(false);
   let loading = $state(true);
   let sending = $state(false);
   let stopping = $state(false);
@@ -67,12 +67,6 @@
   const quickActionCards = $derived(
     quickActions.map((action) => ({ ...action, ...quickActionPresentation[action.id] })),
   );
-  const standaloneExecutions = $derived(
-    executions.filter(
-      (execution) => execution.assistantMessageId === null && execution.status !== 'running',
-    ),
-  );
-
   onMount(() => {
     const unsubscribe = window.hotelButler.agent.onStreamEvent(handleStreamEnvelope);
     void initialize();
@@ -116,6 +110,7 @@
     executions = [];
     draftContent = '';
     draftUi = null;
+    preparingUi = false;
   }
 
   async function confirmDeleteConversation(): Promise<void> {
@@ -162,6 +157,7 @@
       executions = conversation.executions;
       draftContent = '';
       draftUi = null;
+      preparingUi = false;
     } catch {
       errorMessage = '无法读取该会话，或它不属于当前登录用户。';
     }
@@ -188,6 +184,7 @@
       }
       draftContent = '';
       draftUi = null;
+      preparingUi = false;
       activeRunId = null;
       sending = false;
       composer?.focus();
@@ -220,6 +217,7 @@
     sending = true;
     draftContent = '';
     draftUi = null;
+    preparingUi = false;
 
     try {
       let conversationId = activeConversationId;
@@ -272,6 +270,7 @@
         status: 'failed',
         completedAt: new Date().toISOString(),
       }));
+      preparingUi = false;
       sending = false;
       activeRunId = null;
       return;
@@ -291,6 +290,7 @@
       return;
     }
     if (event.type === 'tool_started') {
+      if (event.toolName === 'render_hotel_ui') preparingUi = true;
       updateExecution(event.runId, (execution) => ({
         ...execution,
         steps: [
@@ -328,6 +328,7 @@
     }
     if (event.type === 'ui_spec') {
       draftUi = event.spec;
+      preparingUi = false;
       return;
     }
     if (event.type === 'run_completed') {
@@ -342,6 +343,7 @@
       }
       draftContent = '';
       draftUi = null;
+      preparingUi = false;
       sending = false;
       activeRunId = null;
       void refreshConversations();
@@ -354,6 +356,7 @@
         completedAt: event.createdAt,
       }));
       errorMessage = event.message;
+      preparingUi = false;
       sending = false;
       activeRunId = null;
       return;
@@ -366,6 +369,7 @@
       }));
       draftContent = '';
       draftUi = null;
+      preparingUi = false;
       sending = false;
       activeRunId = null;
     }
@@ -378,10 +382,6 @@
     executions = executions.map((execution) =>
       execution.runId === runId ? update(execution) : execution,
     );
-  }
-
-  function executionForMessage(messageId: string): AgentExecutionTrace | null {
-    return executions.find((execution) => execution.assistantMessageId === messageId) ?? null;
   }
 
   function activeExecution(): AgentExecutionTrace | null {
@@ -397,13 +397,13 @@
 </script>
 
 <div
-  class="grid h-full min-h-0 grid-cols-[196px_minmax(0,1fr)] bg-background"
+  class="grid h-full min-h-0 grid-cols-[204px_minmax(0,1fr)] bg-background"
   data-motion="page"
   in:enter={PAGE_ENTER_OPTIONS}
 >
   <aside class="flex min-h-0 flex-col border-r border-border/70 bg-muted/35 px-2.5 py-3">
     <Button
-      class="w-full justify-start rounded-lg text-xs shadow-sm transition-[background-color,border-color,box-shadow] duration-200 ease-out"
+      class="w-full justify-start rounded-lg text-[13px] shadow-sm transition-[background-color,border-color,box-shadow] duration-200 ease-out"
       variant={activeConversationId === null ? 'default' : 'outline'}
       aria-label="开始新会话"
       aria-pressed={activeConversationId === null}
@@ -418,15 +418,17 @@
       use:autoAnimate={LAYOUT_ANIMATION_OPTIONS}
     >
       <div class="flex items-center justify-between px-2">
-        <p class="m-0 text-[10px] font-semibold tracking-[0.08em] text-muted-foreground/70">
+        <p class="m-0 text-[11px] font-semibold tracking-[0.06em] text-muted-foreground/75">
           历史会话
         </p>
         {#if conversations.length > 0}
           <button
-            class="rounded px-1 py-0.5 text-[10px] text-muted-foreground transition-colors hover:text-destructive focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+            class="grid size-6 place-items-center rounded-md text-muted-foreground/75 transition-colors hover:bg-destructive/8 hover:text-destructive focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
             type="button"
+            aria-label="清空"
+            title="清空全部历史会话"
             disabled={sending || deleting}
-            onclick={() => (clearHistoryOpen = true)}>清空</button
+            onclick={() => (clearHistoryOpen = true)}><ListX size={14} /></button
           >
         {/if}
       </div>
@@ -446,14 +448,16 @@
             <span class="absolute top-2 bottom-2 left-0 w-0.5 rounded-full bg-primary"></span>
           {/if}
           <button
-            class="w-full rounded-lg py-1.5 pr-8 pl-2.5 text-left focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+            class="w-full rounded-lg py-2 pr-8 pl-2.5 text-left focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
             type="button"
+            aria-label={conversation.title}
             aria-pressed={conversation.id === activeConversationId}
             onclick={() => void openConversation(conversation.id)}
           >
-            <span class="line-clamp-2 text-[11px] leading-[18px] font-medium"
-              >{conversation.title}</span
-            >
+            <span class="line-clamp-2 text-[13px] leading-5 font-medium">{conversation.title}</span>
+            <span class="mt-0.5 block text-[10px] leading-4 text-muted-foreground/70">
+              {formatConversationUpdatedAt(conversation.updatedAt)}
+            </span>
           </button>
           <button
             class="absolute top-1/2 right-1.5 grid size-6 -translate-y-1/2 place-items-center rounded-md text-muted-foreground opacity-0 transition-[color,background-color,opacity] hover:bg-destructive/10 hover:text-destructive focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none group-hover/history:opacity-100 group-focus-within/history:opacity-100"
@@ -539,10 +543,12 @@
         {/if}
 
         {#each messages as message (message.id)}
-          {@const execution = executionForMessage(message.id)}
+          {@const execution = executionForDisplayedMessage(executions, message)}
           <article
             class:justify-end={message.role === 'user'}
             class="mt-6 flex gap-3"
+            data-agent-message-id={message.id}
+            data-agent-message-role={message.role}
             in:enter={{ ...SURFACE_TRANSITION_OPTIONS, duration: 240, y: 5 }}
           >
             {#if message.role === 'assistant'}<AgentAvatar size="sm" />{/if}
@@ -559,23 +565,23 @@
               {#if message.ui}
                 <div class="mt-3"><HotelGenerativeUi spec={message.ui} /></div>
               {/if}
-              {#if execution}
+              {#if execution && message.role === 'assistant'}
                 <AgentExecutionTimeline trace={execution} />
               {/if}
             </div>
           </article>
-        {/each}
-
-        {#each standaloneExecutions as execution (execution.runId)}
-          <article
-            class="mt-6 flex gap-3"
-            in:enter={{ ...SURFACE_TRANSITION_OPTIONS, duration: 240, y: 5 }}
-          >
-            <AgentAvatar size="sm" />
-            <div class="min-w-0 flex-1">
-              <AgentExecutionTimeline trace={execution} />
-            </div>
-          </article>
+          {#if execution && message.role === 'user'}
+            <article
+              class="mt-3 flex gap-3"
+              data-agent-execution-for-message={message.id}
+              in:enter={{ ...SURFACE_TRANSITION_OPTIONS, duration: 220, y: 4 }}
+            >
+              <AgentAvatar size="sm" />
+              <div class="min-w-0 flex-1">
+                <AgentExecutionTimeline trace={execution} />
+              </div>
+            </article>
+          {/if}
         {/each}
 
         {#if sending || draftContent || draftUi}
@@ -588,10 +594,20 @@
             <div class="min-w-0 flex-1">
               {#if draftContent}
                 <AgentMarkdown content={draftContent} />
+              {:else if preparingUi}
+                <p class="m-0 inline-flex items-center gap-2 text-sm text-muted-foreground">
+                  <LoaderCircle class="animate-spin" size={15} />正在生成结果视图…
+                </p>
               {:else}
                 <p class="m-0 inline-flex items-center gap-2 text-sm text-muted-foreground">
                   <LoaderCircle class="animate-spin" size={15} />正在理解任务…
                 </p>
+              {/if}
+              {#if preparingUi}
+                <div
+                  class="mt-3 h-36 animate-pulse rounded-xl border border-border/70 bg-muted/55 motion-reduce:animate-none"
+                  aria-hidden="true"
+                ></div>
               {/if}
               {#if draftUi}<div class="mt-4"><HotelGenerativeUi spec={draftUi} /></div>{/if}
               {#if execution}<AgentExecutionTimeline trace={execution} />{/if}

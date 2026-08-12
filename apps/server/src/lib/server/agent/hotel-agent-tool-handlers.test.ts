@@ -5,13 +5,9 @@ const principal = { employeeId: 'employee-1', orgId: 'org-1' };
 
 describe('HotelAgentToolHandlers', () => {
 	it('delegates employee-scoped memory operations to the repository', async () => {
-		const listMemories = vi
-			.fn()
-			.mockResolvedValue([{ key: 'report.language', content: '使用中文', importance: 3 }]);
 		const remember = vi.fn().mockResolvedValue(undefined);
-		const handlers = new HotelAgentToolHandlers({ listMemories, remember });
+		const handlers = new HotelAgentToolHandlers({ remember });
 
-		await expect(handlers.recall(principal)).resolves.toContain('report.language');
 		await expect(
 			handlers.remember(principal, {
 				key: 'report.language',
@@ -19,7 +15,6 @@ describe('HotelAgentToolHandlers', () => {
 				importance: 3
 			})
 		).resolves.toBe('已保存到当前员工的长期记忆。');
-		expect(listMemories).toHaveBeenCalledWith(principal);
 		expect(remember).toHaveBeenCalledWith(principal, {
 			key: 'report.language',
 			content: '使用中文',
@@ -29,7 +24,6 @@ describe('HotelAgentToolHandlers', () => {
 
 	it('validates generated UI before returning it to an SDK adapter', () => {
 		const handlers = new HotelAgentToolHandlers({
-			listMemories: vi.fn(),
 			remember: vi.fn()
 		});
 
