@@ -15,6 +15,9 @@ type MainLoggingTarget = {
     file: {
       level: string | false;
       maxSize: number;
+      // depth 与 electron-log 的实际签名对齐（它允许 null/undefined 表示「不限制/用默认」），
+      // 这里写窄了会让 index.ts 传入真实 logger 时类型不兼容。
+      inspectOptions: { depth?: number | null };
     };
     ipc: { level: string | false };
     remote: { level: string | false };
@@ -29,9 +32,31 @@ type MainLoggingOptions = Readonly<{
 
 const MAX_LOG_FILE_SIZE = 10 * 1024 * 1024;
 
+/**
+ * 文件日志展开对象的最大嵌套层数。
+ *
+ * Node 的 `util.inspect`（electron-log 底层用的就是它）默认 `depth: 2`，超出的一律缩写成
+ * `[Object]`，**且是在写入那一刻就丢掉了**，事后无法从日志文件里还原。默认值对通用场景是
+ * 合理的保守选择（对象可能循环引用、可能巨大），但对我们排查用的结构化日志偏紧。
+ *
+ * ⚠️ **调大 depth 不是「深层数据丢失」的可靠解法**，只是让常见的中等嵌套好读一点。
+ * 2026-08-11 真机两次证明了这一点：美团改价上报体有两种形状，`calcPriceModels` 比
+ * `calcPriceUnifiedDateModel` 深一层，价格恰好落在最深处，depth 调到 8 仍然被截。
+ * **渠道请求体的嵌套深度不由我们控制，追着调 depth 是打地鼠。**
+ *
+ * 真正需要保证完整落盘的字段（如上报体 `requestBody`），应在**调用点**先
+ * `JSON.stringify` 成字符串再交给日志 —— 字符串没有嵌套，任何深度都完整。
+ * 见 `gateway/rms/rms-amount-change-gateway-mock.ts`。
+ *
+ * **只给 file transport 放开**：console 保持 Node 默认，避免开发时终端被大对象刷屏；
+ * 文件日志本来就是留着事后排查的，可读性优先。
+ */
+const FILE_LOG_INSPECT_DEPTH = 8;
+
 export function configureMainLogging(logger: MainLoggingTarget, options: MainLoggingOptions): void {
   logger.transports.file.level = options.isPackaged ? 'info' : 'debug';
   logger.transports.file.maxSize = MAX_LOG_FILE_SIZE;
+  logger.transports.file.inspectOptions = { depth: FILE_LOG_INSPECT_DEPTH };
   logger.transports.console.level = options.isPackaged ? 'warn' : 'debug';
   logger.transports.ipc.level = false;
   logger.transports.remote.level = false;

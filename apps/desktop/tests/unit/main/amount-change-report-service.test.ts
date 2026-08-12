@@ -16,8 +16,7 @@ const OBSERVED: OtaAmountChangeObserved = {
   endpointId: 'save_amount_calendar',
   endpointUrl: 'https://life.douyin.com/life/trip/hotel/save_amount_calendar',
   otaHotelId: '7245504927202543672',
-  requestBody: { amount_change_type: 1 },
-  responseBody: '{"BaseResp":{"StatusCode":0}}',
+  changeRaw: { amount_change_type: 1 },
 };
 
 const PARTITION = 'persist:xiaozhi:prod:douyin:abc123';

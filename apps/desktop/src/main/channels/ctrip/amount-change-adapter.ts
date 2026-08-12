@@ -2,35 +2,37 @@
  * 携程的价量态改动适配器。
  *
  * 踩点：`docs/踩点/携程/改价.md`
+ * 📄 **上报内容的规格（`changeRaw` 里有什么、两套模块怎么分辨、RMS 怎么解读）见
+ * `./amount-change-payload.ts`** —— 本文件只讲「怎么拦、怎么判、怎么定位」。
  *
  * ## 与抖音的三处结构性差异
  *
  * | 维度 | 抖音 | 携程 |
  * |---|---|---|
- * | 门店 ID 在哪 | 三处都没有，靠 `product_id` 让 RMS 反查 | **请求体里直接有**：`roomPriceInfoList[].hotelID` |
+ * | 门店 ID 在哪 | 三处都没有，靠 `product_id` 让 RMS 反查 | 老模块 `roomPriceInfoList[].hotelID` 有；**新模块没有** |
  * | 一次请求几家店 | 一家 | **可能多家**（踩点响应里同时回了 `115348672` 与 `115582769`） |
- * | 成功判定 | `BaseResp.StatusCode === 0` 一处 | 外层 `code === 200` **且**内层每条 `resultCode === 0` |
+ * | 成功判定 | `BaseResp.StatusCode === 0` 一处 | 老模块外层 `code` + 内层每条 `resultCode`；新模块 `resStatus.rcode` + `ResponseStatus.Ack` |
  *
  * 第二点是 `design.md` §9 风险 1 预言的「契约可能塞不下第二个渠道」的实际发生：
- * `OtaAmountChangeReport.otaHotelId` 是单值，而携程一次能改多家。**本次不改契约** ——
- * `otaHotelId` 取请求体里出现的第一家（多数场景就是唯一一家），完整清单放
- * `channelExtra.hotelIds`，与抖音把 `productIds` 显式带出来是同一套路。RMS 侧按
- * `source === 'ctrip'` 分支时读 `hotelIds` 即可，不必回 `requestBody` 里翻。
+ * `OtaAmountChangeReport.otaHotelId` 是单值，而携程一次能改多家。**不改契约** ——
+ * `otaHotelId` 取第一家（多数场景就是唯一一家），完整清单本来就在 `changeRaw` 里。
+ * ⚠️ RMS 必须遍历 `changeRaw.roomPriceInfoList[].hotelID` 全量处理，只认 `otaHotelId`
+ * 会漏掉同一次保存里的其他门店。
  *
- * ## 房型 ID 的两个来源都要收
+ * ## 房型 ID 的两个来源都要收（用于「拦到的是不是改价请求」的判定）
  *
- * 请求体每条 `roomPriceInfoList` 项里有 `roomTypeID`（直接改的房型）和 `refRoomIDs`
+ * 老模块每条 `roomPriceInfoList` 项里有 `roomTypeID`（直接改的房型）和 `refRoomIDs`
  * （联动房型 —— 踩点响应的 `roomTypeList: [1587157432, 1582872853]` 证实携程确实一并改了
- * 联动房型的价）。只收 `roomTypeID` 会漏掉联动那部分，RMS 就不知道那些房型的价也变了。
- */
-import { toChannelId } from '../../ids';
-import type {
-  AmountSaveObserved,
-  OtaAmountChangeObserved,
-} from '../../../shared/types/amount-change';
+ * 联动房型的价）；新模块则是 `roomPriceInfos[].roomProductId`。三者任一有值就说明这是
+ * 一次真实的改价，全空才丢弃。
+ *
+ * ⚠️ **不能收 `excludedRelationRoomProductIds`** —— 那是「排除这些联动房型」的相反语义。
+ */import { toChannelId } from '../../ids';
+import type { AmountSaveObserved } from '../../../shared/types/amount-change';
 import type { JsonObject } from '../../../shared/types/json';
 import { isTrustedHotelUrl } from '../trusted-hotel-url';
-import type { AmountChangeAdapter } from '../types';
+import type { AmountChangeAdapter, AmountParseResult } from '../types';
+import { toCtripAmountChangeRaw } from './amount-change-payload';
 import type { AppLogger } from '../../../shared/logging';
 
 const CTRIP_EBOOKING_HOSTNAME = 'ebooking.ctrip.com';
@@ -82,7 +84,7 @@ const WATCH_PATHS: readonly string[] = ['/ebkovsroom/inventory', '/rateplan/batc
  * 写死服务编号的失效方式很糟糕：改了价但不跟价，**且没有任何报错**——日志上与「用户没改价」
  * 完全一样（design.md §9 风险 5）。所以只匹配 `/restapi` 前缀 + 方法名，跳过中间的编号。
  */
-const SAVE_ENDPOINTS: ReadonlyMap<string, string> = new Map([
+const WATCHED_ENDPOINTS: ReadonlyMap<string, string> = new Map([
   ['batchsetroomprice', '/ebkovsroom/api/inventory/batchsetroomprice'],
   // 故意不含 `soa2/23783`：见上方说明。机制层是 `url.includes(fragment)`，无法表达
   // 「前缀 + 跳过中间编号 + 方法名」，所以片段只取方法名。误匹配风险由 `isWatchableUrl`
@@ -91,30 +93,6 @@ const SAVE_ENDPOINTS: ReadonlyMap<string, string> = new Map([
 ]);
 
 const CTRIP_CHANNEL = toChannelId('ctrip');
-
-/**
- * 请求体里要剔除的**框架噪音字段** —— 与「这次改了什么价」毫无关系，纯粹是携程前端
- * 框架塞进去的。剔掉的理由不只是省体积：
- *
- * | 字段 | 是什么 | 为什么必须剔 |
- * |---|---|---|
- * | `reqHead` | 浏览器/设备/UBT 埋点信息 | 含屏幕分辨率、IP、UA 等设备指纹，没必要出本机 |
- * | `cipher` | 每个房型的 `tripsign` 签名串 | **凭证性质**，泄漏有风险，且对 RMS 无用 |
- * | `head` | SOA 框架头（cid/ctok/sid/auth） | 含 `auth` 字段 |
- *
- * **只做剔除，不做任何语义转换** —— 保留原始字段名与结构，RMS 复盘时看到的就是渠道原文。
- */
-const NOISE_KEYS: readonly string[] = ['reqHead', 'cipher', 'head'];
-
-/** 剔除框架噪音字段。浅层剔除即可 —— 这三个都在顶层。 */
-function stripNoise(requestBody: JsonObject): JsonObject {
-  const kept: Record<string, unknown> = {};
-  for (const [key, value] of Object.entries(requestBody)) {
-    if (NOISE_KEYS.includes(key)) continue;
-    kept[key] = value;
-  }
-  return kept as JsonObject;
-}
 
 /** 携程的 ID 字段在 JSON 里是数字，统一转成字符串（契约里 ID 一律是 string）。 */
 function idToString(value: unknown): string {
@@ -266,7 +244,7 @@ function isNewModuleSuccessful(envelope: Record<string, unknown>): boolean {
 
 export function createCtripAmountChangeAdapter(logger: AppLogger): AmountChangeAdapter {
   return {
-    saveEndpoints: SAVE_ENDPOINTS,
+    watchedEndpoints: WATCHED_ENDPOINTS,
 
     isWatchableUrl(url: string): boolean {
       if (!isTrustedHotelUrl(url, CTRIP_EBOOKING_HOSTNAME)) return false;
@@ -276,7 +254,7 @@ export function createCtripAmountChangeAdapter(logger: AppLogger): AmountChangeA
 
     isSuccessful: isCtripSaveSuccessful,
 
-    parse(observed: AmountSaveObserved): OtaAmountChangeObserved | null {
+    parse(observed: AmountSaveObserved): AmountParseResult | null {
       const hotelIds = hotelIdsOf(observed.requestBody);
       const roomTypeIds = roomTypeIdsOf(observed.requestBody);
       const roomProductIds = roomProductIdsOf(observed.requestBody);
@@ -312,13 +290,15 @@ export function createCtripAmountChangeAdapter(logger: AppLogger): AmountChangeA
       }
 
       return {
-        source: CTRIP_CHANNEL,
-        endpointId: observed.endpointId,
-        endpointUrl: observed.endpointUrl,
-        // 单值契约的代价：取第一家。新模块没有门店 ID 时是空串（尽力而为，不阻断）。
-        otaHotelId: hotelIds[0] ?? '',
-        requestBody: stripNoise(observed.requestBody),
-        responseBody: observed.responseBody,
+        kind: 'report',
+        report: {
+          source: CTRIP_CHANNEL,
+          endpointId: observed.endpointId,
+          endpointUrl: observed.endpointUrl,
+          // 单值契约的代价：取第一家。新模块没有门店 ID 时是空串（尽力而为，不阻断）。
+          otaHotelId: hotelIds[0] ?? '',
+          changeRaw: toCtripAmountChangeRaw(observed.requestBody),
+        },
       };
     },
   };

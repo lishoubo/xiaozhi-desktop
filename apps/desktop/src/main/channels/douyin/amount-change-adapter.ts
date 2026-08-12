@@ -27,13 +27,10 @@
  */
 import { toChannelId } from '../../ids';
 import type { AppLogger } from '../../../shared/logging';
-import type {
-  AmountSaveObserved,
-  OtaAmountChangeObserved,
-} from '../../../shared/types/amount-change';
+import type { AmountSaveObserved } from '../../../shared/types/amount-change';
 import type { JsonObject } from '../../../shared/types/json';
 import { isTrustedHotelUrl } from '../trusted-hotel-url';
-import type { AmountChangeAdapter } from '../types';
+import type { AmountChangeAdapter, AmountParseResult } from '../types';
 
 const DOUYIN_HOTEL_HOSTNAME = 'life.douyin.com';
 /**
@@ -60,7 +57,7 @@ const POI_ID_PARAM = 'poi_id';
  * 二期加房态房量时在这里加一行即可，机制层不用动：
  *   ['batch_save_stock_state_calendar', '/life/trip/hotel/batch_save_stock_state_calendar'],
  */
-const SAVE_ENDPOINTS: ReadonlyMap<string, string> = new Map([
+const WATCHED_ENDPOINTS: ReadonlyMap<string, string> = new Map([
   ['save_amount_calendar', '/life/trip/hotel/save_amount_calendar'],
 ]);
 
@@ -148,7 +145,7 @@ function isDouyinSaveSuccessful(responseBody: string): boolean {
 
 export function createDouyinAmountChangeAdapter(logger: AppLogger): AmountChangeAdapter {
   return {
-    saveEndpoints: SAVE_ENDPOINTS,
+    watchedEndpoints: WATCHED_ENDPOINTS,
 
     isWatchableUrl(url: string): boolean {
       if (!isTrustedHotelUrl(url, DOUYIN_HOTEL_HOSTNAME)) return false;
@@ -157,7 +154,7 @@ export function createDouyinAmountChangeAdapter(logger: AppLogger): AmountChange
 
     isSuccessful: isDouyinSaveSuccessful,
 
-    parse(observed: AmountSaveObserved): OtaAmountChangeObserved | null {
+    parse(observed: AmountSaveObserved): AmountParseResult | null {
       const otaHotelId = searchParamOf(observed.pageUrl, POI_ID_PARAM);
 
       // 真正的定位键是请求体里的 product_id（见文件头）。一个都没有才是硬错误 —— 那说明这次
@@ -183,12 +180,16 @@ export function createDouyinAmountChangeAdapter(logger: AppLogger): AmountChange
       }
 
       return {
-        source: DOUYIN_CHANNEL,
-        endpointId: observed.endpointId,
-        endpointUrl: observed.endpointUrl,
-        otaHotelId,
-        requestBody: observed.requestBody,
-        responseBody: observed.responseBody,
+        kind: 'report',
+        report: {
+          source: DOUYIN_CHANNEL,
+          endpointId: observed.endpointId,
+          endpointUrl: observed.endpointUrl,
+          otaHotelId,
+          // 保存请求体原样透传 —— 抖音这份里价格就是绝对值，也没有携程那种设备指纹类
+          // 噪音字段，无需剔除也无需重塑（美团那种「发试算结果」的特殊处理这里用不上）。
+          changeRaw: observed.requestBody,
+        },
       };
     },
   };

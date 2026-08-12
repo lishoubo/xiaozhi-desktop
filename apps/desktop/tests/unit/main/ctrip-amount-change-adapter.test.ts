@@ -1,6 +1,12 @@
 import { describe, expect, it, vi } from 'vitest';
 import { createCtripAmountChangeAdapter } from '../../../src/main/channels/ctrip/amount-change-adapter';
+import type { AmountParseResult } from '../../../src/main/channels/types';
 import type { AmountSaveObserved } from '../../../src/shared/types/amount-change';
+
+/** 取出 `{ kind: 'report' }` 里的上报体；不是上报（上下文/丢弃）时给 undefined。 */
+function reportOf(result: AmountParseResult | null) {
+  return result?.kind === 'report' ? result.report : undefined;
+}
 
 /** 取自真实踩点 `docs/踩点/携程/改价.md` 的 referer —— 房价日历页。 */
 const REAL_PAGE_URL = 'https://ebooking.ctrip.com/ebkovsroom/inventory/calendar?microJump=true';
@@ -244,14 +250,16 @@ describe('ctrip amount change adapter', () => {
   describe('parse', () => {
     it('老模块：从请求体取门店，请求体与响应体原样透传', () => {
       const adapter = createCtripAmountChangeAdapter(createLogger());
-      expect(adapter.parse(observed())).toEqual({
-        source: 'ctrip',
-        endpointId: 'batchsetroomprice',
-        endpointUrl:
-          'https://ebooking.ctrip.com/restapi/soa2/23783/setRCRoomPrice?_fxpcqlniredt=09031162210038262124',
-        otaHotelId: '115348672',
-        requestBody: REAL_REQUEST_BODY,
-        responseBody: REAL_SUCCESS_RESPONSE,
+      expect(adapter.parse(observed(), null)).toEqual({
+        kind: 'report',
+        report: {
+          source: 'ctrip',
+          endpointId: 'batchsetroomprice',
+          endpointUrl:
+            'https://ebooking.ctrip.com/restapi/soa2/23783/setRCRoomPrice?_fxpcqlniredt=09031162210038262124',
+          otaHotelId: '115348672',
+          changeRaw: REAL_REQUEST_BODY,
+        },
       });
     });
 
@@ -259,24 +267,27 @@ describe('ctrip amount change adapter', () => {
     it('跨多家门店时 otaHotelId 取第一家并记 info', () => {
       const logger = createLogger();
       const adapter = createCtripAmountChangeAdapter(logger);
-      const result = adapter.parse(
-        observed({
-          requestBody: {
-            roomPriceInfoList: [
-              { roomTypeID: 1587157432, hotelID: 115348672, refRoomIDs: [] },
-              { roomTypeID: 1600000001, hotelID: 115582769, refRoomIDs: [] },
-            ],
-          },
-        }),
+      const report = reportOf(
+        adapter.parse(
+          observed({
+            requestBody: {
+              roomPriceInfoList: [
+                { roomTypeID: 1587157432, hotelID: 115348672, refRoomIDs: [] },
+                { roomTypeID: 1600000001, hotelID: 115582769, refRoomIDs: [] },
+              ],
+            },
+          }),
+          null,
+        ),
       );
-      expect(result?.otaHotelId).toBe('115348672');
+      expect(report?.otaHotelId).toBe('115348672');
       expect(logger.info).toHaveBeenCalled();
     });
 
     it('请求体没有任何房型标识时返回 null —— 拦到的不是改价请求', () => {
       const logger = createLogger();
       const adapter = createCtripAmountChangeAdapter(logger);
-      expect(adapter.parse(observed({ requestBody: { pageType: 'T' } }))).toBeNull();
+      expect(adapter.parse(observed({ requestBody: { pageType: 'T' } }), null)).toBeNull();
       expect(logger.warn).toHaveBeenCalled();
     });
 
@@ -295,12 +306,13 @@ describe('ctrip amount change adapter', () => {
           responseBody: NEW_MODULE_SUCCESS_RESPONSE,
           pageUrl: 'https://ebooking.ctrip.com/rateplan/batchPriceSetting?microJump=true',
         }),
+        null,
       );
-      expect(result).not.toBeNull();
-      expect(result?.otaHotelId).toBe('');
+      const report = reportOf(result);
+      expect(report).toBeDefined();
+      expect(report?.otaHotelId).toBe('');
       // 房型 ID 留在原始 requestBody 里，RMS 据此反查门店。
-      expect(result?.requestBody).toEqual(NEW_MODULE_REQUEST_BODY);
-      expect(result?.responseBody).toBe(NEW_MODULE_SUCCESS_RESPONSE);
+      expect(report?.changeRaw).toEqual(NEW_MODULE_REQUEST_BODY);
     });
 
     /** 框架噪音字段要剔除（含凭证性质的 cipher / head.auth），但不做任何语义转换。 */
@@ -317,11 +329,13 @@ describe('ctrip amount change adapter', () => {
           },
           responseBody: NEW_MODULE_SUCCESS_RESPONSE,
         }),
+        null,
       );
-      expect(result?.requestBody).toEqual(NEW_MODULE_REQUEST_BODY);
-      expect(result?.requestBody).not.toHaveProperty('reqHead');
-      expect(result?.requestBody).not.toHaveProperty('cipher');
-      expect(result?.requestBody).not.toHaveProperty('head');
+      const report = reportOf(result);
+      expect(report?.changeRaw).toEqual(NEW_MODULE_REQUEST_BODY);
+      expect(report?.changeRaw).not.toHaveProperty('reqHead');
+      expect(report?.changeRaw).not.toHaveProperty('cipher');
+      expect(report?.changeRaw).not.toHaveProperty('head');
     });
 
     /**
@@ -344,13 +358,13 @@ describe('ctrip amount change adapter', () => {
           },
           responseBody: NEW_MODULE_SUCCESS_RESPONSE,
         }),
+        null,
       );
-      expect(result).not.toBeNull();
-      expect(result?.otaHotelId).toBe('');
+      expect(reportOf(result)?.otaHotelId).toBe('');
     });
   });
 
-  describe('saveEndpoints', () => {
+  describe('watchedEndpoints', () => {
     /**
      * 携程有两套并存的改价模块，端点完全不同（2026-08-11 真机验证发现）：
      * 踩点覆盖的是老的 `ebkovsroom`，而走菜单「批量设价」进的是新的 `rateplan`。
@@ -358,7 +372,7 @@ describe('ctrip amount change adapter', () => {
      */
     it('两套改价模块的端点都要拦', () => {
       const adapter = createCtripAmountChangeAdapter(createLogger());
-      expect([...adapter.saveEndpoints.values()]).toEqual([
+      expect([...adapter.watchedEndpoints.values()]).toEqual([
         '/ebkovsroom/api/inventory/batchsetroomprice',
         '/setRCRoomPrice',
       ]);
@@ -371,7 +385,7 @@ describe('ctrip amount change adapter', () => {
      */
     it('新端点不写死 soa2 服务编号', () => {
       const adapter = createCtripAmountChangeAdapter(createLogger());
-      const fragment = adapter.saveEndpoints.get('setRCRoomPrice');
+      const fragment = adapter.watchedEndpoints.get('setRCRoomPrice');
       expect(fragment).toBeDefined();
       expect(fragment).not.toContain('23783');
       expect(fragment).not.toContain('soa2');

@@ -1,6 +1,12 @@
 import { describe, expect, it, vi } from 'vitest';
 import { createDouyinAmountChangeAdapter } from '../../../src/main/channels/douyin/amount-change-adapter';
+import type { AmountParseResult } from '../../../src/main/channels/types';
 import type { AmountSaveObserved } from '../../../src/shared/types/amount-change';
+
+/** 取出 `{ kind: 'report' }` 里的上报体；不是上报（上下文/丢弃）时给 undefined。 */
+function reportOf(result: AmountParseResult | null) {
+  return result?.kind === 'report' ? result.report : undefined;
+}
 
 /**
  * 取自真实踩点 `xiaozhi-rms-workspace/docs/抖音/踩点/修改价格.md` 的 referer —— 改价页的
@@ -95,13 +101,15 @@ describe('douyin amount change adapter', () => {
   describe('parse', () => {
     it('带参跳入的页面：门店与账号上下文都取到，请求体原样透传', () => {
       const adapter = createDouyinAmountChangeAdapter(createLogger());
-      expect(adapter.parse(observed())).toEqual({
-        source: 'douyin',
-        endpointId: 'save_amount_calendar',
-        endpointUrl: 'https://life.douyin.com/life/trip/hotel/save_amount_calendar',
-        otaHotelId: '7245504927202543672',
-        requestBody: REAL_REQUEST_BODY,
-        responseBody: '{"BaseResp":{"StatusCode":0}}',
+      expect(adapter.parse(observed(), null)).toEqual({
+        kind: 'report',
+        report: {
+          source: 'douyin',
+          endpointId: 'save_amount_calendar',
+          endpointUrl: 'https://life.douyin.com/life/trip/hotel/save_amount_calendar',
+          otaHotelId: '7245504927202543672',
+          changeRaw: REAL_REQUEST_BODY,
+        },
       });
     });
 
@@ -117,11 +125,12 @@ describe('douyin amount change adapter', () => {
           pageUrl:
             'https://life.douyin.com/p/travel-ari/hotel/price_amount_state?groupid=1813179858562059&showYesterday=false',
         }),
+        null,
       );
-      expect(result).not.toBeNull();
-      expect(result?.otaHotelId).toBe('');
+      expect(result?.kind).toBe('report');
+      expect(reportOf(result)?.otaHotelId).toBe('');
       // 房型 ID 留在原始 requestBody 里，RMS 靠它反查门店。
-      expect(result?.requestBody).toEqual(REAL_REQUEST_BODY);
+      expect(reportOf(result)?.changeRaw).toEqual(REAL_REQUEST_BODY);
     });
 
     it('请求体没有任何 product_id 时返回 null —— 拦到的不是改价请求', () => {
@@ -129,6 +138,7 @@ describe('douyin amount change adapter', () => {
       const adapter = createDouyinAmountChangeAdapter(logger);
       const result = adapter.parse(
         observed({ requestBody: { amount_change_type: 1, product_list: [] } }),
+        null,
       );
       expect(result).toBeNull();
       expect(logger.warn).toHaveBeenCalled();
@@ -147,16 +157,16 @@ describe('douyin amount change adapter', () => {
             ],
           },
         }),
+        null,
       );
-      expect(result).not.toBeNull();
-      expect(result?.endpointId).toBe('batch_save_stock_state_calendar');
+      expect(reportOf(result)?.endpointId).toBe('batch_save_stock_state_calendar');
     });
   });
 
-  describe('saveEndpoints', () => {
+  describe('watchedEndpoints', () => {
     it('只拦 save，不拦 check —— 否则一次改价会上报两遍', () => {
       const adapter = createDouyinAmountChangeAdapter(createLogger());
-      const fragments = [...adapter.saveEndpoints.values()];
+      const fragments = [...adapter.watchedEndpoints.values()];
       expect(fragments).toEqual(['/life/trip/hotel/save_amount_calendar']);
       expect(fragments.some((f) => f.includes('check_'))).toBe(false);
     });

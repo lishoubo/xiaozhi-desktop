@@ -21,7 +21,7 @@ import type { JsonObject } from './json';
  * 这一层不认识任何渠道：成功与否、酒店是哪家，都由渠道适配器从这份原始数据里解读。
  */
 export type AmountSaveObserved = Readonly<{
-  /** 命中的是哪个保存端点。取值由渠道适配器的 `saveEndpoints` 定义。 */
+  /** 命中的是哪个端点。取值由渠道适配器的 `watchedEndpoints` 定义。 */
   endpointId: string;
   /** 这次保存请求的完整 URL（含 query）—— 上报给 RMS 当复盘依据。 */
   endpointUrl: string;
@@ -42,10 +42,11 @@ export type AmountSaveObserved = Readonly<{
 /**
  * 上报给 RMS 的形状——**渠道无关**。
  *
- * 公共字段只留三样：`source` 决定 RMS 怎么解读后两样，`otaHotelId` 是**尽力而为**的门店提示，
- * `requestBody` 是原始证据。渠道专有的定位字段（抖音的 `merchantGroupId` / `lifeAccountId` /
- * `productIds`）一律进 `channelExtra`——与 `channels/bind-extra.ts` 里 `bindExtra` 的既有套路
- * 一致，加渠道不必改这个契约。
+ * 渠道差异全部收在 **`changeRaw` 一个字段**里：`source` + `endpointId` 决定 RMS 怎么解读它，
+ * 其余字段（操作人、门店、账号、时间）三渠道同构。加渠道不必改这个契约 —— 新渠道往
+ * `changeRaw` 里放自己的形状，并在 `channels/<渠道>/amount-change-payload.ts` 里写清规格。
+ *
+ * `otaHotelId` 是**尽力而为**的门店提示，可能是空串（渠道不一定暴露它），见字段注释。
  *
  * desktop **不查本地绑定、不算 hotelId、不展开日期×房型**：反查绑定与语义展开都由 RMS
  * 负责（RMS 侧已有这套逻辑）。代价是未绑定账号的改价也会照发，RMS 反查不到时自行丢弃
@@ -78,10 +79,24 @@ export type OtaAmountChangeReport = Readonly<{
   /** 渠道账号名 —— 取自凭证的 `credentialExtra`（携程是 hotelName）。缺则 null。 */
   channelAccountName: string | null;
 
-  /** 渠道原始请求体（剔除框架噪音字段，**不做语义转换**）。 */
-  requestBody: JsonObject;
-  /** 渠道原始响应体。RMS 复盘时据此确认渠道到底认没认这次改价。 */
-  responseBody: string;
+  /**
+   * **这次改动的内容** —— 渠道原始数据，形状由 `source` + `endpointId` 决定。
+   *
+   * 各渠道往里放什么、每个字段怎么解读，定义在各自的 payload 模型里（**RMS 侧对接时读这几份**）：
+   *
+   * ```
+   * douyin    channels/douyin/amount-change-adapter.ts    保存请求体，原样
+   * ctrip     channels/ctrip/amount-change-payload.ts     保存请求体，剔 3 个框架噪音字段
+   * meituan   channels/meituan/amount-change-payload.ts   裁剪后的**试算结果**（含改前价+改后价）
+   * ```
+   *
+   * ⚠️ **不发响应体**：渠道认没认这次改价已由适配器的 `isSuccessful` 判过，判失败的根本
+   * 不会走到上报这一步，响应对 RMS 没有额外信息。
+   *
+   * ⚠️ **美团放的是试算而非保存请求**：它的保存请求体只说「卖价 +2 元」不说原价，而 RMS
+   * 侧没有美团的数据，既算不出绝对价也无从校验。详见美团那份 payload 模型。
+   */
+  changeRaw: JsonObject;
 
   /** 用户点保存的时刻，ISO 时间戳。 */
   submitAt: string;

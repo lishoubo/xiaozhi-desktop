@@ -109,9 +109,10 @@ composition/window-scope.ts    ✏️  装配 watcher
 CDP 事件配对        AmountSaveCapture                   —
 attach 生命周期     AmountChangeWatcher                 —
 「这页要监听吗」            —                  isWatchableUrl(url)
-「哪些端点是保存」          —                  saveEndpoints
+「拦哪些端点」              —                  watchedEndpoints
 「这次成功了吗」            —                  isSuccessful(responseBody)
-「酒店是哪家」              —                  parse(observed) → 上报体
+「这次算什么」              —                  parse(observed, context)
+                                             → 上报 / 留作素材 / 丢弃
 上报 / 契约         AmountChangeReportService           —
 ```
 
@@ -125,7 +126,7 @@ attach 生命周期     AmountChangeWatcher                 —
 ```
  Network.requestWillBeSent { requestId, request{url, method, postData, hasPostData} }
    │
-   ├─ adapter.saveEndpoints 无一命中 url → 忽略
+   ├─ adapter.watchedEndpoints 无一命中 url → 忽略
    └─ 命中
         ├─ postData 存在 → 直接用
         └─ postData 缺失 && hasPostData → await getRequestPostData({requestId})   ⚠️ 坑1
@@ -258,16 +259,35 @@ export interface AmountChangeAdapter {
   /** 这个 URL 是不是「要监听的页」。 */
   isWatchableUrl(url: string): boolean;
 
-  /** 要拦的保存端点。key 是 endpointId，value 是 URL 片段。 */
-  readonly saveEndpoints: ReadonlyMap<string, string>;
+  /**
+   * 要拦的端点。key 是 endpointId，value 是 URL 片段。
+   *
+   * 叫 `watched` 而非 `save`：**拦下来的不都是保存**。美团的 `calcPriceV2` 是试算，
+   * 拦它只为拿价格素材（2026-08-12 加入）。
+   */
+  readonly watchedEndpoints: ReadonlyMap<string, string>;
 
   /** 渠道各自的成功判定（抖音 BaseResp.StatusCode === 0）。 */
   isSuccessful(responseBody: string): boolean;
 
-  /** 解读成上报体；缺关键定位字段时返回 null（不上报）。 */
-  parse(observed: AmountSaveObserved): OtaAmountChangeObserved | null;
+  /**
+   * 解读这次观测。`context` 是同页面会话里本适配器上次交出的素材（没有则 null）——
+   * 机制层只负责**存与喂**，不解读其内容，也就不认识「哪个端点是试算」这种渠道知识。
+   */
+  parse(observed: AmountSaveObserved, context: JsonObject | null): AmountParseResult | null;
 }
+
+/** 三态：上报 / 留作素材（覆盖式）/ 丢弃（null）。 */
+export type AmountParseResult =
+  | Readonly<{ kind: 'report'; report: OtaAmountChangeObserved }>
+  | Readonly<{ kind: 'context'; context: JsonObject }>;
 ```
+
+> **2026-08-12 修订**：原先 `parse` 只有 `observed` 一个参数、只返回上报体或 null，
+> `parse` 的调用点在 `AmountChangeWatcher`。美团接入时发现它的请求体只有相对操作
+> （「+2 元」），绝对价要靠页面自己发的 `calcPriceV2` 补 —— 于是引入上下文三态，并把
+> `parse` 的调用点下移到 `AmountSaveCapture`（上下文是**页面级**状态，而 capture 正好
+> 每 tab 一个实例、`detach()` 即会话结束）。适配器仍然无状态。见 `meituan-next-steps.md` §3。
 
 ### 5.3 `channels/amount-save-capture.ts` 🆕（渠道无关）
 
@@ -281,6 +301,8 @@ type PendingSave = Readonly<{
 
 export class AmountSaveCapture {
   private readonly pending = new Map<string, PendingSave>();
+  /** 适配器上次交出的素材，覆盖式；`detach()` 置 null。见 §5.2 的修订说明。 */
+  private context: JsonObject | null = null;
   private attachedByUs = false;
 
   constructor(
@@ -398,7 +420,7 @@ export class MockRmsAmountChangeGateway implements RmsAmountChangeGateway {
 | 10 | registry 用**可选**字段而非空实现 | 一眼看出哪些渠道真的做了 |
 | 11 | desktop **不查本地绑定**、不算 `hotelId` | 用户决定：RMS 自己反查。副作用见风险表 |
 | 12 | 忠实透传原始 `requestBody`，不展开日期×房型 | RMS 已有语义展开逻辑；透传保留原始证据便于复盘 |
-| 13 | capture 层**端点无关**（`saveEndpoints` 是 Map） | 二期房态只加一行常量，不碰机制 |
+| 13 | capture 层**端点无关**（`watchedEndpoints` 是 Map） | 二期房态只加一行常量，不碰机制 |
 | 14 | 上报失败**不落盘重试** | 跟价时效性强，隔几分钟补报 RMS 可能已不适用；落盘会牵出重启补报/顺序保证一串问题 |
 
 ---
@@ -444,7 +466,7 @@ export class MockRmsAmountChangeGateway implements RmsAmountChangeGateway {
 | # | 风险 / 权衡 | 应对 |
 |---|---|---|
 | 1 | ✅ **已验证（2026-08-11，携程接入）**：预言的两条都命中了 —— 携程酒店 ID 确实在 body 里，且一次请求确实含多家酒店 | 契约扛住了：机制层与 `AmountChangeAdapter` 一行未改，`channelExtra` 这个逃逸阀装下了差异。唯一不合身的是 `otaHotelId` 单值，处理见 §12 |
-| 2 | ⚠️ **未验证**：抖音改价页是否还有其他入口走不同端点 | 踩点只覆盖「勾房型+改价」一条路。`saveEndpoints` 可扩展，发现新端点加一行。**仍需在真实账号把改价页所有入口点一遍** |
+| 2 | ⚠️ **未验证**：抖音改价页是否还有其他入口走不同端点 | 踩点只覆盖「勾房型+改价」一条路。`watchedEndpoints` 可扩展，发现新端点加一行。**仍需在真实账号把改价页所有入口点一遍** |
 | 3 | ✅ **已验证并纠正**（2026-08-10）：门店 ID 不在请求体、也不在菜单进入时的 URL 上 | 见 §11。改为靠 `product_id` 定位，`otaHotelId` 降级为尽力而为 |
 | 4 | 未绑定账号的改价也上报 → RMS 收到无效流量 | 可接受。**但 RMS 侧要把「反查失败」当正常情况，不按错误告警** |
 | 5 | 端点变更导致静默失效（改了价但没跟价） | 无法根治。上报路径全程 info 日志，便于事后定位 |
@@ -499,7 +521,7 @@ URL（带参跳入 /hotel/price）            ✅        ✅   ← 踩点那份�
 `WATCH_PATH = '/p/travel-ari/hotel/price'` 前缀匹配同时覆盖两者。
 
 ⚠️ **二期做房态房量时**：页面路径是 `/p/travel-ari/hotel/status`，`isWatchableUrl`
-必须放开这个路径 —— 只加 `saveEndpoints` 常量不够，页面匹配不上就根本不会 attach。
+必须放开这个路径 —— 只加 `watchedEndpoints` 常量不够，页面匹配不上就根本不会 attach。
 `productIdsOf` 已经同时认两个端点的嵌套结构（房态那个嵌在 `calendar_ari_list` 里且会重复，
 已去重），这部分二期不用改。
 

@@ -124,6 +124,94 @@
   - 确认是否存在「前端先 check 再 save」的双请求（抖音有，携程踩点未见）
   - 故意改一个会被佣金/限价规则拒的价 → 确认**不上报**
 
+## T9 美团适配器（2026-08-11，踩点 `docs/踩点/美团/改价踩点.md`）
+
+> 机制层与 `AmountChangeAdapter` 接口再次**一行未改** —— 三个渠道全部接完，
+> 印证 design.md「适配器是唯一渠道差异落点」的判断成立。
+
+- [x] `channels/meituan/amount-change-adapter.ts` 🆕
+  - `isWatchableUrl`：host `me.meituan.com` + path 以 `/ebooking/merchant/product` 开头
+    （只到 `product` 不到 `batch-price`：漏认路由的代价是整条监听被 detach，携程已踩过）
+  - `watchedEndpoints`：`updatePriceV2`（`/api/gw/v1/product/price/updatePriceV2`）；
+    2026-08-12 加入试算端点 `calcPriceV2`，见 T9.2
+  - `isSuccessful`：`code === 10000` **且** `success === true`（保守口径，两个都要求为真）
+  - `parse`：从**请求体顶层**取 `poiId`（三渠道里最直接的一个，单值且与契约天然对齐）；
+    房型取 `goodsList[].goodsBaseInfo.goodsId`（不取历史遗留的 `preGoodsId`）；
+    一个 `goodsId` 都取不到 → `null`（硬错误）；缺 `poiId` 不阻断但记 warn
+  - 请求体**原样透传**：噪音字段（`mtgsig` 等风控参数）都在 query string 上不在 body 里，
+    无需像携程那样剔除
+- [x] `channels/registry.ts` ✏️ 给美团那项赋 `amountChangeAdapter`，
+  并订正 `amountChangeAdapter` / `amountChangeAdapters()` 上「美团尚无踩点」的过时注释
+- [x] 测试 `meituan-amount-change-adapter.test.ts` —— 12 个用例，样本全部取自真实踩点
+- [x] `lint` + `check:types` + 桌面全量 `test:unit`（73 文件 446 用例全过，无回归）
+
+### T9.1 真机前的日志订正（写代码时发现，非踩点内容）
+
+接完美团后复查日志链路，发现一个**会让真机验证白跑**的缺陷 —— `AmountSaveCapture.attach()`
+在 debugger 被酒店探测占用时只 warn 后 `return`，**不抛错**，于是 watcher 照打
+`Amount change watching started`。日志上是「已启动 + 改价没反应」，与携程那次
+「监听被悄悄停掉」同一类失效。美团把这个概率放大了：`WATCH_PATH` 取宽前缀
+`/ebooking/merchant/product`，与美团绑定/探测流程共用 `me.meituan.com` 的同一个 tab。
+
+- [x] `attach()` 改为返回 `boolean`（true = 真的挂上了），注释写明「不看返回值就会误判」
+- [x] watcher 据此分流：没挂上 → 记 `not watching, debugger is busy`，**不打成功日志**
+- [x] 🐛 **同时修掉一个真实 bug**：原代码失败时不撤销 `captures` 登记，那条死 capture 会让
+  `captures.has()` 永远判定「已在监听」，探测结束让出 debugger 后**再也挂不上**，该 tab
+  永久拦不到改价。现在失败即 `captures.delete()`
+- [x] 补 3 个用例（capture 返回值 2 个 + watcher 占用/恢复 2 个），并**验证过它们在旧代码上
+  确实失败**（2 failed）——否则锁不住回归
+- [x] 订正 `amount-change-watcher.ts` 与其测试里 3 处「本期只有抖音／携程美团尚无踩点」的过时注释
+- [x] **真机验证（部分）** —— 2026-08-11，拦到 10+ 次改价，`poiId`/`goodsId` 解析全对，
+  `operateType` 六种取值全部实测确认。产出两份文档：
+  - `meituan-payload-spec.md` —— 上报体数据规格（给 RMS 侧）
+  - `meituan-next-steps.md` —— **现状、缺口与明天的顺序，继续做之前先读这份**
+### T9.2 两个必修问题（2026-08-12 已实装，方案见 `meituan-next-steps.md`）
+
+- [x] **`createFlag` 重复上报**：美团改价是三段式（算价 → 预检 `false` → 确认 `true`），
+      ②③同端点、请求体 60 字段只差 `createFlag`、响应一样。原先两次都上报，
+      `operationId` 不同幂等挡不住，且②用户可能点取消 → 脏数据。
+      修法：`parse()` 里 `createFlag !== true` 返回 `null` + info 日志
+  - 「弹窗是否必现」**不必先验** —— 按字段值分流，走两段与只发一次都正确
+- [x] **相对操作算不出最终价**：拦 `calcPriceV2`，把最近一次的请求条件 + 试算结果
+      （`unifiedDatePriceInfos` / `priceInfos`，**不取** `realPriceInfos` —— 它的周次档
+      与请求对不上）附在提交那条上报的 `priceContext` 里
+  - `AmountChangeAdapter.saveEndpoints` → `watchedEndpoints`（拦的不都是保存了）
+  - `parse(observed, context)` 返回 `report` / `context` / `null` 三态 ——
+    **分流由适配器表达，机制层不认识具体端点**，渠道知识不下沉
+  - 上下文状态放 `AmountSaveCapture`（每 tab 一个、`detach()` 即作废），
+    适配器保持无状态（三渠道共用一份实例）
+  - 契约加 `priceContext: JsonObject | null`（必填可空，新渠道漏填编译期报错）
+  - `channelExtra` 方案作废 —— 该字段早已从契约删除（commit 6560706）
+- [x] **真机验证通过**（2026-08-12）：拦到 `calcPriceV2`、预检被挡、一次改价只上报一条、
+      改前 189.66 → 改后 190.66 可还原
+
+### T9.3 上报形状定稿：单字段 `changeRaw` + 渠道 payload 模型（2026-08-12）
+
+真机跑通后复盘发现主次反了 —— 当时把试算塞在 `priceContext` 里当配角，而它才是唯一
+有用的东西。三轮讨论后定稿（推翻了 T9.2 的形状）：
+
+- [x] **契约收成一个内容字段** `changeRaw: JsonObject`，删掉 `requestBody` / `responseBody`
+  - 响应体不再上报 —— 渠道认没认已由 `isSuccessful` 判过，判失败的根本走不到上报
+  - `priceContext` 撤销（它是上一版的产物）
+- [x] **美团发试算结果，提交体一个字节都不发**
+  - `endpointId` / `endpointUrl` 都改为指向 `calcPriceV2`
+  - 提交体只有相对操作，而 **RMS 侧没有美团的数据**，既算不出绝对价也无从校验 → 死信息
+  - 裁剪：信封层（`code`/`error`/`traceId`/`success`）、试算请求体整份（量纲是「元」，
+    与响应的「分」不一致且冗余）、`realPriceInfos`、`goodsBaseInfo` 的 25 个静态字段
+  - 实测 2074 → 827 chars
+- [x] **各渠道建 `amount-change-payload.ts`**，RMS 对接读这几份
+  - `channels/meituan/amount-change-payload.ts` —— 类型 + 裁剪 + 两种日期形状的归一化骨架
+  - `channels/ctrip/amount-change-payload.ts` —— 两套模块的联合类型 + 噪音剔除
+  - 抖音不建（原样透传，无个性化）
+- [x] **mock 网关瘦身** 248 → 127 行，只留公共字段表 + 分派表，渠道细节指向上面两份
+- [x] 测试：新增两个 payload 测试文件（11 用例），适配器测试去掉重复的裁剪覆盖
+- [x] `lint` + `check:types` + 桌面全量 `test:unit`（**75 文件 472 用例全过**，无回归）
+- [ ] 真机复验（形状大改后需重跑一遍 T9.2 那四项）
+- [ ] **仍欠的真机项**
+  - [ ] **把改价页所有能触发保存的入口都点一遍**，确认 `updatePriceV2` 之外有无其他保存端点
+  - [ ] 故意改一个会被限价规则拒的价 → 确认**不上报**，并补记真实失败响应样本
+        （当前 `isSuccessful` 的失败分支是照成功样本推断的，**风险最高**）
+
 ---
 
 ## 完成门禁

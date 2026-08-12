@@ -31,9 +31,25 @@
  * `Network.getResponseBody` 只有在 `loadingFinished` 之后才保证拿得到完整 body
  * （`responseReceived` 只代表响应头到了，body 可能还在流式传输，此时调用会间歇性报
  * "No resource with given identifier found"）—— 与 `dsl-get-response-capture.ts` 同一个坑。
+ *
+ * ## 为什么页面级上下文（`context`）放在这里
+ *
+ * 美团的改价请求体只说「卖价 +2 元」，不说「原来多少钱」，RMS 算不出改后价。补齐素材要靠
+ * 用户填写时页面自己发的 `calcPriceV2`（响应里改前改后都有），把最近一次的内容附在提交那条
+ * 上报里一起发。
+ *
+ * 这份状态放在本类而不是适配器：
+ *
+ * - **生命周期正好对上**。本类每个 tab 一个实例，`detach()` 即页面会话结束；`pending` 本来
+ *   就是这种页面级状态，`context` 与它同生共死，不用另造 sessionId/tabId。
+ * - **适配器保持无状态**。三渠道共用一份适配器实例（`registry.ts` 里建一次），给它加状态
+ *   等于让所有 tab 共享，切门店就会串数据。
+ *
+ * 机制层**不解读** context 的内容 —— 存什么、怎么用全由适配器的 `parse` 决定，见
+ * `types.ts` 的 `AmountParseResult`。
  */
 import type { WebContents } from 'electron';
-import type { AmountSaveObserved } from '../../shared/types/amount-change';
+import type { OtaAmountChangeObserved } from '../../shared/types/amount-change';
 import type { AppLogger } from '../../shared/logging';
 import type { JsonObject } from '../../shared/types/json';
 import type { AmountChangeAdapter } from './types';
@@ -114,6 +130,14 @@ function parseJsonObject(raw: string): JsonObject | null {
 export class AmountSaveCapture {
   private readonly pending = new Map<string, PendingSave>();
   /**
+   * 适配器上一次交出的页面级上下文，**覆盖式**：后来的盖掉先来的。
+   *
+   * 取最新是安全的 —— 页面上任何影响价格的条件变更（改数值、勾选房型、改日期区间、开关
+   * 周末差异定价）都会触发一次重算，所以最新那条天然与提交体同条件。不需要比对、不需要
+   * TTL、不需要按房型分桶（每条 calc 本来就带着当前页面上全量的 goodsList）。
+   */
+  private context: JsonObject | null = null;
+  /**
    * 只有「我们自己 attach 的」才由我们 detach。`webContents.debugger` 是**独占**的，
    * 而 `HotelProbe` 那条链路也会 attach；无条件 detach 会把别人的会话掀掉。
    */
@@ -140,28 +164,37 @@ export class AmountSaveCapture {
     private readonly webContents: WebContents,
     private readonly adapter: AmountChangeAdapter,
     private readonly logger: AppLogger,
-    private readonly onObserved: (observed: AmountSaveObserved) => void,
+    private readonly onObserved: (report: OtaAmountChangeObserved) => void,
   ) {}
 
   /**
    * debugger 已被别人（`HotelProbe`）占用时**跳过本次监听**而不是抢占：探测是用户正在
    * 等结果的前台流程，监听只是旁听，抢占会让绑定流程失败。
+   *
+   * ⚠️ 返回值不是可有可无的：跳过时**不抛错**，调用方若不看返回值就会以为监听已生效，
+   * 打出「watching started」而实际一个请求都拦不到 —— 与携程那次「监听被悄悄停掉」
+   * 属同一类失效（日志上与「用户没改价」长得一模一样）。调用方必须据此决定怎么记日志。
+   *
+   * @returns 监听是否真的生效。false = debugger 被占用，本次没挂上。
    */
-  async attach(): Promise<void> {
+  async attach(): Promise<boolean> {
     if (this.webContents.debugger.isAttached()) {
       this.logger.warn('Amount save capture: debugger already attached, skipping', {
         url: this.webContents.getURL(),
       });
-      return;
+      return false;
     }
     this.webContents.debugger.attach('1.3');
     this.attachedByUs = true;
     await this.webContents.debugger.sendCommand('Network.enable');
     this.webContents.debugger.on('message', this.onEvent);
+    return true;
   }
 
   detach(): void {
     this.pending.clear();
+    // 页面会话结束，上下文随之作废 —— 下一次进改价页不该沿用上一次的试算结果。
+    this.context = null;
     if (!this.attachedByUs) return;
     this.attachedByUs = false;
     this.webContents.debugger.removeListener('message', this.onEvent);
@@ -250,17 +283,29 @@ export class AmountSaveCapture {
       return;
     }
 
-    this.onObserved({
-      endpointId: saved.endpointId,
-      endpointUrl: saved.endpointUrl,
-      requestBody: saved.requestBody,
-      responseBody,
-      pageUrl: saved.pageUrl,
-    });
+    // 解读交给适配器：这次拦到的是一次改动、是留作后用的素材，还是该丢弃。
+    // 机制层只按返回值分流，不认识具体是哪个端点。
+    const parsed = this.adapter.parse(
+      {
+        endpointId: saved.endpointId,
+        endpointUrl: saved.endpointUrl,
+        requestBody: saved.requestBody,
+        responseBody,
+        pageUrl: saved.pageUrl,
+      },
+      this.context,
+    );
+    if (!parsed) return;
+
+    if (parsed.kind === 'context') {
+      this.context = parsed.context;
+      return;
+    }
+    this.onObserved(parsed.report);
   }
 
   private matchEndpoint(url: string): string | null {
-    for (const [endpointId, pathFragment] of this.adapter.saveEndpoints) {
+    for (const [endpointId, pathFragment] of this.adapter.watchedEndpoints) {
       if (url.includes(pathFragment)) return endpointId;
     }
     return null;

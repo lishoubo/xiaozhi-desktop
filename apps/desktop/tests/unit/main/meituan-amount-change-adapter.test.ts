@@ -1,0 +1,521 @@
+import { describe, expect, it, vi } from 'vitest';
+import { createMeituanAmountChangeAdapter } from '../../../src/main/channels/meituan/amount-change-adapter';
+import type { AmountParseResult } from '../../../src/main/channels/types';
+import type { AmountSaveObserved } from '../../../src/shared/types/amount-change';
+import type { JsonObject } from '../../../src/shared/types/json';
+
+/** 取出 `{ kind: 'report' }` 里的上报体；不是上报（上下文/丢弃）时给 undefined。 */
+function reportOf(result: AmountParseResult | null) {
+  return result?.kind === 'report' ? result.report : undefined;
+}
+
+/** 取自真实踩点 `docs/踩点/美团/改价踩点.md` 的 referer —— 批量设价页。 */
+const REAL_PAGE_URL = 'https://me.meituan.com/ebooking/merchant/product/batch-price';
+
+/** 同一份踩点里的真实保存端点 URL（截去冗长的 `mtgsig` 风控参数）。 */
+const REAL_ENDPOINT_URL =
+  'https://me.meituan.com/api/gw/v1/product/price/updatePriceV2' +
+  '?yodaReady=h5&csecplatform=4&csecversion=4.3.0';
+
+/**
+ * 踩点里的真实请求体（两条 goodsList 是两个不同房型，各自带平日/周末两档价）。
+ * `goodsBaseInfo` 里与解析无关的字段保留原样，用来验证「原样透传」。
+ */
+const REAL_REQUEST_BODY = {
+  poiId: '762662011',
+  partnerId: 4595635,
+  currency: 'CNY',
+  createFlag: true,
+  goodsList: [
+    {
+      goodsBaseInfo: {
+        goodsId: 847226645,
+        goodsName: 'I书韵I大床房（阅享静读）-不含早-入住当天18:00前免费取消-❤阅读台灯+茶包咖啡',
+        preGoodsId: '64472d01da3fa7ab168924a8',
+        goodsStatus: 2,
+        goodsType: 1,
+        sellChannel: 15,
+        paymentType: 0,
+        priceChangeMode: 8,
+        auditStatus: 4,
+        maxAdultAdmissibility: 2,
+        breakFastNum: 0,
+      },
+      ratioConfig: { ratioType: null, ratioChange: false, newRatio: null },
+      priceRecordWay: 8,
+      weekDiff: true,
+      calcPriceUnifiedDateModel: {
+        dates: [{ startDate: '2026-08-25', endDate: '2026-08-26' }],
+        calcPriceWeekModels: [
+          {
+            inWeek: [1, 2, 3, 4, 7],
+            calcPriceInfo: { salePrice: { operateType: 1, operateNum: '100' } },
+          },
+          {
+            inWeek: [5, 6],
+            calcPriceInfo: { salePrice: { operateType: 1, operateNum: '200' } },
+          },
+        ],
+      },
+    },
+    {
+      goodsBaseInfo: {
+        goodsId: 847317669,
+        goodsName: 'I经济I 大床房（简约舒适）-不含早-入住当天18:00前免费取消-❤极速退房+免押金',
+        preGoodsId: '64472d02da3fa7ab168924ad',
+        goodsStatus: 2,
+        goodsType: 1,
+        sellChannel: 15,
+        paymentType: 0,
+        priceChangeMode: 8,
+        auditStatus: 4,
+        maxAdultAdmissibility: 2,
+        breakFastNum: 0,
+      },
+      ratioConfig: { ratioType: null, ratioChange: false, newRatio: null },
+      priceRecordWay: 8,
+      weekDiff: true,
+      calcPriceUnifiedDateModel: {
+        dates: [{ startDate: '2026-08-25', endDate: '2026-08-26' }],
+        calcPriceWeekModels: [
+          {
+            inWeek: [1, 2, 3, 4, 7],
+            calcPriceInfo: { salePrice: { operateType: 1, operateNum: '100' } },
+          },
+          {
+            inWeek: [5, 6],
+            calcPriceInfo: { salePrice: { operateType: 1, operateNum: '200' } },
+          },
+        ],
+      },
+    },
+  ],
+  extendParam: {},
+} as const;
+
+/** 踩点里的真实成功响应。`data` 是异步任务串。 */
+const REAL_SUCCESS_RESPONSE = JSON.stringify({
+  code: 10000,
+  error: null,
+  traceId: '-1122036753226671259',
+  data: 'hotel_sc_dealing__update_price_and_relation_4595635_762662011_3030917926517748',
+  success: true,
+});
+
+function createLogger() {
+  return {
+    debug: vi.fn(),
+    info: vi.fn(),
+    warn: vi.fn(),
+    error: vi.fn(),
+  };
+}
+
+function observedWith(requestBody: JsonObject): AmountSaveObserved {
+  return {
+    endpointId: 'updatePriceV2',
+    endpointUrl: REAL_ENDPOINT_URL,
+    requestBody,
+    responseBody: REAL_SUCCESS_RESPONSE,
+    pageUrl: REAL_PAGE_URL,
+  };
+}
+
+/** 试算端点的真实 URL（`docs/踩点/美团/改价踩点2.md`）。 */
+const REAL_CALC_URL =
+  'https://me.meituan.com/api/gw/v1/product/price/separate/calcPriceV2?yodaReady=h5';
+
+/**
+ * 试算请求体 —— 与提交体的差别：多一个 `operateType`，没有 `createFlag`，且
+ * `goodsList[]` 里同时带着**当前价**（`unifiedDatePriceInfos`）与操作指令。
+ */
+const REAL_CALC_REQUEST_BODY = {
+  poiId: '762662011',
+  partnerId: 4595635,
+  currency: 'CNY',
+  goodsList: [
+    {
+      goodsBaseInfo: { goodsId: 847226645, goodsName: 'I书韵I大床房（阅享静读）' },
+      priceRecordWay: 8,
+      weekDiff: true,
+      operateType: 1,
+      calcPriceUnifiedDateModel: {
+        dates: [{ startDate: '2026-08-25', endDate: '2026-08-26' }],
+        calcPriceWeekModels: [
+          {
+            inWeek: [1, 2, 3, 4, 7],
+            calcPriceInfo: { salePrice: { operateType: 1, operateNum: '100' } },
+          },
+        ],
+      },
+    },
+  ],
+} as const;
+
+/**
+ * 试算的真实响应（`改价踩点2.md` 第一条，只截去与解析无关的静态字段）。
+ *
+ * 三处关键：
+ * - `unifiedDatePriceInfos.weekPriceInfos[].inWeek` = `[1,2,3,4,7]`，**与请求的周次档一致**
+ * - `realPriceInfos[].weekPriceInfos[].inWeek` = `[2,3]`，服务端按区间内实际日期重拆过，
+ *   **与请求档对不上** —— 这正是它必须被剔掉的理由
+ * - `priceInfo`（改后 24113 = 241.13 元）与 `originalPriceInfo`（改前 24013 = 240.13 元）
+ *   成对出现，这是 RMS 算绝对价的唯一素材
+ */
+const REAL_CALC_RESPONSE = JSON.stringify({
+  code: 10000,
+  error: null,
+  traceId: '7960274533135046393',
+  data: {
+    goodsDetails: [
+      {
+        goodsBaseInfo: {
+          goodsId: 847226645,
+          goodsName: 'I书韵I大床房（阅享静读）',
+          preGoodsId: '64472d01da3fa7ab168924a8',
+          goodsStatus: 2,
+        },
+        priceRecordWay: 8,
+        pricePrompt: { prompts: [], noPriceDates: null },
+        unifiedDatePriceInfos: {
+          dates: [{ startDate: '2026-08-25', endDate: '2026-08-26' }],
+          weekPriceInfos: [
+            {
+              inWeek: [1, 2, 3, 4, 7],
+              priceInfo: { salePrice: '24113', basePrice: '20978', subPrice: '3135' },
+              originalPriceInfo: { salePrice: '24013', basePrice: '20891', subPrice: '3122' },
+            },
+          ],
+        },
+        priceInfos: null,
+        realPriceInfos: [
+          {
+            startDate: '2026-08-25',
+            endDate: '2026-08-26',
+            weekPriceInfos: [
+              {
+                inWeek: [2, 3],
+                priceInfo: { salePrice: '24113' },
+                originalPriceInfo: { salePrice: '24013' },
+              },
+            ],
+          },
+        ],
+        weekDiff: true,
+        ratioConfig: { ratioType: null, ratioChange: false, newRatio: null },
+      },
+    ],
+    globalPricePrompt: { prompts: null, unifiedSubRatio: null },
+  },
+  success: true,
+});
+
+function calcObserved(
+  overrides: Partial<AmountSaveObserved> = {},
+): AmountSaveObserved {
+  return {
+    endpointId: 'calcPriceV2',
+    endpointUrl: REAL_CALC_URL,
+    requestBody: REAL_CALC_REQUEST_BODY as unknown as JsonObject,
+    responseBody: REAL_CALC_RESPONSE,
+    pageUrl: REAL_PAGE_URL,
+    ...overrides,
+  };
+}
+
+/** 取出 `{ kind: 'context' }` 里的上下文；不是上下文时给 undefined。 */
+function contextOf(result: AmountParseResult | null) {
+  return result?.kind === 'context' ? result.context : undefined;
+}
+
+describe('美团价量态改动适配器', () => {
+  describe('isWatchableUrl', () => {
+    it('认踩点里的批量设价页', () => {
+      const adapter = createMeituanAmountChangeAdapter(createLogger());
+      expect(adapter.isWatchableUrl(REAL_PAGE_URL)).toBe(true);
+    });
+
+    it('认同一商品模块下的兄弟路由（前缀匹配，避免漏认导致监听被整个关掉）', () => {
+      const adapter = createMeituanAmountChangeAdapter(createLogger());
+      expect(
+        adapter.isWatchableUrl('https://me.meituan.com/ebooking/merchant/product/price-calendar'),
+      ).toBe(true);
+    });
+
+    it('不认美团站内的其他页面', () => {
+      const adapter = createMeituanAmountChangeAdapter(createLogger());
+      expect(adapter.isWatchableUrl('https://me.meituan.com/ebooking/merchant/order/list')).toBe(
+        false,
+      );
+    });
+
+    it('不认非可信域名与非 HTTPS', () => {
+      const adapter = createMeituanAmountChangeAdapter(createLogger());
+      expect(adapter.isWatchableUrl('https://evil.example.com/ebooking/merchant/product')).toBe(
+        false,
+      );
+      expect(adapter.isWatchableUrl('http://me.meituan.com/ebooking/merchant/product')).toBe(false);
+    });
+  });
+
+  describe('isSuccessful', () => {
+    it('踩点的真实成功响应判为成功', () => {
+      const adapter = createMeituanAmountChangeAdapter(createLogger());
+      expect(adapter.isSuccessful(REAL_SUCCESS_RESPONSE)).toBe(true);
+    });
+
+    it('网关码非 10000 判为失败', () => {
+      const adapter = createMeituanAmountChangeAdapter(createLogger());
+      expect(
+        adapter.isSuccessful(
+          JSON.stringify({ code: 10001, error: '限价规则不通过', data: null, success: false }),
+        ),
+      ).toBe(false);
+    });
+
+    it('code 为 10000 但 success 为 false 时仍判失败（保守口径）', () => {
+      const adapter = createMeituanAmountChangeAdapter(createLogger());
+      expect(
+        adapter.isSuccessful(JSON.stringify({ code: 10000, error: null, success: false })),
+      ).toBe(false);
+    });
+
+    it('响应体不是 JSON 时判为失败', () => {
+      const adapter = createMeituanAmountChangeAdapter(createLogger());
+      expect(adapter.isSuccessful('<html>502 Bad Gateway</html>')).toBe(false);
+    });
+  });
+
+  /**
+   * 提交（`updatePriceV2`）只当**触发器** —— 它的请求体一个字节都不上报，上报的是存着的
+   * 那条试算。所以这一组断言的重点是「发出去的内容来自 calc 而不是 update」。
+   */
+  describe('parse — updatePriceV2（触发器）', () => {
+    /** 一次完整的试算上下文，形状与 `parse` 处理 calc 后交出的一致。 */
+    function calcContext(overrides: JsonObject = {}): JsonObject {
+      const adapter = createMeituanAmountChangeAdapter(createLogger());
+      const context = contextOf(adapter.parse(calcObserved(), null)) as JsonObject;
+      return { ...context, ...overrides };
+    }
+
+    it('上报的是试算结果，提交体不发', () => {
+      const adapter = createMeituanAmountChangeAdapter(createLogger());
+      const context = calcContext();
+
+      const report = reportOf(adapter.parse(observedWith({ ...REAL_REQUEST_BODY }), context));
+
+      expect(report?.source).toBe('meituan');
+      // endpointId / endpointUrl 都指向试算那次 —— 内容出处要如实
+      expect(report?.endpointId).toBe('calcPriceV2');
+      expect(report?.endpointUrl).toBe(REAL_CALC_URL);
+      expect(report?.otaHotelId).toBe('762662011');
+      // changeRaw 是裁剪后的**试算结果**，不是提交体 —— 后者只有「+1 元」这类相对操作，
+      // RMS 既算不出绝对价也无从校验
+      expect(report?.changeRaw).toEqual(context.changeRaw);
+      expect(report?.changeRaw).not.toHaveProperty('createFlag');
+    });
+
+    /** 改前 189.66 → 改后 190.66，这是 RMS 跟价唯一要的东西。 */
+    it('上报体里能读到改前价与改后价', () => {
+      const adapter = createMeituanAmountChangeAdapter(createLogger());
+
+      const report = reportOf(
+        adapter.parse(observedWith({ ...REAL_REQUEST_BODY }), calcContext()),
+      );
+      const data = report?.changeRaw as unknown as {
+        goodsDetails: { unifiedDatePriceInfos: { weekPriceInfos: Record<string, unknown>[] } }[];
+      };
+      const week = data.goodsDetails[0].unifiedDatePriceInfos.weekPriceInfos[0];
+
+      expect(week.originalPriceInfo).toMatchObject({ salePrice: '24013' });
+      expect(week.priceInfo).toMatchObject({ salePrice: '24113' });
+      expect(week.inWeek).toEqual([1, 2, 3, 4, 7]);
+    });
+
+    /**
+     * 一次改价打两遍同一个端点（②预检 `false` → ③执行 `true`），请求体只差这一个字段、
+     * 响应完全一样。不过滤会重复上报，且②的 success 只代表「请确认」—— 用户点取消就是假成功。
+     */
+    it('createFlag 为 false 的预检请求不上报，只记 info', () => {
+      const logger = createLogger();
+      const adapter = createMeituanAmountChangeAdapter(logger);
+
+      const result = adapter.parse(
+        observedWith({ ...REAL_REQUEST_BODY, createFlag: false }),
+        calcContext(),
+      );
+
+      expect(result).toBeNull();
+      expect(logger.info).toHaveBeenCalledWith(
+        'Meituan amount change: pre-check request (createFlag not true), not reporting',
+        expect.objectContaining({ createFlag: false }),
+      );
+      // 不是硬错误，不该 warn
+      expect(logger.warn).not.toHaveBeenCalled();
+    });
+
+    it('createFlag 缺失时同样不上报（只认显式 true）', () => {
+      const adapter = createMeituanAmountChangeAdapter(createLogger());
+      const withoutFlag = { ...REAL_REQUEST_BODY } as Record<string, unknown>;
+      delete withoutFlag.createFlag;
+
+      expect(adapter.parse(observedWith(withoutFlag as JsonObject), calcContext())).toBeNull();
+    });
+
+    it('取不到任何 goodsId 时返回 null 并 warn（拦到的不是改价请求）', () => {
+      const logger = createLogger();
+      const adapter = createMeituanAmountChangeAdapter(logger);
+
+      const result = adapter.parse(
+        observedWith({ poiId: '762662011', createFlag: true, goodsList: [] }),
+        calcContext(),
+      );
+
+      expect(result).toBeNull();
+      expect(logger.warn).toHaveBeenCalledWith(
+        'Meituan amount change: request body had no goodsId',
+        expect.objectContaining({ endpointId: 'updatePriceV2' }),
+      );
+    });
+
+    /** 没有试算就没有可上报的内容 —— 提交体那份相对操作对 RMS 是死信息，宁可丢弃。 */
+    it('没有试算结果时丢弃并 warn', () => {
+      const logger = createLogger();
+      const adapter = createMeituanAmountChangeAdapter(logger);
+
+      const result = adapter.parse(observedWith({ ...REAL_REQUEST_BODY }), null);
+
+      expect(result).toBeNull();
+      expect(logger.warn).toHaveBeenCalledWith(
+        'Meituan amount change: no calcPriceV2 result to report, dropping',
+        expect.objectContaining({ goodsIds: ['847226645', '847317669'], hasContext: false }),
+      );
+    });
+
+    it('上下文形状不认识时同样丢弃', () => {
+      const adapter = createMeituanAmountChangeAdapter(createLogger());
+
+      expect(
+        adapter.parse(observedWith({ ...REAL_REQUEST_BODY }), { something: 'else' }),
+      ).toBeNull();
+    });
+
+    /** 门店 ID 取自试算那次；试算里缺了才退回提交体。 */
+    it('试算缺 poiId 时退回提交体里的 poiId', () => {
+      const adapter = createMeituanAmountChangeAdapter(createLogger());
+
+      const report = reportOf(
+        adapter.parse(observedWith({ ...REAL_REQUEST_BODY }), calcContext({ otaHotelId: '' })),
+      );
+
+      expect(report?.otaHotelId).toBe('762662011');
+    });
+
+    it('两处都没有 poiId 时留空串让 RMS 靠 goodsId 反查并 warn', () => {
+      const logger = createLogger();
+      const adapter = createMeituanAmountChangeAdapter(logger);
+
+      const report = reportOf(
+        adapter.parse(
+          observedWith({ createFlag: true, goodsList: [{ goodsBaseInfo: { goodsId: 847226645 } }] }),
+          calcContext({ otaHotelId: '' }),
+        ),
+      );
+
+      expect(report).toBeDefined();
+      expect(report?.otaHotelId).toBe('');
+      expect(logger.warn).toHaveBeenCalledWith(
+        'Meituan amount change: no poiId, RMS will resolve by goodsId',
+        expect.objectContaining({ goodsIds: ['847226645'] }),
+      );
+    });
+  });
+
+  /**
+   * 试算端点：**上报的素材就是它**，但此刻不能发（用户可能算完不提交），先存着。
+   * 提交那条只当触发器。
+   */
+  describe('parse — calcPriceV2（上报素材）', () => {
+    it('先存着不发 —— 用户可能算完不提交', () => {
+      const adapter = createMeituanAmountChangeAdapter(createLogger());
+
+      const result = adapter.parse(calcObserved(), null);
+
+      expect(result?.kind).toBe('context');
+      expect(reportOf(result)).toBeUndefined();
+    });
+
+    /** 门店 ID 与 URL 只有试算这一刻拿得到，要跟结果一起存下。 */
+    it('存下试算结果，连同只此刻可得的门店 ID 与 URL', () => {
+      const adapter = createMeituanAmountChangeAdapter(createLogger());
+
+      const context = contextOf(adapter.parse(calcObserved(), null));
+
+      expect(context?.otaHotelId).toBe('762662011');
+      expect(context?.endpointUrl).toBe(REAL_CALC_URL);
+      // 试算请求体整个不留 —— 它那份当前价是「元」，与响应的「分」量纲不一致，且是冗余
+      expect(context).not.toHaveProperty('requestBody');
+      const details = (context?.changeRaw as { goodsDetails: Record<string, unknown>[] }).goodsDetails;
+      expect(details).toHaveLength(1);
+      expect(details[0].unifiedDatePriceInfos).toEqual({
+        dates: [{ startDate: '2026-08-25', endDate: '2026-08-26' }],
+        weekPriceInfos: [
+          {
+            inWeek: [1, 2, 3, 4, 7],
+            priceInfo: { salePrice: '24113', basePrice: '20978', subPrice: '3135' },
+            originalPriceInfo: { salePrice: '24013', basePrice: '20891', subPrice: '3122' },
+          },
+        ],
+      });
+    });
+
+    // 裁剪规则（剔 realPriceInfos、goodsBaseInfo 收成 goodsId、语义未知的一律保留）
+    // 归 `amount-change-payload.ts` 管，测试在 `meituan-amount-change-payload.test.ts`。
+
+    /** 认不出的响应形状：返回 null 让机制层留着上一条，宁可用旧的也不要存个空壳。 */
+    it('响应形状不认识时返回 null 并 warn（不覆盖上一条）', () => {
+      const logger = createLogger();
+      const adapter = createMeituanAmountChangeAdapter(logger);
+
+      expect(adapter.parse(calcObserved({ responseBody: '<html>502</html>' }), null)).toBeNull();
+      expect(
+        adapter.parse(calcObserved({ responseBody: '{"code":10000,"data":null}' }), null),
+      ).toBeNull();
+      expect(logger.warn).toHaveBeenCalledWith(
+        'Meituan amount change: unrecognised calcPriceV2 response, keeping previous',
+        expect.objectContaining({ bodySnippet: expect.any(String) }),
+      );
+    });
+
+    /** 试算请求体里没有 `createFlag` —— 不能被当成「预检」一并丢掉。 */
+    it('没有 createFlag 也照常收成上下文', () => {
+      const adapter = createMeituanAmountChangeAdapter(createLogger());
+
+      expect(REAL_CALC_REQUEST_BODY).not.toHaveProperty('createFlag');
+      expect(adapter.parse(calcObserved(), null)?.kind).toBe('context');
+    });
+  });
+
+  describe('watchedEndpoints', () => {
+    it('拦保存端点与试算端点两个', () => {
+      const adapter = createMeituanAmountChangeAdapter(createLogger());
+
+      expect([...adapter.watchedEndpoints.entries()]).toEqual([
+        ['updatePriceV2', '/api/gw/v1/product/price/updatePriceV2'],
+        ['calcPriceV2', '/api/gw/v1/product/price/separate/calcPriceV2'],
+      ]);
+    });
+
+    /** 两个端点的路径前缀有重叠，匹配是 `url.includes`，别把试算认成保存。 */
+    it('真实 URL 各自命中自己的端点', () => {
+      const adapter = createMeituanAmountChangeAdapter(createLogger());
+      const calcFragment = adapter.watchedEndpoints.get('calcPriceV2') as string;
+      const updateFragment = adapter.watchedEndpoints.get('updatePriceV2') as string;
+
+      expect(REAL_CALC_URL).toContain(calcFragment);
+      expect(REAL_CALC_URL).not.toContain(updateFragment);
+      expect(REAL_ENDPOINT_URL).toContain(updateFragment);
+      expect(REAL_ENDPOINT_URL).not.toContain(calcFragment);
+    });
+  });
+});
