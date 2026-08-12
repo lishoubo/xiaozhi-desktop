@@ -37,6 +37,7 @@ type GenerateSummaryInput = Readonly<{
 	previousSummary: string | null;
 	messages: readonly AgentMessage[];
 	maxTokens: number;
+	signal?: AbortSignal;
 }>;
 
 export interface ConversationSummaryGenerator {
@@ -104,10 +105,13 @@ export class ConversationContextService {
 
 	async prepare(
 		principal: AgentPrincipal,
-		conversationId: string
+		conversationId: string,
+		signal?: AbortSignal
 	): Promise<PreparedConversationContext> {
 		for (let attempt = 0; attempt < 2; attempt += 1) {
+			signal?.throwIfAborted();
 			const context = await this.repository.getConversationContext(principal, conversationId);
+			signal?.throwIfAborted();
 			const pending = unsummarizedMessages(context);
 			const estimatedTokens =
 				estimateConversationTokens(pending.summary ?? '') +
@@ -134,8 +138,10 @@ export class ConversationContextService {
 			const summary = await this.generator.summarize({
 				previousSummary: pending.summary,
 				messages: messagesToSummarize,
-				maxTokens: this.policy.summaryMaxTokens
+				maxTokens: this.policy.summaryMaxTokens,
+				signal
 			});
+			signal?.throwIfAborted();
 			const throughMessageId = messagesToSummarize.at(-1)?.id;
 			if (!throughMessageId) return { summary: pending.summary, history: pending.messages };
 			const saved = await this.repository.saveConversationSummary(principal, {
@@ -147,6 +153,7 @@ export class ConversationContextService {
 			if (saved) return { summary, history: pending.messages.slice(splitIndex) };
 		}
 
+		signal?.throwIfAborted();
 		const latest = unsummarizedMessages(
 			await this.repository.getConversationContext(principal, conversationId)
 		);

@@ -1,6 +1,7 @@
 import { appRouter, type ApiContext } from '@hotel-butler/api';
 import { fetchRequestHandler } from '@trpc/server/adapters/fetch';
 import { randomBytes, randomUUID } from 'node:crypto';
+import { env } from '$env/dynamic/private';
 import { db } from '$lib/server/db';
 import { rmsClient } from '$lib/server/db/rms';
 import { createDesktopSessionGateway } from '$lib/server/desktop-session';
@@ -29,7 +30,7 @@ const employeeDirectory = createEmployeeIdentityDirectory({
 });
 const phoneOtp = createTemporaryPhoneOtpGateway(serverLogger);
 const desktopSessionRepository = new DrizzleDesktopSessionRepository(db);
-const agentEnvironment = readAgentEnvironment(process.env);
+const agentEnvironment = readAgentEnvironment(env);
 const agentRepository = new AgentRepository(db);
 const skillProvider = new EmptySkillProvider();
 const mcpToolProvider = new McpToolProvider(
@@ -77,7 +78,7 @@ const handleTrpcRequest: RequestHandler = ({ locals, request }) =>
 				agentPrincipal: async () => {
 					const authorization = req.headers.get('authorization');
 					if (authorization) {
-						return resolveStaffAgentPrincipal(authorization, process.env);
+						return resolveStaffAgentPrincipal(authorization, env);
 					}
 					const employee = await desktopSession.currentEmployee();
 					return employee ? { employeeId: employee.id, orgId: employee.orgId } : null;

@@ -43,16 +43,19 @@ export class LangChainAgentRuntime implements AgentRuntime {
 
 	async run(options: AgentRuntimeRunOptions) {
 		if (!this.environment.apiKey) throw new Error('AI_KIMI_API_KEY is not configured');
+		options.signal.throwIfAborted();
 
 		let generatedUi: GenerativeUiSpec | null = null;
 		const [memories, skills] = await Promise.all([
 			this.repository.listMemories(options.principal),
 			this.skills.list()
 		]);
+		options.signal.throwIfAborted();
 		const localTools = this.createLocalTools(options, (spec) => {
 			generatedUi = spec;
 		});
 		const loadedMcpTools = await this.mcpTools.getTools();
+		options.signal.throwIfAborted();
 		const tools: StructuredToolInterface[] = [...localTools, ...loadedMcpTools];
 		const hotelDataAvailable = loadedMcpTools.some((candidate) =>
 			isHotelDataToolName(candidate.name)
@@ -91,6 +94,7 @@ export class LangChainAgentRuntime implements AgentRuntime {
 			{ streamMode: 'messages', signal: options.signal, recursionLimit: 16 }
 		);
 		for await (const [message] of stream) {
+			options.signal.throwIfAborted();
 			if (AIMessageChunk.isInstance(message)) {
 				const delta = textContent(message.content);
 				if (delta) {
@@ -140,14 +144,26 @@ export class LangChainAgentRuntime implements AgentRuntime {
 		options: AgentRuntimeRunOptions,
 		setUi: (spec: GenerativeUiSpec) => void
 	): StructuredToolInterface[] {
-		const recall = tool(async () => this.localToolHandlers.recall(options.principal), {
+		const recall = tool(async () => {
+			options.signal.throwIfAborted();
+			const result = await this.localToolHandlers.recall(options.principal);
+			options.signal.throwIfAborted();
+			return result;
+		}, {
 			name: 'recall_long_term_memory',
 			description: '读取当前员工跨会话保存的酒店工作偏好和长期事实。',
 			schema: z.object({})
 		});
 		const remember = tool(
 			async ({ key, content, importance }) => {
-				return this.localToolHandlers.remember(options.principal, { key, content, importance });
+				options.signal.throwIfAborted();
+				const result = await this.localToolHandlers.remember(options.principal, {
+					key,
+					content,
+					importance
+				});
+				options.signal.throwIfAborted();
+				return result;
 			},
 			{
 				name: 'remember_long_term_memory',
@@ -161,9 +177,11 @@ export class LangChainAgentRuntime implements AgentRuntime {
 		);
 		const renderUi = tool(
 			async ({ spec }) => {
+				options.signal.throwIfAborted();
 				const validated = this.localToolHandlers.renderUi(spec);
 				setUi(validated);
 				await options.emit({ type: 'ui_spec', spec: validated });
+				options.signal.throwIfAborted();
 				return '酒店生成式 UI 已发送到前端。';
 			},
 			{

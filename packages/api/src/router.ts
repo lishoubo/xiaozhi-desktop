@@ -2,6 +2,9 @@ import { initTRPC, tracked, TRPCError } from '@trpc/server';
 import { z } from 'zod';
 import {
   agentCapabilitiesSchema,
+  agentRunIdInputSchema,
+  cancelAgentRunResultSchema,
+  agentConversationDeletionResultSchema,
   agentConversationIdInputSchema,
   agentConversationSchema,
   agentConversationSummarySchema,
@@ -16,7 +19,9 @@ import {
   startAgentRunInputSchema,
   startAgentRunResponseSchema,
   type AgentCapabilities,
+  type CancelAgentRunResult,
   type AgentConversation,
+  type AgentConversationDeletionResult,
   type AgentConversationSummary,
   type AgentQuickAction,
   type AgentRunEvent,
@@ -27,9 +32,14 @@ import {
 
 export {
   agentCapabilitiesSchema,
+  agentRunIdInputSchema,
+  cancelAgentRunResultSchema,
+  agentConversationDeletionResultSchema,
   agentConversationIdInputSchema,
   agentConversationSchema,
   agentConversationSummarySchema,
+  agentExecutionStepSchema,
+  agentExecutionTraceSchema,
   agentMessageSchema,
   agentQuickActionIdSchema,
   agentQuickActionSchema,
@@ -54,8 +64,12 @@ export {
   startAgentRunInputSchema,
   startAgentRunResponseSchema,
   type AgentCapabilities,
+  type CancelAgentRunResult,
   type AgentConversation,
+  type AgentConversationDeletionResult,
   type AgentConversationSummary,
+  type AgentExecutionStep,
+  type AgentExecutionTrace,
   type AgentMessage,
   type AgentQuickAction,
   type AgentQuickActionId,
@@ -71,7 +85,9 @@ export {
   type StartAgentRunInput,
 } from './contracts';
 
-type ApiLogFields = Record<string, string | number | boolean | null | undefined>;
+export { agentRunStatusSchema, type AgentRunStatus } from './contracts';
+
+type ApiLogFields = Record<string, unknown>;
 // eslint-disable-next-line no-unused-vars -- parameter names document the structural logger contract.
 type ApiLogMethod = (fields: ApiLogFields, message: string) => void;
 
@@ -112,7 +128,13 @@ export interface AgentGateway {
   listConversations(principal: AgentPrincipal): Promise<AgentConversationSummary[]>;
   createConversation(principal: AgentPrincipal, title?: string): Promise<AgentConversationSummary>;
   getConversation(principal: AgentPrincipal, conversationId: string): Promise<AgentConversation>;
+  deleteConversation(
+    principal: AgentPrincipal,
+    conversationId: string,
+  ): Promise<AgentConversationDeletionResult>;
+  clearConversations(principal: AgentPrincipal): Promise<AgentConversationDeletionResult>;
   startRun(principal: AgentPrincipal, input: StartAgentRunInput): Promise<StartAgentRunResponse>;
+  cancelRun(principal: AgentPrincipal, runId: string): Promise<CancelAgentRunResult>;
   events(
     principal: AgentPrincipal,
     input: Readonly<{ runId: string; lastEventId?: string | null }>,
@@ -222,10 +244,23 @@ export const appRouter = t.router({
       .query(({ ctx, input }) =>
         ctx.agent.getConversation(ctx.agentPrincipal, input.conversationId),
       ),
+    deleteConversation: agentProcedure
+      .input(agentConversationIdInputSchema)
+      .output(agentConversationDeletionResultSchema)
+      .mutation(({ ctx, input }) =>
+        ctx.agent.deleteConversation(ctx.agentPrincipal, input.conversationId),
+      ),
+    clearConversations: agentProcedure
+      .output(agentConversationDeletionResultSchema)
+      .mutation(({ ctx }) => ctx.agent.clearConversations(ctx.agentPrincipal)),
     startRun: agentProcedure
       .input(startAgentRunInputSchema)
       .output(startAgentRunResponseSchema)
       .mutation(({ ctx, input }) => ctx.agent.startRun(ctx.agentPrincipal, input)),
+    cancelRun: agentProcedure
+      .input(agentRunIdInputSchema)
+      .output(cancelAgentRunResultSchema)
+      .mutation(({ ctx, input }) => ctx.agent.cancelRun(ctx.agentPrincipal, input.runId)),
     events: agentProcedure.input(agentRunEventsInputSchema).subscription(async function* ({
       ctx,
       input,

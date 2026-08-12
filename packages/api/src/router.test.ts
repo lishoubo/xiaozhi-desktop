@@ -32,7 +32,10 @@ describe('appRouter', () => {
       listConversations: vi.fn(),
       createConversation: vi.fn(),
       getConversation: vi.fn(),
+      deleteConversation: vi.fn(),
+      clearConversations: vi.fn(),
       startRun: vi.fn(),
+      cancelRun: vi.fn(),
       events: vi.fn(),
     } as AgentGateway,
     agentPrincipal = vi.fn().mockResolvedValue(null),
@@ -97,6 +100,7 @@ describe('appRouter', () => {
         updatedAt: '2026-08-10T00:00:00.000Z',
       },
       messages: [],
+      executions: [],
     });
     const agent = {
       capabilities: vi.fn(),
@@ -104,7 +108,10 @@ describe('appRouter', () => {
       listConversations: vi.fn(),
       createConversation: vi.fn(),
       getConversation,
+      deleteConversation: vi.fn(),
+      clearConversations: vi.fn(),
       startRun: vi.fn(),
+      cancelRun: vi.fn(),
       events: vi.fn(),
     } as AgentGateway;
     const principal = { employeeId: '1001', orgId: '42' } as const;
@@ -126,6 +133,34 @@ describe('appRouter', () => {
     ).rejects.toMatchObject({ code: 'BAD_REQUEST' });
   });
 
+  it('routes run cancellation through the authenticated principal', async () => {
+    const principal = { employeeId: '1001', orgId: '42' } as const;
+    const runId = '33333333-3333-4333-8333-333333333333';
+    const cancelRun = vi.fn().mockResolvedValue({ runId, status: 'cancelled' });
+    const agent = {
+      capabilities: vi.fn(),
+      quickActions: vi.fn(),
+      listConversations: vi.fn(),
+      createConversation: vi.fn(),
+      getConversation: vi.fn(),
+      deleteConversation: vi.fn(),
+      clearConversations: vi.fn(),
+      startRun: vi.fn(),
+      cancelRun,
+      events: vi.fn(),
+    } as AgentGateway;
+    const caller = createCaller({
+      agent,
+      agentPrincipal: vi.fn().mockResolvedValue(principal),
+    });
+
+    await expect(caller.agent.cancelRun({ runId })).resolves.toEqual({
+      runId,
+      status: 'cancelled',
+    });
+    expect(cancelRun).toHaveBeenCalledWith(principal, runId);
+  });
+
   it('rejects Agent access before calling the gateway when no session principal exists', async () => {
     const getConversation = vi.fn();
     const agent = {
@@ -134,7 +169,10 @@ describe('appRouter', () => {
       listConversations: vi.fn(),
       createConversation: vi.fn(),
       getConversation,
+      deleteConversation: vi.fn(),
+      clearConversations: vi.fn(),
       startRun: vi.fn(),
+      cancelRun: vi.fn(),
       events: vi.fn(),
     } as AgentGateway;
     const caller = createCaller({ agent });
@@ -145,6 +183,37 @@ describe('appRouter', () => {
       }),
     ).rejects.toMatchObject({ code: 'UNAUTHORIZED' });
     expect(getConversation).not.toHaveBeenCalled();
+  });
+
+  it('routes conversation deletion only through the authenticated principal', async () => {
+    const deleteConversation = vi.fn().mockResolvedValue({ deletedCount: 1 });
+    const clearConversations = vi.fn().mockResolvedValue({ deletedCount: 3 });
+    const principal = { employeeId: '1001', orgId: '42' } as const;
+    const agent = {
+      capabilities: vi.fn(),
+      quickActions: vi.fn(),
+      listConversations: vi.fn(),
+      createConversation: vi.fn(),
+      getConversation: vi.fn(),
+      deleteConversation,
+      clearConversations,
+      startRun: vi.fn(),
+      cancelRun: vi.fn(),
+      events: vi.fn(),
+    } as AgentGateway;
+    const caller = createCaller({
+      agent,
+      agentPrincipal: vi.fn().mockResolvedValue(principal),
+    });
+    const conversationId = '11111111-1111-4111-8111-111111111111';
+
+    await expect(caller.agent.deleteConversation({ conversationId })).resolves.toEqual({
+      deletedCount: 1,
+    });
+    await expect(caller.agent.clearConversations()).resolves.toEqual({ deletedCount: 3 });
+
+    expect(deleteConversation).toHaveBeenCalledWith(principal, conversationId);
+    expect(clearConversations).toHaveBeenCalledWith(principal);
   });
 
   it('returns the server-owned quick-action catalog and accepts only its identifier', async () => {
@@ -176,7 +245,10 @@ describe('appRouter', () => {
       listConversations: vi.fn(),
       createConversation: vi.fn(),
       getConversation: vi.fn(),
+      deleteConversation: vi.fn(),
+      clearConversations: vi.fn(),
       startRun,
+      cancelRun: vi.fn(),
       events: vi.fn(),
     } as AgentGateway;
     const caller = createCaller({

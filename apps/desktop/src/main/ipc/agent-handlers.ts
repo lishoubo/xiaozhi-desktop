@@ -1,7 +1,9 @@
 import { z } from 'zod';
 import type {
   AgentCapabilities,
+  CancelAgentRunResult,
   AgentConversation,
+  AgentConversationDeletionResult,
   AgentConversationSummary,
   AgentQuickAction,
   StartAgentRunResponse,
@@ -17,8 +19,10 @@ export interface AgentOrchestrator {
   listConversations(): Promise<AgentConversationSummary[]>;
   createConversation(title?: string): Promise<AgentConversationSummary>;
   getConversation(conversationId: string): Promise<AgentConversation>;
+  deleteConversation(conversationId: string): Promise<AgentConversationDeletionResult>;
+  clearConversations(): Promise<AgentConversationDeletionResult>;
   startRun(input: z.infer<typeof startAgentRunInputSchema>): Promise<StartAgentRunResponse>;
-  cancelRun(runId: string): void;
+  cancelRun(runId: string): Promise<CancelAgentRunResult>;
 }
 
 export function registerAgentHandlers({
@@ -51,6 +55,15 @@ export function registerAgentHandlers({
     z.tuple([agentConversationIdInputSchema.shape.conversationId]),
     'Agent 会话标识无效',
     (conversationId) => service.getConversation(conversationId),
+  );
+  registry.handle(
+    IPC_CHANNELS.agent.deleteConversation,
+    z.tuple([agentConversationIdInputSchema.shape.conversationId]),
+    'Agent 会话标识无效',
+    (conversationId) => service.deleteConversation(conversationId),
+  );
+  registry.handle(IPC_CHANNELS.agent.clearConversations, z.tuple([]), 'Agent 参数无效', () =>
+    service.clearConversations(),
   );
   registry.handle(
     IPC_CHANNELS.agent.startRun,

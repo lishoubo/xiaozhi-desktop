@@ -1,11 +1,13 @@
 /* eslint-disable import/no-unresolved -- ESLint's legacy resolver does not read this workspace package export. */
 import {
   agentCapabilitiesSchema,
+  agentConversationDeletionResultSchema,
   agentConversationIdInputSchema,
   agentConversationSchema,
   agentConversationSummarySchema,
   agentQuickActionSchema,
   agentRunEventSchema,
+  cancelAgentRunResultSchema,
   startAgentRunInputSchema,
   startAgentRunResponseSchema,
 } from '@hotel-butler/api/contracts';
@@ -14,10 +16,12 @@ import { z } from 'zod';
 
 export {
   agentCapabilitiesSchema,
+  agentConversationDeletionResultSchema,
   agentConversationIdInputSchema,
   agentConversationSchema,
   agentConversationSummarySchema,
   agentQuickActionSchema,
+  cancelAgentRunResultSchema,
   startAgentRunInputSchema,
   startAgentRunResponseSchema,
 };

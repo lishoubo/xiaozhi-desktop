@@ -18,6 +18,7 @@ import {
 	agentRunEvent
 } from '$lib/server/db/agent.schema';
 import type { StoredConversationContext } from './conversation-context';
+import { buildAgentExecutionTraces } from './agent-execution-trace';
 
 const toIso = (value: Date): string => value.toISOString();
 
@@ -99,12 +100,74 @@ export class AgentRepository {
 		return toConversationSummary(record);
 	}
 
+	async deleteConversation(
+		principal: AgentPrincipal,
+		conversationId: string
+	): Promise<{ deletedCount: number }> {
+		const deleted = await this.database
+			.delete(agentConversation)
+			.where(
+				and(
+					eq(agentConversation.id, conversationId),
+					eq(agentConversation.ownerEmployeeId, principal.employeeId)
+				)
+			)
+			.returning({ id: agentConversation.id });
+		if (deleted.length === 0) {
+			throw new AgentAccessDeniedError('Agent conversation was not found');
+		}
+		return { deletedCount: deleted.length };
+	}
+
+	async clearConversations(principal: AgentPrincipal): Promise<{ deletedCount: number }> {
+		const deleted = await this.database
+			.delete(agentConversation)
+			.where(eq(agentConversation.ownerEmployeeId, principal.employeeId))
+			.returning({ id: agentConversation.id });
+		return { deletedCount: deleted.length };
+	}
+
 	async getConversation(
 		principal: AgentPrincipal,
 		conversationId: string
 	): Promise<AgentConversation> {
 		const { conversation, messages } = await this.loadConversation(principal, conversationId);
-		return { conversation: toConversationSummary(conversation), messages: messages.map(toMessage) };
+		const [runs, events] = await Promise.all([
+			this.database
+				.select({
+					id: agentRun.id,
+					userMessageId: agentRun.userMessageId,
+					status: agentRun.status,
+					createdAt: agentRun.createdAt,
+					completedAt: agentRun.completedAt
+				})
+				.from(agentRun)
+				.where(
+					and(
+						eq(agentRun.conversationId, conversationId),
+						eq(agentRun.ownerEmployeeId, principal.employeeId)
+					)
+				)
+				.orderBy(asc(agentRun.createdAt), asc(agentRun.id)),
+			this.database
+				.select({ payload: agentRunEvent.payload })
+				.from(agentRunEvent)
+				.where(
+					and(
+						eq(agentRunEvent.conversationId, conversationId),
+						eq(agentRunEvent.ownerEmployeeId, principal.employeeId)
+					)
+				)
+				.orderBy(asc(agentRunEvent.sequence))
+		]);
+		return {
+			conversation: toConversationSummary(conversation),
+			messages: messages.map(toMessage),
+			executions: buildAgentExecutionTraces(
+				runs,
+				events.map((event) => event.payload)
+			)
+		};
 	}
 
 	async getConversationContext(
@@ -227,11 +290,12 @@ export class AgentRepository {
 		return rows[0];
 	}
 
-	async appendAssistantMessage(
+	async finalizeRunSuccess(
+		runId: string,
 		conversationId: string,
 		content: string,
 		ui: GenerativeUiSpec | null
-	): Promise<AgentMessage> {
+	): Promise<AgentMessage | null> {
 		const now = this.now();
 		const message: typeof agentMessage.$inferInsert = {
 			id: this.generateId(),
@@ -241,14 +305,20 @@ export class AgentRepository {
 			ui,
 			createdAt: now
 		};
-		await this.database.transaction(async (transaction) => {
+		return this.database.transaction(async (transaction) => {
+			const completed = await transaction
+				.update(agentRun)
+				.set({ status: 'completed', completedAt: now })
+				.where(and(eq(agentRun.id, runId), eq(agentRun.status, 'running')))
+				.returning({ id: agentRun.id });
+			if (completed.length === 0) return null;
 			await transaction.insert(agentMessage).values(message);
 			await transaction
 				.update(agentConversation)
 				.set({ updatedAt: now })
 				.where(eq(agentConversation.id, conversationId));
+			return toMessage(message);
 		});
-		return toMessage(message);
 	}
 
 	async appendEvent(event: AgentRunEvent, principal: AgentPrincipal): Promise<void> {
@@ -297,11 +367,54 @@ export class AgentRepository {
 		return rows.map((row) => row.payload);
 	}
 
-	async completeRun(runId: string, status: 'completed' | 'failed'): Promise<void> {
-		await this.database
+	async completeRun(runId: string, status: 'failed' | 'cancelled'): Promise<boolean> {
+		const completed = await this.database
 			.update(agentRun)
 			.set({ status, completedAt: this.now() })
-			.where(eq(agentRun.id, runId));
+			.where(and(eq(agentRun.id, runId), eq(agentRun.status, 'running')))
+			.returning({ id: agentRun.id });
+		return completed.length === 1;
+	}
+
+	async cancelRun(
+		principal: AgentPrincipal,
+		runId: string
+	): Promise<
+		Readonly<{
+			runId: string;
+			conversationId: string;
+			status: 'completed' | 'failed' | 'cancelled';
+			transitioned: boolean;
+		}>
+	> {
+		const cancelled = await this.database
+			.update(agentRun)
+			.set({ status: 'cancelled', completedAt: this.now() })
+			.where(
+				and(
+					eq(agentRun.id, runId),
+					eq(agentRun.ownerEmployeeId, principal.employeeId),
+					eq(agentRun.status, 'running')
+				)
+			)
+			.returning({ runId: agentRun.id, conversationId: agentRun.conversationId });
+		if (cancelled[0]) return { ...cancelled[0], status: 'cancelled', transitioned: true };
+
+		const rows = await this.database
+			.select({
+				runId: agentRun.id,
+				conversationId: agentRun.conversationId,
+				status: agentRun.status
+			})
+			.from(agentRun)
+			.where(and(eq(agentRun.id, runId), eq(agentRun.ownerEmployeeId, principal.employeeId)))
+			.limit(1);
+		const existing = rows[0];
+		if (!existing) throw new AgentAccessDeniedError('Agent run was not found');
+		if (existing.status === 'running') {
+			throw new Error('Agent run cancellation did not reach a terminal state');
+		}
+		return { ...existing, status: existing.status, transitioned: false };
 	}
 
 	async listMemories(principal: AgentPrincipal, limit = 20): Promise<readonly AgentMemoryRecord[]> {

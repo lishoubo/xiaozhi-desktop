@@ -106,9 +106,32 @@ export const agentMessageSchema = z.strictObject({
 });
 export type AgentMessage = Readonly<z.infer<typeof agentMessageSchema>>;
 
+export const agentExecutionStepSchema = z.strictObject({
+  toolCallId: z.string().min(1),
+  toolName: z.string().min(1),
+  status: z.enum(['running', 'completed']),
+  summary: z.string().max(500),
+});
+export type AgentExecutionStep = Readonly<z.infer<typeof agentExecutionStepSchema>>;
+
+export const agentRunStatusSchema = z.enum(['running', 'completed', 'failed', 'cancelled']);
+export type AgentRunStatus = z.infer<typeof agentRunStatusSchema>;
+
+export const agentExecutionTraceSchema = z.strictObject({
+  runId: idSchema,
+  userMessageId: idSchema,
+  assistantMessageId: idSchema.nullable(),
+  status: agentRunStatusSchema,
+  steps: z.array(agentExecutionStepSchema),
+  createdAt: isoDateSchema,
+  completedAt: isoDateSchema.nullable(),
+});
+export type AgentExecutionTrace = Readonly<z.infer<typeof agentExecutionTraceSchema>>;
+
 export const agentConversationSchema = z.strictObject({
   conversation: agentConversationSummarySchema,
   messages: z.array(agentMessageSchema),
+  executions: z.array(agentExecutionTraceSchema),
 });
 export type AgentConversation = Readonly<z.infer<typeof agentConversationSchema>>;
 
@@ -175,6 +198,7 @@ export const agentRunEventSchema = z.discriminatedUnion('type', [
     message: z.string().min(1).max(500),
     retryable: z.boolean(),
   }),
+  z.strictObject({ ...eventBase, type: z.literal('run_cancelled') }),
 ]);
 export type AgentRunEvent = Readonly<z.infer<typeof agentRunEventSchema>>;
 
@@ -182,6 +206,12 @@ export const createAgentConversationInputSchema = z.strictObject({
   title: z.string().trim().min(1).max(120).optional(),
 });
 export const agentConversationIdInputSchema = z.strictObject({ conversationId: idSchema });
+export const agentConversationDeletionResultSchema = z.strictObject({
+  deletedCount: z.number().int().nonnegative(),
+});
+export type AgentConversationDeletionResult = Readonly<
+  z.infer<typeof agentConversationDeletionResultSchema>
+>;
 const startAgentPromptRunInputSchema = z.strictObject({
   conversationId: idSchema,
   prompt: z.string().trim().min(1).max(20_000),
@@ -206,3 +236,9 @@ export const agentRunEventsInputSchema = z.strictObject({
   runId: idSchema,
   lastEventId: idSchema.nullish(),
 });
+export const agentRunIdInputSchema = z.strictObject({ runId: idSchema });
+export const cancelAgentRunResultSchema = z.strictObject({
+  runId: idSchema,
+  status: z.enum(['completed', 'failed', 'cancelled']),
+});
+export type CancelAgentRunResult = Readonly<z.infer<typeof cancelAgentRunResultSchema>>;

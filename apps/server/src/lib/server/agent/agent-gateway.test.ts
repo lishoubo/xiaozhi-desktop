@@ -27,13 +27,18 @@ function createGatewayHarness(
 		listConversations: vi.fn(),
 		createConversation: vi.fn(),
 		getConversation: vi.fn(),
+		deleteConversation: vi.fn(),
+		clearConversations: vi.fn(),
 		startRun: vi.fn(),
+		cancelRun: vi.fn(),
 		getRunContext: vi.fn(),
-		appendAssistantMessage: vi.fn(),
+		finalizeRunSuccess: vi.fn(),
 		appendEvent: vi.fn(),
 		listEvents,
 		completeRun: vi.fn()
 	};
+	const runtime = { run: vi.fn() };
+	const logger = { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() };
 	const gateway = new HotelAgentGateway(
 		{
 			apiKey: '',
@@ -43,16 +48,16 @@ function createGatewayHarness(
 			allowMcpWriteTools: false
 		},
 		repository,
-		{ run: vi.fn() },
+		runtime,
 		{ prepare: vi.fn().mockResolvedValue({ summary: null, history: [] }) },
 		{
 			serverCount: () => mcpCapabilities.length,
 			capabilities: () => new Set(mcpCapabilities)
 		},
 		{ list: vi.fn().mockResolvedValue([]) },
-		{ debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() }
+		logger
 	);
-	return { gateway, repository };
+	return { gateway, repository, runtime, logger };
 }
 
 function createGateway(listEvents: ListEvents) {
@@ -155,6 +160,178 @@ describe('HotelAgentGateway hotel quick actions', () => {
 				prompt: expect.stringContaining('公共天气 MCP')
 			})
 		);
+	});
+});
+
+describe('HotelAgentGateway cancellation', () => {
+	it('aborts an active owned run and publishes a cancelled terminal event', async () => {
+		const { gateway, repository, runtime } = createGatewayHarness(vi.fn(async () => []));
+		const principal = { employeeId: '1001', orgId: '42' } as const;
+		const runId = '33333333-3333-4333-8333-333333333333';
+		const conversationId = '44444444-4444-4444-8444-444444444444';
+		repository.startRun.mockResolvedValue({
+			created: true,
+			response: {
+				runId,
+				userMessage: {
+					id: '22222222-2222-4222-8222-222222222222',
+					conversationId,
+					role: 'user',
+					content: '继续分析',
+					ui: null,
+					createdAt: '2026-08-10T00:00:00.000Z'
+				}
+			}
+		});
+		repository.getRunContext.mockResolvedValue({
+			run: { id: runId, status: 'running' },
+			conversation: { id: conversationId }
+		});
+		repository.cancelRun.mockResolvedValue({
+			runId,
+			conversationId,
+			status: 'cancelled',
+			transitioned: true
+		});
+		runtime.run.mockImplementation(
+			({ signal }) =>
+				new Promise((_resolve, reject) => {
+					signal.addEventListener('abort', () => reject(signal.reason), { once: true });
+				})
+		);
+
+		await gateway.startRun(principal, {
+			conversationId,
+			prompt: '继续分析',
+			clientRequestId: '55555555-5555-4555-8555-555555555555'
+		});
+		await vi.waitFor(() => expect(runtime.run).toHaveBeenCalledOnce());
+
+		await expect(gateway.cancelRun(principal, runId)).resolves.toEqual({
+			runId,
+			status: 'cancelled'
+		});
+		expect(runtime.run.mock.calls[0]?.[0].signal.aborted).toBe(true);
+		expect(repository.appendEvent).toHaveBeenCalledWith(
+			expect.objectContaining({ type: 'run_cancelled', runId, conversationId }),
+			principal
+		);
+	});
+
+	it('reuses an existing terminal state without publishing another event', async () => {
+		const { gateway, repository } = createGatewayHarness(vi.fn(async () => []));
+		const principal = { employeeId: '1001', orgId: '42' } as const;
+		const runId = '33333333-3333-4333-8333-333333333333';
+		repository.cancelRun.mockResolvedValue({
+			runId,
+			conversationId: '44444444-4444-4444-8444-444444444444',
+			status: 'completed',
+			transitioned: false
+		});
+
+		await expect(gateway.cancelRun(principal, runId)).resolves.toEqual({
+			runId,
+			status: 'completed'
+		});
+		expect(repository.appendEvent).not.toHaveBeenCalled();
+	});
+
+	it('does not publish or persist a late result after cancellation wins', async () => {
+		const { gateway, repository, runtime, logger } = createGatewayHarness(vi.fn(async () => []));
+		const principal = { employeeId: '1001', orgId: '42' } as const;
+		const runId = '33333333-3333-4333-8333-333333333333';
+		const conversationId = '44444444-4444-4444-8444-444444444444';
+		let finishRuntime: ((value: { content: string; ui: null }) => void) | undefined;
+		repository.startRun.mockResolvedValue({
+			created: true,
+			response: {
+				runId,
+				userMessage: {
+					id: '22222222-2222-4222-8222-222222222222',
+					conversationId,
+					role: 'user',
+					content: '分析经营情况',
+					ui: null,
+					createdAt: '2026-08-10T00:00:00.000Z'
+				}
+			}
+		});
+		repository.getRunContext.mockResolvedValue({
+			run: { id: runId, status: 'running' },
+			conversation: { id: conversationId }
+		});
+		repository.cancelRun.mockResolvedValue({
+			runId,
+			conversationId,
+			status: 'cancelled',
+			transitioned: true
+		});
+		repository.finalizeRunSuccess.mockResolvedValue(null);
+		runtime.run.mockImplementation(
+			() =>
+				new Promise((resolve) => {
+					finishRuntime = resolve;
+				})
+		);
+
+		await gateway.startRun(principal, {
+			conversationId,
+			prompt: '分析经营情况',
+			clientRequestId: '55555555-5555-4555-8555-555555555555'
+		});
+		await vi.waitFor(() => expect(runtime.run).toHaveBeenCalledOnce());
+		await gateway.cancelRun(principal, runId);
+		finishRuntime?.({ content: '不应落库的迟到答案', ui: null });
+		await vi.waitFor(() =>
+			expect(logger.info).toHaveBeenCalledWith(
+				expect.objectContaining({ event: 'agent.run.execution.cancelled', runId }),
+				'Agent run execution stopped after cancellation'
+			)
+		);
+		expect(repository.finalizeRunSuccess).not.toHaveBeenCalled();
+
+		const publishedTypes = repository.appendEvent.mock.calls.map(([published]) => published.type);
+		expect(publishedTypes).toContain('run_cancelled');
+		expect(publishedTypes).not.toContain('run_completed');
+	});
+});
+
+describe('HotelAgentGateway observability', () => {
+	it('logs safe run acceptance metadata without prompt content', async () => {
+		const { gateway, repository, logger } = createGatewayHarness(vi.fn(async () => []));
+		repository.startRun.mockResolvedValue({
+			created: false,
+			response: {
+				runId: '33333333-3333-4333-8333-333333333333',
+				userMessage: {
+					id: '22222222-2222-4222-8222-222222222222',
+					conversationId: '44444444-4444-4444-8444-444444444444',
+					role: 'user',
+					content: '敏感经营问题',
+					ui: null,
+					createdAt: '2026-08-10T00:00:00.000Z'
+				}
+			}
+		});
+
+		await gateway.startRun(
+			{ employeeId: '1001', orgId: '42' },
+			{
+				conversationId: '44444444-4444-4444-8444-444444444444',
+				prompt: '敏感经营问题',
+				clientRequestId: '55555555-5555-4555-8555-555555555555'
+			}
+		);
+
+		expect(logger.info).toHaveBeenCalledWith(
+			expect.objectContaining({
+				event: 'agent.run.reused',
+				runId: '33333333-3333-4333-8333-333333333333',
+				requestKind: 'prompt'
+			}),
+			'Agent run reused'
+		);
+		expect(JSON.stringify(logger.info.mock.calls)).not.toContain('敏感经营问题');
 	});
 });
 

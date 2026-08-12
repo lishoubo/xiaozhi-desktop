@@ -57,7 +57,7 @@ export const agentRun = pgTable(
 		userMessageId: text('user_message_id')
 			.notNull()
 			.references(() => agentMessage.id, { onDelete: 'cascade' }),
-		status: text('status', { enum: ['running', 'completed', 'failed'] }).notNull(),
+		status: text('status', { enum: ['running', 'completed', 'failed', 'cancelled'] }).notNull(),
 		createdAt: timestamp('created_at', { withTimezone: true }).notNull(),
 		completedAt: timestamp('completed_at', { withTimezone: true })
 	},

@@ -65,6 +65,34 @@ describe('createDesktopApi', () => {
     expect(api).not.toHaveProperty('settings');
   });
 
+  it('maps Agent conversation deletion to fixed validated IPC channels', async () => {
+    const invoke = vi.fn(async (channel: string) => {
+      if (channel === IPC_CHANNELS.agent.deleteConversation) return { deletedCount: 1 };
+      if (channel === IPC_CHANNELS.agent.clearConversations) return { deletedCount: 4 };
+      return undefined;
+    });
+    const api = createDesktopApi({ chrome: '1', electron: '2', node: '3' }, invoke);
+    const conversationId = '11111111-1111-4111-8111-111111111111';
+
+    await expect(api.agent.deleteConversation(conversationId)).resolves.toEqual({
+      deletedCount: 1,
+    });
+    await expect(api.agent.clearConversations()).resolves.toEqual({ deletedCount: 4 });
+    expect(invoke.mock.calls).toEqual([
+      [IPC_CHANNELS.agent.deleteConversation, conversationId],
+      [IPC_CHANNELS.agent.clearConversations],
+    ]);
+  });
+
+  it('maps Agent run cancellation to its validated IPC channel', async () => {
+    const runId = '33333333-3333-4333-8333-333333333333';
+    const invoke = vi.fn(async () => ({ runId, status: 'cancelled' }));
+    const api = createDesktopApi({ chrome: '1', electron: '2', node: '3' }, invoke);
+
+    await expect(api.agent.cancelRun(runId)).resolves.toEqual({ runId, status: 'cancelled' });
+    expect(invoke).toHaveBeenCalledWith(IPC_CHANNELS.agent.cancelRun, runId);
+  });
+
   it('maps browser actions to fixed IPC channels', async () => {
     const tab = {
       id: 'tab-1',

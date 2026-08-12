@@ -1,9 +1,11 @@
 import type {
   AgentCapabilities,
   AgentConversation,
+  AgentConversationDeletionResult,
   AgentConversationSummary,
   AgentQuickAction,
   AgentRunEvent,
+  CancelAgentRunResult,
   StartAgentRunInput,
   StartAgentRunResponse,
 } from '@hotel-butler/api';
@@ -24,9 +26,14 @@ export interface AgentClient {
     getConversation: {
       query(input: { conversationId: string }): Promise<AgentConversation>;
     };
+    deleteConversation: {
+      mutate(input: { conversationId: string }): Promise<AgentConversationDeletionResult>;
+    };
+    clearConversations: { mutate(): Promise<AgentConversationDeletionResult> };
     startRun: {
       mutate(input: StartAgentRunInput): Promise<StartAgentRunResponse>;
     };
+    cancelRun: { mutate(input: { runId: string }): Promise<CancelAgentRunResult> };
     events: {
       subscribe(
         input: { runId: string; lastEventId: string | null },
@@ -57,28 +64,118 @@ export class AgentService {
     return this.client.agent.quickActions.query();
   }
 
-  listConversations(): Promise<AgentConversationSummary[]> {
-    return this.client.agent.listConversations.query();
+  async listConversations(): Promise<AgentConversationSummary[]> {
+    const startedAt = performance.now();
+    const conversations = await this.client.agent.listConversations.query();
+    this.logger.info('Agent conversations loaded', {
+      event: 'agent.client.conversations.loaded',
+      conversationCount: conversations.length,
+      durationMs: Math.max(0, Math.round(performance.now() - startedAt)),
+    });
+    return conversations;
   }
 
-  createConversation(title?: string): Promise<AgentConversationSummary> {
-    return this.client.agent.createConversation.mutate({ title });
+  async createConversation(title?: string): Promise<AgentConversationSummary> {
+    const conversation = await this.client.agent.createConversation.mutate({ title });
+    this.logger.info('Agent conversation created', {
+      event: 'agent.client.conversation.created',
+      conversationId: conversation.id,
+    });
+    return conversation;
   }
 
-  getConversation(conversationId: string): Promise<AgentConversation> {
-    return this.client.agent.getConversation.query({ conversationId });
+  async getConversation(conversationId: string): Promise<AgentConversation> {
+    const startedAt = performance.now();
+    const conversation = await this.client.agent.getConversation.query({ conversationId });
+    this.logger.info('Agent conversation opened', {
+      event: 'agent.client.conversation.opened',
+      conversationId,
+      messageCount: conversation.messages.length,
+      executionCount: conversation.executions.length,
+      durationMs: Math.max(0, Math.round(performance.now() - startedAt)),
+    });
+    return conversation;
+  }
+
+  async deleteConversation(conversationId: string): Promise<AgentConversationDeletionResult> {
+    const startedAt = performance.now();
+    const result = await this.client.agent.deleteConversation.mutate({ conversationId });
+    this.logger.info('Agent conversation deleted', {
+      event: 'agent.client.conversation.deleted',
+      conversationId,
+      deletedCount: result.deletedCount,
+      durationMs: Math.max(0, Math.round(performance.now() - startedAt)),
+    });
+    return result;
+  }
+
+  async clearConversations(): Promise<AgentConversationDeletionResult> {
+    const startedAt = performance.now();
+    const result = await this.client.agent.clearConversations.mutate();
+    this.logger.info('Agent conversations cleared', {
+      event: 'agent.client.conversations.cleared',
+      deletedCount: result.deletedCount,
+      durationMs: Math.max(0, Math.round(performance.now() - startedAt)),
+    });
+    return result;
   }
 
   async startRun(input: StartAgentRunInput): Promise<StartAgentRunResponse> {
-    const started = await this.client.agent.startRun.mutate(input);
+    const startedAt = performance.now();
+    let started: StartAgentRunResponse;
+    try {
+      started = await this.client.agent.startRun.mutate(input);
+    } catch (error) {
+      this.logger.error('Agent run could not be started', {
+        event: 'agent.client.run.start_failed',
+        conversationId: input.conversationId,
+        requestKind: 'prompt' in input ? 'prompt' : 'quick_action',
+        durationMs: Math.max(0, Math.round(performance.now() - startedAt)),
+        errorName: error instanceof Error ? error.name : 'UnknownError',
+      });
+      throw error;
+    }
+    this.logger.info('Agent run started', {
+      event: 'agent.client.run.started',
+      runId: started.runId,
+      conversationId: input.conversationId,
+      requestKind: 'prompt' in input ? 'prompt' : 'quick_action',
+      durationMs: Math.max(0, Math.round(performance.now() - startedAt)),
+    });
     this.subscriptions.get(started.runId)?.unsubscribe();
     const subscription = this.client.agent.events.subscribe(
       { runId: started.runId, lastEventId: null },
       {
-        onData: (trackedEvent) => this.notify({ kind: 'event', event: trackedEvent.data }),
+        onData: (trackedEvent) => {
+          const event = trackedEvent.data;
+          if (event.type === 'tool_started' || event.type === 'tool_completed') {
+            this.logger.info('Agent client tool state changed', {
+              event: `agent.client.${event.type}`,
+              runId: event.runId,
+              conversationId: event.conversationId,
+              toolCallId: event.toolCallId,
+              toolName: event.toolName,
+            });
+          } else if (
+            event.type === 'run_completed' ||
+            event.type === 'run_failed' ||
+            event.type === 'run_cancelled'
+          ) {
+            this.logger.info('Agent client run reached terminal state', {
+              event: `agent.client.${event.type}`,
+              runId: event.runId,
+              conversationId: event.conversationId,
+              durationMs: Math.max(0, Math.round(performance.now() - startedAt)),
+            });
+          }
+          this.notify({ kind: 'event', event });
+        },
         onError: (error) => {
           this.logger.warn('Agent event subscription failed', {
+            event: 'agent.client.events.failed',
             runId: started.runId,
+            conversationId: input.conversationId,
+            durationMs: Math.max(0, Math.round(performance.now() - startedAt)),
             errorName: error.name,
           });
           this.notify({
@@ -92,12 +189,36 @@ export class AgentService {
       },
     );
     this.subscriptions.set(started.runId, subscription);
+    this.logger.info('Agent event subscription connected', {
+      event: 'agent.client.events.connected',
+      runId: started.runId,
+      conversationId: input.conversationId,
+    });
     return started;
   }
 
-  cancelRun(runId: string): void {
-    this.subscriptions.get(runId)?.unsubscribe();
-    this.subscriptions.delete(runId);
+  async cancelRun(runId: string): Promise<CancelAgentRunResult> {
+    const startedAt = performance.now();
+    try {
+      const result = await this.client.agent.cancelRun.mutate({ runId });
+      this.subscriptions.get(runId)?.unsubscribe();
+      this.subscriptions.delete(runId);
+      this.logger.info('Agent run cancellation acknowledged', {
+        event: 'agent.client.run.cancelled',
+        runId,
+        status: result.status,
+        durationMs: Math.max(0, Math.round(performance.now() - startedAt)),
+      });
+      return result;
+    } catch (error) {
+      this.logger.error('Agent run cancellation failed', {
+        event: 'agent.client.run.cancel_failed',
+        runId,
+        durationMs: Math.max(0, Math.round(performance.now() - startedAt)),
+        errorName: error instanceof Error ? error.name : 'UnknownError',
+      });
+      throw error;
+    }
   }
 
   dispose(): void {

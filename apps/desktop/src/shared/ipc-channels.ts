@@ -5,6 +5,8 @@ export const IPC_CHANNELS = {
     listConversations: 'agent:list-conversations',
     createConversation: 'agent:create-conversation',
     getConversation: 'agent:get-conversation',
+    deleteConversation: 'agent:delete-conversation',
+    clearConversations: 'agent:clear-conversations',
     startRun: 'agent:start-run',
     cancelRun: 'agent:cancel-run',
     streamEvent: 'agent:stream-event',

@@ -47,7 +47,8 @@ message-stream and tool-call behavior SHALL remain in an adapter implementation.
 
 ### Requirement: Authenticated single-Agent execution
 
-The server SHALL run one Kimi-backed hotel Agent per run and SHALL NOT delegate to sub-Agents.
+The server SHALL run one Kimi-backed hotel Agent per run, SHALL NOT delegate to sub-Agents and SHALL
+allow an authenticated employee to cancel an owned active run.
 
 #### Scenario: Start a run
 
@@ -55,10 +56,26 @@ The server SHALL run one Kimi-backed hotel Agent per run and SHALL NOT delegate 
 - **THEN** the server persists the user message and run before model execution
 - **AND** returns an idempotent run ID keyed by employee and client request ID
 
+#### Scenario: Cancel an active run
+
+- **WHEN** an employee stops an owned active run
+- **THEN** the server aborts model and tool execution and persists `cancelled` as the terminal status
+- **AND** the run cannot subsequently persist an assistant answer or become completed
+
+#### Scenario: Cancel another employee's run
+
+- **WHEN** an employee requests cancellation of a run they do not own
+- **THEN** the server returns no resource data and does not affect that run
+
+#### Scenario: Repeat cancellation
+
+- **WHEN** cancellation is requested for an already terminal owned run
+- **THEN** the server returns its existing terminal status without publishing a duplicate event
+
 ### Requirement: Explicit conversation selection
 
-The desktop SHALL start on a new-conversation state and SHALL allow the employee to select an
-owned historical conversation to continue.
+The desktop SHALL start on a new-conversation state and SHALL allow the employee to select,
+continue, delete one or clear all owned historical conversations.
 
 #### Scenario: Start a new conversation
 
@@ -73,6 +90,24 @@ owned historical conversation to continue.
 - **AND** a later run sends the conversation ID and new request rather than trusting a
   client-supplied history
 
+#### Scenario: Delete one historical conversation
+
+- **WHEN** an employee confirms deletion of an owned conversation
+- **THEN** the conversation, messages, runs and run events are deleted
+- **AND** employee-scoped long-term memory remains unchanged
+
+#### Scenario: Delete the active conversation
+
+- **WHEN** an employee deletes the active completed conversation
+- **THEN** the desktop returns to the new-conversation state
+- **AND** deletion controls are disabled while a run is active
+
+#### Scenario: Clear conversation history
+
+- **WHEN** an employee confirms clearing all conversation history
+- **THEN** every conversation owned by that employee and its dependent records are deleted
+- **AND** no other employee's conversation or memory is affected
+
 ### Requirement: Session-derived ownership
 
 Agent ownership SHALL be derived from the authenticated phone cookie or validated staff Bearer session and SHALL NOT be accepted from client input.
@@ -82,6 +117,11 @@ Agent ownership SHALL be derived from the authenticated phone cookie or validate
 - **WHEN** an employee requests a conversation, run, event stream or memory not owned by that employee
 - **THEN** the server returns no resource data
 - **AND** persistence queries retain the authenticated employee owner predicate
+
+#### Scenario: Delete another employee's conversation
+
+- **WHEN** an employee requests deletion of a conversation they do not own
+- **THEN** the server returns no resource data and does not delete the conversation
 
 ### Requirement: Server-owned conversation context
 
@@ -94,6 +134,13 @@ The client SHALL NOT be authoritative for historical context.
 - **THEN** the server loads ordered messages and the stored summary cursor under the employee
   ownership predicate
 - **AND** passes the prepared summary and recent history through the runtime port
+
+#### Scenario: Continue after cancellation
+
+- **WHEN** an employee submits new text such as `继续` after cancellation
+- **THEN** the server creates a distinct Run under the same conversation
+- **AND** prepares it from persisted context without restoring the cancelled Run's hidden state,
+  partial draft or tool stack
 
 ### Requirement: Incremental context compression
 
@@ -128,7 +175,9 @@ messages, and bound a generated summary to 4,096 tokens. Unknown models SHALL us
 
 ### Requirement: Recoverable streaming
 
-Agent progress SHALL be delivered through a tRPC v11 SSE subscription using tracked event IDs.
+Agent progress and cancellation SHALL be delivered through a tRPC v11 SSE subscription using
+tracked event IDs. Persisted lifecycle events SHALL also project to an SDK-neutral execution trace
+returned with the owned conversation.
 
 #### Scenario: Reconnect a run
 
@@ -140,6 +189,18 @@ Agent progress SHALL be delivered through a tRPC v11 SSE subscription using trac
 
 - **WHEN** runtime emits text, tool lifecycle or generative-UI output
 - **THEN** the gateway persists the normalized event before notifying live SSE subscribers
+
+#### Scenario: Reopen a completed conversation
+
+- **WHEN** an employee reopens an owned historical conversation
+- **THEN** tool steps are reconstructed from persisted run events
+- **AND** the corresponding answer retains an accessible, toggleable execution-flow control
+
+#### Scenario: Observe cancellation
+
+- **WHEN** a run is cancelled
+- **THEN** a replayable `run_cancelled` terminal event is persisted and delivered
+- **AND** reopening the conversation presents the run as cancelled rather than failed
 
 ### Requirement: Persistent conversations and memory
 
@@ -188,6 +249,23 @@ The model SHALL generate UI only through the server-side `render_hotel_ui` tool 
 - **THEN** the server validates component names, references, size and link protocols
 - **AND** rejects arbitrary code or unregistered components
 
+### Requirement: Safe Markdown presentation
+
+The desktop SHALL render ordinary assistant text as Markdown after sanitizing executable and
+interactive markup. User messages SHALL remain plain text and generative UI SHALL retain its
+separate constrained renderer.
+
+#### Scenario: Render a structured assistant answer
+
+- **WHEN** an ordinary assistant answer contains headings, lists, tables, links or code
+- **THEN** the desktop presents their Markdown structure within the conversation hierarchy
+
+#### Scenario: Reject dangerous assistant markup
+
+- **WHEN** assistant text contains scripts, event attributes, unsafe URLs or form controls
+- **THEN** the desktop removes those constructs before inserting the rendered result into the DOM
+
+
 ### Requirement: Secret and untrusted-data isolation
 
 Kimi keys, MCP credentials and authorization values SHALL remain server-side. Prompts, summaries,
@@ -198,3 +276,9 @@ memories and MCP results SHALL be treated as untrusted data and SHALL NOT overri
 - **WHEN** user text, a stored memory, a summary or MCP output asks to reveal credentials, change
   system rules or bypass tool restrictions
 - **THEN** the Agent ignores that instruction and retains the server-defined policy
+
+#### Scenario: Log Agent execution
+
+- **WHEN** a run is accepted, prepares context, invokes a tool, completes or fails
+- **THEN** client/server structured logs identify safe lifecycle facts, duration and failure class
+- **AND** omit prompts, answers, memories, tool arguments/results and credentials

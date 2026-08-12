@@ -1,7 +1,7 @@
 <script lang="ts">
   import type {
-    AgentCapabilities,
     AgentConversationSummary,
+    AgentExecutionTrace,
     AgentMessage,
     AgentQuickAction,
     AgentQuickActionId,
@@ -9,8 +9,6 @@
     GenerativeUiSpec,
   } from '@hotel-butler/api';
   import ArrowUp from '@lucide/svelte/icons/arrow-up';
-  import Bot from '@lucide/svelte/icons/bot';
-  import Check from '@lucide/svelte/icons/check';
   import CloudSun from '@lucide/svelte/icons/cloud-sun';
   import Hotel from '@lucide/svelte/icons/hotel';
   import LoaderCircle from '@lucide/svelte/icons/loader-circle';
@@ -18,22 +16,24 @@
   import Square from '@lucide/svelte/icons/square';
   import Sun from '@lucide/svelte/icons/sun';
   import TriangleAlert from '@lucide/svelte/icons/triangle-alert';
+  import Trash2 from '@lucide/svelte/icons/trash-2';
   import Wind from '@lucide/svelte/icons/wind';
-  import Wrench from '@lucide/svelte/icons/wrench';
+  import { autoAnimate } from '@formkit/auto-animate';
   import { onMount } from 'svelte';
   import { SvelteMap } from 'svelte/reactivity';
   import AgentAvatar from '../components/agent/AgentAvatar.svelte';
+  import AgentExecutionTimeline from '../components/agent/AgentExecutionTimeline.svelte';
+  import AgentMarkdown from '../components/agent/AgentMarkdown.svelte';
   import HotelGenerativeUi from '../components/agent/HotelGenerativeUi.svelte';
-  import { PAGE_ENTER_OPTIONS, enter } from '../motion';
+  import {
+    LAYOUT_ANIMATION_OPTIONS,
+    PAGE_ENTER_OPTIONS,
+    SURFACE_TRANSITION_OPTIONS,
+    enter,
+  } from '../motion';
   import { Button } from '$lib/components/ui/button';
+  import * as AlertDialog from '$lib/components/ui/alert-dialog';
   import { Textarea } from '$lib/components/ui/textarea';
-
-  type ToolStep = {
-    id: string;
-    name: string;
-    status: 'running' | 'completed';
-    summary: string;
-  };
 
   const quickActionPresentation: Record<AgentQuickActionId, { icon: typeof Sun; tone: string }> = {
     today_weather: { icon: Sun, tone: 'bg-[#fef7d6] text-[#793400]' },
@@ -47,14 +47,17 @@
   let quickActions = $state.raw<AgentQuickAction[]>([]);
   let activeConversationId = $state<string | null>(null);
   let messages = $state.raw<AgentMessage[]>([]);
-  let capabilities = $state<AgentCapabilities | null>(null);
+  let executions = $state.raw<AgentExecutionTrace[]>([]);
   let activeRunId = $state<string | null>(null);
   let draftContent = $state('');
   let draftUi = $state.raw<GenerativeUiSpec | null>(null);
-  let toolSteps = $state.raw<ToolStep[]>([]);
   let loading = $state(true);
   let sending = $state(false);
+  let stopping = $state(false);
   let errorMessage = $state('');
+  let deleteTarget = $state.raw<AgentConversationSummary | null>(null);
+  let clearHistoryOpen = $state(false);
+  let deleting = $state(false);
   let composer = $state<HTMLTextAreaElement | null>(null);
   const pendingRunEvents = new SvelteMap<string, AgentRunEvent[]>();
 
@@ -63,6 +66,11 @@
   );
   const quickActionCards = $derived(
     quickActions.map((action) => ({ ...action, ...quickActionPresentation[action.id] })),
+  );
+  const standaloneExecutions = $derived(
+    executions.filter(
+      (execution) => execution.assistantMessageId === null && execution.status !== 'running',
+    ),
   );
 
   onMount(() => {
@@ -78,12 +86,10 @@
     loading = true;
     errorMessage = '';
     try {
-      const [nextCapabilities, nextQuickActions, nextConversations] = await Promise.all([
-        window.hotelButler.agent.capabilities(),
+      const [nextQuickActions, nextConversations] = await Promise.all([
         window.hotelButler.agent.quickActions(),
         window.hotelButler.agent.listConversations(),
       ]);
-      capabilities = nextCapabilities;
       quickActions = nextQuickActions;
       conversations = nextConversations;
     } catch {
@@ -97,37 +103,101 @@
     conversations = await window.hotelButler.agent.listConversations();
   }
 
-  function startNewConversation(): void {
-    cancelActiveRun();
+  async function startNewConversation(): Promise<void> {
+    if (!(await cancelActiveRun())) return;
+    resetConversationState();
+    composer?.focus();
+  }
+
+  function resetConversationState(): void {
     errorMessage = '';
     activeConversationId = null;
     messages = [];
+    executions = [];
     draftContent = '';
     draftUi = null;
-    toolSteps = [];
-    composer?.focus();
+  }
+
+  async function confirmDeleteConversation(): Promise<void> {
+    const target = deleteTarget;
+    if (!target || deleting || sending) return;
+    deleting = true;
+    errorMessage = '';
+    try {
+      await window.hotelButler.agent.deleteConversation(target.id);
+      conversations = conversations.filter((conversation) => conversation.id !== target.id);
+      if (activeConversationId === target.id) resetConversationState();
+      deleteTarget = null;
+    } catch {
+      errorMessage = '删除会话失败，请稍后重试。';
+    } finally {
+      deleting = false;
+    }
+  }
+
+  async function confirmClearConversations(): Promise<void> {
+    if (deleting || sending) return;
+    deleting = true;
+    errorMessage = '';
+    try {
+      await window.hotelButler.agent.clearConversations();
+      conversations = [];
+      resetConversationState();
+      clearHistoryOpen = false;
+    } catch {
+      errorMessage = '清空历史会话失败，请稍后重试。';
+    } finally {
+      deleting = false;
+    }
   }
 
   async function openConversation(conversationId: string): Promise<void> {
     if (conversationId === activeConversationId && messages.length > 0) return;
-    cancelActiveRun();
+    if (!(await cancelActiveRun())) return;
     errorMessage = '';
     try {
       const conversation = await window.hotelButler.agent.getConversation(conversationId);
       activeConversationId = conversationId;
       messages = conversation.messages;
+      executions = conversation.executions;
       draftContent = '';
       draftUi = null;
-      toolSteps = [];
     } catch {
       errorMessage = '无法读取该会话，或它不属于当前登录用户。';
     }
   }
 
-  function cancelActiveRun(): void {
-    if (activeRunId) void window.hotelButler.agent.cancelRun(activeRunId);
-    activeRunId = null;
-    sending = false;
+  async function cancelActiveRun(): Promise<boolean> {
+    const runId = activeRunId;
+    if (!runId) return true;
+    if (stopping) return false;
+    stopping = true;
+    errorMessage = '';
+    try {
+      const result = await window.hotelButler.agent.cancelRun(runId);
+      updateExecution(runId, (execution) => ({
+        ...execution,
+        status: result.status,
+        completedAt: new Date().toISOString(),
+      }));
+      const conversationId = activeConversationId;
+      if (conversationId) {
+        const conversation = await window.hotelButler.agent.getConversation(conversationId);
+        messages = conversation.messages;
+        executions = conversation.executions;
+      }
+      draftContent = '';
+      draftUi = null;
+      activeRunId = null;
+      sending = false;
+      composer?.focus();
+      return true;
+    } catch {
+      errorMessage = '停止当前执行失败，任务仍在继续，请稍后重试。';
+      return false;
+    } finally {
+      stopping = false;
+    }
   }
 
   async function submitPrompt(): Promise<void> {
@@ -150,7 +220,6 @@
     sending = true;
     draftContent = '';
     draftUi = null;
-    toolSteps = [];
 
     try {
       let conversationId = activeConversationId;
@@ -167,6 +236,18 @@
       });
       activeRunId = started.runId;
       messages = [...messages, started.userMessage];
+      executions = [
+        ...executions,
+        {
+          runId: started.runId,
+          userMessageId: started.userMessage.id,
+          assistantMessageId: null,
+          status: 'running',
+          steps: [],
+          createdAt: new Date().toISOString(),
+          completedAt: null,
+        },
+      ];
       for (const event of pendingRunEvents.get(started.runId) ?? []) handleRunEvent(event);
       pendingRunEvents.delete(started.runId);
       await refreshConversations();
@@ -186,6 +267,11 @@
     if (envelope.kind === 'transport_error') {
       if (envelope.runId !== activeRunId) return;
       errorMessage = envelope.message;
+      updateExecution(envelope.runId, (execution) => ({
+        ...execution,
+        status: 'failed',
+        completedAt: new Date().toISOString(),
+      }));
       sending = false;
       activeRunId = null;
       return;
@@ -205,18 +291,39 @@
       return;
     }
     if (event.type === 'tool_started') {
-      toolSteps = [
-        ...toolSteps.filter((step) => step.id !== event.toolCallId),
-        { id: event.toolCallId, name: event.toolName, status: 'running', summary: '' },
-      ];
+      updateExecution(event.runId, (execution) => ({
+        ...execution,
+        steps: [
+          ...execution.steps.filter((step) => step.toolCallId !== event.toolCallId),
+          {
+            toolCallId: event.toolCallId,
+            toolName: event.toolName,
+            status: 'running',
+            summary: '',
+          },
+        ],
+      }));
       return;
     }
     if (event.type === 'tool_completed') {
-      toolSteps = toolSteps.map((step) =>
-        step.id === event.toolCallId
-          ? { ...step, status: 'completed', summary: event.summary }
-          : step,
-      );
+      updateExecution(event.runId, (execution) => ({
+        ...execution,
+        steps: execution.steps.some((step) => step.toolCallId === event.toolCallId)
+          ? execution.steps.map((step) =>
+              step.toolCallId === event.toolCallId
+                ? { ...step, status: 'completed', summary: event.summary }
+                : step,
+            )
+          : [
+              ...execution.steps,
+              {
+                toolCallId: event.toolCallId,
+                toolName: event.toolName,
+                status: 'completed',
+                summary: event.summary,
+              },
+            ],
+      }));
       return;
     }
     if (event.type === 'ui_spec') {
@@ -224,6 +331,12 @@
       return;
     }
     if (event.type === 'run_completed') {
+      updateExecution(event.runId, (execution) => ({
+        ...execution,
+        assistantMessageId: event.message.id,
+        status: 'completed',
+        completedAt: event.createdAt,
+      }));
       if (!messages.some((message) => message.id === event.message.id)) {
         messages = [...messages, event.message];
       }
@@ -235,10 +348,44 @@
       return;
     }
     if (event.type === 'run_failed') {
+      updateExecution(event.runId, (execution) => ({
+        ...execution,
+        status: 'failed',
+        completedAt: event.createdAt,
+      }));
       errorMessage = event.message;
       sending = false;
       activeRunId = null;
+      return;
     }
+    if (event.type === 'run_cancelled') {
+      updateExecution(event.runId, (execution) => ({
+        ...execution,
+        status: 'cancelled',
+        completedAt: event.createdAt,
+      }));
+      draftContent = '';
+      draftUi = null;
+      sending = false;
+      activeRunId = null;
+    }
+  }
+
+  function updateExecution(
+    runId: string,
+    update: (execution: AgentExecutionTrace) => AgentExecutionTrace,
+  ): void {
+    executions = executions.map((execution) =>
+      execution.runId === runId ? update(execution) : execution,
+    );
+  }
+
+  function executionForMessage(messageId: string): AgentExecutionTrace | null {
+    return executions.find((execution) => execution.assistantMessageId === messageId) ?? null;
+  }
+
+  function activeExecution(): AgentExecutionTrace | null {
+    return executions.find((execution) => execution.runId === activeRunId) ?? null;
   }
 
   function handleComposerKeydown(event: KeyboardEvent): void {
@@ -250,66 +397,91 @@
 </script>
 
 <div
-  class="grid h-full min-h-0 grid-cols-[220px_minmax(0,1fr)] bg-background"
+  class="grid h-full min-h-0 grid-cols-[196px_minmax(0,1fr)] bg-background"
   data-motion="page"
   in:enter={PAGE_ENTER_OPTIONS}
 >
-  <aside class="flex min-h-0 flex-col border-r border-border bg-background px-3 py-4">
+  <aside class="flex min-h-0 flex-col border-r border-border/70 bg-muted/35 px-2.5 py-3">
     <Button
-      class="w-full justify-start"
+      class="w-full justify-start rounded-lg text-xs shadow-sm transition-[background-color,border-color,box-shadow] duration-200 ease-out"
       variant={activeConversationId === null ? 'default' : 'outline'}
+      aria-label="开始新会话"
       aria-pressed={activeConversationId === null}
-      onclick={startNewConversation}
+      onclick={() => void startNewConversation()}
     >
       <Plus size={16} />
-      开始新会话
+      新会话
     </Button>
 
-    <div class="mt-6 min-h-0 flex-1 overflow-y-auto">
-      <p class="px-2 text-xs font-medium text-muted-foreground">继续历史会话</p>
+    <div
+      class="mt-5 min-h-0 flex-1 overflow-y-auto pr-0.5"
+      use:autoAnimate={LAYOUT_ANIMATION_OPTIONS}
+    >
+      <div class="flex items-center justify-between px-2">
+        <p class="m-0 text-[10px] font-semibold tracking-[0.08em] text-muted-foreground/70">
+          历史会话
+        </p>
+        {#if conversations.length > 0}
+          <button
+            class="rounded px-1 py-0.5 text-[10px] text-muted-foreground transition-colors hover:text-destructive focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+            type="button"
+            disabled={sending || deleting}
+            onclick={() => (clearHistoryOpen = true)}>清空</button
+          >
+        {/if}
+      </div>
       {#if conversations.length === 0 && !loading}
         <p class="px-2 py-3 text-xs leading-5 text-muted-foreground">暂无历史会话</p>
       {/if}
       {#each conversations as conversation (conversation.id)}
-        <button
+        <div
           class={[
-            'mt-1 w-full rounded-md px-3 py-2.5 text-left text-sm transition-colors duration-150 ease-out',
+            'group/history relative mt-0.5 rounded-lg border transition-[background-color,border-color,box-shadow,color,transform] duration-200 ease-out motion-reduce:transform-none',
             conversation.id === activeConversationId
-              ? 'bg-accent font-medium text-accent-foreground'
-              : 'text-muted-foreground hover:bg-muted hover:text-foreground',
+              ? 'border-border/70 bg-background text-foreground shadow-sm'
+              : 'border-transparent text-muted-foreground hover:translate-x-0.5 hover:bg-background/70 hover:text-foreground',
           ]}
-          type="button"
-          aria-pressed={conversation.id === activeConversationId}
-          onclick={() => void openConversation(conversation.id)}
         >
-          <span class="line-clamp-2">{conversation.title}</span>
-        </button>
+          {#if conversation.id === activeConversationId}
+            <span class="absolute top-2 bottom-2 left-0 w-0.5 rounded-full bg-primary"></span>
+          {/if}
+          <button
+            class="w-full rounded-lg py-1.5 pr-8 pl-2.5 text-left focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
+            type="button"
+            aria-pressed={conversation.id === activeConversationId}
+            onclick={() => void openConversation(conversation.id)}
+          >
+            <span class="line-clamp-2 text-[11px] leading-[18px] font-medium"
+              >{conversation.title}</span
+            >
+          </button>
+          <button
+            class="absolute top-1/2 right-1.5 grid size-6 -translate-y-1/2 place-items-center rounded-md text-muted-foreground opacity-0 transition-[color,background-color,opacity] hover:bg-destructive/10 hover:text-destructive focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none group-hover/history:opacity-100 group-focus-within/history:opacity-100"
+            type="button"
+            aria-label={`删除会话：${conversation.title}`}
+            disabled={sending || deleting}
+            onclick={() => (deleteTarget = conversation)}
+          >
+            <Trash2 size={13} />
+          </button>
+        </div>
       {/each}
     </div>
-
-    {#if capabilities}
-      <div
-        class="rounded-lg border border-border bg-secondary/40 p-3 text-[11px] leading-5 text-muted-foreground"
-      >
-        <p class="m-0 font-medium text-foreground">{capabilities.model}</p>
-        <p class="m-0">
-          快捷操作 {capabilities.quickActionCount} · MCP {capabilities.mcpServerCount} · Skill
-          {capabilities.skillCount}
-        </p>
-        <p class="m-0">会话持久化 · 长期记忆</p>
-      </div>
-    {/if}
   </aside>
 
   <main class="flex min-h-0 min-w-0 flex-col">
-    <header class="flex h-[68px] shrink-0 items-center justify-between border-b border-border px-6">
+    <header
+      class="flex h-[64px] shrink-0 items-center justify-between border-b border-border/70 bg-background px-6"
+    >
       <div class="group/agent flex items-center gap-3">
         <AgentAvatar online />
         <div>
-          <h1 class="m-0 text-sm font-semibold">小智 AI 管家</h1>
-          <p class="m-0 mt-0.5 text-xs text-muted-foreground">
-            {activeConversation?.title ?? '酒店运营 Agent'}
+          <p class="m-0 text-[10px] font-medium tracking-[0.08em] text-muted-foreground">
+            小智 AI 管家
           </p>
+          <h1 class="m-0 mt-0.5 max-w-xl truncate text-sm font-semibold">
+            {activeConversation?.title ?? '新会话'}
+          </h1>
         </div>
       </div>
       {#if sending}
@@ -320,11 +492,14 @@
     </header>
 
     <section
-      class="min-h-0 flex-1 overflow-y-auto bg-[#fafaf9]"
+      class="min-h-0 flex-1 overflow-y-auto bg-muted/20"
       aria-label="对话内容"
       aria-live="polite"
     >
-      <div class="mx-auto w-full max-w-3xl px-7 py-8">
+      <div
+        class="mx-auto w-full max-w-3xl px-7 py-8"
+        use:autoAnimate={{ ...LAYOUT_ANIMATION_OPTIONS, duration: 260 }}
+      >
         {#if loading}
           <div class="flex items-center justify-center gap-2 py-20 text-sm text-muted-foreground">
             <LoaderCircle class="animate-spin" size={18} />正在读取会话
@@ -334,13 +509,12 @@
             class="mx-auto flex max-w-2xl flex-col items-center pt-[clamp(40px,8vh,80px)] text-center"
           >
             <AgentAvatar size="lg" online motion="float" />
-            <p class="mt-5 mb-0 text-sm font-medium text-accent-foreground">你好，我是小智</p>
-            <h2 class="mt-2 mb-0 text-2xl font-semibold tracking-[-0.02em]">今天想先处理什么？</h2>
-            <div class="mt-7 grid w-full grid-cols-2 gap-3 lg:grid-cols-3">
+            <h2 class="mt-5 mb-0 text-2xl font-semibold tracking-[-0.02em]">今天想处理什么？</h2>
+            <div class="mt-7 grid w-full grid-cols-2 gap-2.5 lg:grid-cols-3">
               {#each quickActionCards.slice(0, 6) as action (action.id)}
                 <button
                   class={[
-                    'group rounded-xl border border-border bg-card p-4 text-left transition-[background-color,border-color,box-shadow,transform] duration-150 ease-out focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none motion-reduce:transform-none',
+                    'group rounded-xl border border-border/80 bg-card px-3.5 py-3 text-left transition-[background-color,border-color,box-shadow,transform] duration-200 ease-out focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none motion-reduce:transform-none',
                     action.available
                       ? 'hover:-translate-y-0.5 hover:border-input hover:shadow-md'
                       : 'cursor-not-allowed opacity-60',
@@ -349,13 +523,10 @@
                   disabled={!action.available || sending}
                   onclick={() => void executeQuickAction(action)}
                 >
-                  <span class={['mb-4 grid size-9 place-items-center rounded-lg', action.tone]}>
+                  <span class={['mb-3 grid size-8 place-items-center rounded-lg', action.tone]}>
                     <action.icon size={17} />
                   </span>
-                  <span class="block text-sm font-medium">{action.label}</span>
-                  <span class="mt-1.5 block text-xs leading-5 text-muted-foreground"
-                    >{action.description}</span
-                  >
+                  <span class="block text-xs font-medium">{action.label}</span>
                   {#if !action.available}
                     <span class="mt-2 block text-[11px] font-medium text-amber-700"
                       >需配置酒店 MCP</span
@@ -368,18 +539,19 @@
         {/if}
 
         {#each messages as message (message.id)}
-          <article class:justify-end={message.role === 'user'} class="mt-6 flex gap-3">
+          {@const execution = executionForMessage(message.id)}
+          <article
+            class:justify-end={message.role === 'user'}
+            class="mt-6 flex gap-3"
+            in:enter={{ ...SURFACE_TRANSITION_OPTIONS, duration: 240, y: 5 }}
+          >
             {#if message.role === 'assistant'}<AgentAvatar size="sm" />{/if}
             <div class="min-w-0 max-w-[82%]">
-              {#if message.role === 'assistant'}<p
-                  class="m-0 mb-1 text-xs font-medium text-muted-foreground"
-                >
-                  小智
-                </p>{/if}
-              {#if message.content}
+              {#if message.content && message.role === 'assistant'}
+                <AgentMarkdown content={message.content} />
+              {:else if message.content}
                 <p
-                  class:bg-secondary={message.role === 'user'}
-                  class="m-0 whitespace-pre-wrap rounded-lg px-4 py-3 text-sm leading-7"
+                  class="m-0 whitespace-pre-wrap rounded-xl bg-secondary px-4 py-3 text-sm leading-7 transition-colors duration-200 ease-out"
                 >
                   {message.content}
                 </p>
@@ -387,46 +559,42 @@
               {#if message.ui}
                 <div class="mt-3"><HotelGenerativeUi spec={message.ui} /></div>
               {/if}
+              {#if execution}
+                <AgentExecutionTimeline trace={execution} />
+              {/if}
+            </div>
+          </article>
+        {/each}
+
+        {#each standaloneExecutions as execution (execution.runId)}
+          <article
+            class="mt-6 flex gap-3"
+            in:enter={{ ...SURFACE_TRANSITION_OPTIONS, duration: 240, y: 5 }}
+          >
+            <AgentAvatar size="sm" />
+            <div class="min-w-0 flex-1">
+              <AgentExecutionTimeline trace={execution} />
             </div>
           </article>
         {/each}
 
         {#if sending || draftContent || draftUi}
-          <article class="mt-6 flex gap-3">
+          {@const execution = activeExecution()}
+          <article
+            class="mt-6 flex gap-3"
+            in:enter={{ ...SURFACE_TRANSITION_OPTIONS, duration: 240, y: 5 }}
+          >
             <AgentAvatar size="sm" />
             <div class="min-w-0 flex-1">
-              <p class="m-0 mb-1 text-xs font-medium text-muted-foreground">小智</p>
               {#if draftContent}
-                <p class="m-0 whitespace-pre-wrap text-sm leading-7">{draftContent}</p>
+                <AgentMarkdown content={draftContent} />
               {:else}
                 <p class="m-0 inline-flex items-center gap-2 text-sm text-muted-foreground">
                   <LoaderCircle class="animate-spin" size={15} />正在理解任务…
                 </p>
               {/if}
               {#if draftUi}<div class="mt-4"><HotelGenerativeUi spec={draftUi} /></div>{/if}
-              {#if toolSteps.length > 0}
-                <details
-                  class="mt-4 rounded-lg border border-border bg-secondary/40 px-4 py-3"
-                  open
-                >
-                  <summary class="cursor-pointer text-sm font-medium">执行过程</summary>
-                  <div class="mt-3 grid gap-2.5">
-                    {#each toolSteps as step (step.id)}
-                      <div class="flex items-start gap-2.5 text-xs text-muted-foreground">
-                        {#if step.status === 'completed'}
-                          <Check size={14} class="mt-0.5 shrink-0 text-[#1aae39]" />
-                        {:else}
-                          <Wrench size={14} class="mt-0.5 shrink-0 text-primary" />
-                        {/if}
-                        <span
-                          ><strong class="font-medium text-foreground">{step.name}</strong
-                          >{step.summary ? ` · ${step.summary}` : ''}</span
-                        >
-                      </div>
-                    {/each}
-                  </div>
-                </details>
-              {/if}
+              {#if execution}<AgentExecutionTimeline trace={execution} />{/if}
             </div>
           </article>
         {/if}
@@ -441,9 +609,9 @@
       </div>
     </section>
 
-    <footer class="shrink-0 bg-background px-6 pt-2 pb-5">
+    <footer class="shrink-0 border-t border-border/60 bg-background/95 px-6 pt-3 pb-4">
       <div class="mx-auto max-w-3xl">
-        {#if quickActionCards.length > 0}
+        {#if quickActionCards.length > 0 && messages.length > 0}
           <div class="mb-2 flex gap-2 overflow-x-auto pb-1" aria-label="酒店快捷操作">
             {#each quickActionCards as action (action.id)}
               <button
@@ -475,20 +643,21 @@
             bind:ref={composer}
             bind:value={prompt}
             aria-label="给小智 AI 管家发消息"
-            placeholder="检查异常订单、生成运营简报，或告诉小智你的工作偏好…"
+            placeholder="问小智酒店运营问题…"
             disabled={sending}
             onkeydown={handleComposerKeydown}
           />
           <div class="flex items-center justify-between px-1">
-            <span class="inline-flex items-center gap-1.5 text-[11px] text-muted-foreground">
-              <Bot size={13} />单 Agent · 会话隔离
-            </span>
+            <span class="text-[10px] text-muted-foreground">Enter 发送 · Shift+Enter 换行</span>
             {#if sending}
               <Button
                 size="icon-sm"
                 variant="outline"
-                aria-label="停止接收"
-                onclick={cancelActiveRun}><Square /></Button
+                disabled={!activeRunId || stopping}
+                aria-label={stopping ? '正在停止' : activeRunId ? '停止执行' : '正在准备执行'}
+                onclick={() => void cancelActiveRun()}
+                >{#if stopping || !activeRunId}<LoaderCircle class="animate-spin" />{:else}<Square
+                  />{/if}</Button
               >
             {:else}
               <Button
@@ -500,10 +669,55 @@
             {/if}
           </div>
         </div>
-        <p class="mt-2 mb-0 text-center text-[11px] text-muted-foreground">
-          重要操作执行前请核对酒店、日期、渠道与影响范围
-        </p>
       </div>
     </footer>
   </main>
 </div>
+
+<AlertDialog.Root
+  open={deleteTarget !== null}
+  onOpenChange={(next) => !next && !deleting && (deleteTarget = null)}
+>
+  <AlertDialog.Content>
+    <AlertDialog.Header>
+      <AlertDialog.Title>删除这次会话？</AlertDialog.Title>
+      <AlertDialog.Description>
+        「{deleteTarget?.title}」及其消息和执行记录将永久删除，长期记忆不受影响。
+      </AlertDialog.Description>
+    </AlertDialog.Header>
+    <AlertDialog.Footer>
+      <AlertDialog.Cancel disabled={deleting}>取消</AlertDialog.Cancel>
+      <AlertDialog.Action
+        class="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+        disabled={deleting}
+        onclick={() => void confirmDeleteConversation()}
+      >
+        {#if deleting}<LoaderCircle class="animate-spin" size={14} />正在删除{:else}删除{/if}
+      </AlertDialog.Action>
+    </AlertDialog.Footer>
+  </AlertDialog.Content>
+</AlertDialog.Root>
+
+<AlertDialog.Root
+  open={clearHistoryOpen}
+  onOpenChange={(next) => !next && !deleting && (clearHistoryOpen = false)}
+>
+  <AlertDialog.Content>
+    <AlertDialog.Header>
+      <AlertDialog.Title>清空全部历史会话？</AlertDialog.Title>
+      <AlertDialog.Description>
+        当前账号的 {conversations.length} 次会话及其消息和执行记录将永久删除，长期记忆不受影响。
+      </AlertDialog.Description>
+    </AlertDialog.Header>
+    <AlertDialog.Footer>
+      <AlertDialog.Cancel disabled={deleting}>取消</AlertDialog.Cancel>
+      <AlertDialog.Action
+        class="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+        disabled={deleting}
+        onclick={() => void confirmClearConversations()}
+      >
+        {#if deleting}<LoaderCircle class="animate-spin" size={14} />正在清空{:else}全部清空{/if}
+      </AlertDialog.Action>
+    </AlertDialog.Footer>
+  </AlertDialog.Content>
+</AlertDialog.Root>

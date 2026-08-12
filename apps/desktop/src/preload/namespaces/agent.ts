@@ -1,10 +1,12 @@
 import { z } from 'zod';
 import {
   agentCapabilitiesSchema,
+  agentConversationDeletionResultSchema,
   agentConversationSchema,
   agentConversationSummarySchema,
   agentQuickActionSchema,
   agentStreamEnvelopeSchema,
+  cancelAgentRunResultSchema,
   startAgentRunResponseSchema,
   type AgentStreamEnvelope,
 } from '../../shared/agent';
@@ -22,9 +24,18 @@ export function createAgentApi(invoke: ValidatedInvoke, subscribe: ValidatedSubs
       invoke(agentConversationSummarySchema, IPC_CHANNELS.agent.createConversation, title ?? null),
     getConversation: (conversationId: string) =>
       invoke(agentConversationSchema, IPC_CHANNELS.agent.getConversation, conversationId),
+    deleteConversation: (conversationId: string) =>
+      invoke(
+        agentConversationDeletionResultSchema,
+        IPC_CHANNELS.agent.deleteConversation,
+        conversationId,
+      ),
+    clearConversations: () =>
+      invoke(agentConversationDeletionResultSchema, IPC_CHANNELS.agent.clearConversations),
     startRun: (input: StartAgentRunInput) =>
       invoke(startAgentRunResponseSchema, IPC_CHANNELS.agent.startRun, input),
-    cancelRun: (runId: string) => invoke(z.undefined(), IPC_CHANNELS.agent.cancelRun, runId),
+    cancelRun: (runId: string) =>
+      invoke(cancelAgentRunResultSchema, IPC_CHANNELS.agent.cancelRun, runId),
     onStreamEvent: (listener: (event: AgentStreamEnvelope) => void) =>
       subscribe(agentStreamEnvelopeSchema, IPC_CHANNELS.agent.streamEvent, listener),
   });
