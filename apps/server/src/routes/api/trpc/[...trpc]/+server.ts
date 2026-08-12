@@ -13,7 +13,12 @@ import { AgentRepository } from '$lib/server/agent/agent-repository';
 import { readAgentEnvironment } from '$lib/server/agent/agent-config';
 import { EmptySkillProvider } from '$lib/server/agent/skill-provider';
 import { McpToolProvider } from '$lib/server/agent/mcp-tool-provider';
-import { HotelAgentRuntime } from '$lib/server/agent/hotel-agent-runtime';
+import { LangChainAgentRuntime } from '$lib/server/agent/langchain-agent-runtime';
+import {
+	ConversationContextService,
+	contextPolicyForModel
+} from '$lib/server/agent/conversation-context';
+import { LangChainConversationSummaryGenerator } from '$lib/server/agent/langchain-conversation-summary-generator';
 import { HotelAgentGateway } from '$lib/server/agent/agent-gateway';
 import { resolveStaffAgentPrincipal } from '$lib/server/agent/staff-agent-principal';
 import type { RequestHandler } from './$types';
@@ -31,16 +36,22 @@ const mcpToolProvider = new McpToolProvider(
 	agentEnvironment.mcpServers,
 	agentEnvironment.allowMcpWriteTools
 );
-const agentRuntime = new HotelAgentRuntime(
+const agentRuntime = new LangChainAgentRuntime(
 	agentEnvironment,
 	agentRepository,
 	mcpToolProvider,
 	skillProvider
 );
+const conversationContext = new ConversationContextService(
+	agentRepository,
+	new LangChainConversationSummaryGenerator(agentEnvironment),
+	contextPolicyForModel(agentEnvironment.model)
+);
 const agentGateway = new HotelAgentGateway(
 	agentEnvironment,
 	agentRepository,
 	agentRuntime,
+	conversationContext,
 	mcpToolProvider,
 	skillProvider,
 	serverLogger

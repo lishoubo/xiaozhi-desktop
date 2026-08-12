@@ -7,7 +7,7 @@ import type {
 	GenerativeUiSpec,
 	StartAgentRunResponse
 } from '@hotel-butler/api';
-import { and, asc, desc, eq, gt } from 'drizzle-orm';
+import { and, asc, desc, eq, gt, isNull } from 'drizzle-orm';
 import { randomUUID } from 'node:crypto';
 import { db } from '$lib/server/db';
 import {
@@ -17,11 +17,12 @@ import {
 	agentRun,
 	agentRunEvent
 } from '$lib/server/db/agent.schema';
+import type { StoredConversationContext } from './conversation-context';
 
 const toIso = (value: Date): string => value.toISOString();
 
 const toConversationSummary = (
-	row: typeof agentConversation.$inferSelect
+	row: Pick<typeof agentConversation.$inferSelect, 'id' | 'title' | 'createdAt' | 'updatedAt'>
 ): AgentConversationSummary => ({
 	id: row.id,
 	title: row.title,
@@ -50,6 +51,27 @@ export class AgentRepository {
 		private readonly now: () => Date = () => new Date(),
 		private readonly generateId: () => string = randomUUID
 	) {}
+
+	private async loadConversation(principal: AgentPrincipal, conversationId: string) {
+		const conversations = await this.database
+			.select()
+			.from(agentConversation)
+			.where(
+				and(
+					eq(agentConversation.id, conversationId),
+					eq(agentConversation.ownerEmployeeId, principal.employeeId)
+				)
+			)
+			.limit(1);
+		const conversation = conversations[0];
+		if (!conversation) throw new AgentAccessDeniedError('Agent conversation was not found');
+		const messages = await this.database
+			.select()
+			.from(agentMessage)
+			.where(eq(agentMessage.conversationId, conversationId))
+			.orderBy(asc(agentMessage.createdAt), asc(agentMessage.id));
+		return { conversation, messages };
+	}
 
 	async listConversations(principal: AgentPrincipal): Promise<AgentConversationSummary[]> {
 		const rows = await this.database
@@ -81,25 +103,51 @@ export class AgentRepository {
 		principal: AgentPrincipal,
 		conversationId: string
 	): Promise<AgentConversation> {
-		const conversations = await this.database
-			.select()
-			.from(agentConversation)
+		const { conversation, messages } = await this.loadConversation(principal, conversationId);
+		return { conversation: toConversationSummary(conversation), messages: messages.map(toMessage) };
+	}
+
+	async getConversationContext(
+		principal: AgentPrincipal,
+		conversationId: string
+	): Promise<StoredConversationContext> {
+		const { conversation, messages } = await this.loadConversation(principal, conversationId);
+		return {
+			conversationId: conversation.id,
+			summary: conversation.contextSummary,
+			summarizedThroughMessageId: conversation.summarizedThroughMessageId,
+			messages: messages.map(toMessage)
+		};
+	}
+
+	async saveConversationSummary(
+		principal: AgentPrincipal,
+		input: Readonly<{
+			conversationId: string;
+			expectedThroughMessageId: string | null;
+			summary: string;
+			throughMessageId: string;
+		}>
+	): Promise<boolean> {
+		const expectedMarker = input.expectedThroughMessageId
+			? eq(agentConversation.summarizedThroughMessageId, input.expectedThroughMessageId)
+			: isNull(agentConversation.summarizedThroughMessageId);
+		const updated = await this.database
+			.update(agentConversation)
+			.set({
+				contextSummary: input.summary,
+				summarizedThroughMessageId: input.throughMessageId,
+				summaryUpdatedAt: this.now()
+			})
 			.where(
 				and(
-					eq(agentConversation.id, conversationId),
-					eq(agentConversation.ownerEmployeeId, principal.employeeId)
+					eq(agentConversation.id, input.conversationId),
+					eq(agentConversation.ownerEmployeeId, principal.employeeId),
+					expectedMarker
 				)
 			)
-			.limit(1);
-		const conversation = conversations[0];
-		if (!conversation) throw new AgentAccessDeniedError('Agent conversation was not found');
-
-		const messages = await this.database
-			.select()
-			.from(agentMessage)
-			.where(eq(agentMessage.conversationId, conversationId))
-			.orderBy(asc(agentMessage.createdAt));
-		return { conversation: toConversationSummary(conversation), messages: messages.map(toMessage) };
+			.returning({ id: agentConversation.id });
+		return updated.length === 1;
 	}
 
 	async startRun(

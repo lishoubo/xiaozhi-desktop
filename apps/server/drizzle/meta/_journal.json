@@ -43,6 +43,13 @@
       "when": 1786335919383,
       "tag": "0005_aspiring_ghost_rider",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1786504291379,
+      "tag": "0006_massive_tyrannus",
+      "breakpoints": true
     }
   ]
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { validateHotelUi } from './hotel-agent-runtime';
+import { validateHotelUi } from './hotel-ui-validator';
 
 describe('validateHotelUi', () => {
 	it('accepts a bounded hotel table UI', () => {

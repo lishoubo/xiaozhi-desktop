@@ -44,6 +44,7 @@ function createGatewayHarness(
 		},
 		repository,
 		{ run: vi.fn() },
+		{ prepare: vi.fn().mockResolvedValue({ summary: null, history: [] }) },
 		{
 			serverCount: () => mcpCapabilities.length,
 			capabilities: () => new Set(mcpCapabilities)

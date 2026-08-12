@@ -225,11 +225,26 @@ test('uses credential-backed account switching and shared-session tabs', async (
 
 test('opens the AI concierge from the icon sidebar', async () => {
   await login();
+  await expect(page.getByRole('button', { name: '携程酒店 eBooking' })).toBeVisible();
+  await page.evaluate(() => window.hotelButler.agent.createConversation('历史经营复盘'));
   await page.getByRole('link', { name: '小智AI 管家' }).click();
 
   await expect(page).toHaveURL(/#\/agent$/);
   await expect(page.getByRole('heading', { name: '小智 AI 管家' })).toBeVisible();
   await expect(page.getByRole('heading', { name: '今天想先处理什么？' })).toBeVisible();
+  const newConversation = page.getByRole('button', { name: '开始新会话' });
+  const historicalConversation = page.getByRole('button', { name: '历史经营复盘' });
+  await expect(newConversation).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByText('继续历史会话')).toBeVisible();
+  await expect(historicalConversation).toHaveAttribute('aria-pressed', 'false');
+
+  await historicalConversation.click();
+  await expect(historicalConversation).toHaveAttribute('aria-pressed', 'true');
+  await expect(newConversation).toHaveAttribute('aria-pressed', 'false');
+  await expect(page.getByText('历史经营复盘', { exact: true })).toHaveCount(2);
+
+  await newConversation.click();
+  await expect(newConversation).toHaveAttribute('aria-pressed', 'true');
   await expect(page.getByRole('textbox')).toBeVisible();
 });
 
@@ -390,12 +405,12 @@ test('opens the localized calendar with the seeded holiday group', async () => {
     await page.getByRole('button', { name: '下一个时段' }).click();
   }
   await expect(periodHeading).toContainText('2026年8月30日–9月5日');
-  await expect(page.getByTestId('mini-calendar-month')).toHaveText('2026年8月');
+  await expect(page.getByTestId('mini-calendar-month')).toHaveText('2026年9月');
 
   await page.getByRole('button', { name: '迷你日历下一个月' }).click();
-  await expect(page.getByTestId('mini-calendar-month')).toHaveText('2026年9月');
+  await expect(page.getByTestId('mini-calendar-month')).toHaveText('2026年10月');
   await page.locator('.hotel-mini-calendar .wx-day:not(.wx-out)', { hasText: /^15$/ }).click();
-  await expect(page.getByRole('heading', { level: 2 })).toContainText('9月');
+  await expect(page.getByRole('heading', { level: 2 })).toContainText('10月');
 });
 
 test('shows only executable public MCP quick actions', async () => {

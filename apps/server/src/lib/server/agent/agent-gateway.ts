@@ -15,7 +15,8 @@ import { randomUUID } from 'node:crypto';
 import type { ApiLogger } from '@hotel-butler/api';
 import { AgentAccessDeniedError, AgentRepository } from './agent-repository';
 import type { AgentEnvironment } from './agent-config';
-import type { HotelAgentRuntime, RuntimeEvent } from './hotel-agent-runtime';
+import type { AgentRuntime, RuntimeEvent } from './agent-runtime';
+import type { ConversationContextService } from './conversation-context';
 import type { McpToolProvider } from './mcp-tool-provider';
 import type { SkillProvider } from './skill-provider';
 import { getHotelQuickAction, listHotelQuickActions } from './hotel-quick-actions';
@@ -32,8 +33,8 @@ type AgentRepositoryPort = Pick<
 	| 'listEvents'
 	| 'completeRun'
 >;
-type AgentRuntimePort = Pick<HotelAgentRuntime, 'run'>;
 type McpToolProviderPort = Pick<McpToolProvider, 'serverCount' | 'capabilities'>;
+type ConversationContextPort = Pick<ConversationContextService, 'prepare'>;
 
 const terminal = (event: AgentRunEvent): boolean =>
 	event.type === 'run_completed' || event.type === 'run_failed';
@@ -61,7 +62,8 @@ export class HotelAgentGateway implements AgentGateway {
 	constructor(
 		private readonly environment: AgentEnvironment,
 		private readonly repository: AgentRepositoryPort,
-		private readonly runtime: AgentRuntimePort,
+		private readonly runtime: AgentRuntime,
+		private readonly conversationContext: ConversationContextPort,
 		private readonly mcpTools: McpToolProviderPort,
 		private readonly skills: SkillProvider,
 		private readonly logger: ApiLogger
@@ -170,14 +172,29 @@ export class HotelAgentGateway implements AgentGateway {
 		const controller = new AbortController();
 		try {
 			const context = await this.repository.getRunContext(principal, runId);
-			const conversation = await this.repository.getConversation(
-				principal,
-				context.conversation.id
-			);
+			let prepared;
+			try {
+				prepared = await this.conversationContext.prepare(principal, context.conversation.id);
+			} catch (error) {
+				this.logger.warn(
+					{
+						event: 'agent.conversation.summary.failed',
+						runId,
+						errorType: error instanceof Error ? error.name : 'UnknownError'
+					},
+					'Conversation summarization failed; using full history'
+				);
+				const conversation = await this.repository.getConversation(
+					principal,
+					context.conversation.id
+				);
+				prepared = { summary: null, history: conversation.messages };
+			}
 			await this.publish(principal, runId, context.conversation.id, { type: 'run_started' });
 			const result = await this.runtime.run({
 				principal,
-				history: conversation.messages,
+				conversationSummary: prepared.summary,
+				history: prepared.history,
 				signal: controller.signal,
 				emit: (event) => this.publish(principal, runId, context.conversation.id, event)
 			});

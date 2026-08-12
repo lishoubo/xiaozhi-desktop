@@ -86,7 +86,6 @@
       capabilities = nextCapabilities;
       quickActions = nextQuickActions;
       conversations = nextConversations;
-      if (nextConversations[0]) await openConversation(nextConversations[0].id);
     } catch {
       errorMessage = 'Agent 服务暂时不可用，请确认 server 已启动且当前账号已登录。';
     } finally {
@@ -98,21 +97,15 @@
     conversations = await window.hotelButler.agent.listConversations();
   }
 
-  async function startNewConversation(): Promise<void> {
+  function startNewConversation(): void {
     cancelActiveRun();
     errorMessage = '';
-    try {
-      const conversation = await window.hotelButler.agent.createConversation();
-      conversations = [conversation, ...conversations];
-      activeConversationId = conversation.id;
-      messages = [];
-      draftContent = '';
-      draftUi = null;
-      toolSteps = [];
-      composer?.focus();
-    } catch {
-      errorMessage = '无法创建新会话，请稍后重试。';
-    }
+    activeConversationId = null;
+    messages = [];
+    draftContent = '';
+    draftUi = null;
+    toolSteps = [];
+    composer?.focus();
   }
 
   async function openConversation(conversationId: string): Promise<void> {
@@ -264,15 +257,16 @@
   <aside class="flex min-h-0 flex-col border-r border-border bg-background px-3 py-4">
     <Button
       class="w-full justify-start"
-      variant="outline"
-      onclick={() => void startNewConversation()}
+      variant={activeConversationId === null ? 'default' : 'outline'}
+      aria-pressed={activeConversationId === null}
+      onclick={startNewConversation}
     >
       <Plus size={16} />
-      新对话
+      开始新会话
     </Button>
 
     <div class="mt-6 min-h-0 flex-1 overflow-y-auto">
-      <p class="px-2 text-xs font-medium text-muted-foreground">会话</p>
+      <p class="px-2 text-xs font-medium text-muted-foreground">继续历史会话</p>
       {#if conversations.length === 0 && !loading}
         <p class="px-2 py-3 text-xs leading-5 text-muted-foreground">暂无历史会话</p>
       {/if}

@@ -17,6 +17,9 @@ export const agentConversation = pgTable(
 		ownerEmployeeId: text('owner_employee_id').notNull(),
 		ownerOrgId: text('owner_org_id').notNull(),
 		title: text('title').notNull(),
+		contextSummary: text('context_summary'),
+		summarizedThroughMessageId: text('summarized_through_message_id'),
+		summaryUpdatedAt: timestamp('summary_updated_at', { withTimezone: true }),
 		createdAt: timestamp('created_at', { withTimezone: true }).notNull(),
 		updatedAt: timestamp('updated_at', { withTimezone: true }).notNull()
 	},

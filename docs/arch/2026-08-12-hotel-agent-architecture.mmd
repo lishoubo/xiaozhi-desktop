@@ -1,0 +1,80 @@
+flowchart TB
+  User([酒店员工])
+
+  subgraph Desktop[Electron Desktop]
+    direction LR
+    UI[AgentPage<br/>新会话或继续历史会话]
+    Preload[Preload Agent API<br/>运行时 schema 校验]
+    IPC[Agent IPC Handler<br/>可信窗口与参数校验]
+    Service[AgentService<br/>tRPC 调用与 SSE 订阅]
+    UI --> Preload --> IPC --> Service
+  end
+
+  subgraph Contract[Shared Contract]
+    API[packages/api<br/>tRPC contract、schema、纯类型]
+  end
+
+  subgraph Server[Server Agent Application]
+    direction LR
+    Procedure[tRPC Agent Procedure<br/>Cookie 或 Bearer 身份解析]
+    Gateway[HotelAgentGateway<br/>运行编排、事件发布、失败语义]
+    Context[ConversationContextService<br/>上下文估算与增量摘要]
+    RuntimePort{{AgentRuntime Port<br/>SDK 无关薄边界}}
+    LangChain[LangChainAgentRuntime<br/>当前 SDK 适配器]
+    Summary[Summary Generator<br/>Kimi 摘要适配器]
+    ToolHandlers[Local Tool Handlers<br/>记忆与生成式 UI]
+    MCP[McpToolProvider<br/>只读筛选与结果收敛]
+
+    Procedure --> Gateway
+    Gateway --> Context
+    Gateway --> RuntimePort --> LangChain
+    Context --> Summary
+    LangChain --> ToolHandlers
+    LangChain --> MCP
+  end
+
+  subgraph Persistence[PostgreSQL]
+    direction TB
+    Conversation[(agent_conversation<br/>归属、标题、增量摘要游标)]
+    Message[(agent_message<br/>完整原始消息与 UI spec)]
+    Run[(agent_run<br/>幂等请求与运行状态)]
+    Event[(agent_run_event<br/>有序可重放事件)]
+    Memory[(agent_memory<br/>员工级跨会话长期记忆)]
+  end
+
+  subgraph External[External Services]
+    Kimi[Kimi K3<br/>OpenAI-compatible API]
+    DMS[Aliyun DMS MCP<br/>酒店经营数据]
+    OtherMCP[Weather / configured MCP]
+    RMS[RMS Identity API]
+  end
+
+  User --> UI
+  Service <-->|HTTPS tRPC query / mutation| API
+  Service <-->|tRPC SSE tracked events| API
+  API <--> Procedure
+
+  Procedure -->|Bearer 身份校验| RMS
+  Gateway -->|会话、run、事件| Conversation
+  Gateway --> Run
+  Gateway --> Event
+  Context -->|读取原始消息与摘要游标| Conversation
+  Context --> Message
+  Context -->|CAS 保存新摘要| Conversation
+  Summary --> Kimi
+  LangChain --> Kimi
+  ToolHandlers <--> Memory
+  ToolHandlers -->|校验后 ui_spec| Gateway
+  MCP --> DMS
+  MCP --> OtherMCP
+  Event -. 持久化后回放 .-> Gateway
+  Gateway -. 实时事件 .-> Procedure
+
+  classDef boundary fill:#eef2ff,stroke:#4f46e5,color:#1e1b4b;
+  classDef app fill:#ecfeff,stroke:#0891b2,color:#164e63;
+  classDef data fill:#f0fdf4,stroke:#16a34a,color:#14532d;
+  classDef external fill:#fff7ed,stroke:#ea580c,color:#7c2d12;
+  class API,RuntimePort boundary;
+  class UI,Preload,IPC,Service,Procedure,Gateway,Context,LangChain,Summary,ToolHandlers,MCP app;
+  class Conversation,Message,Run,Event,Memory data;
+  class Kimi,DMS,OtherMCP,RMS external;
