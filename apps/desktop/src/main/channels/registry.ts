@@ -12,7 +12,6 @@ import type { AppLogger } from '../../shared/logging';
 import { createCtripAmountChangeAdapter } from './ctrip/amount-change-adapter';
 import { ctripHotelProbe } from './ctrip/hotel-prob';
 import { ctripLoginUrlMatcher } from './ctrip/login-url-matcher';
-import { createDouyinAmountChangeAdapter } from './douyin/amount-change-adapter';
 import { createDouyinHotelProbe } from './douyin/hotel-prob';
 import { douyinLoginUrlMatcher } from './douyin/login-url-matcher';
 import { createMeituanAmountChangeAdapter } from './meituan/amount-change-adapter';
@@ -45,7 +44,14 @@ export function createChannelRegistry(logger: AppLogger): ReadonlyMap<ChannelId,
       channel: toChannelId('douyin'),
       loginUrlMatcher: douyinLoginUrlMatcher,
       hotelProbe: createDouyinHotelProbe(logger),
-      amountChangeAdapter: createDouyinAmountChangeAdapter(logger),
+      // 改价监听**刻意不注册**：抖音是被跟价的那一端（RMS 把携程/美团的变更跟到抖音），
+      // 监听它等于把 RMS 自己写进去的价再报回 RMS。服务端也是这么判的——接入文档 §6 把
+      // douyin 归到 `SOURCE_NOT_SUPPORTED`，注明「自己追自己无意义」。
+      //
+      // 适配器代码（`createDouyinAmountChangeAdapter`）与它的测试全部保留：抖音的报文
+      // 形状是真机踩过点的，将来若要做「抖音侧手工改价回流」，接回来只是这里加一行。
+      // 这也是 `amountChangeAdapter` 设计成可选字段的用意——不注册即不监听，
+      // 见 `amountChangeAdapters()`。
     },
     {
       channel: toChannelId('meituan'),
