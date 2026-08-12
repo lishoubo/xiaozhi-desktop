@@ -46,7 +46,7 @@ const MAX_LOG_FILE_SIZE = 10 * 1024 * 1024;
  *
  * 真正需要保证完整落盘的字段（如上报体 `requestBody`），应在**调用点**先
  * `JSON.stringify` 成字符串再交给日志 —— 字符串没有嵌套，任何深度都完整。
- * 见 `gateway/rms/rms-amount-change-gateway-mock.ts`。
+ * 见 `channels/amount-change-watcher.ts` 对渠道报文的处理。
  *
  * **只给 file transport 放开**：console 保持 Node 默认，避免开发时终端被大对象刷屏；
  * 文件日志本来就是留着事后排查的，可读性优先。

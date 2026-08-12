@@ -51,6 +51,53 @@ export type AmountSaveObserved = Readonly<{
  * desktop **不查本地绑定、不算 hotelId、不展开日期×房型**：反查绑定与语义展开都由 RMS
  * 负责（RMS 侧已有这套逻辑）。代价是未绑定账号的改价也会照发，RMS 反查不到时自行丢弃
  * ——所以对 RMS 而言「反查失败」是正常情况，不该按错误告警。
+ *
+ * ## 落到线上的样子
+ *
+ * `POST /api/v1/app/ota-changes`（rms-server `AppOtaChangeController`），实现见
+ * `main/gateway/rms/rms-amount-change-gateway-http.ts`。两点与本类型不完全一致：
+ *
+ * - **`loginUserId` / `loginUserName` 不发**：远端以 JWT 为准（报文字段可伪造）。契约里
+ *   留着它们是为了本地日志与排查。
+ * - **响应的 `status` 不是成败**：`PARSE_FAILED` / `HOTEL_UNRESOLVED` / `SKIPPED` 都是
+ *   正常响应——上报是单向通知，失败在远端沉淀成台账，desktop 没有补救动作。
+ *
+ * ## 日期与周次：三个渠道四种表达（展开由 RMS 做）
+ *
+ * ```
+ * douyin    date_period_list: [{start:"2026-05-28", end:"2026-05-31"}]
+ *           available_week_list: [1,2,3,4,5,6,7]              // 1=周一
+ *
+ * ctrip 老  dateRangeInfo: [{startDate, endDate}]
+ *           weekDayIndex: "1111001"                            // 位串，周一→周日
+ *
+ * ctrip 新  roomPriceInfos[].startDate / .endDate              // 每条自带日期
+ *           weekDays: ["MONDAY","TUESDAY",…]                   // 英文枚举
+ *
+ * meituan   unifiedDatePriceInfos.dates[] （形状①）           // 或 priceInfos[]（形状②）
+ *           weekPriceInfos[].inWeek: [1,2,3,4,7]               // 数字，1=周一（同抖音）
+ * ```
+ *
+ * ⚠️ **不能假设房型在一次上报里唯一** —— 开了「周末差异定价」时同一房型会按周次拆成多条，
+ * 各带不同价格，必须按 (房型 × 周次) 组合展开。携程与美团都有这种形状。
+ *
+ * ## 门店怎么定位
+ *
+ * ```
+ *                             otaHotelId 有值吗    RMS 该怎么反查
+ * douyin                          基本没有         用 product_list[].product_id
+ *                                                  （= ota_sale_room_type_id）反查门店
+ * ctrip / batchsetroomprice       ✅ 有            直接用；⚠️ 一次可能改多家
+ * ctrip / setRCRoomPrice          ❌ 请求体里没有   用 roomPriceInfos[].roomProductId 反查
+ * meituan                         ✅ 有（最可靠）   试算请求体顶层 `poiId`，单值，一次一家
+ * ```
+ *
+ * ## 其他已知的坑
+ *
+ * 1. **只有渠道判定成功的改价才会上报** —— 渠道拒绝（限价、佣金校验不过）的不发。
+ * 2. **携程新模块与美团都是异步任务**：响应里的 `taskId` 只代表渠道**受理**成功，
+ *    不代表价格已生效。
+ * 3. **上报失败不重试落盘**：网络失败重试 1 次后放弃，偶发漏报是已知取舍。
  */
 export type OtaAmountChangeReport = Readonly<{
   /** 幂等键，desktop 生成。RMS 据此去重（同一次改价重试上报不该跟两次价）。 */

@@ -15,6 +15,7 @@ import type {
   OtaAmountChangeReport,
 } from '../../shared/types/amount-change';
 import type { JsonObject } from '../../shared/types/json';
+import { channelAccountNameOf } from '../channels/bind-extra';
 import type { RmsAmountChangeGateway } from '../gateway/rms/types';
 
 /**
@@ -40,21 +41,6 @@ export type AmountChangeReportServiceDependencies = Readonly<{
   identity: AmountChangeIdentityLookup;
   logger: AppLogger;
 }>;
-
-/**
- * 从凭证的 `credentialExtra` 里取渠道账号名。各渠道存的键不一样（携程存 `hotelName`），
- * 按优先级依次尝试，都没有就返回 null —— 名字只是给人看的，缺了不阻断上报。
- */
-const ACCOUNT_NAME_KEYS: readonly string[] = ['hotelName', 'accountName', 'shopName', 'name'];
-
-function accountNameOf(credentialExtra: JsonObject | null): string | null {
-  if (!credentialExtra) return null;
-  for (const key of ACCOUNT_NAME_KEYS) {
-    const value = credentialExtra[key];
-    if (typeof value === 'string' && value.trim().length > 0) return value.trim();
-  }
-  return null;
-}
 
 export class AmountChangeReportService {
   constructor(private readonly deps: AmountChangeReportServiceDependencies) {}
@@ -88,7 +74,7 @@ export class AmountChangeReportService {
       loginUserId: staff?.userId ?? null,
       loginUserName: staff?.fullName?.trim() || staff?.username || null,
       channelAccountId: credential?.channelAccountId ?? null,
-      channelAccountName: accountNameOf(credential?.credentialExtra ?? null),
+      channelAccountName: channelAccountNameOf(credential?.credentialExtra ?? null),
       submitAt: new Date().toISOString(),
     };
 

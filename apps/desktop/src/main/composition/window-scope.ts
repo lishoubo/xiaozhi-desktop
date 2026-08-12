@@ -29,7 +29,7 @@ import { CookieImportService } from '../services/cookie-import-service';
 import { AmountChangeWatcher } from '../channels/amount-change-watcher';
 import { HotelProbeDispatcher } from '../channels/hotel-probe-dispatcher';
 import { OtaReauthDispatcher } from '../channels/ota-reauth-dispatcher';
-import { MockRmsAmountChangeGateway } from '../gateway/rms/rms-amount-change-gateway-mock';
+import { HttpRmsAmountChangeGateway } from '../gateway/rms/rms-amount-change-gateway-http';
 import { AmountChangeReportService } from '../services/amount-change-report-service';
 import type { UiWaitingResultEnvelope } from '../../shared/types/ui-waiting-result-types';
 import { SystemService } from '../services/system-service';
@@ -95,9 +95,12 @@ export function createWindowScope(scope: AppScope): WindowScope {
 
   // 价量态改动监听。与上面两个 dispatcher 不同，它订阅的是 browserManager 的原始导航
   // 事件（要的是「URL 变了」，不是「登录判定完了」），所以不接 tabEventBus。
-  // gateway 目前是 mock —— RMS 侧接收端点尚未定义，见 rms-amount-change-gateway-mock.ts。
   const amountChangeReportService = new AmountChangeReportService({
-    gateway: new MockRmsAmountChangeGateway(logger),
+    gateway: new HttpRmsAmountChangeGateway({
+      origin: scope.rms.origin,
+      fetch: scope.rms.fetch,
+      logger,
+    }),
     // 上报体要带「谁改的」和「用哪个渠道账号改的」。两者分别来自认证栈与凭证仓储，
     // 都够不着 channels/，所以在这里以窄查询注入。
     identity: {

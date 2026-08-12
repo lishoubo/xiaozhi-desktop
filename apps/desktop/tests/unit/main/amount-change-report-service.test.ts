@@ -66,6 +66,38 @@ describe('AmountChangeReportService', () => {
     expect(sent.channelAccountName).toBe('苏州平江府');
   });
 
+  /**
+   * 美团的 `credentialExtra` 里既没有 `hotelName` 也没有 `name`，只有 `login`
+   * （2026-08-12 真机确认：`{partnerId, login, accountType, accountStatus, maskedPhone}`）。
+   * 名字解析必须与绑定链路同一份实现——此前这里另写了一套键表漏掉 `login`，
+   * 同一个账号在酒店卡片上有名字、改价上报里却是 null。
+   */
+  it('美团凭证取 login 作为渠道账号名', async () => {
+    const reportAmountChange = vi.fn((_report: OtaAmountChangeReport) => Promise.resolve());
+    const service = new AmountChangeReportService({
+      gateway: { reportAmountChange },
+      identity: createIdentity({
+        credentialByPartition: () =>
+          Promise.resolve({
+            channelAccountId: '274615733',
+            credentialExtra: {
+              partnerId: '4595635',
+              login: 'Btphhldxm',
+              accountType: 1,
+              accountStatus: 1,
+              maskedPhone: '186****8804',
+            } as JsonObject | null,
+          }),
+      }),
+      logger: createLogger(),
+    });
+
+    await service.report(OBSERVED, PARTITION);
+
+    const sent = reportAmountChange.mock.calls[0][0] as Record<string, unknown>;
+    expect(sent.channelAccountName).toBe('Btphhldxm');
+  });
+
   /** 身份查不到不能阻断上报：改价事实本身比「谁改的」重要。 */
   it('未登录 / 查不到凭证时身份字段留 null，照常上报', async () => {
     const reportAmountChange = vi.fn((_report: OtaAmountChangeReport) => Promise.resolve());
