@@ -7,6 +7,7 @@ function credential(overrides: Partial<OtaCredentialDto> = {}): OtaCredentialDto
     id: 'credential-1',
     channel: 'douyin',
     channelAccountId: 'account-1',
+    channelAccountName: null,
     partitionName: 'persist:xiaozhi:prod:douyin:aaa',
     credentialExtra: null,
     discoveredAt: 1,

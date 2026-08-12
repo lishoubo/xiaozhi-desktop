@@ -207,6 +207,7 @@ describe('createDesktopApi', () => {
       id: 'credential-1',
       channel: 'douyin',
       channelAccountId: 'user-1',
+      channelAccountName: '运营账号',
       partitionName: 'persist:xiaozhi:prod:douyin:short',
       credentialExtra: { name: '运营账号' },
       discoveredAt: 1000,
