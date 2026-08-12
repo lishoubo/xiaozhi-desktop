@@ -254,17 +254,46 @@ logs/ logs_2.sqlite
 
 ### 1.2 候选对比
 
-| 维度 | Codex（SDK/app-server） | Claude Agent SDK | OpenCode | Pi (OpenClaw) | 自研 loop |
-|---|---|---|---|---|---|
-| 集成方式 | JSON-RPC over stdio/WS | TS/Python 库，进程内或子进程 | HTTP + SSE，OpenAPI 3.1 | 进程内 `createAgentSession()` | — |
-| 模型可换 | ✅ `model_providers` 配置，支持自建网关 | ⚠️ 主要面向 Anthropic，第三方需 proxy | ✅ 原生多 provider | ✅ 可配 | ✅ 完全自由 |
-| MCP 支持 | ✅ 原生 | ✅ 原生 | ✅ | ✅ | 自己实现 |
-| skill/plugin 生态 | ✅ 官方 plugin marketplace，订单来了直接复用 | ✅ Skills 机制 | ⚠️ 较弱 | ⚠️ 较弱 | ❌ |
-| 会话/thread 持久化 | ✅ 内置 SQLite | ⚠️ 部分，需自管 | ✅ 共享 SQLite + fork | ⚠️ JSONL 自管 | 自己实现 |
-| 沙箱隔离 | ✅ 最强（Seatbelt/Landlock/seccomp） | ⚠️ 依赖宿主 | ❌ 需自己容器化 | ❌ 自己负责 | 自己实现 |
-| 多租户隔离 | 环境变量 `CODEX_HOME` 分区 | 每实例 | session 级（共享库） | 每实例内存 | — |
-| 中国大陆可用性 | ✅（因为可换 base_url） | ⚠️ 需自建代理 | ✅ | ✅ | ✅ |
-| 成熟度 / 生态 | 高 | 高 | 中 | 低 | — |
+| 维度 | Codex（SDK/app-server） | Deep Agents | Claude Agent SDK | OpenCode | Pi (OpenClaw) | 自研 loop |
+|---|---|---|---|---|---|---|
+| 集成方式 | JSON-RPC over stdio/WS | TS/Python 库；也可部署为 LangGraph 服务 | TS/Python 库，进程内或子进程 | HTTP + SSE，OpenAPI 3.1 | 进程内 `createAgentSession()` 或 RPC | — |
+| 模型可换 | ✅ `model_providers` 配置，支持自建网关 | ✅ 任意支持 tool calling 的 LangChain model | ⚠️ 核心面向 Anthropic | ✅ 原生多 provider | ✅ 可配 | ✅ 完全自由 |
+| MCP 支持 | ✅ 原生 | ✅ SDK 通过 LangChain adapter；Deep Agents Code 原生配置 | ✅ 原生 | ✅ 原生 | ⚠️ 主要通过扩展集成 | 自己实现 |
+| skill/plugin 生态 | ✅ 官方 plugin marketplace，订单来了直接复用 | ✅ Skills；分发生态仍弱于 Codex | ✅ Skills / Plugins | ⚠️ 较弱 | ✅ Skills / Extensions | ❌ |
+| 会话/thread 持久化 | ✅ 内置 SQLite | ✅ LangGraph checkpoint/store，后端可换但需产品配置 | ✅ resume/fork，可接外部存储 | ✅ 共享 SQLite + fork | ✅ SessionManager / 文件会话 | 自己实现 |
+| 多 agent / 长任务 | ✅ thread/subagent 派生 | ✅ 一等能力，含独立上下文、压缩和子 agent 流 | ✅ subagent | ⚠️ 可配置 agent | ⚠️ 主要靠工具/扩展 | 自己实现 |
+| 沙箱隔离 | ✅ 最强（Seatbelt/Landlock/seccomp） | ⚠️ 本地 filesystem 不是安全沙箱；生产需接 sandbox backend | ⚠️ 依赖宿主或托管产品 | ❌ 需自己容器化 | ❌ 自己负责 | 自己实现 |
+| 审批与策略 | ✅ 原生 approval；业务风险仍需外层策略 | ✅ 按工具 HITL + middleware，可暂停/编辑/拒绝/恢复 | ✅ 权限规则、hooks、运行时回调 | ✅ permission 配置 | ⚠️ 主要靠扩展 | 自己实现 |
+| 多租户隔离 | 环境变量 `CODEX_HOME` 分区 | context + store namespace；由产品定义 | 每实例/外部存储 | session 级（共享库） | 每实例/SessionManager | — |
+| 中国大陆可用性 | ✅（因为可换 base_url） | ✅ 可接国产或自建兼容模型；需处理协议适配 | ⚠️ 需解决 Anthropic API 可用性 | ✅ | ✅ | ✅ |
+| 成熟度 / 生态 | 高 | 中高（LangGraph 成熟，Deep Agents 仍在快速演进） | 高 | 中 | 中 | — |
+
+#### 1.2.1 Deep Agents 补充评估（2026-08-11）
+
+Deep Agents 不是另一个轻量 agent loop，而是构建在 LangChain agent abstraction 和 LangGraph runtime 之上的、带默认能力的完整 harness：LangGraph 负责 streaming、checkpoint、interrupt 和 durable execution，Deep Agents 在其上组装 planning、filesystem、context compaction、subagent、memory、skills 和权限 middleware。
+
+它与 Codex 的核心差异不是功能数量，而是默认世界观：
+
+```text
+Codex：       项目目录 + shell + 文件修改 + 通用工具
+Deep Agents： 状态图 + 可插拔 backend + middleware + 业务工具
+```
+
+对小智酒店管家，Deep Agents 有四个明显优势：
+
+1. **更适合业务 agent 定制。** `ExecutionContextResolver`、`ToolPolicy`、账号锁、脱敏、超时和审计可以通过 state schema / middleware 确定性地包在模型调用和工具调用前后，而不是只依赖 prompt。
+2. **模型中立性更强。** 可使用任意支持 tool calling 的 LangChain model，也可传入自定义 model 实例，适合国产模型、私有模型和自建网关。
+3. **多 agent 与长任务是一等能力。** 原生支持 subagent 独立上下文、自动压缩、checkpoint/恢复、跨 thread memory，以及按 subagent/message/tool call 分开的流式事件。
+4. **与现有 `AgentRuntime` 接缝匹配。** LangGraph 事件可归一化为 `AgentEvent`，checkpoint 只作为 harness 内部状态；业务会话仍双写到自己的 `SessionStore`。
+
+同时有四个不能忽略的代价：
+
+1. **没有 Codex 同等级的本地 OS 沙箱。** Deep Agents 的本地 `FilesystemBackend` 只是文件访问后端，不是安全边界；需要任意 shell/脚本执行时，应接隔离 sandbox backend。若小智只暴露受控的业务工具和 browser bridge、不开放通用 shell，这个差距会显著缩小。
+2. **需要自己补产品协议层。** SDK 提供 graph、stream 和 checkpoint，不提供 Codex app-server 那样面向富客户端的完整 JSON-RPC 产品协议；仍需实现 `DeepAgentsRuntime`，负责 thread 生命周期、事件转换、审批恢复和进程通信。
+3. **仍有框架锁定。** 锁定对象从 Codex thread/plugin/schema 变成 LangGraph state/checkpoint/middleware；`AgentRuntime` 和归一化 `SessionStore` 不能因此省略。
+4. **不应直接运行在 Electron main。** 更适合放入独立 Node child process 或 Electron `utilityProcess`，避免模型 SDK、checkpoint 或工具异常拖垮主进程。
+
+**对当前选型的影响：** Deep Agents 应取代 Claude Agent SDK，成为 Codex 的第一备选和 `AgentRuntime` 中立性的第二实现。它在“不开放通用本地 shell、主要运行酒店业务工具和受控 browser bridge”的目标形态下，甚至可能比 Codex 更贴合；但 Codex 仍有订单来了的生产验证、本地沙箱和成熟 app-server/plugin 生态优势，暂不应仅凭纸面能力切换。
 
 ### 1.3 建议
 
@@ -275,8 +304,9 @@ logs/ logs_2.sqlite
 1. **Codex 是目前唯一同时具备 [沙箱] + [plugin marketplace] + [thread 持久化] + [可换模型网关] 的现成方案。** 自研这四样，保守估计 3-6 人月，且沙箱这块很难做对。
 2. **订单来了已经趟过路了**——它的 config.toml 就是一份现成的、被生产验证过的接入模板。我们照抄能省掉大量试错。
 3. **"换模型"这个更高频的需求，Codex 已经通过 `model_providers` 满足了**，且这正是订单来了在用的路径。真正需要换 harness 的场景（Codex 停止开源、协议 breaking change、许可变化）概率不高但后果重，值得用一层抽象对冲，而不是现在就换。
-4. **Claude Agent SDK 是唯一值得认真考虑的备选**，理由是 skill 机制和 MCP 都是一等公民、agent loop 质量高。但它在"自建模型网关"和"沙箱"上不如 Codex，且国内部署要额外解决网络问题。**建议把它作为 Plan B，并在抽象层设计时拿它当"第二个实现"来验证接口是否真的中立。**
-5. OpenCode / Pi 生态和成熟度不足以承载生产业务，不建议。
+4. **Deep Agents 是当前最值得认真考虑的备选。** 它在模型中立、业务 middleware、长任务恢复和多 agent 编排上更开放，适合拿来做 `AgentRuntime` 的第二实现并验证接口是否真的中立；短板是本地 OS 沙箱和富客户端产品协议需要额外建设。
+5. **Claude Agent SDK 降为特定场景备选。** 它的 agent loop、skills、MCP 和权限机制成熟，但模型与商业条款绑定更强，不适合作为我们验证 harness 中立性的首选参照。
+6. OpenCode 更适合直接复用现成 coding-agent server，Pi 更适合轻量原型；两者当前都不是小智生产业务的优先方案。
 
 ### 1.4 可替换性怎么落地：`AgentRuntime` 接口
 
@@ -329,6 +359,8 @@ Electron ──> 自建网关 ──> 模型厂商（可换）
 ```
 
 理由不只是"可换模型"：**没有网关，用户的 OTA 订单数据会直接出境到模型厂商，且我们没有任何审计和脱敏能力**。这在酒店行业是合规红线。
+
+> **Deep Agents 兼容性补充（2026-08-11）**：`base_url` 可换不等于不同 harness 可直接复用同一种 wire protocol。Codex 可直接使用 Responses API；Deep Agents 通常通过 LangChain chat model 接入，OpenAI-compatible 场景常见的是 Chat Completions 形态。模型网关应在内部路由之上分别提供 Responses、Chat-compatible（必要时再加 Anthropic-compatible）端点，或者为 Deep Agents 实现自定义 `BaseChatModel` adapter，不能把客户端协议差异泄漏给业务层。
 
 ---
 
@@ -550,3 +582,13 @@ type RiskLevel =
 来源：
 - [Embedding AI Agents in SaaS: Codex CLI vs OpenCode vs Pi](https://codex.danielvaughan.com/2026/04/07/embedding-ai-agents-saas-codex-opencode-pi/)
 - [Claude Code vs Claude Agent SDK](https://www.augmentcode.com/tools/claude-code-vs-claude-agent-sdk)
+- [Deep Agents overview](https://docs.langchain.com/oss/javascript/deepagents/overview)
+- [Deep Agents architecture](https://github.com/langchain-ai/deepagents/blob/main/libs/ARCHITECTURE.md)
+- [Deep Agents going to production](https://docs.langchain.com/oss/javascript/deepagents/going-to-production)
+- [Deep Agents streaming](https://docs.langchain.com/oss/javascript/deepagents/streaming)
+- [Deep Agents backends and filesystem security](https://docs.langchain.com/oss/javascript/deepagents/backends)
+- [Deep Agents models](https://docs.langchain.com/oss/javascript/deepagents/models)
+- [Codex app-server](https://learn.chatgpt.com/docs/app-server)
+- [Claude Agent SDK overview](https://code.claude.com/docs/en/agent-sdk/overview)
+- [OpenCode server](https://dev.opencode.ai/docs/server/)
+- [Pi SDK](https://github.com/badlogic/pi-mono/blob/main/packages/coding-agent/docs/sdk.md)
