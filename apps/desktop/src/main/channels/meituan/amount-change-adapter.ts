@@ -113,20 +113,32 @@ const WATCH_PATH = '/ebooking/merchant/product';
 const UPDATE_ENDPOINT_ID = 'updatePriceV2';
 /** 试算端点 —— 不是改价，拦它只为拿价格素材，见文件头「相对操作」。 */
 const CALC_ENDPOINT_ID = 'calcPriceV2';
-/** 单独改房态（开/关某房型某日期的可售状态）。 */
+/**
+ * 单独**开房**（把某房型某日期的可售状态打开）。
+ *
+ * ⚠️ 只管开房 —— 关房走的是另一个端点（`ROOM_CLOSE_ENDPOINT_ID`，要走审核）。
+ * 2026-08-13 真机联调踩到的坑，详见 `./room-close-payload.ts` 文件头。
+ */
 const ROOM_STATUS_ENDPOINT_ID = 'inventory-status-switch';
+/** **关房** —— 独立端点、独立形状、要走审核。规格见 `./room-close-payload.ts`。 */
+const ROOM_CLOSE_ENDPOINT_ID = 'inventory-roomstatus-submitaudit';
 /** 改房量 —— ⚠️ 同一请求里**顺带带房态**（`invSwitch`），见文件头。 */
 const INVENTORY_ENDPOINT_ID = 'inventory-update';
 
 /**
- * 要拦的端点 —— **四个里只有三个构成上报**。
+ * 要拦的端点 —— **五个里只有四个构成上报**。
  *
  * | endpointId | 用途 | 上报吗 |
  * |---|---|---|
  * | `updatePriceV2` | 改价提交 | ✅ `changeType: 'price'` |
  * | `calcPriceV2` | 改价试算 | ❌ 只作素材（`{ kind: 'context' }`） |
- * | `inventory-status-switch` | 单独改房态 | ✅ `changeType: 'roomStatus'` |
+ * | `inventory-status-switch` | **开**房 | ✅ `changeType: 'roomStatus'` |
+ * | `inventory-roomstatus-submitaudit` | **关**房（走审核） | ✅ `changeType: 'roomStatus'` |
  * | `inventory-update` | 改房量（顺带房态） | ✅ `changeType: 'roomStatus'` |
+ *
+ * ⚠️ **开房与关房不是同一个端点**（2026-08-13 真机联调发现，踩点 `单房态房量01.md` 里
+ * 看不出来）。最初只认了 `status/switch`，结果关房**一次都拦不到** —— 用户连点四次关房，
+ * 日志里全是之前开房留下的 `status: 1`。关房详见 `./room-close-payload.ts`。
  *
  * `updatePriceV2` 的 `V2` 是美团的接口版本后缀，属于**部署产物**（将来出 V3 就会变），
  * 但与携程那个 `soa2/23783` 服务编号不同：版本号是接口契约的一部分，请求体形状随之改，
@@ -158,6 +170,7 @@ const WATCHED_ENDPOINTS: ReadonlyMap<string, string> = new Map([
   [UPDATE_ENDPOINT_ID, '/api/gw/v1/product/price/updatePriceV2'],
   [CALC_ENDPOINT_ID, '/api/gw/v1/product/price/separate/calcPriceV2'],
   [ROOM_STATUS_ENDPOINT_ID, '/api/gw/v1/product/goods/inventory/status/switch'],
+  [ROOM_CLOSE_ENDPOINT_ID, '/api/gw/v1/product/goods/inventory/roomstatus/submitaudit'],
   // ⚠️ 只认 `/inventory/update`，**不认** `/inventory/check`（见上方说明）。
   [INVENTORY_ENDPOINT_ID, '/api/gw/v1/product/goods/inventory/update'],
 ]);
@@ -215,6 +228,31 @@ function inventoryRoomIdsOf(requestBody: JsonObject): readonly string[] {
         const roomId = idToString(id);
         if (roomId) found.add(roomId);
       }
+    }
+  }
+  return [...found];
+}
+
+/**
+ * 开房与关房的房型标识 —— 两者都在**顶层**，但关房多一个 `goodsIds`。
+ *
+ * ```
+ * status/switch            { roomId }                物理房型
+ * roomstatus/submitaudit   { roomId, goodsIds:[…] }  物理房型 + 其下全部售卖商品
+ * ```
+ *
+ * `goodsIds` 与改价那条路的 `goodsBaseInfo.goodsId` 同源（RMS 台账的
+ * `ota_sale_room_type_id`），所以一并收 —— 仅用于「拦到的是不是一次真实操作」的判定，
+ * 不进上报体（`changeRaw` 里有全量）。
+ */
+function topLevelRoomIdsOf(requestBody: JsonObject): readonly string[] {
+  const found = new Set<string>();
+  const roomId = idToString(requestBody.roomId);
+  if (roomId) found.add(roomId);
+  if (Array.isArray(requestBody.goodsIds)) {
+    for (const goodsId of requestBody.goodsIds) {
+      const id = idToString(goodsId);
+      if (id) found.add(id);
     }
   }
   return [...found];
@@ -284,8 +322,11 @@ function isMeituanSaveSuccessful(responseBody: string): boolean {
 }
 
 /**
- * 房态与房量的解读 —— 两个端点共用这一个函数：定位字段的取法不同（下面按 endpointId 分），
- * 但**上报体的构造完全一致**（都是 `roomStatus` + 原样透传）。
+ * 房态（开/关）与房量的解读 —— 三个端点共用这一个函数：定位字段的取法不同（下面按
+ * endpointId 分），但**上报体的构造完全一致**（都是 `roomStatus` + 原样透传）。
+ *
+ * 各自的 `changeRaw` 规格：关房见 `./room-close-payload.ts`；开房与房量没有单独的模型
+ * 文件 —— 它们原样透传，没有需要说明的转换。
  *
  * ## `changeRaw` 完全原样，不裁剪
  *
@@ -314,11 +355,20 @@ function parseRoomStatusOrInventory(
   // 门店：两个端点都在顶层 `poiId`，是三渠道里最可靠的（美团一次只改一家）。
   const otaHotelId = idToString(observed.requestBody.poiId);
 
-  // 房型定位：两个端点的形状差异极大 —— 房态是顶层单值，房量嵌在四层结构里。
+  // 房型定位：三个端点的形状差异极大。
+  //
+  // ```
+  // status/switch              roomId                          顶层单值
+  // roomstatus/submitaudit     roomId + goodsIds[]             顶层，goodsIds 是售卖商品
+  // inventory/update           …dayRoomIdList[] 等三个列表      嵌在四层结构里
+  // ```
+  //
+  // 关房的 `goodsIds` 一并收：它与改价那条路的 `goodsId` 同源（= RMS 台账的
+  // `ota_sale_room_type_id`），**RMS 反查用它比用 roomId 更直接**。见 room-close-payload.ts。
   const roomIds =
-    observed.endpointId === ROOM_STATUS_ENDPOINT_ID
-      ? [idToString(observed.requestBody.roomId)].filter((id) => id.length > 0)
-      : inventoryRoomIdsOf(observed.requestBody);
+    observed.endpointId === INVENTORY_ENDPOINT_ID
+      ? inventoryRoomIdsOf(observed.requestBody)
+      : topLevelRoomIdsOf(observed.requestBody);
 
   // 硬错误：一个房型都取不到，说明拦到的不是我们以为的操作。
   if (roomIds.length === 0) {
@@ -366,6 +416,7 @@ export function createMeituanAmountChangeAdapter(logger: AppLogger): AmountChang
       // 不参与下面的 calc/update 配对 —— 它们是**当场就能上报**的，不需要素材。
       if (
         observed.endpointId === ROOM_STATUS_ENDPOINT_ID ||
+        observed.endpointId === ROOM_CLOSE_ENDPOINT_ID ||
         observed.endpointId === INVENTORY_ENDPOINT_ID
       ) {
         return parseRoomStatusOrInventory(observed, logger);

@@ -174,6 +174,30 @@ const REAL_INVENTORY_BODY = {
   ],
 } as const;
 
+const REAL_ROOM_CLOSE_URL =
+  'https://me.meituan.com/api/gw/v1/product/goods/inventory/roomstatus/submitaudit?yodaReady=h5';
+
+/**
+ * **关房**的真实请求体（踩点 `docs/踩点/美团/关房.md`）。
+ *
+ * ⚠️ 与开房形状不同：日期是单个 `date`（不是 startDate/endDate），多了 `goodsIds`、
+ * `reason`、`roomName`。端点也不同（要走审核）。
+ */
+const REAL_ROOM_CLOSE_BODY = {
+  partnerId: 4720332,
+  poiId: '1756785213',
+  pattern: 1,
+  containerId: 282464264,
+  date: '2026-08-17',
+  status: 0,
+  roomId: 413866969,
+  goodsIds: [952161333, 2429288289, 2429295192],
+  limitType: 1,
+  roomName: '悦享大床房',
+  roomCategory: 1,
+  reason: '',
+} as const;
+
 /** 房态房量的真实成功响应 —— 与改价同构（`code` + `success`），只有 `data` 是布尔。 */
 const ROOM_STATUS_SUCCESS_RESPONSE = JSON.stringify({
   code: 10000,
@@ -579,15 +603,50 @@ describe('美团价量态改动适配器', () => {
   });
 
   describe('watchedEndpoints', () => {
-    it('拦改价两个端点 + 房态房量两个端点', () => {
+    it('拦改价两个端点 + 房态房量三个端点', () => {
       const adapter = createMeituanAmountChangeAdapter(createLogger());
 
       expect([...adapter.watchedEndpoints.entries()]).toEqual([
         ['updatePriceV2', '/api/gw/v1/product/price/updatePriceV2'],
         ['calcPriceV2', '/api/gw/v1/product/price/separate/calcPriceV2'],
         ['inventory-status-switch', '/api/gw/v1/product/goods/inventory/status/switch'],
+        [
+          'inventory-roomstatus-submitaudit',
+          '/api/gw/v1/product/goods/inventory/roomstatus/submitaudit',
+        ],
         ['inventory-update', '/api/gw/v1/product/goods/inventory/update'],
       ]);
+    });
+
+    /**
+     * ⚠️ **回归护栏**：开房与关房**不是同一个端点**（2026-08-13 真机联调发现）。
+     * 最初只认了 `status/switch`，关房一次都拦不到 —— 而失效方式极具迷惑性：日志里
+     * 全是之前开房留下的 `status: 1`，看起来「有上报」，实际关房全丢了。
+     */
+    it('关房端点独立于开房端点', () => {
+      const adapter = createMeituanAmountChangeAdapter(createLogger());
+
+      expect(adapter.watchedEndpoints.get('inventory-roomstatus-submitaudit')).toBe(
+        '/api/gw/v1/product/goods/inventory/roomstatus/submitaudit',
+      );
+      expect(adapter.watchedEndpoints.get('inventory-status-switch')).toBe(
+        '/api/gw/v1/product/goods/inventory/status/switch',
+      );
+    });
+
+    /**
+     * 关房成功后美团会紧跟着发 `order/others/deductRoomCount` 扣减房量。
+     * 它是关房的**连带后果**，不是独立操作 —— 拦了会让一次关房产生两条上报。
+     */
+    it('不拦 deductRoomCount —— 它是关房的连带扣量，拦了会重复上报', () => {
+      const adapter = createMeituanAmountChangeAdapter(createLogger());
+      const deductUrl =
+        'https://me.meituan.com/api/gw/v1/order/others/deductRoomCount?yodaReady=h5';
+
+      const matched = [...adapter.watchedEndpoints.values()].filter((fragment) =>
+        deductUrl.includes(fragment),
+      );
+      expect(matched).toEqual([]);
     });
 
     /**
@@ -692,6 +751,47 @@ describe('美团价量态改动适配器', () => {
 
       expect(report?.endpointId).toBe('inventory-status-switch');
       expect(report?.changeRaw).toMatchObject({ status: 1 });
+    });
+
+    /**
+     * ⚠️ 关房走独立端点 `roomstatus/submitaudit`（要走审核），与开房的 `status/switch`
+     * 不是同一条路。2026-08-13 真机联调发现 —— 之前只认开房那个端点，关房全丢。
+     */
+    it('关房：独立 endpointId，goodsIds 与 date 都在 changeRaw 里', () => {
+      const adapter = createMeituanAmountChangeAdapter(createLogger());
+      const report = reportOf(
+        adapter.parse(
+          roomStatusObserved(
+            'inventory-roomstatus-submitaudit',
+            REAL_ROOM_CLOSE_BODY,
+            REAL_ROOM_CLOSE_URL,
+          ),
+          null,
+        ),
+      );
+
+      expect(report?.changeType).toBe('roomStatus');
+      expect(report?.endpointId).toBe('inventory-roomstatus-submitaudit');
+      expect(report?.otaHotelId).toBe('1756785213');
+      // 关房恒为 status 0；goodsIds 是 RMS 反查的直接依据；date 是单值不是区间。
+      expect(report?.changeRaw).toEqual(REAL_ROOM_CLOSE_BODY);
+    });
+
+    /** `goodsIds` 与改价的 goodsId 同源（RMS 台账的 ota_sale_room_type_id），必须能定位。 */
+    it('关房：只有 goodsIds 没有 roomId 时仍能定位', () => {
+      const adapter = createMeituanAmountChangeAdapter(createLogger());
+      const report = reportOf(
+        adapter.parse(
+          roomStatusObserved(
+            'inventory-roomstatus-submitaudit',
+            { poiId: '1756785213', status: 0, date: '2026-08-17', goodsIds: [952161333] },
+            REAL_ROOM_CLOSE_URL,
+          ),
+          null,
+        ),
+      );
+
+      expect(report?.changeType).toBe('roomStatus');
     });
 
     it('改房量：changeType 为 roomStatus，用自己的 endpointId', () => {
