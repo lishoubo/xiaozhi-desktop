@@ -114,6 +114,8 @@ test('persists Agent conversations under the authenticated desktop session', asy
 		conversation,
 		messages: [],
 		executions: [],
+		businessExecutions: [],
+		activeBusinessExecution: null,
 		activeRun: null
 	});
 

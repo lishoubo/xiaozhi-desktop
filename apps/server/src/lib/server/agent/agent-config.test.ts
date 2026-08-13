@@ -12,8 +12,7 @@ describe('agent configuration', () => {
 			apiKey: 'secret',
 			baseUrl: 'https://api.moonshot.cn/v1',
 			model: 'kimi-k3',
-			mcpServers: {},
-			allowMcpWriteTools: false
+			mcpServers: {}
 		});
 	});
 

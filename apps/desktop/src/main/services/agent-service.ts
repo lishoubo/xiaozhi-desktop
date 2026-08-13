@@ -6,8 +6,11 @@ import type {
   AgentQuickAction,
   AgentRunEvent,
   CancelAgentRunResult,
+  CancelAgentBusinessExecutionResult,
   StartAgentRunInput,
   StartAgentRunResponse,
+  SubmitAgentClarificationInput,
+  SubmitAgentClarificationResponse,
 } from '@hotel-butler/api';
 import type { AppLogger } from '../../shared/logging';
 
@@ -32,6 +35,15 @@ export interface AgentClient {
     clearConversations: { mutate(): Promise<AgentConversationDeletionResult> };
     startRun: {
       mutate(input: StartAgentRunInput): Promise<StartAgentRunResponse>;
+    };
+    submitClarification: {
+      mutate(input: SubmitAgentClarificationInput): Promise<SubmitAgentClarificationResponse>;
+    };
+    cancelBusinessExecution: {
+      mutate(input: {
+        businessExecutionId: string;
+        expectedVersion: number;
+      }): Promise<CancelAgentBusinessExecutionResult>;
     };
     cancelRun: { mutate(input: { runId: string }): Promise<CancelAgentRunResult> };
     events: {
@@ -145,6 +157,24 @@ export class AgentService {
     });
     this.subscribeToRun(started.runId, input.conversationId, null, startedAt);
     return started;
+  }
+
+  async submitClarification(
+    input: SubmitAgentClarificationInput,
+  ): Promise<SubmitAgentClarificationResponse> {
+    const started = await this.client.agent.submitClarification.mutate(input);
+    this.subscribeToRun(started.runId, started.userMessage.conversationId, null, performance.now());
+    return started;
+  }
+
+  cancelBusinessExecution(
+    businessExecutionId: string,
+    expectedVersion: number,
+  ): Promise<CancelAgentBusinessExecutionResult> {
+    return this.client.agent.cancelBusinessExecution.mutate({
+      businessExecutionId,
+      expectedVersion,
+    });
   }
 
   resumeRun(runId: string, conversationId: string, lastEventId: string | null): void {

@@ -36,6 +36,8 @@ describe('appRouter', () => {
       clearConversations: vi.fn(),
       startRun: vi.fn(),
       cancelRun: vi.fn(),
+      submitClarification: vi.fn(),
+      cancelBusinessExecution: vi.fn(),
       events: vi.fn(),
     } as AgentGateway,
     agentPrincipal = vi.fn().mockResolvedValue(null),
@@ -114,6 +116,8 @@ describe('appRouter', () => {
       clearConversations: vi.fn(),
       startRun: vi.fn(),
       cancelRun: vi.fn(),
+      submitClarification: vi.fn(),
+      cancelBusinessExecution: vi.fn(),
       events: vi.fn(),
     } as AgentGateway;
     const principal = { employeeId: '1001', orgId: '42' } as const;
@@ -149,6 +153,8 @@ describe('appRouter', () => {
       clearConversations: vi.fn(),
       startRun: vi.fn(),
       cancelRun,
+      submitClarification: vi.fn(),
+      cancelBusinessExecution: vi.fn(),
       events: vi.fn(),
     } as AgentGateway;
     const caller = createCaller({
@@ -163,6 +169,69 @@ describe('appRouter', () => {
     expect(cancelRun).toHaveBeenCalledWith(principal, runId);
   });
 
+  it('routes clarification and waiting-execution cancellation through the authenticated principal', async () => {
+    const principal = { employeeId: '1001', orgId: '42' } as const;
+    const businessExecutionId = '44444444-4444-4444-8444-444444444444';
+    const interactionId = '55555555-5555-4555-8555-555555555555';
+    const clientRequestId = '66666666-6666-4666-8666-666666666666';
+    const submitClarification = vi.fn().mockResolvedValue({
+      runId: '33333333-3333-4333-8333-333333333333',
+      businessExecutionId,
+      userMessage: {
+        id: '22222222-2222-4222-8222-222222222222',
+        conversationId: '11111111-1111-4111-8111-111111111111',
+        businessExecutionId,
+        role: 'user',
+        content: '第二个',
+        ui: null,
+        createdAt: '2026-08-13T00:00:00.000Z',
+      },
+    });
+    const cancelBusinessExecution = vi.fn().mockResolvedValue({
+      businessExecutionId,
+      status: 'cancelled',
+    });
+    const caller = createCaller({
+      agent: {
+        capabilities: vi.fn(),
+        quickActions: vi.fn(),
+        listConversations: vi.fn(),
+        createConversation: vi.fn(),
+        getConversation: vi.fn(),
+        deleteConversation: vi.fn(),
+        clearConversations: vi.fn(),
+        startRun: vi.fn(),
+        cancelRun: vi.fn(),
+        submitClarification,
+        cancelBusinessExecution,
+        events: vi.fn(),
+      },
+      agentPrincipal: vi.fn().mockResolvedValue(principal),
+    });
+
+    const submission = {
+      businessExecutionId,
+      interactionId,
+      expectedVersion: 3,
+      clientRequestId,
+      answers: { hotel: 'hotel-2' },
+    };
+    const submit = Reflect.get(caller.agent, 'submitClarification');
+    const cancel = Reflect.get(caller.agent, 'cancelBusinessExecution');
+    expect(typeof submit).toBe('function');
+    expect(typeof cancel).toBe('function');
+    if (typeof submit !== 'function' || typeof cancel !== 'function') return;
+
+    await submit(submission);
+    await cancel({ businessExecutionId, expectedVersion: 4 });
+
+    expect(submitClarification).toHaveBeenCalledWith(principal, submission);
+    expect(cancelBusinessExecution).toHaveBeenCalledWith(principal, businessExecutionId, 4);
+    await expect(submit({ ...submission, ownerEmployeeId: '2002' } as never)).rejects.toMatchObject(
+      { code: 'BAD_REQUEST' },
+    );
+  });
+
   it('rejects Agent access before calling the gateway when no session principal exists', async () => {
     const getConversation = vi.fn();
     const agent = {
@@ -175,6 +244,8 @@ describe('appRouter', () => {
       clearConversations: vi.fn(),
       startRun: vi.fn(),
       cancelRun: vi.fn(),
+      submitClarification: vi.fn(),
+      cancelBusinessExecution: vi.fn(),
       events: vi.fn(),
     } as AgentGateway;
     const caller = createCaller({ agent });
@@ -201,6 +272,8 @@ describe('appRouter', () => {
       clearConversations,
       startRun: vi.fn(),
       cancelRun: vi.fn(),
+      submitClarification: vi.fn(),
+      cancelBusinessExecution: vi.fn(),
       events: vi.fn(),
     } as AgentGateway;
     const caller = createCaller({
@@ -251,6 +324,8 @@ describe('appRouter', () => {
       clearConversations: vi.fn(),
       startRun,
       cancelRun: vi.fn(),
+      submitClarification: vi.fn(),
+      cancelBusinessExecution: vi.fn(),
       events: vi.fn(),
     } as AgentGateway;
     const caller = createCaller({

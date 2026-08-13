@@ -17,7 +17,9 @@ generative-UI validation and conversation-context policy remain independent modu
 SDK-owned application logic.
 
 PostgreSQL is the source of truth for conversations, complete messages, runs, replayable events,
-incremental summaries and employee-scoped memory. MCP and Kimi credentials remain server-side.
+business executions, incremental summaries and employee-scoped memory. A business execution may
+span several Runs while its versioned state machine persists routing, clarification, workflow,
+evidence and answer phases. MCP and Kimi credentials remain server-side.
 
 See the [current architecture diagram](../../../docs/arch/2026-08-12-hotel-agent-architecture.mmd).
 ## Requirements
@@ -270,7 +272,7 @@ MCP tools SHALL load only from server-side configuration, and business Skills SH
 
 - **WHEN** MCP servers are configured
 - **THEN** remote URLs use HTTPS except loopback development
-- **AND** write-like tools remain disabled unless the operator explicitly enables them
+- **AND** write-like tools remain unavailable regardless of operator or remote catalog settings
 - **AND** independent server tool catalogs initialize concurrently and retain configuration order
 
 #### Scenario: Query hotel operating data
@@ -367,3 +369,18 @@ memories and MCP results SHALL be treated as untrusted data and SHALL NOT overri
 - **WHEN** a run is accepted, prepares context, invokes a tool, completes or fails
 - **THEN** client/server structured logs identify safe lifecycle facts, duration and failure class
 - **AND** omit prompts, answers, memories, tool arguments/results and credentials
+
+### Requirement: Business execution projection and API
+
+Conversation responses SHALL expose business executions separately from per-Run traces and associate
+messages and Runs through nullable execution identifiers. Strict owner-checked mutations SHALL
+submit or cancel the current clarification without accepting client-supplied owner fields.
+
+#### Scenario: Load a legacy conversation
+- **WHEN** stored messages and Runs predate business-execution support
+- **THEN** they remain readable with null business-execution associations
+
+#### Scenario: Receive a live clarification
+- **WHEN** a Run transitions to waiting for clarification
+- **THEN** the update is persisted and emitted over the existing tracked SSE transport
+- **AND** a fresh owned conversation query remains authoritative after reconnect

@@ -2,6 +2,7 @@ import type { AgentActiveRun, AgentExecutionTrace, AgentRunEvent } from '@hotel-
 
 export type StoredAgentRun = Readonly<{
 	id: string;
+	businessExecutionId?: string | null;
 	userMessageId: string;
 	status: 'running' | 'completed' | 'failed' | 'cancelled';
 	createdAt: Date;
@@ -43,6 +44,7 @@ export function buildAgentExecutionTraces(
 		}
 		return {
 			runId: run.id,
+			businessExecutionId: run.businessExecutionId ?? null,
 			userMessageId: run.userMessageId,
 			assistantMessageId,
 			status: run.status,

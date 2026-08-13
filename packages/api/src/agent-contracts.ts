@@ -2,11 +2,117 @@ import { z } from 'zod';
 
 const idSchema = z.string().uuid();
 const isoDateSchema = z.string().datetime({ offset: true });
+const localDateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
+
+export const agentBusinessExecutionStatusSchema = z.enum([
+  'routing',
+  'resolving_slots',
+  'awaiting_clarification',
+  'ready',
+  'executing',
+  'validating_evidence',
+  'answering',
+  'completed',
+  'failed',
+  'cancelled',
+]);
+export type AgentBusinessExecutionStatus = z.infer<typeof agentBusinessExecutionStatusSchema>;
+
+export const agentBusinessRouteKindSchema = z.enum([
+  'general_conversation',
+  'hotel_knowledge',
+  'business_read',
+  'business_write',
+  'unclear',
+]);
+export type AgentBusinessRouteKind = z.infer<typeof agentBusinessRouteKindSchema>;
+
+export const agentBusinessIntentSchema = z.enum([
+  'weather_operations_advice',
+  'hotel_operating_summary',
+  'public_hotel_rates',
+  'generic_hotel_data_query',
+]);
+export type AgentBusinessIntent = z.infer<typeof agentBusinessIntentSchema>;
+
+const clarificationFieldBase = {
+  slot: z.string().regex(/^[a-z][a-zA-Z0-9_.-]{0,79}$/),
+  label: z.string().trim().min(1).max(80),
+  required: z.boolean(),
+} as const;
+
+export const agentClarificationFieldSchema = z.discriminatedUnion('kind', [
+  z.strictObject({
+    ...clarificationFieldBase,
+    kind: z.literal('single_choice'),
+    choices: z
+      .array(
+        z.strictObject({
+          value: z.string().min(1).max(200),
+          label: z.string().trim().min(1).max(120),
+        }),
+      )
+      .min(2)
+      .max(20),
+  }),
+  z.strictObject({
+    ...clarificationFieldBase,
+    kind: z.literal('date'),
+    min: localDateSchema.optional(),
+    max: localDateSchema.optional(),
+  }),
+  z.strictObject({
+    ...clarificationFieldBase,
+    kind: z.literal('date_range'),
+    min: localDateSchema.optional(),
+    max: localDateSchema.optional(),
+  }),
+  z.strictObject({
+    ...clarificationFieldBase,
+    kind: z.literal('number'),
+    min: z.number().finite().optional(),
+    max: z.number().finite().optional(),
+    integer: z.boolean().default(false),
+  }),
+  z.strictObject({
+    ...clarificationFieldBase,
+    kind: z.literal('text'),
+    maxLength: z.number().int().positive().max(2_000),
+  }),
+]);
+export type AgentClarificationField = Readonly<z.infer<typeof agentClarificationFieldSchema>>;
+
+export const agentPendingClarificationSchema = z.strictObject({
+  interactionId: idSchema,
+  anchorMessageId: idSchema,
+  version: z.number().int().positive(),
+  prompt: z.string().trim().min(1).max(500),
+  fields: z.array(agentClarificationFieldSchema).min(1).max(6),
+  expiresAt: isoDateSchema,
+});
+export type AgentPendingClarification = Readonly<z.infer<typeof agentPendingClarificationSchema>>;
+
+export const agentBusinessExecutionSummarySchema = z.strictObject({
+  id: idSchema,
+  conversationId: idSchema,
+  triggerUserMessageId: idSchema,
+  routeKind: agentBusinessRouteKindSchema,
+  intent: agentBusinessIntentSchema.nullable(),
+  status: agentBusinessExecutionStatusSchema,
+  pendingClarification: agentPendingClarificationSchema.nullable(),
+  createdAt: isoDateSchema,
+  updatedAt: isoDateSchema,
+  completedAt: isoDateSchema.nullable(),
+});
+export type AgentBusinessExecutionSummary = Readonly<
+  z.infer<typeof agentBusinessExecutionSummarySchema>
+>;
 
 export const agentConversationSummarySchema = z.strictObject({
   id: idSchema,
   title: z.string().min(1).max(120),
   activeRunId: idSchema.nullable(),
+  activeBusinessExecutionId: idSchema.nullable().optional(),
   createdAt: isoDateSchema,
   updatedAt: isoDateSchema,
 });
@@ -100,6 +206,7 @@ export type HotelRadialChartProps = Readonly<z.infer<typeof hotelRadialChartProp
 export const agentMessageSchema = z.strictObject({
   id: idSchema,
   conversationId: idSchema,
+  businessExecutionId: idSchema.nullable().optional(),
   role: z.enum(['user', 'assistant']),
   content: z.string(),
   ui: generativeUiSpecSchema.nullable(),
@@ -120,6 +227,7 @@ export type AgentRunStatus = z.infer<typeof agentRunStatusSchema>;
 
 export const agentExecutionTraceSchema = z.strictObject({
   runId: idSchema,
+  businessExecutionId: idSchema.nullable().optional(),
   userMessageId: idSchema,
   assistantMessageId: idSchema.nullable(),
   status: agentRunStatusSchema,
@@ -142,6 +250,8 @@ export const agentConversationSchema = z.strictObject({
   conversation: agentConversationSummarySchema,
   messages: z.array(agentMessageSchema),
   executions: z.array(agentExecutionTraceSchema),
+  businessExecutions: z.array(agentBusinessExecutionSummarySchema).optional(),
+  activeBusinessExecution: agentBusinessExecutionSummarySchema.nullable().optional(),
   activeRun: agentActiveRunSchema.nullable(),
 });
 export type AgentConversation = Readonly<z.infer<typeof agentConversationSchema>>;
@@ -199,6 +309,11 @@ export const agentRunEventSchema = z.discriminatedUnion('type', [
   z.strictObject({ ...eventBase, type: z.literal('ui_spec'), spec: generativeUiSpecSchema }),
   z.strictObject({
     ...eventBase,
+    type: z.literal('business_execution_updated'),
+    execution: agentBusinessExecutionSummarySchema,
+  }),
+  z.strictObject({
+    ...eventBase,
     type: z.literal('run_completed'),
     message: agentMessageSchema,
   }),
@@ -239,9 +354,53 @@ export const startAgentRunInputSchema = z.union([
 export type StartAgentRunInput = Readonly<z.infer<typeof startAgentRunInputSchema>>;
 export const startAgentRunResponseSchema = z.strictObject({
   runId: idSchema,
+  businessExecutionId: idSchema.optional(),
   userMessage: agentMessageSchema,
 });
 export type StartAgentRunResponse = Readonly<z.infer<typeof startAgentRunResponseSchema>>;
+
+const clarificationAnswerValueSchema = z.union([
+  z.string().trim().min(1).max(2_000),
+  z.number().finite(),
+  z.strictObject({ start: localDateSchema, end: localDateSchema }),
+]);
+const clarificationSubmissionBase = {
+  businessExecutionId: idSchema,
+  interactionId: idSchema,
+  expectedVersion: z.number().int().positive(),
+  clientRequestId: idSchema,
+} as const;
+const structuredClarificationInputSchema = z.strictObject({
+  ...clarificationSubmissionBase,
+  answers: z
+    .record(z.string().min(1).max(80), clarificationAnswerValueSchema)
+    .refine((answers) => Object.keys(answers).length >= 1 && Object.keys(answers).length <= 6),
+});
+const freeTextClarificationInputSchema = z.strictObject({
+  ...clarificationSubmissionBase,
+  responseText: z.string().trim().min(1).max(20_000),
+});
+export const submitAgentClarificationInputSchema = z.union([
+  structuredClarificationInputSchema,
+  freeTextClarificationInputSchema,
+]);
+export type SubmitAgentClarificationInput = Readonly<
+  z.infer<typeof submitAgentClarificationInputSchema>
+>;
+export const submitAgentClarificationResponseSchema = startAgentRunResponseSchema;
+export type SubmitAgentClarificationResponse = StartAgentRunResponse;
+
+export const agentBusinessExecutionIdInputSchema = z.strictObject({
+  businessExecutionId: idSchema,
+  expectedVersion: z.number().int().positive(),
+});
+export const cancelAgentBusinessExecutionResultSchema = z.strictObject({
+  businessExecutionId: idSchema,
+  status: z.literal('cancelled'),
+});
+export type CancelAgentBusinessExecutionResult = Readonly<
+  z.infer<typeof cancelAgentBusinessExecutionResultSchema>
+>;
 export const agentRunEventsInputSchema = z.strictObject({
   runId: idSchema,
   lastEventId: idSchema.nullish(),

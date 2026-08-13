@@ -1,4 +1,8 @@
 import type { AgentMessage, AgentPrincipal, GenerativeUiSpec } from '@hotel-butler/api';
+import type {
+	EvidenceRecord,
+	ResolvedBusinessRequest
+} from './execution/business-execution-state';
 
 export type RuntimeEvent =
 	| Readonly<{ type: 'text_delta'; delta: string }>
@@ -17,11 +21,14 @@ export type AgentRuntimeRunOptions = Readonly<{
 	history: readonly AgentMessage[];
 	signal: AbortSignal;
 	emit(event: RuntimeEvent): Promise<void>;
+	workflowRequest?: ResolvedBusinessRequest;
+	validatedEvidence?: readonly EvidenceRecord[];
 }>;
 
 export type AgentRuntimeResult = Readonly<{
 	content: string;
 	ui: GenerativeUiSpec | null;
+	toolEvidence?: readonly Readonly<{ toolName: string; toolArgs: unknown; result: unknown }>[];
 }>;
 
 export interface AgentRuntime {

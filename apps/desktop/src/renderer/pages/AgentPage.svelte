@@ -19,6 +19,7 @@
   import { onMount } from 'svelte';
   import { SvelteMap } from 'svelte/reactivity';
   import AgentAvatar from '../components/agent/AgentAvatar.svelte';
+  import AgentClarificationCard from '../components/agent/AgentClarificationCard.svelte';
   import AgentExecutionTimeline from '../components/agent/AgentExecutionTimeline.svelte';
   import AgentMarkdown from '../components/agent/AgentMarkdown.svelte';
   import HotelGenerativeUi from '../components/agent/HotelGenerativeUi.svelte';
@@ -55,6 +56,7 @@
   let loading = $state(true);
   let starting = $state(false);
   let stoppingRunId = $state<string | null>(null);
+  let clarificationSubmitting = $state(false);
   let pageErrorMessage = $state('');
   let deleteTarget = $state.raw<AgentConversationSummary | null>(null);
   let clearHistoryOpen = $state(false);
@@ -74,6 +76,8 @@
   const sending = $derived(starting || activeRunId !== null);
   const stopping = $derived(activeRunId !== null && stoppingRunId === activeRunId);
   const errorMessage = $derived(pageErrorMessage || activeView?.errorMessage || '');
+  const activeBusinessExecution = $derived(activeView?.activeBusinessExecution ?? null);
+  const pendingClarification = $derived(activeBusinessExecution?.pendingClarification ?? null);
   const hasActiveRuns = $derived(conversations.some((conversation) => conversation.activeRunId));
   const activeConversation = $derived(
     conversations.find((conversation) => conversation.id === activeConversationId) ?? null,
@@ -217,7 +221,68 @@
     const content = prompt.trim();
     if (!content || sending) return;
     prompt = '';
+    if (pendingClarification && activeBusinessExecution) {
+      await submitClarification({ responseText: content }, content);
+      return;
+    }
     await startRun({ prompt: content }, content);
+  }
+
+  async function submitClarification(
+    response:
+      | { responseText: string }
+      | { answers: Readonly<Record<string, string | number | { start: string; end: string }>> },
+    restorePrompt = '',
+  ): Promise<void> {
+    const conversationId = activeConversationId;
+    const execution = activeBusinessExecution;
+    const clarification = pendingClarification;
+    if (!conversationId || !execution || !clarification || clarificationSubmitting) return;
+    clarificationSubmitting = true;
+    pageErrorMessage = '';
+    try {
+      const currentView = conversationViews.get(conversationId);
+      if (!currentView) throw new Error('Agent conversation view is unavailable');
+      const started = await window.hotelButler.agent.submitClarification({
+        businessExecutionId: execution.id,
+        interactionId: clarification.interactionId,
+        expectedVersion: clarification.version,
+        clientRequestId: crypto.randomUUID(),
+        ...response,
+      });
+      conversationViews.set(
+        conversationId,
+        addStartedRun(currentView, started, new Date().toISOString()),
+      );
+      conversations = conversations.map((conversation) =>
+        conversation.id === conversationId
+          ? { ...conversation, activeRunId: started.runId }
+          : conversation,
+      );
+      drainPendingRunEvents(started.runId);
+      await refreshConversations();
+    } catch {
+      if (restorePrompt) prompt = restorePrompt;
+      pageErrorMessage = '补充信息提交失败，可能已过期；请刷新会话后重试。';
+    } finally {
+      clarificationSubmitting = false;
+    }
+  }
+
+  async function cancelPendingBusinessExecution(): Promise<void> {
+    const conversationId = activeConversationId;
+    const execution = activeBusinessExecution;
+    const clarification = pendingClarification;
+    if (!conversationId || !execution || !clarification || clarificationSubmitting) return;
+    clarificationSubmitting = true;
+    try {
+      await window.hotelButler.agent.cancelBusinessExecution(execution.id, clarification.version);
+      await loadConversationState(conversationId);
+    } catch {
+      pageErrorMessage = '取消任务失败，请刷新会话后重试。';
+    } finally {
+      clarificationSubmitting = false;
+    }
   }
 
   async function executeQuickAction(action: AgentQuickAction): Promise<void> {
@@ -512,6 +577,16 @@
               {/if}
             </div>
           </article>
+          {#if pendingClarification?.anchorMessageId === message.id}
+            <div class="ml-11 max-w-xl">
+              <AgentClarificationCard
+                clarification={pendingClarification}
+                submitting={clarificationSubmitting}
+                onsubmit={(answers) => void submitClarification({ answers })}
+                oncancel={() => void cancelPendingBusinessExecution()}
+              />
+            </div>
+          {/if}
           {#if execution && message.role === 'user'}
             <article
               class="mt-3 flex gap-3"

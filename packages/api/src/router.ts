@@ -2,8 +2,10 @@ import { initTRPC, tracked, TRPCError } from '@trpc/server';
 import { z } from 'zod';
 import {
   agentCapabilitiesSchema,
+  agentBusinessExecutionIdInputSchema,
   agentRunIdInputSchema,
   cancelAgentRunResultSchema,
+  cancelAgentBusinessExecutionResultSchema,
   agentConversationDeletionResultSchema,
   agentConversationIdInputSchema,
   agentConversationSchema,
@@ -18,8 +20,11 @@ import {
   phoneNumberSchema,
   startAgentRunInputSchema,
   startAgentRunResponseSchema,
+  submitAgentClarificationInputSchema,
+  submitAgentClarificationResponseSchema,
   type AgentCapabilities,
   type CancelAgentRunResult,
+  type CancelAgentBusinessExecutionResult,
   type AgentConversation,
   type AgentConversationDeletionResult,
   type AgentConversationSummary,
@@ -28,13 +33,22 @@ import {
   type EmployeeIdentity,
   type StartAgentRunResponse,
   type StartAgentRunInput,
+  type SubmitAgentClarificationInput,
+  type SubmitAgentClarificationResponse,
 } from './contracts';
 
 export {
   agentActiveRunSchema,
+  agentBusinessExecutionIdInputSchema,
+  agentBusinessExecutionStatusSchema,
+  agentBusinessExecutionSummarySchema,
+  agentBusinessIntentSchema,
+  agentBusinessRouteKindSchema,
+  agentClarificationFieldSchema,
   agentCapabilitiesSchema,
   agentRunIdInputSchema,
   cancelAgentRunResultSchema,
+  cancelAgentBusinessExecutionResultSchema,
   agentConversationDeletionResultSchema,
   agentConversationIdInputSchema,
   agentConversationSchema,
@@ -44,6 +58,7 @@ export {
   agentMessageSchema,
   agentQuickActionIdSchema,
   agentQuickActionSchema,
+  agentPendingClarificationSchema,
   agentRunEventSchema,
   agentRunEventsInputSchema,
   createAgentConversationInputSchema,
@@ -64,9 +79,18 @@ export {
   staffUsernameSchema,
   startAgentRunInputSchema,
   startAgentRunResponseSchema,
+  submitAgentClarificationInputSchema,
+  submitAgentClarificationResponseSchema,
   type AgentCapabilities,
   type AgentActiveRun,
+  type AgentBusinessExecutionStatus,
+  type AgentBusinessExecutionSummary,
+  type AgentBusinessIntent,
+  type AgentBusinessRouteKind,
+  type AgentClarificationField,
+  type AgentPendingClarification,
   type CancelAgentRunResult,
+  type CancelAgentBusinessExecutionResult,
   type AgentConversation,
   type AgentConversationDeletionResult,
   type AgentConversationSummary,
@@ -85,6 +109,8 @@ export {
   type StaffIdentity,
   type StartAgentRunResponse,
   type StartAgentRunInput,
+  type SubmitAgentClarificationInput,
+  type SubmitAgentClarificationResponse,
 } from './contracts';
 
 export { agentRunStatusSchema, type AgentRunStatus } from './contracts';
@@ -137,6 +163,15 @@ export interface AgentGateway {
   clearConversations(principal: AgentPrincipal): Promise<AgentConversationDeletionResult>;
   startRun(principal: AgentPrincipal, input: StartAgentRunInput): Promise<StartAgentRunResponse>;
   cancelRun(principal: AgentPrincipal, runId: string): Promise<CancelAgentRunResult>;
+  submitClarification(
+    principal: AgentPrincipal,
+    input: SubmitAgentClarificationInput,
+  ): Promise<SubmitAgentClarificationResponse>;
+  cancelBusinessExecution(
+    principal: AgentPrincipal,
+    businessExecutionId: string,
+    expectedVersion: number,
+  ): Promise<CancelAgentBusinessExecutionResult>;
   events(
     principal: AgentPrincipal,
     input: Readonly<{ runId: string; lastEventId?: string | null }>,
@@ -263,6 +298,20 @@ export const appRouter = t.router({
       .input(agentRunIdInputSchema)
       .output(cancelAgentRunResultSchema)
       .mutation(({ ctx, input }) => ctx.agent.cancelRun(ctx.agentPrincipal, input.runId)),
+    submitClarification: agentProcedure
+      .input(submitAgentClarificationInputSchema)
+      .output(submitAgentClarificationResponseSchema)
+      .mutation(({ ctx, input }) => ctx.agent.submitClarification(ctx.agentPrincipal, input)),
+    cancelBusinessExecution: agentProcedure
+      .input(agentBusinessExecutionIdInputSchema)
+      .output(cancelAgentBusinessExecutionResultSchema)
+      .mutation(({ ctx, input }) =>
+        ctx.agent.cancelBusinessExecution(
+          ctx.agentPrincipal,
+          input.businessExecutionId,
+          input.expectedVersion,
+        ),
+      ),
     events: agentProcedure.input(agentRunEventsInputSchema).subscription(async function* ({
       ctx,
       input,

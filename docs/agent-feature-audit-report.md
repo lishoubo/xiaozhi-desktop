@@ -89,7 +89,7 @@ server 构建日志明确提示 `phone_otp.temporary_gateway_enabled`，当前�
 
 ### Medium — 开启 MCP 写工具后没有确定性人工确认状态机
 
-默认 `AI_MCP_ALLOW_WRITE_TOOLS=false` 时，工具层会同时执行读名称白名单与写名称黑名单，快捷操作也是只读的。若把该环境变量设为 `true`，当前仅靠 system prompt 要求确认，没有独立 confirmation token、影响预览和审计状态机。生产环境应保持 `false`，直到实现确定性 human-in-the-loop contract。
+该风险已由 2026-08-13 的业务执行层变更处理：`AI_MCP_ALLOW_WRITE_TOOLS` 已移除，工具加载层始终拒绝写工具，业务路由层也会确定性拒绝写意图。未来若支持写操作，仍须另行实现 confirmation token、影响预览和审计状态机。
 
 ### Medium — 长期记忆没有确定性敏感信息识别
 

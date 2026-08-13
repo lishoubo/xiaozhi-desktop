@@ -59,3 +59,26 @@ The server E2E suite SHALL include a natural-language test that uses the real LL
 - **WHEN** valid Kimi and DMS credentials are configured
 - **THEN** the suite verifies login, Agent run completion, restricted SQL tool completion and a business answer containing hotel and GMV information
 
+### Requirement: Execution-scoped hotel data evidence
+
+Hotel-data tools SHALL be selected by the current registered read workflow. Results SHALL become
+credential-redacted, bounded evidence with query fingerprint, requested scope, period, metrics,
+filtering state and available observation metadata before answer generation.
+
+#### Scenario: Result scope does not match
+- **WHEN** returned hotel metadata conflicts with the resolved request
+- **THEN** the evidence is rejected and is not passed to answer or generated-UI production
+
+#### Scenario: Result was compacted
+- **WHEN** the provider omits rows, hides credential fields or truncates values
+- **THEN** the evidence records filtering and the final answer discloses the material limitation
+
+### Requirement: Honest shared hotel scope
+
+Until a trusted hotel directory and per-hotel authorization source are introduced, hotel candidate
+discovery and data queries SHALL retain the shared access scope granted by the configured DMS token.
+
+#### Scenario: Resolve a hotel candidate through DMS
+- **WHEN** the execution uses DMS to find hotel-name candidates
+- **THEN** it labels the candidates as shared-token results
+- **AND** does not represent them as employee-specific hotel authorization

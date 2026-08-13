@@ -1,14 +1,21 @@
 import { z } from 'zod';
 import type {
   AgentCapabilities,
+  CancelAgentBusinessExecutionResult,
   CancelAgentRunResult,
   AgentConversation,
   AgentConversationDeletionResult,
   AgentConversationSummary,
   AgentQuickAction,
   StartAgentRunResponse,
+  SubmitAgentClarificationResponse,
 } from '@hotel-butler/api';
-import { agentConversationIdInputSchema, startAgentRunInputSchema } from '../../shared/agent';
+import {
+  agentBusinessExecutionIdInputSchema,
+  agentConversationIdInputSchema,
+  startAgentRunInputSchema,
+  submitAgentClarificationInputSchema,
+} from '../../shared/agent';
 import { IPC_CHANNELS } from '../../shared/ipc-channels';
 import type { AppLogger } from '../../shared/logging';
 import { createHandlerRegistry, type TrustedWindow } from './create-handler-registry';
@@ -22,6 +29,13 @@ export interface AgentOrchestrator {
   deleteConversation(conversationId: string): Promise<AgentConversationDeletionResult>;
   clearConversations(): Promise<AgentConversationDeletionResult>;
   startRun(input: z.infer<typeof startAgentRunInputSchema>): Promise<StartAgentRunResponse>;
+  submitClarification(
+    input: z.infer<typeof submitAgentClarificationInputSchema>,
+  ): Promise<SubmitAgentClarificationResponse>;
+  cancelBusinessExecution(
+    businessExecutionId: string,
+    expectedVersion: number,
+  ): Promise<CancelAgentBusinessExecutionResult>;
   resumeRun(runId: string, conversationId: string, lastEventId: string | null): void;
   cancelRun(runId: string): Promise<CancelAgentRunResult>;
 }
@@ -71,6 +85,22 @@ export function registerAgentHandlers({
     z.tuple([startAgentRunInputSchema]),
     'Agent 请求参数无效',
     (input) => service.startRun(input),
+  );
+  registry.handle(
+    IPC_CHANNELS.agent.submitClarification,
+    z.tuple([submitAgentClarificationInputSchema]),
+    'Agent 补充信息参数无效',
+    (input) => service.submitClarification(input),
+  );
+  registry.handle(
+    IPC_CHANNELS.agent.cancelBusinessExecution,
+    z.tuple([
+      agentBusinessExecutionIdInputSchema.shape.businessExecutionId,
+      agentBusinessExecutionIdInputSchema.shape.expectedVersion,
+    ]),
+    'Agent 执行取消参数无效',
+    (businessExecutionId, expectedVersion) =>
+      service.cancelBusinessExecution(businessExecutionId, expectedVersion),
   );
   registry.handle(
     IPC_CHANNELS.agent.resumeRun,

@@ -1,5 +1,6 @@
 import type {
   AgentConversation,
+  AgentBusinessExecutionSummary,
   AgentExecutionTrace,
   AgentMessage,
   AgentRunEvent,
@@ -16,6 +17,7 @@ export type AgentConversationViewState = Readonly<{
   draftUi: GenerativeUiSpec | null;
   preparingUi: boolean;
   errorMessage: string;
+  activeBusinessExecution: AgentBusinessExecutionSummary | null;
 }>;
 
 export function createEmptyConversationView(conversationId: string): AgentConversationViewState {
@@ -28,6 +30,7 @@ export function createEmptyConversationView(conversationId: string): AgentConver
     draftUi: null,
     preparingUi: false,
     errorMessage: '',
+    activeBusinessExecution: null,
   };
 }
 
@@ -41,6 +44,7 @@ export function hydrateConversationView(snapshot: AgentConversation): AgentConve
     draftUi: snapshot.activeRun?.ui ?? null,
     preparingUi: snapshot.activeRun?.preparingUi ?? false,
     errorMessage: '',
+    activeBusinessExecution: snapshot.activeBusinessExecution ?? null,
   };
 }
 
@@ -56,6 +60,7 @@ export function addStartedRun(
       ...state.executions,
       {
         runId: started.runId,
+        businessExecutionId: started.businessExecutionId ?? null,
         userMessageId: started.userMessage.id,
         assistantMessageId: null,
         status: 'running',
@@ -125,6 +130,14 @@ export function applyRunEvent(
   }
   if (event.type === 'ui_spec') {
     return { ...state, draftUi: event.spec, preparingUi: false };
+  }
+  if (event.type === 'business_execution_updated') {
+    return {
+      ...state,
+      activeBusinessExecution: ['completed', 'failed', 'cancelled'].includes(event.execution.status)
+        ? null
+        : event.execution,
+    };
   }
   if (event.type === 'run_completed') {
     return {

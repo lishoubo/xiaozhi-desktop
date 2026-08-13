@@ -59,7 +59,6 @@ export type AgentEnvironment = Readonly<{
 	baseUrl: string;
 	model: string;
 	mcpServers: Readonly<Record<string, McpServerConfig>>;
-	allowMcpWriteTools: boolean;
 }>;
 
 function parseKimiBaseUrl(raw: string | undefined): string {
@@ -109,9 +108,6 @@ export function readAgentEnvironment(environment: NodeJS.ProcessEnv): AgentEnvir
 		apiKey: environment.AI_KIMI_API_KEY?.trim() ?? '',
 		baseUrl: parseKimiBaseUrl(environment.AI_KIMI_BASE_URL),
 		model: environment.AI_KIMI_MODEL?.trim() || 'kimi-k3',
-		mcpServers: bundledServers,
-		allowMcpWriteTools: ['1', 'true', 'yes', 'on'].includes(
-			(environment.AI_MCP_ALLOW_WRITE_TOOLS ?? '').trim().toLowerCase()
-		)
+		mcpServers: bundledServers
 	};
 }

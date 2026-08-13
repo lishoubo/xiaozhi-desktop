@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
 	DuplicateUiRenderError,
 	recoverCompletedUiAfterRenderLimit,
+	selectWorkflowToolNames,
 	shouldStopDuplicateUiRender
 } from './langchain-agent-runtime';
 
@@ -33,5 +34,28 @@ describe('recoverCompletedUiAfterRenderLimit', () => {
 	it('does not hide unrelated failures or a failed first render', () => {
 		expect(recoverCompletedUiAfterRenderLimit(new Error('upstream'), '', ui)).toBeNull();
 		expect(recoverCompletedUiAfterRenderLimit(new DuplicateUiRenderError(), '', null)).toBeNull();
+	});
+});
+
+describe('selectWorkflowToolNames', () => {
+	const available = [
+		'query_hotel_operating_data',
+		'query_weather_forecast',
+		'search_room_rates',
+		'update_room_rate'
+	];
+
+	it('narrows evidence collection to the intent allowlist and removes MCP tools after validation', () => {
+		const workflowRequest = {
+			routeKind: 'business_read' as const,
+			intent: 'hotel_operating_summary' as const,
+			slots: {}
+		};
+		expect(selectWorkflowToolNames({ workflowRequest }, available)).toEqual([
+			'query_hotel_operating_data'
+		]);
+		expect(
+			selectWorkflowToolNames({ workflowRequest, validatedEvidence: [] }, available)
+		).toEqual(['render_hotel_ui']);
 	});
 });

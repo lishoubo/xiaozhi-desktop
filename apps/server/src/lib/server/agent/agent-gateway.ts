@@ -1,4 +1,4 @@
-import { agentRunEventSchema } from '@hotel-butler/api';
+import { agentQuickActionIdSchema, agentRunEventSchema } from '@hotel-butler/api';
 import type {
 	AgentConversation,
 	AgentConversationSummary,
@@ -6,21 +6,34 @@ import type {
 	AgentMessage,
 	AgentPrincipal,
 	AgentRunEvent,
+	CancelAgentBusinessExecutionResult,
 	CancelAgentRunResult,
 	StartAgentRunInput,
-	StartAgentRunResponse
+	StartAgentRunResponse,
+	SubmitAgentClarificationInput,
+	SubmitAgentClarificationResponse
 } from '@hotel-butler/api';
 import { TRPCError } from '@trpc/server';
 import { EventEmitter, on } from 'node:events';
 import { randomUUID } from 'node:crypto';
 import type { ApiLogger } from '@hotel-butler/api';
-import { AgentAccessDeniedError, AgentRepository } from './agent-repository';
+import {
+	AgentAccessDeniedError,
+	ActiveBusinessExecutionExistsError,
+	AgentRepository,
+	StaleBusinessExecutionVersionError
+} from './agent-repository';
 import type { AgentEnvironment } from './agent-config';
 import type { AgentRuntime, RuntimeEvent } from './agent-runtime';
 import type { ConversationContextService } from './conversation-context';
 import type { McpToolProvider } from './mcp-tool-provider';
 import type { SkillProvider } from './skill-provider';
 import { getHotelQuickAction, listHotelQuickActions } from './hotel-quick-actions';
+import type { BusinessIntentRouter } from './execution/business-intent-router';
+import { resolveRelativeDateRange, type BusinessSlotResolver } from './execution/slot-resolver';
+import { getIntentDefinition } from './execution/intent-registry';
+import { assessEvidence, normalizeEvidence } from './execution/evidence';
+import type { JsonValue } from './execution/business-execution-state';
 
 type AgentRepositoryPort = Pick<
 	AgentRepository,
@@ -30,6 +43,10 @@ type AgentRepositoryPort = Pick<
 	| 'deleteConversation'
 	| 'clearConversations'
 	| 'startRun'
+	| 'resumeBusinessExecution'
+	| 'getBusinessExecution'
+	| 'transitionBusinessExecution'
+	| 'recoverInterruptedRuns'
 	| 'getRunContext'
 	| 'finalizeRunSuccess'
 	| 'appendEvent'
@@ -86,6 +103,7 @@ export class HotelAgentGateway implements AgentGateway {
 		string,
 		Readonly<{ ownerEmployeeId: string; controller: AbortController }>
 	>();
+	private recoveryPromise: Promise<void> | null = null;
 
 	constructor(
 		private readonly environment: AgentEnvironment,
@@ -94,7 +112,9 @@ export class HotelAgentGateway implements AgentGateway {
 		private readonly conversationContext: ConversationContextPort,
 		private readonly mcpTools: McpToolProviderPort,
 		private readonly skills: SkillProvider,
-		private readonly logger: ApiLogger
+		private readonly logger: ApiLogger,
+		private readonly intentRouter?: BusinessIntentRouter,
+		private readonly slotResolver?: BusinessSlotResolver
 	) {
 		this.eventBus.setMaxListeners(100);
 	}
@@ -116,6 +136,7 @@ export class HotelAgentGateway implements AgentGateway {
 	}
 
 	async listConversations(principal: AgentPrincipal): Promise<AgentConversationSummary[]> {
+		await this.ensureRecovered();
 		const startedAt = performance.now();
 		const conversations = await this.repository.listConversations(principal);
 		this.logger.debug(
@@ -138,6 +159,7 @@ export class HotelAgentGateway implements AgentGateway {
 		principal: AgentPrincipal,
 		conversationId: string
 	): Promise<AgentConversation> {
+		await this.ensureRecovered();
 		const startedAt = performance.now();
 		try {
 			const conversation = await this.repository.getConversation(principal, conversationId);
@@ -199,11 +221,16 @@ export class HotelAgentGateway implements AgentGateway {
 		input: StartAgentRunInput
 	): Promise<StartAgentRunResponse> {
 		try {
+			await this.ensureRecovered();
 			const prompt = this.resolvePrompt(input);
 			const result = await this.repository.startRun(principal, {
 				conversationId: input.conversationId,
 				clientRequestId: input.clientRequestId,
-				prompt
+				prompt,
+				executionInput:
+					'prompt' in input
+						? { kind: 'prompt', value: input.prompt }
+						: { kind: 'quick_action', value: input.quickActionId }
 			});
 			if (result.created && !this.activeRuns.has(result.response.runId)) {
 				const controller = new AbortController();
@@ -229,6 +256,159 @@ export class HotelAgentGateway implements AgentGateway {
 		} catch (error) {
 			throw this.toTrpcError(error);
 		}
+	}
+
+	async submitClarification(
+		principal: AgentPrincipal,
+		input: SubmitAgentClarificationInput
+	): Promise<SubmitAgentClarificationResponse> {
+		try {
+			await this.ensureRecovered();
+			const execution = await this.repository.getBusinessExecution(
+				principal,
+				input.businessExecutionId
+			);
+			if (execution.state.status !== 'awaiting_clarification') {
+				throw new TRPCError({ code: 'CONFLICT', message: '这次补充信息已经失效，请刷新会话。' });
+			}
+			const answers =
+				'answers' in input
+					? input.answers
+					: this.extractClarificationAnswers(execution.state.clarification, input.responseText);
+			const content =
+				'responseText' in input
+					? input.responseText
+					: execution.state.clarification.fields
+							.map((field) => `${field.label}：${JSON.stringify(answers[field.slot])}`)
+							.join('；');
+			const result = await this.repository.resumeBusinessExecution(principal, {
+				businessExecutionId: input.businessExecutionId,
+				interactionId: input.interactionId,
+				expectedVersion: input.expectedVersion,
+				clientRequestId: input.clientRequestId,
+				content,
+				answers
+			});
+			this.logger.info(
+				{
+					event: result.created
+						? 'agent.business_execution.clarification_accepted'
+						: 'agent.business_execution.clarification_reused',
+					businessExecutionId: input.businessExecutionId,
+					runId: result.response.runId,
+					interactionId: input.interactionId,
+					answerMode: 'answers' in input ? 'structured' : 'free_text'
+				},
+				'Agent business clarification accepted'
+			);
+			if (result.created) this.launchRun(principal, result.response.runId);
+			return result.response;
+		} catch (error) {
+			throw this.toTrpcError(error);
+		}
+	}
+
+	async cancelBusinessExecution(
+		principal: AgentPrincipal,
+		businessExecutionId: string,
+		expectedVersion: number
+	): Promise<CancelAgentBusinessExecutionResult> {
+		try {
+			const current = await this.repository.getBusinessExecution(principal, businessExecutionId);
+			if (current.state.status !== 'awaiting_clarification') {
+				throw new TRPCError({ code: 'CONFLICT', message: '只有等待补充信息的任务可以取消。' });
+			}
+			await this.repository.transitionBusinessExecution(
+				principal,
+				businessExecutionId,
+				expectedVersion,
+				{ type: 'execution_cancelled' }
+			);
+			return { businessExecutionId, status: 'cancelled' };
+		} catch (error) {
+			throw this.toTrpcError(error);
+		}
+	}
+
+	private launchRun(principal: AgentPrincipal, runId: string): void {
+		if (this.activeRuns.has(runId)) return;
+		const controller = new AbortController();
+		this.activeRuns.set(runId, { ownerEmployeeId: principal.employeeId, controller });
+		void this.executeRun(principal, runId, controller).finally(() => {
+			const active = this.activeRuns.get(runId);
+			if (active?.controller === controller) this.activeRuns.delete(runId);
+		});
+	}
+
+	private ensureRecovered(): Promise<void> {
+		if (!this.recoveryPromise) {
+			this.recoveryPromise = this.repository
+				.recoverInterruptedRuns()
+				.then((runCount) => {
+					if (runCount > 0) {
+						this.logger.warn(
+							{ event: 'agent.runs.recovered_after_restart', runCount },
+							'Interrupted Agent runs were marked retryable after restart'
+						);
+					}
+				})
+				.catch((error: unknown) => {
+					this.recoveryPromise = null;
+					throw error;
+				});
+		}
+		return this.recoveryPromise;
+	}
+
+	private extractClarificationAnswers(
+		clarification: Extract<
+			Awaited<ReturnType<AgentRepositoryPort['getBusinessExecution']>>['state'],
+			{ status: 'awaiting_clarification' }
+		>['clarification'],
+		responseText: string
+	): Readonly<Record<string, JsonValue>> {
+		const answers: Record<string, JsonValue> = {};
+		const dateTokens = responseText.match(/\d{4}-\d{2}-\d{2}/g) ?? [];
+		let dateIndex = 0;
+		for (const field of clarification.fields) {
+			if (field.kind === 'single_choice') {
+				const match = field.choices.find(
+					(choice) => responseText.trim() === choice.value || responseText.includes(choice.label)
+				);
+				if (match) answers[field.slot] = match.value;
+			}
+			if (field.kind === 'date') {
+				const token = dateTokens[dateIndex] ?? responseText.trim();
+				const range = resolveRelativeDateRange(token, new Date());
+				if (range) {
+					answers[field.slot] = range.start;
+					if (dateTokens[dateIndex]) dateIndex += 1;
+				}
+			}
+			if (field.kind === 'date_range') {
+				const relative = resolveRelativeDateRange(responseText.trim(), new Date());
+				if (relative) answers[field.slot] = { start: relative.start, end: relative.end };
+				else if (dateTokens.length >= 2) {
+					answers[field.slot] = { start: dateTokens[0] ?? '', end: dateTokens[1] ?? '' };
+				}
+			}
+			if (field.kind === 'number') {
+				const match = responseText.match(/\d+(?:\.\d+)?/);
+				if (match) answers[field.slot] = Number(match[0]);
+			}
+		}
+		const unresolved = clarification.fields.filter((field) => !(field.slot in answers));
+		if (unresolved.length === 1) {
+			const field = unresolved[0];
+			if (field) answers[field.slot] = responseText.trim();
+		}
+		if (clarification.fields.some((field) => field.required && !(field.slot in answers))) {
+			throw new TRPCError({
+				code: 'BAD_REQUEST',
+				message: '这条自然语言回复还不能唯一对应所有待补参数，请使用补充信息卡片提交。'
+			});
+		}
+		return answers;
 	}
 
 	async cancelRun(principal: AgentPrincipal, runId: string): Promise<CancelAgentRunResult> {
@@ -357,6 +537,196 @@ export class HotelAgentGateway implements AgentGateway {
 				'Agent conversation context prepared'
 			);
 			await this.publish(principal, runId, context.conversation.id, { type: 'run_started' });
+			if (this.intentRouter && this.slotResolver && context.run.businessExecutionId) {
+				let execution = await this.repository.getBusinessExecution(
+					principal,
+					context.run.businessExecutionId
+				);
+				if (execution.state.status === 'routing') {
+					const decision = await this.intentRouter.route(
+						execution.state.inputKind === 'quick_action'
+							? {
+									kind: 'quick_action',
+									quickActionId: agentQuickActionIdSchema.parse(execution.state.inputValue)
+								}
+							: { kind: 'prompt', text: execution.state.inputValue }
+					);
+					execution = await this.repository.transitionBusinessExecution(
+						principal,
+						context.run.businessExecutionId,
+						execution.version,
+						{
+							type: 'route_classified',
+							proposal: {
+								routeKind: decision.routeKind,
+								intent: decision.intent,
+								slots: decision.slots
+							}
+						}
+					);
+					await this.publish(principal, runId, context.conversation.id, {
+						type: 'business_execution_updated',
+						execution: execution.summary
+					});
+				}
+				if (execution.state.status === 'resolving_slots') {
+					if (!execution.state.intent) throw new Error('Business intent is unresolved');
+					const resolution = await this.slotResolver.resolve({
+						definition: getIntentDefinition(execution.state.intent),
+						intent: execution.state.intent,
+						slots: execution.state.slots,
+						anchorMessageId: execution.summary.triggerUserMessageId,
+						version: execution.version + 1
+					});
+					execution = await this.repository.transitionBusinessExecution(
+						principal,
+						context.run.businessExecutionId,
+						execution.version,
+						resolution.status === 'ready'
+							? { type: 'slots_ready', request: resolution.request }
+							: {
+									type: 'slots_need_clarification',
+									slots: resolution.slots,
+									clarification: resolution.clarification
+								}
+					);
+					await this.publish(principal, runId, context.conversation.id, {
+						type: 'business_execution_updated',
+						execution: execution.summary
+					});
+				}
+				if (execution.state.status === 'awaiting_clarification') {
+					const message = await this.repository.finalizeRunSuccess(
+						runId,
+						context.conversation.id,
+						execution.state.clarification.prompt,
+						null
+					);
+					if (message) {
+						await this.publish(principal, runId, context.conversation.id, {
+							type: 'run_completed',
+							message
+						});
+					}
+					return;
+				}
+
+				let controlledResult: Awaited<ReturnType<AgentRuntime['run']>> | null = null;
+				if (execution.state.status === 'ready') {
+					execution = await this.repository.transitionBusinessExecution(
+						principal,
+						context.run.businessExecutionId,
+						execution.version,
+						{ type: 'workflow_started' }
+					);
+				}
+				let workflowPasses = 0;
+				while (execution.state.status === 'executing' && workflowPasses < 2) {
+					workflowPasses += 1;
+					const workflowRequest = execution.state.request;
+					controlledResult = await this.runtime.run({
+						principal,
+						conversationSummary: prepared.summary,
+						history: prepared.history,
+						signal: controller.signal,
+						workflowRequest,
+						emit: (event) =>
+							event.type === 'tool_started' || event.type === 'tool_completed'
+								? this.publish(principal, runId, context.conversation.id, event)
+								: Promise.resolve()
+					});
+					const envelopes = (controlledResult.toolEvidence ?? [])
+						.filter((item) => item.toolName !== 'render_hotel_ui')
+						.map((item) =>
+							normalizeEvidence({
+								request: workflowRequest,
+								toolName: item.toolName,
+								toolArgs: item.toolArgs,
+								result: item.result,
+								observedAt: new Date().toISOString()
+							})
+						);
+					execution = await this.repository.transitionBusinessExecution(
+						principal,
+						context.run.businessExecutionId,
+						execution.version,
+						{
+							type: 'workflow_completed',
+							evidence: envelopes.map((item) => ({
+								evidenceId: item.evidenceId,
+								source: item.source,
+								data: item
+							}))
+						}
+					);
+					if (execution.state.status !== 'validating_evidence') break;
+					const assessment = assessEvidence(
+						execution.state.request,
+						envelopes,
+						execution.state.followUpUsed
+					);
+					execution = await this.repository.transitionBusinessExecution(
+						principal,
+						context.run.businessExecutionId,
+						execution.version,
+						{ type: 'evidence_validated', assessment }
+					);
+				}
+
+				if (execution.state.status === 'answering') {
+					if (execution.state.mode === 'grounded' && execution.state.request) {
+						controlledResult = await this.runtime.run({
+							principal,
+							conversationSummary: null,
+							history: [],
+							signal: controller.signal,
+							workflowRequest: execution.state.request,
+							validatedEvidence: execution.state.evidence,
+							emit: (event) =>
+								this.publish(principal, runId, context.conversation.id, event)
+						});
+					}
+					if (execution.state.mode === 'general' && !controlledResult) {
+						controlledResult = await this.runtime.run({
+							principal,
+							conversationSummary: prepared.summary,
+							history: prepared.history,
+							signal: controller.signal,
+							validatedEvidence: [],
+							emit: (event) => this.publish(principal, runId, context.conversation.id, event)
+						});
+					}
+					const content =
+						execution.state.mode === 'write_denied'
+							? '当前暂不支持修改订单、价格、库存、房态或其他业务数据。我可以帮助你查询现状、分析原因并给出操作建议。'
+							: execution.state.mode === 'limited'
+								? `本次查询没有获得足够的可验证数据，因此不输出未经证实的业务结论。${execution.state.limitations.join('')}`
+								: controlledResult?.content ||
+									`本次查询没有获得足够的可验证数据。${execution.state.limitations.join('')}`;
+					const message = await this.repository.finalizeRunSuccess(
+						runId,
+						context.conversation.id,
+						content,
+						controlledResult?.ui ?? null
+					);
+					if (!message) return;
+					execution = await this.repository.transitionBusinessExecution(
+						principal,
+						context.run.businessExecutionId,
+						execution.version,
+						{ type: 'answer_completed', assistantMessageId: message.id }
+					);
+					await this.publish(principal, runId, context.conversation.id, {
+						type: 'business_execution_updated',
+						execution: execution.summary
+					});
+					await this.publish(principal, runId, context.conversation.id, {
+						type: 'run_completed',
+						message
+					});
+					return;
+				}
+			}
 			const result = await this.runtime.run({
 				principal,
 				conversationSummary: prepared.summary,
@@ -426,6 +796,10 @@ export class HotelAgentGateway implements AgentGateway {
 		conversationId: string,
 		event:
 			| RuntimeEvent
+			| Readonly<{
+					type: 'business_execution_updated';
+					execution: import('@hotel-butler/api').AgentBusinessExecutionSummary;
+			  }>
 			| Readonly<{ type: 'run_started' }>
 			| Readonly<{ type: 'run_completed'; message: AgentMessage }>
 			| Readonly<{ type: 'run_failed'; message: string; retryable: boolean }>
@@ -451,6 +825,20 @@ export class HotelAgentGateway implements AgentGateway {
 				value.type === 'tool_started' ? 'Agent tool started' : 'Agent tool completed'
 			);
 		}
+		if (value.type === 'business_execution_updated') {
+			this.logger.info(
+				{
+					event: 'agent.business_execution.state_changed',
+					runId,
+					conversationId,
+					businessExecutionId: value.execution.id,
+					status: value.execution.status,
+					routeKind: value.execution.routeKind,
+					intent: value.execution.intent
+				},
+				'Agent business execution state changed'
+			);
+		}
 		this.eventBus.emit(runId, value);
 	}
 
@@ -458,6 +846,21 @@ export class HotelAgentGateway implements AgentGateway {
 		if (error instanceof TRPCError) return error;
 		if (error instanceof AgentAccessDeniedError) {
 			return new TRPCError({ code: 'NOT_FOUND', message: 'Agent 会话不存在' });
+		}
+		if (error instanceof ActiveBusinessExecutionExistsError) {
+			return new TRPCError({
+				code: 'CONFLICT',
+				message: '当前会话还有等待补充的任务，请先回答或取消该任务。'
+			});
+		}
+		if (error instanceof StaleBusinessExecutionVersionError) {
+			return new TRPCError({ code: 'CONFLICT', message: '任务状态已更新，请刷新会话后重试。' });
+		}
+		if (
+			error instanceof Error &&
+			/interaction is stale|has expired|not awaiting clarification/.test(error.message)
+		) {
+			return new TRPCError({ code: 'CONFLICT', message: '这次补充信息已经失效，请刷新会话。' });
 		}
 		return error instanceof Error ? error : new Error('Unknown agent error');
 	}

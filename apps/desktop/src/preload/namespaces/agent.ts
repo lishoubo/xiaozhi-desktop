@@ -7,10 +7,15 @@ import {
   agentQuickActionSchema,
   agentStreamEnvelopeSchema,
   cancelAgentRunResultSchema,
+  cancelAgentBusinessExecutionResultSchema,
   startAgentRunResponseSchema,
+  submitAgentClarificationResponseSchema,
   type AgentStreamEnvelope,
 } from '../../shared/agent';
-import type { StartAgentRunInput } from '@hotel-butler/api/contracts';
+import type {
+  StartAgentRunInput,
+  SubmitAgentClarificationInput,
+} from '@hotel-butler/api/contracts';
 import { IPC_CHANNELS } from '../../shared/ipc-channels';
 import type { ValidatedInvoke, ValidatedSubscribe } from '../invoke';
 
@@ -34,6 +39,15 @@ export function createAgentApi(invoke: ValidatedInvoke, subscribe: ValidatedSubs
       invoke(agentConversationDeletionResultSchema, IPC_CHANNELS.agent.clearConversations),
     startRun: (input: StartAgentRunInput) =>
       invoke(startAgentRunResponseSchema, IPC_CHANNELS.agent.startRun, input),
+    submitClarification: (input: SubmitAgentClarificationInput) =>
+      invoke(submitAgentClarificationResponseSchema, IPC_CHANNELS.agent.submitClarification, input),
+    cancelBusinessExecution: (businessExecutionId: string, expectedVersion: number) =>
+      invoke(
+        cancelAgentBusinessExecutionResultSchema,
+        IPC_CHANNELS.agent.cancelBusinessExecution,
+        businessExecutionId,
+        expectedVersion,
+      ),
     resumeRun: (runId: string, conversationId: string, lastEventId: string | null) =>
       invoke(z.undefined(), IPC_CHANNELS.agent.resumeRun, runId, conversationId, lastEventId),
     cancelRun: (runId: string) =>

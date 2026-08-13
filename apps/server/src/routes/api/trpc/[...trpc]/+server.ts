@@ -21,6 +21,10 @@ import {
 } from '$lib/server/agent/conversation-context';
 import { LangChainConversationSummaryGenerator } from '$lib/server/agent/langchain-conversation-summary-generator';
 import { HotelAgentGateway } from '$lib/server/agent/agent-gateway';
+import { BusinessIntentRouter } from '$lib/server/agent/execution/business-intent-router';
+import { LangChainRouteClassifier } from '$lib/server/agent/execution/langchain-route-classifier';
+import { BusinessSlotResolver } from '$lib/server/agent/execution/slot-resolver';
+import { McpHotelReferenceResolver } from '$lib/server/agent/execution/mcp-hotel-reference-resolver';
 import { resolveStaffAgentPrincipal } from '$lib/server/agent/staff-agent-principal';
 import type { RequestHandler } from './$types';
 
@@ -33,10 +37,7 @@ const desktopSessionRepository = new DrizzleDesktopSessionRepository(db);
 const agentEnvironment = readAgentEnvironment(env);
 const agentRepository = new AgentRepository(db);
 const skillProvider = new EmptySkillProvider();
-const mcpToolProvider = new McpToolProvider(
-	agentEnvironment.mcpServers,
-	agentEnvironment.allowMcpWriteTools
-);
+const mcpToolProvider = new McpToolProvider(agentEnvironment.mcpServers);
 const agentRuntime = new LangChainAgentRuntime(
 	agentEnvironment,
 	agentRepository,
@@ -55,7 +56,9 @@ const agentGateway = new HotelAgentGateway(
 	conversationContext,
 	mcpToolProvider,
 	skillProvider,
-	serverLogger
+	serverLogger,
+	new BusinessIntentRouter(new LangChainRouteClassifier(agentEnvironment)),
+	new BusinessSlotResolver(new McpHotelReferenceResolver(mcpToolProvider))
 );
 
 const handleTrpcRequest: RequestHandler = ({ locals, request }) =>

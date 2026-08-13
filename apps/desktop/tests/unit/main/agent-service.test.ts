@@ -26,6 +26,8 @@ describe('AgentService', () => {
         deleteConversation: { mutate: vi.fn().mockResolvedValue({ deletedCount: 1 }) },
         clearConversations: { mutate: vi.fn().mockResolvedValue({ deletedCount: 3 }) },
         startRun: { mutate: vi.fn().mockResolvedValue({ runId, userMessage }) },
+        submitClarification: { mutate: vi.fn() },
+        cancelBusinessExecution: { mutate: vi.fn() },
         cancelRun: { mutate: vi.fn().mockResolvedValue({ runId, status: 'cancelled' }) },
         events: {
           subscribe: vi.fn((_input, handlers) => {
@@ -108,6 +110,8 @@ describe('AgentService', () => {
         deleteConversation: { mutate: vi.fn() },
         clearConversations: { mutate: vi.fn() },
         startRun: { mutate: vi.fn() },
+        submitClarification: { mutate: vi.fn() },
+        cancelBusinessExecution: { mutate: vi.fn() },
         cancelRun: { mutate: vi.fn() },
         events: { subscribe },
       },

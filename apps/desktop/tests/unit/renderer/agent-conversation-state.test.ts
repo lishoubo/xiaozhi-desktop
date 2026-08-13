@@ -75,4 +75,46 @@ describe('Agent conversation view state', () => {
     expect(cancelled.messages).toEqual([running.messages[0]]);
     expect(cancelled.executions[0]).toMatchObject({ runId, status: 'cancelled' });
   });
+
+  it('tracks a pending clarification independently of the Run draft', () => {
+    const execution = {
+      id: '88888888-8888-4888-8888-888888888888',
+      conversationId,
+      triggerUserMessageId: userMessageId,
+      routeKind: 'business_read' as const,
+      intent: 'hotel_operating_summary' as const,
+      status: 'awaiting_clarification' as const,
+      pendingClarification: {
+        interactionId: '99999999-9999-4999-8999-999999999999',
+        anchorMessageId: userMessageId,
+        version: 3,
+        prompt: '请选择酒店。',
+        fields: [
+          {
+            kind: 'text' as const,
+            slot: 'hotelReference',
+            label: '酒店',
+            required: true,
+            maxLength: 200,
+          },
+        ],
+        expiresAt: '2026-08-13T03:00:00.000Z',
+      },
+      createdAt: '2026-08-12T03:00:00.000Z',
+      updatedAt: '2026-08-12T03:00:01.000Z',
+      completedAt: null,
+    };
+    const base = { ...createEmptyConversationView(conversationId), activeRunId: runId };
+    const updated = applyRunEvent(base, {
+      id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      runId,
+      conversationId,
+      type: 'business_execution_updated',
+      execution,
+      createdAt: '2026-08-12T03:00:01.000Z',
+    });
+
+    expect(updated.activeBusinessExecution).toEqual(execution);
+    expect(updated.draftContent).toBe('');
+  });
 });

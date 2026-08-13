@@ -1,6 +1,6 @@
 # 酒店 Agent 接入与调用链
 
-本文描述 desktop、server、Kimi K3、MCP、json-render 与 PostgreSQL 的端到端接入。Agent 保持单实例编排，不启用子 Agent。
+本文描述 desktop、server、Kimi K3、受限 MCP、执行状态机、json-render 与 PostgreSQL 的端到端接入。Agent 保持单实例编排，不启用子 Agent。
 
 ## 配置
 
@@ -24,9 +24,6 @@ AI_MCP_SERVERS_JSON='{
   }
 }'
 
-# 默认 false，只加载 get/list/read/search/find/query 等只读 MCP 工具。
-AI_MCP_ALLOW_WRITE_TOOLS="false"
-
 # staff 登录变体下，apps/server 用它验证 desktop 转发的 RMS Bearer。
 XIAOZHI_RMS_SERVER_URL="https://rms.example.com"
 ```
@@ -49,8 +46,10 @@ flowchart LR
   I -->|phone cookie| DS[(desktop_session)]
   I -->|staff Bearer /api/v1/me| RMS[RMS API]
   T --> G[HotelAgentGateway]
-  G --> PG[(PostgreSQL Agent tables)]
-  G --> R[HotelAgentRuntime]
+  G --> E[Business Execution<br/>意图路由 / 参数解析 / 状态机]
+  E --> PG[(PostgreSQL Agent tables)]
+  E --> R[受限 HotelAgentRuntime]
+  R --> V[Evidence Validator]
   R --> K[Kimi K3 Chat Completions]
   R --> M[@langchain/mcp-adapters]
   M --> MS[酒店 MCP servers]
@@ -82,17 +81,29 @@ sequenceDiagram
     TRPC->>TRPC: 检查所需 MCP 是否已配置
   end
   TRPC->>DB: 校验 conversation.ownerEmployeeId
-  TRPC->>DB: 写 user message + run
-  TRPC-->>Main: runId + userMessage
+  TRPC->>DB: 事务写 user message + business execution + run
+  TRPC-->>Main: runId + businessExecutionId + userMessage
   Main->>TRPC: agent.events SSE(runId)
   TRPC->>DB: 按 owner + runId 回放事件
+  TRPC->>Kimi: 结构化意图分类与候选参数抽取
+  TRPC->>DB: CAS 保存路由和参数状态
+  alt 参数缺失、无效或存在多个候选
+    TRPC->>DB: 保存 awaiting_clarification 与交互 schema
+    TRPC-->>UI: business_execution_updated + run_completed
+    UI->>UI: 渲染产品自有补充信息卡片
+    UI->>TRPC: agent.submitClarification + expectedVersion
+    TRPC->>DB: 校验 interaction/版本/答案并创建后续 run
+  else 参数已确定
+    TRPC->>DB: 保存不可变 resolved request
+  end
   Agent->>DB: 读取消息与当前员工长期记忆
-  Agent->>Kimi: messages + tools（stream=true）
+  Agent->>Kimi: resolved request + 当前工作流只读工具（stream=true）
   Kimi-->>Agent: token / tool_calls
   opt 需要酒店数据
-    Agent->>MCP: 调只读酒店工具
+    Agent->>MCP: 调当前意图 allowlist 内的只读工具
     MCP-->>Agent: 工具结果
-    Agent->>Kimi: ToolMessage
+    Agent->>DB: 标准化证据、校验范围/时段/裁剪信息
+    Agent->>Kimi: 仅基于已验证证据生成结论
   end
   opt 适合生成式 UI
     Agent->>Agent: render_hotel_ui(spec)
@@ -193,7 +204,7 @@ type AgentPrincipal = {
 
 ## MCP 与 Skill 扩展
 
-`AI_MCP_SERVERS_JSON` 的每个 entry 交给 `MultiServerMCPClient`，支持 HTTP、SSE 和 stdio。远端必须 HTTPS，本机开发可使用 loopback HTTP；默认只加载命名上可判定为读取类、且名称中不含 create/update/delete/refund/pay/publish 等写入语义的工具。`capabilities` 当前只接受 `weather` 和 `hotel_rates`，快捷操作仅在对应能力真实配置时返回。不要把 MCP URL、command、args 或 header 暴露成用户输入。名称过滤只是第一道防线，生产 MCP server 仍应按凭证实施真正的只读权限。
+`AI_MCP_SERVERS_JSON` 的每个 entry 交给 `MultiServerMCPClient`，支持 HTTP、SSE 和 stdio。远端必须 HTTPS，本机开发可使用 loopback HTTP。系统没有“开启写工具”的配置：加载层始终拒绝 create/update/delete/refund/pay/publish 等写入语义工具，业务路由层也会把订单、价格、库存、房态、支付和配置变更确定性拒绝。进入业务读取后还会按意图再次缩小工具 allowlist，并限制工具次数和一次证据补查。`capabilities` 接受 `weather`、`hotel_rates` 与内置 DMS 的 `hotel_data`；快捷操作仅在对应能力真实配置时返回。不要把 MCP URL、command、args 或 header 暴露成用户输入。生产 MCP server 仍应按凭证实施真正的只读权限。
 
 Skill 当前是显式空实现：
 
@@ -213,11 +224,18 @@ export interface SkillProvider {
 | `agent_message` | user/assistant 内容与最终 UI spec | 经 conversation owner |
 | `agent_run` | 幂等 client request 与运行状态 | `owner_employee_id` |
 | `agent_run_event` | SSE 回放、工具步骤与终态 | `owner_employee_id` |
+| `agent_business_execution` | 跨多个 Run 的意图、参数状态、追问、证据阶段与 CAS 版本 | `owner_employee_id` |
+| `agent_business_execution_event` | 执行状态转换审计 | 经 execution owner |
 | `agent_memory` | 跨会话长期记忆 | `owner_employee_id + key` |
+
+本次 migration 是加法变更：先创建业务执行及事件表，再给 message/run 增加可空外键，因此既有行会以 `businessExecutionId=null` 继续加载。若上线后需要回滚应用版本，应先回滚应用并保留新增表和可空列；它们不会影响旧代码。只有确认不再需要执行审计数据后，才可在单独、经审批的 migration 中先删除两条外键/可空列，再删除新表，不能把数据删除混入应用回滚。
 
 ## 当前限制
 
 - 本期不含子 Agent。
+- 本期禁止所有业务写操作；后续加入写操作时需要单独的影响预览、授权和审计设计。
+- 酒店时区当前使用应用默认 `Asia/Shanghai`。酒店目录尚未成为本系统可信主数据；酒店候选通过受限 DMS 查询获得，并明确属于共享 DMS token 可见范围。
+- 一次会话只允许一个非终态业务执行。等待补充信息可跨页面重载恢复；服务重启时孤立的运行态会被标记为可重试失败，不会自动重放未知工具调用。
 - 公共天气数据受上游服务可用性和 fair-use 限制影响，不能替代官方灾害预警。
 - 携程或其他平台的实时酒店价格需要合法、稳定的价格 MCP/API；未配置时快捷操作不会展示。
 - “停止接收”会关闭本窗口 SSE，但 server 会继续完成并持久化当前 run，之后重新打开会话可看到最终结果。

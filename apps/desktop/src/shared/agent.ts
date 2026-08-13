@@ -5,11 +5,15 @@ import {
   agentConversationIdInputSchema,
   agentConversationSchema,
   agentConversationSummarySchema,
+  agentBusinessExecutionIdInputSchema,
+  cancelAgentBusinessExecutionResultSchema,
   agentQuickActionSchema,
   agentRunEventSchema,
   cancelAgentRunResultSchema,
   startAgentRunInputSchema,
   startAgentRunResponseSchema,
+  submitAgentClarificationInputSchema,
+  submitAgentClarificationResponseSchema,
 } from '@hotel-butler/api/contracts';
 /* eslint-enable import/no-unresolved */
 import { z } from 'zod';
@@ -20,10 +24,14 @@ export {
   agentConversationIdInputSchema,
   agentConversationSchema,
   agentConversationSummarySchema,
+  agentBusinessExecutionIdInputSchema,
+  cancelAgentBusinessExecutionResultSchema,
   agentQuickActionSchema,
   cancelAgentRunResultSchema,
   startAgentRunInputSchema,
   startAgentRunResponseSchema,
+  submitAgentClarificationInputSchema,
+  submitAgentClarificationResponseSchema,
 };
 
 export const agentStreamEnvelopeSchema = z.discriminatedUnion('kind', [

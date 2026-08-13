@@ -31,6 +31,10 @@ function createGatewayHarness(
 		deleteConversation: vi.fn(),
 		clearConversations: vi.fn(),
 		startRun: vi.fn(),
+		resumeBusinessExecution: vi.fn(),
+		getBusinessExecution: vi.fn(),
+		transitionBusinessExecution: vi.fn(),
+		recoverInterruptedRuns: vi.fn().mockResolvedValue(0),
 		cancelRun: vi.fn(),
 		getRunContext: vi.fn(),
 		finalizeRunSuccess: vi.fn(),
@@ -45,8 +49,7 @@ function createGatewayHarness(
 			apiKey: '',
 			baseUrl: 'https://api.moonshot.cn/v1',
 			model: 'kimi-k3',
-			mcpServers: {},
-			allowMcpWriteTools: false
+			mcpServers: {}
 		},
 		repository,
 		runtime,

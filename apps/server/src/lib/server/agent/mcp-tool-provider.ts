@@ -56,10 +56,7 @@ export class McpToolProvider {
 	private client: MultiServerMCPClient | null = null;
 	private toolsPromise: Promise<readonly DynamicStructuredTool[]> | null = null;
 
-	constructor(
-		private readonly servers: Readonly<Record<string, McpServerConfig>>,
-		private readonly allowWriteTools: boolean
-	) {}
+	constructor(private readonly servers: Readonly<Record<string, McpServerConfig>>) {}
 
 	serverCount(): number {
 		return Object.keys(this.servers).length;
@@ -141,11 +138,7 @@ export class McpToolProvider {
 				);
 				continue;
 			}
-			selected.push(
-				...(this.allowWriteTools
-					? loaded
-					: loaded.filter((candidate) => isReadOnlyMcpToolName(candidate.name)))
-			);
+			selected.push(...loaded.filter((candidate) => isReadOnlyMcpToolName(candidate.name)));
 		}
 		return selected;
 	}

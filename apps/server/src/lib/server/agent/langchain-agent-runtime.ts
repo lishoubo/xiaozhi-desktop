@@ -14,6 +14,7 @@ import { isHotelDataToolName } from './hotel-data-mcp';
 import { buildHotelAgentSystemPrompt } from './hotel-agent-prompt';
 import { HotelAgentToolHandlers } from './hotel-agent-tool-handlers';
 import type { SkillProvider } from './skill-provider';
+import { getIntentDefinition } from './execution/intent-registry';
 
 function textContent(value: unknown): string {
 	if (typeof value === 'string') return value;
@@ -60,6 +61,24 @@ function singleSuccessfulUiRenderMiddleware(hasGeneratedUi: () => boolean) {
 	});
 }
 
+export function selectWorkflowToolNames(
+	request: Pick<AgentRuntimeRunOptions, 'workflowRequest' | 'validatedEvidence'>,
+	availableNames: readonly string[]
+): readonly string[] {
+	if (!request.workflowRequest) return availableNames;
+	if (request.validatedEvidence !== undefined) return ['render_hotel_ui'];
+	if (
+		request.workflowRequest.intent === 'hotel_operating_summary' ||
+		request.workflowRequest.intent === 'generic_hotel_data_query'
+	) {
+		return availableNames.filter(isHotelDataToolName);
+	}
+	if (request.workflowRequest.intent === 'weather_operations_advice') {
+		return availableNames.filter((name) => /weather|forecast|temperature|precipitation/i.test(name));
+	}
+	return availableNames.filter((name) => /rate|price|availability|room/i.test(name));
+}
+
 export function recoverCompletedUiAfterRenderLimit(
 	error: unknown,
 	content: string,
@@ -100,44 +119,76 @@ export class LangChainAgentRuntime implements AgentRuntime {
 		options.signal.throwIfAborted();
 
 		let generatedUi: GenerativeUiSpec | null = null;
+		const answerOnly = options.validatedEvidence !== undefined;
 		const [memories, skills] = await Promise.all([
-			this.repository.listMemories(options.principal),
-			this.skills.list()
+			answerOnly ? Promise.resolve([]) : this.repository.listMemories(options.principal),
+			answerOnly ? Promise.resolve([]) : this.skills.list()
 		]);
 		options.signal.throwIfAborted();
-		const localTools = this.createLocalTools(options, (spec) => {
-			generatedUi = spec;
-		});
-		const loadedMcpTools = await this.mcpTools.getTools();
+		const localTools =
+			options.workflowRequest && !answerOnly
+				? []
+				: this.createLocalTools(
+						options,
+						(spec) => {
+							generatedUi = spec;
+						},
+						!answerOnly
+					);
+		const loadedMcpTools = answerOnly ? [] : await this.mcpTools.getTools();
 		options.signal.throwIfAborted();
-		const tools: StructuredToolInterface[] = [...localTools, ...loadedMcpTools];
-		const hotelDataAvailable = loadedMcpTools.some((candidate) =>
-			isHotelDataToolName(candidate.name)
-		);
+		const workflowMcpTools = options.workflowRequest && !answerOnly
+			? loadedMcpTools.filter((candidate) =>
+					selectWorkflowToolNames(options, loadedMcpTools.map((tool) => tool.name)).includes(
+						candidate.name
+					)
+				)
+			: loadedMcpTools;
+		const tools: StructuredToolInterface[] = [...localTools, ...workflowMcpTools];
+		const workflowToolCallBudget = options.workflowRequest
+			? getIntentDefinition(options.workflowRequest.intent).maxToolCalls
+			: Number.POSITIVE_INFINITY;
+		const hotelDataAvailable = answerOnly
+			? (options.validatedEvidence ?? []).some((item) => item.source === 'aliyun_dms_mcp')
+			: loadedMcpTools.some((candidate) => isHotelDataToolName(candidate.name));
+		const workflowConstraint = answerOnly && options.workflowRequest
+			? `\n\n当前是证据校验后的回答阶段。不可变请求：${JSON.stringify(options.workflowRequest)}。已验证证据：${JSON.stringify(options.validatedEvidence)}。不得调用数据工具，不得补造证据中没有的事实；必须写明范围、来源和重要限制。可按需要调用一次 render_hotel_ui。`
+			: options.workflowRequest
+				? `\n\n当前是受限业务取证阶段。意图：${options.workflowRequest.intent}。已解析参数：${JSON.stringify(options.workflowRequest.slots)}。只能使用已提供的只读工具，不得调用、建议或模拟任何写操作。只完成数据获取，最终文字不会直接展示给用户。`
+			: '';
 		const agent = createAgent({
 			model: this.model,
 			tools,
 			middleware: [singleSuccessfulUiRenderMiddleware(() => generatedUi !== null)],
-			systemPrompt: buildHotelAgentSystemPrompt({
+			systemPrompt: `${buildHotelAgentSystemPrompt({
 				date: new Date().toISOString().slice(0, 10),
 				conversationSummary: options.conversationSummary,
 				memories,
 				skills,
 				hotelDataAvailable
-			})
+			})}${workflowConstraint}`
 		});
-		const messages: BaseMessageLike[] = options.history.map((message) => ({
-			role: message.role,
-			content: message.content
-		}));
+		const messages: BaseMessageLike[] = answerOnly && options.workflowRequest
+			? [{ role: 'user', content: '请根据已验证证据生成最终答复。' }]
+			: options.history.map((message) => ({
+					role: message.role,
+					content: message.content
+				}));
 
 		let content = '';
 		const startedTools = new Set<string>();
+		let startedWorkflowToolCount = 0;
 		const completedTools = new Set<string>();
+		const toolArgs = new Map<string, unknown>();
+		const toolEvidence: Array<{ toolName: string; toolArgs: unknown; result: unknown }> = [];
 		try {
 			const stream = await agent.stream(
 				{ messages },
-				{ streamMode: 'messages', signal: options.signal, recursionLimit: 16 }
+				{
+					streamMode: 'messages',
+					signal: options.signal,
+					recursionLimit: options.workflowRequest ? 10 : 16
+				}
 			);
 			for await (const [message] of stream) {
 				options.signal.throwIfAborted();
@@ -149,6 +200,13 @@ export class LangChainAgentRuntime implements AgentRuntime {
 					}
 					for (const call of message.tool_call_chunks ?? []) {
 						if (!call.id || !call.name || startedTools.has(call.id)) continue;
+						if (
+							call.name !== 'render_hotel_ui' &&
+							startedWorkflowToolCount >= workflowToolCallBudget
+						) {
+							throw new Error('Business workflow tool-call budget exceeded');
+						}
+						if (call.name !== 'render_hotel_ui') startedWorkflowToolCount += 1;
 						startedTools.add(call.id);
 						if (call.name === 'render_hotel_ui' && generatedUi) continue;
 						await options.emit({
@@ -158,7 +216,16 @@ export class LangChainAgentRuntime implements AgentRuntime {
 						});
 					}
 					for (const call of message.tool_calls ?? []) {
-						if (!call.id || startedTools.has(call.id)) continue;
+						if (!call.id) continue;
+						toolArgs.set(call.id, call.args);
+						if (startedTools.has(call.id)) continue;
+						if (
+							call.name !== 'render_hotel_ui' &&
+							startedWorkflowToolCount >= workflowToolCallBudget
+						) {
+							throw new Error('Business workflow tool-call budget exceeded');
+						}
+						if (call.name !== 'render_hotel_ui') startedWorkflowToolCount += 1;
 						startedTools.add(call.id);
 						if (call.name === 'render_hotel_ui' && generatedUi) continue;
 						await options.emit({
@@ -173,6 +240,11 @@ export class LangChainAgentRuntime implements AgentRuntime {
 					const callId = message.tool_call_id;
 					if (completedTools.has(callId)) continue;
 					completedTools.add(callId);
+					toolEvidence.push({
+						toolName: message.name ?? 'tool',
+						toolArgs: toolArgs.get(callId) ?? null,
+						result: message.content
+					});
 					await options.emit({
 						type: 'tool_completed',
 						toolCallId: callId,
@@ -190,12 +262,13 @@ export class LangChainAgentRuntime implements AgentRuntime {
 			if (!recovered) throw error;
 			return recovered;
 		}
-		return { content, ui: generatedUi };
+		return { content, ui: generatedUi, toolEvidence };
 	}
 
 	private createLocalTools(
 		options: AgentRuntimeRunOptions,
-		setUi: (spec: GenerativeUiSpec) => void
+		setUi: (spec: GenerativeUiSpec) => void,
+		allowMemoryWrite: boolean
 	): StructuredToolInterface[] {
 		const remember = tool(
 			async ({ key, content, importance }) => {
@@ -234,6 +307,6 @@ export class LangChainAgentRuntime implements AgentRuntime {
 				schema: z.object({ spec: generativeUiSpecSchema })
 			}
 		);
-		return [remember, renderUi];
+		return allowMemoryWrite ? [remember, renderUi] : [renderUi];
 	}
 }
