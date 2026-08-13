@@ -4,6 +4,7 @@ import {
 	DuplicateUiRenderError,
 	recoverCompletedUiAfterRenderLimit,
 	selectWorkflowToolNames,
+	shouldCaptureToolEvidence,
 	shouldStopDuplicateUiRender
 } from './langchain-agent-runtime';
 
@@ -57,5 +58,13 @@ describe('selectWorkflowToolNames', () => {
 		expect(
 			selectWorkflowToolNames({ workflowRequest, validatedEvidence: [] }, available)
 		).toEqual(['render_hotel_ui']);
+	});
+});
+
+describe('tool evidence capture', () => {
+	it('does not treat an error ToolMessage as business evidence', () => {
+		expect(shouldCaptureToolEvidence('error')).toBe(false);
+		expect(shouldCaptureToolEvidence('success')).toBe(true);
+		expect(shouldCaptureToolEvidence(undefined)).toBe(true);
 	});
 });

@@ -44,6 +44,33 @@ describe('BusinessIntentRouter', () => {
 		});
 	});
 
+	it('drops model-proposed slots that are not registered for the selected intent', async () => {
+		const router = new BusinessIntentRouter({
+			classify: vi.fn().mockResolvedValue({
+				category: 'business_read',
+				intentCandidate: 'hotel_operating_summary',
+				requestedEffect: 'read',
+				confidence: 0.88,
+				slots: {
+					hotelReference: '西湖店',
+					dateRange: '上个月',
+					ranking: 'GMV 最高',
+					unexpectedModelField: '不可进入状态机'
+				}
+			})
+		});
+
+		await expect(router.route({ kind: 'prompt', text: '查询西湖店上月经营概览' })).resolves.toEqual({
+			routeKind: 'business_read',
+			intent: 'hotel_operating_summary',
+			slots: {
+				hotelReference: { status: 'candidate', raw: '西湖店' },
+				dateRange: { status: 'candidate', raw: '上个月' }
+			},
+			confidence: 0.88
+		});
+	});
+
 	it('denies an explicit business write even when the classifier proposes a read', async () => {
 		const router = new BusinessIntentRouter({
 			classify: vi.fn().mockResolvedValue({

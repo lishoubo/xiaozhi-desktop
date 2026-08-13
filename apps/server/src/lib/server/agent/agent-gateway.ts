@@ -24,7 +24,7 @@ import {
 	StaleBusinessExecutionVersionError
 } from './agent-repository';
 import type { AgentEnvironment } from './agent-config';
-import type { AgentRuntime, RuntimeEvent } from './agent-runtime';
+import type { AgentRuntime, PublishableRuntimeEvent, RuntimeEvent } from './agent-runtime';
 import type { ConversationContextService } from './conversation-context';
 import type { McpToolProvider } from './mcp-tool-provider';
 import type { SkillProvider } from './skill-provider';
@@ -34,6 +34,7 @@ import { resolveRelativeDateRange, type BusinessSlotResolver } from './execution
 import { getIntentDefinition } from './execution/intent-registry';
 import { assessEvidence, normalizeEvidence } from './execution/evidence';
 import type { JsonValue } from './execution/business-execution-state';
+import type { DeterministicWorkflowCollector } from './execution/deterministic-workflow-collector';
 
 type AgentRepositoryPort = Pick<
 	AgentRepository,
@@ -56,6 +57,9 @@ type AgentRepositoryPort = Pick<
 >;
 type McpToolProviderPort = Pick<McpToolProvider, 'serverCount' | 'capabilities'>;
 type ConversationContextPort = Pick<ConversationContextService, 'prepare'>;
+type WorkflowCollectorPort = Pick<DeterministicWorkflowCollector, 'collect'>;
+type BusinessIntentRouterPort = Pick<BusinessIntentRouter, 'route'>;
+type BusinessSlotResolverPort = Pick<BusinessSlotResolver, 'resolve'>;
 
 const terminal = (event: AgentRunEvent): boolean =>
 	event.type === 'run_completed' || event.type === 'run_failed' || event.type === 'run_cancelled';
@@ -74,6 +78,22 @@ export function describeAgentRunFailure(
 		};
 	}
 	return { message: '小智暂时无法完成这次请求，请稍后重试。', retryable: true };
+}
+
+function describeEvidenceRejection(reasonCode: string): Readonly<{
+	message: string;
+	retryable: boolean;
+}> {
+	if (reasonCode === 'evidence_scope_mismatch') {
+		return {
+			message: '数据源返回的酒店范围与本次请求不一致，已停止生成结论。请确认酒店后重试。',
+			retryable: false
+		};
+	}
+	return {
+		message: '数据证据未通过安全校验，已停止生成结论。请调整查询条件后重试。',
+		retryable: false
+	};
 }
 
 function agentFailureLogFields(error: unknown): Readonly<{
@@ -113,8 +133,9 @@ export class HotelAgentGateway implements AgentGateway {
 		private readonly mcpTools: McpToolProviderPort,
 		private readonly skills: SkillProvider,
 		private readonly logger: ApiLogger,
-		private readonly intentRouter?: BusinessIntentRouter,
-		private readonly slotResolver?: BusinessSlotResolver
+		private readonly intentRouter?: BusinessIntentRouterPort,
+		private readonly slotResolver?: BusinessSlotResolverPort,
+		private readonly workflowCollector?: WorkflowCollectorPort
 	) {
 		this.eventBus.setMaxListeners(100);
 	}
@@ -624,18 +645,69 @@ export class HotelAgentGateway implements AgentGateway {
 				while (execution.state.status === 'executing' && workflowPasses < 2) {
 					workflowPasses += 1;
 					const workflowRequest = execution.state.request;
-					controlledResult = await this.runtime.run({
-						principal,
-						conversationSummary: prepared.summary,
-						history: prepared.history,
-						signal: controller.signal,
-						workflowRequest,
-						emit: (event) =>
-							event.type === 'tool_started' || event.type === 'tool_completed'
-								? this.publish(principal, runId, context.conversation.id, event)
-								: Promise.resolve()
-					});
-					const envelopes = (controlledResult.toolEvidence ?? [])
+					const collectionStartedAt = performance.now();
+					let collectionStrategy: 'deterministic' | 'agent' = 'agent';
+					let collectedToolEvidence: NonNullable<
+						Awaited<ReturnType<AgentRuntime['run']>>['toolEvidence']
+					> = [];
+					this.logger.info(
+						{
+							event: 'agent.workflow.collection.started',
+							runId,
+							conversationId: context.conversation.id,
+							businessExecutionId: context.run.businessExecutionId,
+							workflowPass: workflowPasses,
+							intent: workflowRequest.intent
+						},
+						'Agent workflow collection started'
+					);
+					const deterministic = this.workflowCollector
+						? await this.workflowCollector.collect({
+								principal,
+								request: workflowRequest,
+								signal: controller.signal,
+								emit: (event) =>
+									this.forwardRuntimeEvent(
+										principal,
+										runId,
+										context.conversation.id,
+										event,
+										context.run.businessExecutionId
+									)
+							})
+						: { status: 'fallback' as const, reason: 'agent_required' as const };
+					if (deterministic.status === 'collected') {
+						collectionStrategy = deterministic.strategy;
+						collectedToolEvidence = deterministic.toolEvidence;
+					} else {
+						controlledResult = await this.runtime.run({
+							principal,
+							conversationSummary: prepared.summary,
+							history: prepared.history,
+							signal: controller.signal,
+							workflowRequest,
+							emit: (event) =>
+								event.type === 'tool_started' || event.type === 'tool_completed'
+									? this.publish(principal, runId, context.conversation.id, event)
+									: Promise.resolve()
+						});
+						collectedToolEvidence = controlledResult.toolEvidence ?? [];
+					}
+					this.logger.info(
+						{
+							event: 'agent.workflow.collection.completed',
+							runId,
+							conversationId: context.conversation.id,
+							businessExecutionId: context.run.businessExecutionId,
+							workflowPass: workflowPasses,
+							strategy: collectionStrategy,
+							toolCount: collectedToolEvidence.length,
+							toolNames: collectedToolEvidence.map((item) => item.toolName),
+							durationMs: Math.max(0, Math.round(performance.now() - collectionStartedAt))
+						},
+						'Agent workflow collection completed'
+					);
+					const envelopes = collectedToolEvidence
 						.filter((item) => item.toolName !== 'render_hotel_ui')
 						.map((item) =>
 							normalizeEvidence({
@@ -660,10 +732,24 @@ export class HotelAgentGateway implements AgentGateway {
 						}
 					);
 					if (execution.state.status !== 'validating_evidence') break;
+					const evidenceAssessmentStartedAt = performance.now();
 					const assessment = assessEvidence(
+						// Evidence assessment is deterministic and intentionally separate from the model.
 						execution.state.request,
 						envelopes,
 						execution.state.followUpUsed
+					);
+					this.logger.info(
+						{
+							event: 'agent.workflow.evidence.assessed',
+							runId,
+							conversationId: context.conversation.id,
+							businessExecutionId: context.run.businessExecutionId,
+							assessment: assessment.status,
+							evidenceCount: envelopes.length,
+							durationMs: Math.max(0, Math.round(performance.now() - evidenceAssessmentStartedAt))
+						},
+						'Agent workflow evidence assessed'
 					);
 					execution = await this.repository.transitionBusinessExecution(
 						principal,
@@ -673,8 +759,32 @@ export class HotelAgentGateway implements AgentGateway {
 					);
 				}
 
+				if (execution.state.status === 'failed') {
+					const failure = describeEvidenceRejection(execution.state.reasonCode);
+					const transitioned = await this.repository.completeRun(runId, 'failed');
+					if (transitioned) {
+						await this.publish(principal, runId, context.conversation.id, {
+							type: 'run_failed',
+							...failure
+						});
+					}
+					return;
+				}
+
 				if (execution.state.status === 'answering') {
 					if (execution.state.mode === 'grounded' && execution.state.request) {
+						const answerStartedAt = performance.now();
+						this.logger.info(
+							{
+								event: 'agent.answer.model.started',
+								runId,
+								conversationId: context.conversation.id,
+								businessExecutionId: context.run.businessExecutionId,
+								intent: execution.state.request.intent,
+								evidenceCount: execution.state.evidence.length
+							},
+							'Agent answer model started'
+						);
 						controlledResult = await this.runtime.run({
 							principal,
 							conversationSummary: null,
@@ -683,8 +793,25 @@ export class HotelAgentGateway implements AgentGateway {
 							workflowRequest: execution.state.request,
 							validatedEvidence: execution.state.evidence,
 							emit: (event) =>
-								this.publish(principal, runId, context.conversation.id, event)
+								this.forwardRuntimeEvent(
+									principal,
+									runId,
+									context.conversation.id,
+									event,
+									context.run.businessExecutionId
+								)
 						});
+						this.logger.info(
+							{
+								event: 'agent.answer.model.completed',
+								runId,
+								conversationId: context.conversation.id,
+								businessExecutionId: context.run.businessExecutionId,
+								hasGenerativeUi: Boolean(controlledResult.ui),
+								durationMs: Math.max(0, Math.round(performance.now() - answerStartedAt))
+							},
+							'Agent answer model completed'
+						);
 					}
 					if (execution.state.mode === 'general' && !controlledResult) {
 						controlledResult = await this.runtime.run({
@@ -693,7 +820,14 @@ export class HotelAgentGateway implements AgentGateway {
 							history: prepared.history,
 							signal: controller.signal,
 							validatedEvidence: [],
-							emit: (event) => this.publish(principal, runId, context.conversation.id, event)
+							emit: (event) =>
+								this.forwardRuntimeEvent(
+									principal,
+									runId,
+									context.conversation.id,
+									event,
+									context.run.businessExecutionId
+								)
 						});
 					}
 					const content =
@@ -732,7 +866,14 @@ export class HotelAgentGateway implements AgentGateway {
 				conversationSummary: prepared.summary,
 				history: prepared.history,
 				signal: controller.signal,
-				emit: (event) => this.publish(principal, runId, context.conversation.id, event)
+				emit: (event) =>
+					this.forwardRuntimeEvent(
+						principal,
+						runId,
+						context.conversation.id,
+						event,
+						context.run.businessExecutionId
+					)
 			});
 			controller.signal.throwIfAborted();
 			const message = await this.repository.finalizeRunSuccess(
@@ -795,7 +936,7 @@ export class HotelAgentGateway implements AgentGateway {
 		runId: string,
 		conversationId: string,
 		event:
-			| RuntimeEvent
+			| PublishableRuntimeEvent
 			| Readonly<{
 					type: 'business_execution_updated';
 					execution: import('@hotel-butler/api').AgentBusinessExecutionSummary;
@@ -840,6 +981,29 @@ export class HotelAgentGateway implements AgentGateway {
 			);
 		}
 		this.eventBus.emit(runId, value);
+	}
+
+	private forwardRuntimeEvent(
+		principal: AgentPrincipal,
+		runId: string,
+		conversationId: string,
+		event: RuntimeEvent,
+		businessExecutionId: string | null = null
+	): Promise<void> {
+		if (event.type === 'runtime_phase_completed') {
+			this.logger.info(
+				{
+					event: `agent.runtime.${event.phase}`,
+					runId,
+					conversationId,
+					businessExecutionId,
+					durationMs: event.durationMs
+				},
+				'Agent runtime phase completed'
+			);
+			return Promise.resolve();
+		}
+		return this.publish(principal, runId, conversationId, event);
 	}
 
 	private toTrpcError(error: unknown): Error {

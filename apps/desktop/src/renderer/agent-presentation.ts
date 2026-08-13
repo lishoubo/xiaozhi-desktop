@@ -1,4 +1,20 @@
-import type { AgentExecutionTrace, AgentMessage } from '@hotel-butler/api';
+import type {
+  AgentBusinessExecutionSummary,
+  AgentExecutionTrace,
+  AgentMessage,
+} from '@hotel-butler/api';
+
+export function messageOwnsPendingClarification(
+  execution: AgentBusinessExecutionSummary | null,
+  message: AgentMessage,
+): boolean {
+  return (
+    execution !== null &&
+    execution.pendingClarification !== null &&
+    message.role === 'assistant' &&
+    message.businessExecutionId === execution.id
+  );
+}
 
 export function executionForDisplayedMessage(
   executions: readonly AgentExecutionTrace[],

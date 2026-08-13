@@ -68,6 +68,7 @@ sequenceDiagram
   participant Main as Electron main
   participant TRPC as tRPC server
   participant DB as PostgreSQL
+  participant Collector as 取证策略
   participant Agent as LangChain Agent
   participant Kimi as Kimi K3
   participant MCP as MCP server
@@ -85,7 +86,12 @@ sequenceDiagram
   TRPC-->>Main: runId + businessExecutionId + userMessage
   Main->>TRPC: agent.events SSE(runId)
   TRPC->>DB: 按 owner + runId 回放事件
-  TRPC->>Kimi: 结构化意图分类与候选参数抽取
+  alt 快捷操作
+    TRPC->>TRPC: 按服务端注册表确定意图，不调用模型
+  else 自然语言
+    TRPC->>Kimi: 结构化意图分类与候选参数抽取
+    TRPC->>TRPC: 按意图注册表过滤模型提出的 slot
+  end
   TRPC->>DB: CAS 保存路由和参数状态
   alt 参数缺失、无效或存在多个候选
     TRPC->>DB: 保存 awaiting_clarification 与交互 schema
@@ -96,15 +102,22 @@ sequenceDiagram
   else 参数已确定
     TRPC->>DB: 保存不可变 resolved request
   end
-  Agent->>DB: 读取消息与当前员工长期记忆
-  Agent->>Kimi: resolved request + 当前工作流只读工具（stream=true）
-  Kimi-->>Agent: token / tool_calls
-  opt 需要酒店数据
-    Agent->>MCP: 调当前意图 allowlist 内的只读工具
-    MCP-->>Agent: 工具结果
-    Agent->>DB: 标准化证据、校验范围/时段/裁剪信息
-    Agent->>Kimi: 仅基于已验证证据生成结论
+  TRPC->>Collector: resolved request
+  alt 专用意图且 MCP Schema 兼容
+    Collector->>MCP: 代码选择工具并构造参数
+    MCP-->>Collector: MCP result
+  else 通用意图或 Schema 不兼容
+    Collector->>Agent: 进入受限取证回合
+    Agent->>Kimi: resolved request + 意图工具 allowlist
+    Kimi-->>Agent: tool_calls
+    Agent->>MCP: 调用只读 MCP
+    MCP-->>Agent: ToolMessage
+    Agent->>Kimi: 受限回合收尾
   end
+  Collector->>DB: 分级解析、标准化并持久化证据
+  TRPC->>TRPC: 程序校验范围/时段/新鲜度/空结果/裁剪
+  TRPC->>Agent: 仅传不可变请求与已验证证据
+  Agent->>Kimi: 生成最终回答（无数据 MCP）
   opt 适合生成式 UI
     Agent->>Agent: render_hotel_ui(spec)
     Agent->>DB: 持久化 ui_spec event
@@ -158,9 +171,50 @@ const started = await client.agent.startRun.mutate({
 });
 ```
 
-当前默认目录包含查看今日天气、未来七天天气和空气质量提醒。它们由固定版本的 `@dangahagan/weather-mcp` 提供，使用 NOAA/Open-Meteo 等公共数据源，不需要 API Key；server 通过 stdio 启动本地 MCP 进程，并只加载读工具。
+当前默认目录包含“查看今日天气”，配置 DMS 后还会包含“查看酒店经营概览”。天气能力由固定版本的 `@dangahagan/weather-mcp` 提供，使用 NOAA/Open-Meteo 等公共数据源，不需要 API Key；server 通过 stdio 启动本地 MCP 进程，并只加载读工具。
 
 “公开酒店价格”只有在 `AI_MCP_SERVERS_JSON` 中配置带 `hotel_rates` capability 的真实价格 MCP 后才会出现在页面。仓库没有内置或冒充携程官方价格 MCP，也不会抓取需要登录的携程页面。依赖本地 RMS/PMS 数据但尚无真实 MCP 的异常订单、库存、对账等快捷项已从目录移除。
+
+## 业务读取调用链
+
+快捷操作和自然语言在路由完成后共用同一套业务执行。天气、经营概览和公开房价属于专用意图；通用酒店数据问题保留受限 Agent：
+
+```text
+用户输入 / 快捷操作 ID
+→ 创建 Conversation Message + Run + BusinessExecution
+→ BusinessIntentRouter
+→ BusinessSlotResolver
+→ 缺参数：持久化 clarification，结束当前 Run，等待用户
+→ 参数完整：进入 executing
+   ├─ 专用意图且工具 Schema 兼容
+   │  → DeterministicWorkflowCollector 由代码选择只读工具并构造参数
+   │  → 直接调用 MCP，不调用取证模型，也没有工具后的模型收尾
+   └─ 通用查询或第三方工具 Schema 不兼容
+      → LangChainAgentRuntime 受限取证回合
+      → 模型只能在当前意图 allowlist 内选择只读 MCP
+→ MCP 结果按 structuredContent / JSON / 已知适配器 / 有界文本分级解析
+→ 生成 EvidenceEnvelope 并执行程序化 scope / period / freshness / empty / filtered 校验
+→ sufficient：只把已验证证据交给最终回答模型
+→ 最终回答模型生成文字，可调用一次 render_hotel_ui
+→ server 校验 UI spec，保存 assistant Message，发布 run_completed
+```
+
+固定天气 MCP 当前返回 Markdown，因此由版本化天气适配器提取常用字段并保留有界原文；它不被假设为 JavaScript 对象。第三方 MCP 若提供 `structuredContent`，证据层优先使用；若只有 JSON 文本则解析后校验；若只有普通文本则保留为 `unstructured` 并在最终回答中说明字段级校验限制。
+
+服务端用不含正文和结果的结构化日志区分耗时：`agent.workflow.collection.*`、`agent.workflow.evidence.assessed`、`agent.answer.model.*` 和 `agent.runtime.ui_spec_generated`。客户端原有的 `tool_started/tool_completed` 继续表示用户可见的工具生命周期。
+
+## 失败与前端反馈
+
+失败按发生阶段收敛，不把内部异常、SQL、MCP 地址或凭证展示给用户：
+
+- 缺失、无效或歧义参数进入 `awaiting_clarification`，显示产品自有补充信息卡片；
+- 写请求进入 `write_denied`，以普通 assistant 消息说明当前只支持查询和建议；
+- 空结果或证据不足进入 `limited`，说明不能得出结论及数据限制；
+- 证据酒店范围不匹配直接终止 Run，显示不可重试的安全校验提示，不再落回普通 Agent；
+- MCP、模型或未预期服务异常发布 `run_failed`，renderer 清除运行中草稿并显示友好错误横幅；
+- SSE 连接中断提示重新打开会话，服务端保留的事件可通过游标恢复。
+
+当前 `run_failed.retryable` 已进入共享事件契约，但 renderer 尚未据此提供一键重试；历史会话恢复也不会还原当时的精确失败横幅。这两项属于后续失败恢复 UI，而不是本次取证链优化已经具备的能力。
 
 ## 用户 session 隔离
 

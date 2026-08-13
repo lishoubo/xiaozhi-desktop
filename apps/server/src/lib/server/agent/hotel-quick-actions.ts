@@ -29,8 +29,8 @@ const definitions = [
 	},
 	{
 		id: 'public_hotel_rates',
-		label: '公开酒店价格',
-		description: '搜索指定日期和酒店的公开可订价格并比较来源',
+		label: '查询公开房价',
+		description: '补充酒店和入住日期后，比较各来源的公开可订价格',
 		category: 'revenue',
 		requiredCapability: 'hotel_rates',
 		prompt:

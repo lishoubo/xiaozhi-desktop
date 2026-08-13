@@ -237,6 +237,17 @@ running Run.
 - **THEN** the cancelled trace remains next to its original user message
 - **AND** the later execution and answer remain in chronological order
 
+### Requirement: Observable business execution phases
+
+The server SHALL record privacy-safe duration logs for workflow collection, evidence assessment and
+post-validation answer generation so time outside MCP lifecycle events is attributable.
+
+#### Scenario: Grounded read completes
+
+- **WHEN** a business read progresses from collection through answer generation
+- **THEN** logs identify collection strategy, phase duration, assessment status and UI presence
+- **AND** omit user content, tool arguments, evidence data, model output and generated UI payloads
+
 ### Requirement: Persistent conversations and memory
 
 Conversation messages SHALL survive process restarts, and employee-scoped long-term memory SHALL be available across that employee's conversations.

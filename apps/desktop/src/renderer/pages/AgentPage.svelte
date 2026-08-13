@@ -31,7 +31,11 @@
     withConversationError,
     type AgentConversationViewState,
   } from '../agent-conversation-state';
-  import { executionForDisplayedMessage, formatConversationUpdatedAt } from '../agent-presentation';
+  import {
+    executionForDisplayedMessage,
+    formatConversationUpdatedAt,
+    messageOwnsPendingClarification,
+  } from '../agent-presentation';
   import {
     LAYOUT_ANIMATION_OPTIONS,
     PAGE_ENTER_OPTIONS,
@@ -572,21 +576,21 @@
               {#if message.ui}
                 <div class="mt-3"><HotelGenerativeUi spec={message.ui} /></div>
               {/if}
+              {#if
+                pendingClarification &&
+                messageOwnsPendingClarification(activeBusinessExecution, message)}
+                <AgentClarificationCard
+                  clarification={pendingClarification}
+                  submitting={clarificationSubmitting}
+                  onsubmit={(answers) => void submitClarification({ answers })}
+                  oncancel={() => void cancelPendingBusinessExecution()}
+                />
+              {/if}
               {#if execution && message.role === 'assistant'}
                 <AgentExecutionTimeline trace={execution} />
               {/if}
             </div>
           </article>
-          {#if pendingClarification?.anchorMessageId === message.id}
-            <div class="ml-11 max-w-xl">
-              <AgentClarificationCard
-                clarification={pendingClarification}
-                submitting={clarificationSubmitting}
-                onsubmit={(answers) => void submitClarification({ answers })}
-                oncancel={() => void cancelPendingBusinessExecution()}
-              />
-            </div>
-          {/if}
           {#if execution && message.role === 'user'}
             <article
               class="mt-3 flex gap-3"

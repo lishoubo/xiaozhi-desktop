@@ -3,6 +3,7 @@ import type { AgentExecutionTrace, AgentMessage } from '@hotel-butler/api';
 import {
   compactTrendAxisLabel,
   executionForDisplayedMessage,
+  messageOwnsPendingClarification,
   trendAxisTickSpacing,
 } from '../../../src/renderer/agent-presentation';
 
@@ -35,6 +36,45 @@ function message(id: string, role: AgentMessage['role']): AgentMessage {
 }
 
 describe('Agent result presentation', () => {
+  it('attaches pending clarification only to its assistant message', () => {
+    const businessExecutionId = '50000000-0000-4000-8000-000000000001';
+    const execution = {
+      id: businessExecutionId,
+      conversationId: '40000000-0000-4000-8000-000000000001',
+      triggerUserMessageId: cancelled.userMessageId,
+      routeKind: 'business_read' as const,
+      intent: 'hotel_operating_summary' as const,
+      status: 'awaiting_clarification' as const,
+      pendingClarification: {
+        interactionId: '60000000-0000-4000-8000-000000000001',
+        anchorMessageId: cancelled.userMessageId,
+        version: 1,
+        prompt: '请选择酒店。',
+        fields: [
+          {
+            kind: 'text' as const,
+            slot: 'hotelReference',
+            label: '酒店',
+            required: true,
+            maxLength: 200,
+          },
+        ],
+        expiresAt: '2026-08-13T12:00:00.000Z',
+      },
+      createdAt: '2026-08-12T00:00:00.000Z',
+      updatedAt: '2026-08-12T00:00:01.000Z',
+      completedAt: null,
+    };
+    const userMessage = message(cancelled.userMessageId, 'user');
+    const assistantMessage = {
+      ...message('70000000-0000-4000-8000-000000000001', 'assistant'),
+      businessExecutionId,
+    };
+
+    expect(messageOwnsPendingClarification(execution, userMessage)).toBe(false);
+    expect(messageOwnsPendingClarification(execution, assistantMessage)).toBe(true);
+  });
+
   it('keeps a cancelled trace with its originating user message', () => {
     const executions = [cancelled, completed];
 

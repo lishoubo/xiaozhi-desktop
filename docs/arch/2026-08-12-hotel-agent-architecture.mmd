@@ -21,6 +21,8 @@ flowchart TB
     Router[BusinessIntentRouter<br/>结构化分类、未知读取回退、写拒绝]
     Slots[BusinessSlotResolver<br/>候选、歧义、时区与追问 schema]
     State[Persistent State Machine<br/>CAS 转换与恢复]
+    Collector[DeterministicWorkflowCollector<br/>专用意图代码直调、Schema 兼容回退]
+    Normalizer[Evidence Normalizer<br/>结构化 / JSON / 适配器 / 文本]
     Evidence[Evidence Validator<br/>来源、范围、时段与限制]
     Context[ConversationContextService<br/>上下文估算与增量摘要]
     RuntimePort{{AgentRuntime Port<br/>SDK 无关薄边界}}
@@ -32,11 +34,14 @@ flowchart TB
     Procedure --> Gateway
     Gateway --> Router --> Slots --> State
     Gateway --> Context
-    State --> RuntimePort --> LangChain
-    LangChain --> Evidence --> State
+    State -->|专用且兼容| Collector
+    State -->|通用查询或不兼容回退| RuntimePort --> LangChain
+    Collector --> MCP
+    LangChain --> MCP
+    MCP --> Normalizer --> Evidence --> State
+    State -->|已验证证据生成回答| RuntimePort
     Context --> Summary
     LangChain --> ToolHandlers
-    LangChain --> MCP
   end
 
   subgraph Persistence[PostgreSQL]
@@ -85,6 +90,6 @@ flowchart TB
   classDef data fill:#f0fdf4,stroke:#16a34a,color:#14532d;
   classDef external fill:#fff7ed,stroke:#ea580c,color:#7c2d12;
   class API,RuntimePort boundary;
-  class UI,Preload,IPC,Service,Procedure,Gateway,Router,Slots,State,Evidence,Context,LangChain,Summary,ToolHandlers,MCP app;
+  class UI,Preload,IPC,Service,Procedure,Gateway,Router,Slots,State,Collector,Normalizer,Evidence,Context,LangChain,Summary,ToolHandlers,MCP app;
   class Conversation,Message,Run,Event,BusinessExecution,BusinessEvent,Memory data;
   class Kimi,DMS,OtherMCP,RMS external;

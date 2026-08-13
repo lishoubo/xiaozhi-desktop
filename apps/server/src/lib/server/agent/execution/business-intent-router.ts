@@ -7,7 +7,7 @@ import {
 } from '@hotel-butler/api';
 import { z } from 'zod';
 import type { SlotCollection } from './business-execution-state';
-import { quickActionIntent } from './intent-registry';
+import { getIntentDefinition, quickActionIntent } from './intent-registry';
 
 export const routeClassifierOutputSchema = z.strictObject({
 	category: agentBusinessRouteKindSchema,
@@ -38,6 +38,16 @@ function candidateSlots(values: Readonly<Record<string, string>>): SlotCollectio
 	);
 }
 
+function registeredCandidateSlots(
+	intent: AgentBusinessIntent,
+	values: Readonly<Record<string, string>>
+): SlotCollection {
+	const allowed = new Set(getIntentDefinition(intent).slots.map((slot) => slot.name));
+	return candidateSlots(
+		Object.fromEntries(Object.entries(values).filter(([name]) => allowed.has(name)))
+	);
+}
+
 export class BusinessIntentRouter {
 	constructor(private readonly classifier: RouteClassifier) {}
 
@@ -62,17 +72,18 @@ export class BusinessIntentRouter {
 			return { routeKind: 'business_write', intent: null, slots: {}, confidence: 1 };
 		}
 		if (proposed.category === 'business_read') {
+			const intent = proposed.intentCandidate ?? 'generic_hotel_data_query';
 			return {
 				routeKind: 'business_read',
-				intent: proposed.intentCandidate ?? 'generic_hotel_data_query',
-				slots: candidateSlots(proposed.slots),
+				intent,
+				slots: registeredCandidateSlots(intent, proposed.slots),
 				confidence: proposed.confidence
 			};
 		}
 		return {
 			routeKind: proposed.category,
 			intent: null,
-			slots: candidateSlots(proposed.slots),
+			slots: {},
 			confidence: proposed.confidence
 		};
 	}

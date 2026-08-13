@@ -317,6 +317,201 @@ describe('HotelAgentGateway cancellation', () => {
 	});
 });
 
+describe('HotelAgentGateway deterministic business collection', () => {
+	it('uses the answer model only after deterministic evidence passes assessment', async () => {
+		const { repository, logger } = createGatewayHarness(
+			vi.fn(async () => []),
+			['weather']
+		);
+		const principal = { employeeId: '1001', orgId: '42' } as const;
+		const runId = '33333333-3333-4333-8333-333333333333';
+		const conversationId = '44444444-4444-4444-8444-444444444444';
+		const businessExecutionId = '88888888-8888-4888-8888-888888888888';
+		const userMessageId = '22222222-2222-4222-8222-222222222222';
+		const assistantMessageId = '99999999-9999-4999-8999-999999999999';
+		const runtime = {
+			run: vi.fn().mockResolvedValue({ content: '天气运营建议', ui: null })
+		};
+		const workflowCollector = {
+			collect: vi.fn().mockResolvedValue({
+				status: 'collected',
+				strategy: 'deterministic',
+				toolEvidence: [
+					{
+						toolName: 'get_weather_summary',
+						toolArgs: { city_name: '上海' },
+						result: '# Weather Summary\n\n**Location:** Shanghai\n\n**Temperature:** 29°C'
+					}
+				]
+			})
+		};
+		const summary = {
+			id: businessExecutionId,
+			conversationId,
+			triggerUserMessageId: userMessageId,
+			routeKind: 'business_read' as const,
+			intent: 'weather_operations_advice' as const,
+			status: 'routing' as const,
+			pendingClarification: null,
+			createdAt: '2026-08-13T00:00:00.000Z',
+			updatedAt: '2026-08-13T00:00:00.000Z',
+			completedAt: null
+		};
+		const request = {
+			routeKind: 'business_read' as const,
+			intent: 'weather_operations_advice' as const,
+			slots: { location: '上海', date: 'today' }
+		};
+		repository.startRun.mockResolvedValue({
+			created: true,
+			response: {
+				runId,
+				businessExecutionId,
+				userMessage: {
+					id: userMessageId,
+					conversationId,
+					businessExecutionId,
+					role: 'user',
+					content: '查看今日天气',
+					ui: null,
+					createdAt: '2026-08-13T00:00:00.000Z'
+				}
+			}
+		});
+		repository.getRunContext.mockResolvedValue({
+			run: { id: runId, status: 'running', businessExecutionId },
+			conversation: { id: conversationId }
+		});
+		repository.getBusinessExecution.mockResolvedValue({
+			summary,
+			state: { status: 'routing', inputKind: 'quick_action', inputValue: 'today_weather' },
+			version: 1
+		});
+		let version = 1;
+		repository.transitionBusinessExecution.mockImplementation(
+			(_owner, _executionId, _expectedVersion, event) => {
+				version += 1;
+				if (event.type === 'route_classified') {
+					return Promise.resolve({
+						summary: { ...summary, status: 'resolving_slots' },
+						state: {
+							status: 'resolving_slots',
+							routeKind: 'business_read',
+							intent: 'weather_operations_advice',
+							slots: event.proposal.slots
+						},
+						version
+					});
+				}
+				if (event.type === 'slots_ready') {
+					return Promise.resolve({
+						summary: { ...summary, status: 'ready' },
+						state: { status: 'ready', request },
+						version
+					});
+				}
+				if (event.type === 'workflow_started') {
+					return Promise.resolve({
+						summary: { ...summary, status: 'executing' },
+						state: { status: 'executing', request, evidence: [], followUpUsed: false },
+						version
+					});
+				}
+				if (event.type === 'workflow_completed') {
+					return Promise.resolve({
+						summary: { ...summary, status: 'validating_evidence' },
+						state: {
+							status: 'validating_evidence',
+							request,
+							evidence: event.evidence,
+							followUpUsed: false
+						},
+						version
+					});
+				}
+				if (event.type === 'evidence_validated') {
+					return Promise.resolve({
+						summary: { ...summary, status: 'answering' },
+						state: {
+							status: 'answering',
+							mode: 'grounded',
+							request,
+							evidence: [
+								{
+									evidenceId: '77777777-7777-4777-8777-777777777777',
+									source: 'weather_mcp',
+									data: {}
+								}
+							],
+							limitations: []
+						},
+						version
+					});
+				}
+				return Promise.resolve({
+					summary: { ...summary, status: 'completed' },
+					state: { status: 'completed', assistantMessageId },
+					version
+				});
+			}
+		);
+		repository.finalizeRunSuccess.mockResolvedValue({
+			id: assistantMessageId,
+			conversationId,
+			businessExecutionId,
+			role: 'assistant',
+			content: '天气运营建议',
+			ui: null,
+			createdAt: '2026-08-13T00:00:01.000Z'
+		});
+		const gateway = new HotelAgentGateway(
+			{
+				apiKey: 'configured',
+				baseUrl: 'https://api.moonshot.cn/v1',
+				model: 'kimi-k3',
+				mcpServers: {}
+			},
+			repository,
+			runtime,
+			{ prepare: vi.fn().mockResolvedValue({ summary: null, history: [] }) },
+			{ serverCount: () => 1, capabilities: () => new Set(['weather']) },
+			{ list: vi.fn().mockResolvedValue([]) },
+			logger,
+			{
+				route: vi
+					.fn()
+					.mockResolvedValue({
+						routeKind: 'business_read',
+						intent: 'weather_operations_advice',
+						slots: {}
+					})
+			},
+			{ resolve: vi.fn().mockResolvedValue({ status: 'ready', request }) },
+			workflowCollector
+		);
+
+		await gateway.startRun(principal, {
+			conversationId,
+			quickActionId: 'today_weather',
+			clientRequestId: '55555555-5555-4555-8555-555555555555'
+		});
+		await vi.waitFor(() => expect(repository.finalizeRunSuccess).toHaveBeenCalledOnce());
+
+		expect(workflowCollector.collect).toHaveBeenCalledOnce();
+		expect(runtime.run).toHaveBeenCalledOnce();
+		expect(runtime.run).toHaveBeenCalledWith(
+			expect.objectContaining({ workflowRequest: request, validatedEvidence: expect.any(Array) })
+		);
+		expect(logger.info).toHaveBeenCalledWith(
+			expect.objectContaining({
+				event: 'agent.workflow.collection.completed',
+				strategy: 'deterministic'
+			}),
+			'Agent workflow collection completed'
+		);
+	});
+});
+
 describe('HotelAgentGateway observability', () => {
 	it('logs safe run acceptance metadata without prompt content', async () => {
 		const { gateway, repository, logger } = createGatewayHarness(vi.fn(async () => []));

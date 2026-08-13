@@ -1,10 +1,7 @@
 import type { AgentMessage, AgentPrincipal, GenerativeUiSpec } from '@hotel-butler/api';
-import type {
-	EvidenceRecord,
-	ResolvedBusinessRequest
-} from './execution/business-execution-state';
+import type { EvidenceRecord, ResolvedBusinessRequest } from './execution/business-execution-state';
 
-export type RuntimeEvent =
+export type PublishableRuntimeEvent =
 	| Readonly<{ type: 'text_delta'; delta: string }>
 	| Readonly<{ type: 'tool_started'; toolCallId: string; toolName: string }>
 	| Readonly<{
@@ -14,6 +11,14 @@ export type RuntimeEvent =
 			summary: string;
 	  }>
 	| Readonly<{ type: 'ui_spec'; spec: GenerativeUiSpec }>;
+
+export type RuntimeTelemetryEvent = Readonly<{
+	type: 'runtime_phase_completed';
+	phase: 'ui_spec_generated';
+	durationMs: number;
+}>;
+
+export type RuntimeEvent = PublishableRuntimeEvent | RuntimeTelemetryEvent;
 
 export type AgentRuntimeRunOptions = Readonly<{
 	principal: AgentPrincipal;

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { assessEvidence, normalizeEvidence } from './evidence';
+import { assessEvidence, normalizeEvidence, parseEvidenceResult } from './evidence';
 
 const request = {
 	routeKind: 'business_read' as const,
@@ -17,6 +17,51 @@ const request = {
 };
 
 describe('business evidence', () => {
+	it('prefers structured MCP content over display text', () => {
+		const parsed = parseEvidenceResult('get_weather_summary', {
+			content: [{ type: 'text', text: 'display only' }],
+			structuredContent: { temperatureC: 29, condition: 'overcast' }
+		});
+
+		expect(parsed).toEqual({
+			quality: 'structured',
+			data: { temperatureC: 29, condition: 'overcast' }
+		});
+	});
+
+	it('parses JSON text from MCP content blocks', () => {
+		const parsed = parseEvidenceResult('get_public_rates', {
+			content: [{ type: 'text', text: '{"currency":"CNY","rates":[688]}' }]
+		});
+
+		expect(parsed).toEqual({
+			quality: 'json',
+			data: { currency: 'CNY', rates: [688] }
+		});
+	});
+
+	it('adapts the pinned weather summary and keeps unknown prose bounded as text', () => {
+		const weather = parseEvidenceResult(
+			'get_weather_summary',
+			"# Weather Summary\n\n**Location:** Shanghai, China (31.2, 121.4)\n\n**Time:** Aug 13, 2026, 13:15\n\n**Temperature:** 29°C\n**Today's Range:** High 31°C / Low 26°C\n**Precipitation Chance:** 80%\n**Timezone:** Asia/Shanghai"
+		);
+		const prose = parseEvidenceResult('unknown_read_tool', 'available rooms were returned');
+
+		expect(weather).toMatchObject({
+			quality: 'adapter',
+			data: {
+				format: 'weather_summary_v1',
+				location: 'Shanghai, China',
+				timezone: 'Asia/Shanghai',
+				currentTemperatureC: 29,
+				maximumTemperatureC: 31,
+				minimumTemperatureC: 26,
+				precipitationProbability: 80
+			}
+		});
+		expect(prose).toEqual({ quality: 'unstructured', data: 'available rooms were returned' });
+	});
+
 	it('normalizes scope, fingerprint and filtered result metadata', () => {
 		const evidence = normalizeEvidence({
 			request,
@@ -33,6 +78,7 @@ describe('business evidence', () => {
 				period: { start: '2026-07-01', end: '2026-07-31' }
 			},
 			metrics: ['平均入住时长'],
+			parseQuality: 'structured',
 			filtered: true
 		});
 		expect(evidence.queryFingerprint).toMatch(/^[a-f0-9]{64}$/);

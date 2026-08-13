@@ -14,8 +14,16 @@ export type EvidenceEnvelope = Readonly<{
 	}>;
 	metrics: readonly string[];
 	observedAt: string | null;
+	parseQuality: EvidenceParseQuality;
 	filtered: boolean;
 	data: JsonValue;
+}>;
+
+export type EvidenceParseQuality = 'structured' | 'json' | 'adapter' | 'unstructured';
+
+export type ParsedEvidenceResult = Readonly<{
+	quality: EvidenceParseQuality;
+	data: unknown;
 }>;
 
 export type EvidenceAssessment =
@@ -32,6 +40,93 @@ function jsonValue(value: unknown): JsonValue {
 		return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, jsonValue(item)]));
 	}
 	return String(value);
+}
+
+function textBlocks(value: unknown): string | null {
+	if (!Array.isArray(value) || value.length === 0) return null;
+	const texts: string[] = [];
+	for (const block of value) {
+		if (typeof block !== 'object' || block === null || Reflect.get(block, 'type') !== 'text') {
+			return null;
+		}
+		const text = Reflect.get(block, 'text');
+		if (typeof text !== 'string') return null;
+		texts.push(text);
+	}
+	return texts.join('\n');
+}
+
+function contentValue(value: unknown): unknown {
+	if (typeof value !== 'object' || value === null || Array.isArray(value)) return value;
+	const structured = Reflect.get(value, 'structuredContent');
+	if (structured !== undefined) return structured;
+	const artifact = Reflect.get(value, 'artifact');
+	if (typeof artifact === 'object' && artifact !== null) {
+		const artifactStructured = Reflect.get(artifact, 'structuredContent');
+		if (artifactStructured !== undefined) return artifactStructured;
+	}
+	const content = Reflect.get(value, 'content');
+	return content === undefined ? value : content;
+}
+
+function numberFrom(text: string, pattern: RegExp): number | undefined {
+	const matched = text.match(pattern)?.[1];
+	if (!matched) return undefined;
+	const value = Number(matched);
+	return Number.isFinite(value) ? value : undefined;
+}
+
+function adaptWeatherSummary(text: string): Readonly<Record<string, unknown>> | null {
+	if (!/^# Weather Summary\b/m.test(text)) return null;
+	const location = text
+		.match(/^\*\*Location:\*\*\s*([^\n(]+?)(?:\s*\([^\n]*\))?\s*$/m)?.[1]
+		?.trim();
+	const timezone = text.match(/^\*\*Timezone:\*\*\s*([^\n]+)$/m)?.[1]?.trim();
+	const observedAt = text.match(/^\*\*(?:Time|Observation Time):\*\*\s*([^\n]+)$/m)?.[1]?.trim();
+	const currentTemperatureC = numberFrom(text, /^\*\*Temperature:\*\*\s*(-?\d+(?:\.\d+)?)°C\s*$/m);
+	const maximumTemperatureC = numberFrom(
+		text,
+		/^\*\*(?:Today's Range|Temperature):\*\*\s*High\s*(-?\d+(?:\.\d+)?)°C/m
+	);
+	const minimumTemperatureC = numberFrom(
+		text,
+		/^\*\*(?:Today's Range|Temperature):\*\*.*?Low\s*(-?\d+(?:\.\d+)?)°C/m
+	);
+	const precipitationProbability = numberFrom(
+		text,
+		/^\*\*Precipitation Chance:\*\*\s*(\d+(?:\.\d+)?)%/m
+	);
+	return {
+		format: 'weather_summary_v1',
+		...(location ? { location } : {}),
+		...(timezone ? { timezone } : {}),
+		...(observedAt ? { observedAt } : {}),
+		...(currentTemperatureC === undefined ? {} : { currentTemperatureC }),
+		...(maximumTemperatureC === undefined ? {} : { maximumTemperatureC }),
+		...(minimumTemperatureC === undefined ? {} : { minimumTemperatureC }),
+		...(precipitationProbability === undefined ? {} : { precipitationProbability }),
+		rawText: text
+	};
+}
+
+export function parseEvidenceResult(toolName: string, result: unknown): ParsedEvidenceResult {
+	const value = contentValue(result);
+	if (typeof result === 'object' && result !== null) {
+		const structured = Reflect.get(result, 'structuredContent');
+		if (structured !== undefined) return { quality: 'structured', data: structured };
+	}
+	const text = typeof value === 'string' ? value : textBlocks(value);
+	if (text !== null) {
+		try {
+			return { quality: 'json', data: JSON.parse(text) };
+		} catch {
+			const adapted = toolName === 'get_weather_summary' ? adaptWeatherSummary(text) : null;
+			return adapted
+				? { quality: 'adapter', data: adapted }
+				: { quality: 'unstructured', data: text };
+		}
+	}
+	return { quality: 'structured', data: value };
 }
 
 function valueAt(slots: ResolvedBusinessRequest['slots'], name: string): JsonValue | undefined {
@@ -90,7 +185,8 @@ export function normalizeEvidence(
 		observedAt?: string | null;
 	}>
 ): EvidenceEnvelope {
-	const compacted = compactHotelDataResult(input.result);
+	const parsed = parseEvidenceResult(input.toolName, input.result);
+	const compacted = compactHotelDataResult(parsed.data);
 	let data: unknown = compacted;
 	try {
 		data = JSON.parse(compacted.split('\n\n[DATA_RESULT_FILTERED]')[0] ?? compacted);
@@ -117,6 +213,7 @@ export function normalizeEvidence(
 				? [metrics]
 				: [],
 		observedAt: input.observedAt ?? null,
+		parseQuality: parsed.quality,
 		filtered: compacted.includes('[DATA_RESULT_FILTERED]'),
 		data: jsonValue(data)
 	};
@@ -148,9 +245,14 @@ export function assessEvidence(
 	) {
 		return { status: 'rejected', reasonCode: 'evidence_scope_mismatch' };
 	}
-	const limitations = evidence.some((item) => item.filtered)
-		? ['结果经过行数、字段或长度裁剪，不代表完整明细。']
-		: [];
+	const limitations = [
+		...(evidence.some((item) => item.filtered)
+			? ['结果经过行数、字段或长度裁剪，不代表完整明细。']
+			: []),
+		...(evidence.some((item) => item.parseQuality === 'unstructured')
+			? ['数据源仅提供非结构化文本，字段级校验能力有限。']
+			: [])
+	];
 	if (
 		(request.intent === 'weather_operations_advice' || request.intent === 'public_hotel_rates') &&
 		evidence.every((item) => item.observedAt === null)
