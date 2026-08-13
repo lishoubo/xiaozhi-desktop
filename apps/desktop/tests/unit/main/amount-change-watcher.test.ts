@@ -11,11 +11,13 @@ function createLogger() {
   return { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
 }
 
-function createFakeWebContents() {
+function createFakeWebContents(options: { busy?: () => boolean } = {}) {
+  const isBusy = options.busy ?? (() => false);
   return {
     getURL: () => WATCHED_URL,
     debugger: {
-      isAttached: () => false,
+      // `busy` 模拟酒店探测那条链路正占着 debugger（两者共用同一个 webContents）。
+      isAttached: () => isBusy(),
       attach: vi.fn(),
       detach: vi.fn(),
       sendCommand: vi.fn(() => Promise.resolve({})),
@@ -28,7 +30,7 @@ function createFakeWebContents() {
 function createAdapter(overrides: Partial<AmountChangeAdapter> = {}): AmountChangeAdapter {
   return {
     isWatchableUrl: (url: string) => url.includes('/p/travel-ari/hotel/price'),
-    saveEndpoints: new Map([['save_amount_calendar', '/save_amount_calendar']]),
+    watchedEndpoints: new Map([['save_amount_calendar', '/save_amount_calendar']]),
     isSuccessful: () => true,
     parse: vi.fn(),
     ...overrides,
@@ -88,12 +90,61 @@ describe('AmountChangeWatcher', () => {
     expect(webContents.debugger.attach).toHaveBeenCalledTimes(1);
   });
 
+  it('debugger 被占用时不谎报「已启动」，而是明确记 warn', async () => {
+    const browserManager = new EventEmitter();
+    const webContents = createFakeWebContents({ busy: () => true });
+    const logger = createLogger();
+    new AmountChangeWatcher({
+      browserManager: browserManager as never,
+      adapters: new Map([[toChannelId('douyin'), createAdapter()]]),
+      logger,
+      report: vi.fn(),
+    });
+
+    browserManager.emit('tab:navigated', navigatedEvent(WATCHED_URL, webContents));
+    await flushMicrotasks();
+
+    // 真机排查时「已启动 + 改价没反应」最难查，成功日志绝不能在没挂上时出现。
+    expect(logger.info).not.toHaveBeenCalledWith(
+      'Amount change watching started',
+      expect.anything(),
+    );
+    expect(logger.warn).toHaveBeenCalledWith(
+      'Amount change watcher: not watching, debugger is busy',
+      expect.objectContaining({ channel: 'douyin' }),
+    );
+  });
+
+  it('debugger 占用解除后，下一次导航还能重新挂上（不被死 capture 卡死）', async () => {
+    const browserManager = new EventEmitter();
+    let busy = true;
+    const webContents = createFakeWebContents({ busy: () => busy });
+    new AmountChangeWatcher({
+      browserManager: browserManager as never,
+      adapters: new Map([[toChannelId('douyin'), createAdapter()]]),
+      logger: createLogger(),
+      report: vi.fn(),
+    });
+
+    // 第一次：探测占着 debugger，没挂上。
+    browserManager.emit('tab:navigated', navigatedEvent(WATCHED_URL, webContents));
+    await flushMicrotasks();
+    expect(webContents.debugger.attach).not.toHaveBeenCalled();
+
+    // 探测结束让出 debugger。若失败时没撤销登记，`captures.has()` 会把这个 tab
+    // 永久判成「已在监听」，此后再也挂不上 —— 这条用例锁的就是那个回归。
+    busy = false;
+    browserManager.emit('tab:navigated', navigatedEvent(`${WATCHED_URL}&d=2`, webContents));
+    await flushMicrotasks();
+    expect(webContents.debugger.attach).toHaveBeenCalledTimes(1);
+  });
+
   it('渠道没有适配器时完全不监听', async () => {
     const browserManager = new EventEmitter();
     const webContents = createFakeWebContents();
     new AmountChangeWatcher({
       browserManager: browserManager as never,
-      // 本期的携程/美团就是这个状态：注册表里没有 amountChangeAdapter。
+      // 将来新接、尚未踩点的渠道就是这个状态：注册表里没有 amountChangeAdapter。
       adapters: new Map(),
       logger: createLogger(),
       report: vi.fn(),
@@ -137,7 +188,7 @@ describe('AmountChangeWatcher', () => {
     });
   }
 
-  it('适配器解析不出酒店时不上报，但留下告警', async () => {
+  it('适配器丢弃这次观测时不上报', async () => {
     const browserManager = new EventEmitter();
     const webContents = createFakeWebContents();
     webContents.debugger.sendCommand = vi.fn(() =>
@@ -145,7 +196,8 @@ describe('AmountChangeWatcher', () => {
     );
     const report = vi.fn();
     const logger = createLogger();
-    // parse 返回 null（页面 URL 缺 poi_id）——这条上报对 RMS 无意义，应被丢弃。
+    // parse 返回 null（定位不到酒店、或拦到的是不该上报的预检）——应被丢弃。
+    // 丢弃原因的日志由适配器自己打（它才知道缺的是哪个字段），watcher 不重复记。
     const adapter = createAdapter({ parse: () => null });
     new AmountChangeWatcher({
       browserManager: browserManager as never,
@@ -165,10 +217,6 @@ describe('AmountChangeWatcher', () => {
     await flushMicrotasks();
 
     expect(report).not.toHaveBeenCalled();
-    expect(logger.warn).toHaveBeenCalledWith(
-      expect.stringContaining('could not locate the hotel'),
-      expect.anything(),
-    );
   });
 
   it('解析成功时把上报体交给窄回调', async () => {
@@ -181,11 +229,11 @@ describe('AmountChangeWatcher', () => {
     const parsed = {
       source: toChannelId('douyin'),
       endpointId: 'save_amount_calendar',
+      endpointUrl: 'https://life.douyin.com/life/trip/hotel/save_amount_calendar',
       otaHotelId: '777',
-      channelExtra: { merchantGroupId: '1', lifeAccountId: '2' },
-      requestBody: { a: 1 },
+      changeRaw: { a: 1 },
     };
-    const adapter = createAdapter({ parse: () => parsed });
+    const adapter = createAdapter({ parse: () => ({ kind: 'report', report: parsed }) });
     new AmountChangeWatcher({
       browserManager: browserManager as never,
       adapters: new Map([[toChannelId('douyin'), adapter]]),
@@ -203,6 +251,7 @@ describe('AmountChangeWatcher', () => {
     listener(null, 'Network.loadingFinished', { requestId: '1.1' });
     await flushMicrotasks();
 
-    expect(report).toHaveBeenCalledWith(parsed);
+    // 第二个参数是 partitionName —— service 侧靠它查渠道账号。
+    expect(report).toHaveBeenCalledWith(parsed, expect.any(String));
   });
 });

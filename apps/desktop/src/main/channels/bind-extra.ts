@@ -49,8 +49,12 @@ export function withChannelAccount(
  *
  * 键名不重叠，所以按优先级依次取即可，不必按渠道分支。取不到返回 null——名字只是
  * 展示增强，缺了不该阻断绑定。
+ *
+ * 导出是因为改价上报也要这个名字（`AmountChangeReportService`）。两处必须同一份实现：
+ * 此前那边另写了一套键表，漏掉美团的 `login`，导致同一个账号在酒店卡片上有名字、
+ * 在改价上报里却是 null。
  */
-function channelAccountNameOf(credentialExtra: JsonObject | null): string | null {
+export function channelAccountNameOf(credentialExtra: JsonObject | null): string | null {
   if (credentialExtra === null) return null;
   return (
     nonBlank(credentialExtra.hotelName) ??

@@ -43,10 +43,10 @@ describe('application calendar database', () => {
     ]);
     expect(snapshot.events).toHaveLength(77);
     expect(database.prepare('SELECT COUNT(*) AS count FROM schema_migrations').get()).toEqual({
-      count: 7,
+      count: 8,
     });
     expect(logger.info).toHaveBeenCalledWith('Application database initialized', {
-      migrationsApplied: 7,
+      migrationsApplied: 8,
       mockEventsSeeded: 0,
     });
     expect(JSON.stringify(logger.info.mock.calls)).not.toContain(filename);

@@ -27,13 +27,10 @@
  */
 import { toChannelId } from '../../ids';
 import type { AppLogger } from '../../../shared/logging';
-import type {
-  AmountSaveObserved,
-  OtaAmountChangeObserved,
-} from '../../../shared/types/amount-change';
+import type { AmountSaveObserved } from '../../../shared/types/amount-change';
 import type { JsonObject } from '../../../shared/types/json';
 import { isTrustedHotelUrl } from '../trusted-hotel-url';
-import type { AmountChangeAdapter } from '../types';
+import type { AmountChangeAdapter, AmountParseResult } from '../types';
 
 const DOUYIN_HOTEL_HOSTNAME = 'life.douyin.com';
 /**
@@ -49,8 +46,6 @@ const DOUYIN_HOTEL_HOSTNAME = 'life.douyin.com';
 const WATCH_PATH = '/p/travel-ari/hotel/price';
 
 const POI_ID_PARAM = 'poi_id';
-const GROUP_ID_PARAM = 'groupid';
-const LIFE_ACCOUNT_ID_PARAM = 'lifeAccountId';
 
 /**
  * 要拦的保存端点。
@@ -62,7 +57,7 @@ const LIFE_ACCOUNT_ID_PARAM = 'lifeAccountId';
  * 二期加房态房量时在这里加一行即可，机制层不用动：
  *   ['batch_save_stock_state_calendar', '/life/trip/hotel/batch_save_stock_state_calendar'],
  */
-const SAVE_ENDPOINTS: ReadonlyMap<string, string> = new Map([
+const WATCHED_ENDPOINTS: ReadonlyMap<string, string> = new Map([
   ['save_amount_calendar', '/life/trip/hotel/save_amount_calendar'],
 ]);
 
@@ -92,21 +87,6 @@ function pathOf(url: string): string {
   } catch {
     return '';
   }
-}
-
-/**
- * 账号 ID：URL 上的 `lifeAccountId` 优先，没有就取请求体里的 `life_account_ids`。
- *
- * 真机实测（走菜单进入）URL 上没有这个参数，但请求体的 `permission_common_param` 里一直有值
- * —— 只读 URL 会让 `channelExtra.lifeAccountId` 白白留空。
- */
-function lifeAccountIdOf(pageUrl: string, requestBody: JsonObject): string {
-  const fromUrl = searchParamOf(pageUrl, LIFE_ACCOUNT_ID_PARAM);
-  if (fromUrl) return fromUrl;
-  const param = requestBody.permission_common_param;
-  if (typeof param !== 'object' || param === null || Array.isArray(param)) return '';
-  const ids = (param as Record<string, unknown>).life_account_ids;
-  return typeof ids === 'string' ? ids.trim() : '';
 }
 
 function productIdsFromProductList(value: unknown, into: Set<string>): void {
@@ -165,7 +145,7 @@ function isDouyinSaveSuccessful(responseBody: string): boolean {
 
 export function createDouyinAmountChangeAdapter(logger: AppLogger): AmountChangeAdapter {
   return {
-    saveEndpoints: SAVE_ENDPOINTS,
+    watchedEndpoints: WATCHED_ENDPOINTS,
 
     isWatchableUrl(url: string): boolean {
       if (!isTrustedHotelUrl(url, DOUYIN_HOTEL_HOSTNAME)) return false;
@@ -174,13 +154,9 @@ export function createDouyinAmountChangeAdapter(logger: AppLogger): AmountChange
 
     isSuccessful: isDouyinSaveSuccessful,
 
-    parse(observed: AmountSaveObserved): OtaAmountChangeObserved | null {
+    parse(observed: AmountSaveObserved): AmountParseResult | null {
       const otaHotelId = searchParamOf(observed.pageUrl, POI_ID_PARAM);
-      const merchantGroupId = searchParamOf(observed.pageUrl, GROUP_ID_PARAM);
-      const lifeAccountId = lifeAccountIdOf(observed.pageUrl, observed.requestBody);
 
-      // 缺 poi_id 就定位不到门店，这条上报对 RMS 毫无意义。另两个字段是给 RMS 做账号侧
-      // 校验/排查用的，缺了不阻断——但要留痕。
       // 真正的定位键是请求体里的 product_id（见文件头）。一个都没有才是硬错误 —— 那说明这次
       // 拦到的东西不是我们以为的改价请求，上报出去只会让 RMS 收到无法处理的数据。
       const productIds = productIdsOf(observed.requestBody);
@@ -204,16 +180,16 @@ export function createDouyinAmountChangeAdapter(logger: AppLogger): AmountChange
       }
 
       return {
-        source: DOUYIN_CHANNEL,
-        endpointId: observed.endpointId,
-        otaHotelId,
-        channelExtra: {
-          merchantGroupId,
-          lifeAccountId,
-          // 显式带出来：这是 RMS 反查门店的实际依据，不该让它再去 requestBody 里翻。
-          productIds,
+        kind: 'report',
+        report: {
+          source: DOUYIN_CHANNEL,
+          endpointId: observed.endpointId,
+          endpointUrl: observed.endpointUrl,
+          otaHotelId,
+          // 保存请求体原样透传 —— 抖音这份里价格就是绝对值，也没有携程那种设备指纹类
+          // 噪音字段，无需剔除也无需重塑（美团那种「发试算结果」的特殊处理这里用不上）。
+          changeRaw: observed.requestBody,
         },
-        requestBody: observed.requestBody,
       };
     },
   };

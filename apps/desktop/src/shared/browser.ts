@@ -102,6 +102,13 @@ export const otaCredentialSchema = z.strictObject({
   id: nonEmptyStringSchema,
   channel: nonEmptyStringSchema,
   channelAccountId: z.string().nullable(),
+  /**
+   * 「人能认出来」的账号名。渠道差异（携程 `hotelName`、抖音 `name`、美团 `login`）
+   * 在写入时已抹平，见 `channelAccountNameOf`。
+   *
+   * 可空：探测拿不到名字，或记录建于 migration 8 之前（历史数据不回填）。
+   */
+  channelAccountName: z.string().nullable(),
   partitionName: nonEmptyStringSchema,
   credentialExtra: jsonObjectSchema.nullable(),
   discoveredAt: z.number(),

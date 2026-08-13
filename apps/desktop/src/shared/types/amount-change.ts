@@ -21,8 +21,10 @@ import type { JsonObject } from './json';
  * 这一层不认识任何渠道：成功与否、酒店是哪家，都由渠道适配器从这份原始数据里解读。
  */
 export type AmountSaveObserved = Readonly<{
-  /** 命中的是哪个保存端点。取值由渠道适配器的 `saveEndpoints` 定义。 */
+  /** 命中的是哪个端点。取值由渠道适配器的 `watchedEndpoints` 定义。 */
   endpointId: string;
+  /** 这次保存请求的完整 URL（含 query）—— 上报给 RMS 当复盘依据。 */
+  endpointUrl: string;
   /** 渠道原始请求体，一字不改——透传给 RMS 当证据。 */
   requestBody: JsonObject;
   /** 渠道原始响应体（未解析的字符串）。适配器据此判定这次保存是否成功。 */
@@ -40,35 +42,126 @@ export type AmountSaveObserved = Readonly<{
 /**
  * 上报给 RMS 的形状——**渠道无关**。
  *
- * 公共字段只留三样：`source` 决定 RMS 怎么解读后两样，`otaHotelId` 是**尽力而为**的门店提示，
- * `requestBody` 是原始证据。渠道专有的定位字段（抖音的 `merchantGroupId` / `lifeAccountId` /
- * `productIds`）一律进 `channelExtra`——与 `channels/bind-extra.ts` 里 `bindExtra` 的既有套路
- * 一致，加渠道不必改这个契约。
+ * 渠道差异全部收在 **`changeRaw` 一个字段**里：`source` + `endpointId` 决定 RMS 怎么解读它，
+ * 其余字段（操作人、门店、账号、时间）三渠道同构。加渠道不必改这个契约 —— 新渠道往
+ * `changeRaw` 里放自己的形状，并在 `channels/<渠道>/amount-change-payload.ts` 里写清规格。
+ *
+ * `otaHotelId` 是**尽力而为**的门店提示，可能是空串（渠道不一定暴露它），见字段注释。
  *
  * desktop **不查本地绑定、不算 hotelId、不展开日期×房型**：反查绑定与语义展开都由 RMS
  * 负责（RMS 侧已有这套逻辑）。代价是未绑定账号的改价也会照发，RMS 反查不到时自行丢弃
  * ——所以对 RMS 而言「反查失败」是正常情况，不该按错误告警。
+ *
+ * ## 落到线上的样子
+ *
+ * `POST /api/v1/app/ota-changes`（rms-server `AppOtaChangeController`），实现见
+ * `main/gateway/rms/rms-amount-change-gateway-http.ts`。两点与本类型不完全一致：
+ *
+ * - **`loginUserId` / `loginUserName` 不发**：远端以 JWT 为准（报文字段可伪造）。契约里
+ *   留着它们是为了本地日志与排查。
+ * - **响应的 `status` 不是成败**：`PARSE_FAILED` / `HOTEL_UNRESOLVED` / `SKIPPED` 都是
+ *   正常响应——上报是单向通知，失败在远端沉淀成台账，desktop 没有补救动作。
+ *
+ * ## 日期与周次：三个渠道四种表达（展开由 RMS 做）
+ *
+ * ```
+ * douyin    date_period_list: [{start:"2026-05-28", end:"2026-05-31"}]
+ *           available_week_list: [1,2,3,4,5,6,7]              // 1=周一
+ *
+ * ctrip 老  dateRangeInfo: [{startDate, endDate}]
+ *           weekDayIndex: "1111001"                            // 位串，周一→周日
+ *
+ * ctrip 新  roomPriceInfos[].startDate / .endDate              // 每条自带日期
+ *           weekDays: ["MONDAY","TUESDAY",…]                   // 英文枚举
+ *
+ * meituan   unifiedDatePriceInfos.dates[] （形状①）           // 或 priceInfos[]（形状②）
+ *           weekPriceInfos[].inWeek: [1,2,3,4,7]               // 数字，1=周一（同抖音）
+ * ```
+ *
+ * ⚠️ **不能假设房型在一次上报里唯一** —— 开了「周末差异定价」时同一房型会按周次拆成多条，
+ * 各带不同价格，必须按 (房型 × 周次) 组合展开。携程与美团都有这种形状。
+ *
+ * ## 门店怎么定位
+ *
+ * ```
+ *                             otaHotelId 有值吗    RMS 该怎么反查
+ * douyin                          基本没有         用 product_list[].product_id
+ *                                                  （= ota_sale_room_type_id）反查门店
+ * ctrip / batchsetroomprice       ✅ 有            直接用；⚠️ 一次可能改多家
+ * ctrip / setRCRoomPrice          ❌ 请求体里没有   用 roomPriceInfos[].roomProductId 反查
+ * meituan                         ✅ 有（最可靠）   试算请求体顶层 `poiId`，单值，一次一家
+ * ```
+ *
+ * ## 其他已知的坑
+ *
+ * 1. **只有渠道判定成功的改价才会上报** —— 渠道拒绝（限价、佣金校验不过）的不发。
+ * 2. **携程新模块与美团都是异步任务**：响应里的 `taskId` 只代表渠道**受理**成功，
+ *    不代表价格已生效。
+ * 3. **上报失败不重试落盘**：网络失败重试 1 次后放弃，偶发漏报是已知取舍。
  */
 export type OtaAmountChangeReport = Readonly<{
   /** 幂等键，desktop 生成。RMS 据此去重（同一次改价重试上报不该跟两次价）。 */
   operationId: string;
+
+  /** 操作人 —— 谁在这台 desktop 上登录并改了价（`StaffIdentity.userId`）。 */
+  loginUserId: number | null;
+  /** 操作人名字：优先 `fullName`，回退 `username`。 */
+  loginUserName: string | null;
+
   source: ChannelId;
+  /** 实际访问的完整 URL —— 出问题时凭这个复现「改的是哪个页面的哪个接口」。 */
+  endpointUrl: string;
   /** 渠道内区分这次改的是价格还是房态房量。 */
   endpointId: string;
+
   /**
-   * 渠道侧的门店 ID，**可能是空串** —— 渠道不一定在请求或页面上暴露它（抖音走菜单进入改价页
-   * 时 URL 上就没有 `poi_id`）。此时 RMS 靠 `channelExtra` 里的房型 ID 反查门店。
+   * 渠道侧的门店 ID。**尽力而为，可能是空串** —— 渠道不一定暴露它（抖音走菜单进入时
+   * URL 上没有 `poi_id`；携程新模块 `setRCRoomPrice` 的请求体里根本没有门店 ID）。
+   * 为空时 RMS 靠 `channelExtra` 里的房型 ID 反查门店。
    */
   otaHotelId: string;
-  /** 渠道专有的定位字段（抖音：merchantGroupId / lifeAccountId / productIds）。 */
-  channelExtra: JsonObject | null;
-  requestBody: JsonObject;
-  /** ISO 时间戳。 */
-  observedAt: string;
+
+  /** 渠道账号 ID —— 用哪个 OTA 账号改的（`OtaCredential.channelAccountId`）。 */
+  channelAccountId: string | null;
+  /** 渠道账号名 —— 取自凭证的 `credentialExtra`（携程是 hotelName）。缺则 null。 */
+  channelAccountName: string | null;
+
+  /**
+   * **这次改动的内容** —— 渠道原始数据，形状由 `source` + `endpointId` 决定。
+   *
+   * 各渠道往里放什么、每个字段怎么解读，定义在各自的 payload 模型里（**RMS 侧对接时读这几份**）：
+   *
+   * ```
+   * douyin    channels/douyin/amount-change-adapter.ts    保存请求体，原样
+   * ctrip     channels/ctrip/amount-change-payload.ts     保存请求体，剔 3 个框架噪音字段
+   * meituan   channels/meituan/amount-change-payload.ts   裁剪后的**试算结果**（含改前价+改后价）
+   * ```
+   *
+   * ⚠️ **不发响应体**：渠道认没认这次改价已由适配器的 `isSuccessful` 判过，判失败的根本
+   * 不会走到上报这一步，响应对 RMS 没有额外信息。
+   *
+   * ⚠️ **美团放的是试算而非保存请求**：它的保存请求体只说「卖价 +2 元」不说原价，而 RMS
+   * 侧没有美团的数据，既算不出绝对价也无从校验。详见美团那份 payload 模型。
+   */
+  changeRaw: JsonObject;
+
+  /** 用户点保存的时刻，ISO 时间戳。 */
+  submitAt: string;
 }>;
 
 /**
- * 渠道适配器解读原始事实后交出的东西。`operationId` 与 `observedAt` 不在这里——
- * 生成幂等键和打时间戳是上报环节的职责，适配器只负责「这次改动是什么」。
+ * 渠道适配器解读原始事实后交出的东西 —— **只包含适配器看得见的部分**。
+ *
+ * 身份字段（操作人、渠道账号）不在这里：适配器活在 `channels/`，eslint 禁止它依赖
+ * `services/` 与 `database/`，够不着 `StaffIdentity` 和 `OtaCredential`。这些由
+ * `AmountChangeReportService` 在上报环节补齐 —— 与幂等键、时间戳同一个道理。
  */
-export type OtaAmountChangeObserved = Omit<OtaAmountChangeReport, 'operationId' | 'observedAt'>;
+export type OtaAmountChangeObserved = Omit<
+  OtaAmountChangeReport,
+  | 'operationId'
+  | 'submitAt'
+  | 'loginUserId'
+  | 'loginUserName'
+  | 'channelAccountId'
+  | 'channelAccountName'
+>;

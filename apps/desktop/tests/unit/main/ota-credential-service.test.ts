@@ -20,6 +20,7 @@ function credential(overrides: Partial<OtaCredential> = {}): OtaCredential {
     id: toOtaCredentialId('credential-1'),
     channel,
     channelAccountId: null,
+    channelAccountName: null,
     partitionName,
     credentialExtra: null,
     discoveredAt: 100,
@@ -98,6 +99,8 @@ describe('OtaCredentialService', () => {
       id: toOtaCredentialId('generated-credential-id'),
       channel: ctripChannel,
       channelAccountId: '12345',
+      // 携程的名字取自 credentialExtra.hotelName —— 渠道差异在写入时抹平。
+      channelAccountName: '携程测试酒店',
       partitionName: ctripPartitionName,
       credentialExtra: {
         hotelId: '12345',
@@ -137,6 +140,7 @@ describe('OtaCredentialService', () => {
     vi.mocked(deps.credentialRepository.updateIdentity).mockReturnValue({
       ...existingCredential,
       channelAccountId: '12345',
+      channelAccountName: null,
       credentialExtra: {
         hotelId: '12345',
         hotelName: '携程测试酒店',
@@ -156,6 +160,7 @@ describe('OtaCredentialService', () => {
     expect(deps.credentialRepository.create).not.toHaveBeenCalled();
     expect(deps.credentialRepository.updateIdentity).toHaveBeenCalledWith(existingCredential.id, {
       channelAccountId: '12345',
+      channelAccountName: '携程测试酒店',
       credentialExtra: {
         hotelId: '12345',
         hotelName: '携程测试酒店',
@@ -218,6 +223,8 @@ describe('OtaCredentialService', () => {
       id: toOtaCredentialId('generated-credential-id'),
       channel: douyinChannel,
       channelAccountId: '104680039472',
+      // 抖音的名字取自 credentialExtra.name。
+      channelAccountName: '走进内蒙古',
       partitionName: douyinPartitionName,
       credentialExtra: expect.objectContaining({ loginId: '104680039472' }),
       discoveredAt: expect.any(Number),
@@ -247,6 +254,7 @@ describe('OtaCredentialService', () => {
     vi.mocked(deps.credentialRepository.updateIdentity).mockReturnValue({
       ...existingCredential,
       channelAccountId: '104680039472',
+      channelAccountName: null,
       credentialExtra: { loginId: '104680039472' },
       lastRefreshedAt: 200,
     });
@@ -261,6 +269,7 @@ describe('OtaCredentialService', () => {
 
     expect(deps.credentialRepository.updateIdentity).toHaveBeenCalledWith(existingCredential.id, {
       channelAccountId: '104680039472',
+      channelAccountName: '走进内蒙古',
       credentialExtra: expect.objectContaining({ loginId: '104680039472' }),
       lastRefreshedAt: expect.any(Number),
     });
@@ -319,6 +328,8 @@ describe('OtaCredentialService', () => {
       id: toOtaCredentialId('generated-credential-id'),
       channel: meituanChannel,
       channelAccountId: '274615733',
+      // 美团既没有 hotelName 也没有 name，名字取自 login —— 渠道差异在写入时抹平。
+      channelAccountName: 'hotel-login',
       partitionName: meituanPartitionName,
       credentialExtra: expect.objectContaining({ partnerId: '4595635' }),
       discoveredAt: expect.any(Number),
@@ -346,6 +357,7 @@ describe('OtaCredentialService', () => {
     vi.mocked(deps.credentialRepository.updateIdentity).mockReturnValue({
       ...existingCredential,
       channelAccountId: '274615733',
+      channelAccountName: null,
       credentialExtra: { partnerId: '4595635' },
       lastRefreshedAt: 200,
     });
@@ -361,6 +373,7 @@ describe('OtaCredentialService', () => {
     expect(deps.credentialRepository.create).not.toHaveBeenCalled();
     expect(deps.credentialRepository.updateIdentity).toHaveBeenCalledWith(existingCredential.id, {
       channelAccountId: '274615733',
+      channelAccountName: null,
       credentialExtra: { partnerId: '4595635' },
       lastRefreshedAt: expect.any(Number),
     });
@@ -371,6 +384,7 @@ describe('OtaCredentialService', () => {
     const existingCredential = credential({
       channel: meituanChannel,
       channelAccountId: '274615733',
+      channelAccountName: null,
       partitionName: previousPartitionName,
     });
     const discoverMeituan = vi.fn().mockResolvedValue({
@@ -408,6 +422,7 @@ describe('OtaCredentialService', () => {
       {
         partitionName: meituanPartitionName,
         channelAccountId: '274615733',
+        channelAccountName: 'hotel-login',
         credentialExtra: { partnerId: '4595635', login: 'hotel-login' },
         lastRefreshedAt: expect.any(Number),
       },
@@ -422,6 +437,7 @@ describe('OtaCredentialService', () => {
     const existingCredential = credential({
       channel: meituanChannel,
       channelAccountId: '274615733',
+      channelAccountName: null,
       partitionName: 'persist:xiaozhi:prod:meituan:old',
     });
     const discoverMeituan = vi.fn().mockResolvedValue({

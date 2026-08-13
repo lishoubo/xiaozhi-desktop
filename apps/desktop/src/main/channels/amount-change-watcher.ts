@@ -35,13 +35,18 @@ type TabClosedEvent = import('../browser/browser-manager').TabClosedEvent;
 export type AmountChangeWatcherDependencies = Readonly<{
   browserManager: BrowserManagerEvents;
   /**
-   * 有适配器的渠道才监听。本期只有抖音一项 —— 携程/美团尚无改价踩点，registry 里那两个
-   * 渠道没有这个字段，投影出来的 Map 里就没有它们，watcher 自然不管。
+   * 有适配器的渠道才监听。三渠道（抖音/携程/美团）目前都已实装；将来新接的渠道在踩点
+   * 完成前不在 registry 里赋这个字段，投影出来的 Map 里就没有它，watcher 自然不管。
    */
   adapters: ReadonlyMap<ChannelId, AmountChangeAdapter>;
   logger: AppLogger;
-  /** 窄回调：把解读好的改动送出去。见文件头。 */
-  report: (observed: OtaAmountChangeObserved) => void;
+  /**
+   * 窄回调：把解读好的改动送出去。见文件头。
+   *
+   * 带上 `partitionName` 是因为上报体要补渠道账号信息，而凭证是按 partition 存的。
+   * `channels/` 够不着仓储（eslint 禁止），所以只把这个键交出去，由 service 侧去查。
+   */
+  report: (observed: OtaAmountChangeObserved, partitionName: string) => void;
 }>;
 
 export class AmountChangeWatcher {
@@ -59,7 +64,7 @@ export class AmountChangeWatcher {
 
   private async onNavigated(event: TabNavigatedEvent): Promise<void> {
     const adapter = this.deps.adapters.get(event.channelId as ChannelId);
-    // 没有适配器的渠道（本期的携程/美团）根本不参与监听。
+    // 没有适配器的渠道根本不参与监听（当前三渠道都有，这条是给将来新接的渠道留的）。
     if (!adapter) return;
 
     if (!adapter.isWatchableUrl(event.url)) {
@@ -71,36 +76,29 @@ export class AmountChangeWatcher {
     // 不能每次都重新 attach。
     if (this.captures.has(event.tabId)) return;
 
+    // 解读（含「丢弃」与「留作上下文」的分流）在 capture 里做 —— 上下文是页面级状态，
+    // 而 capture 正好是每个 tab 一个实例，见 `amount-save-capture.ts` 文件头。
+    // 丢弃路径的日志由各适配器自己打（它们才知道缺的是哪个字段）。
     const capture = new AmountSaveCapture(
       event.webContents,
       adapter,
       this.deps.logger,
-      (observed) => {
-        const parsed = adapter.parse(observed);
-        if (!parsed) {
-          this.deps.logger.warn(
-            'Amount change watcher: could not locate the hotel, not reporting',
-            {
-              channel: event.channelId,
-              endpointId: observed.endpointId,
-            },
-          );
-          return;
-        }
+      (report) => {
         this.deps.logger.info('Amount change observed', {
-          channel: parsed.source,
-          endpointId: parsed.endpointId,
-          otaHotelId: parsed.otaHotelId,
+          channel: report.source,
+          endpointId: report.endpointId,
+          otaHotelId: report.otaHotelId,
         });
-        this.deps.report(parsed);
+        this.deps.report(report, event.partitionName);
       },
     );
 
     // 先登记再 attach：attach 是异步的，登记晚了会让期间到来的第二个导航事件误判为
     // 「还没监听」而重复 attach。
     this.captures.set(event.tabId, capture);
+    let attached: boolean;
     try {
-      await capture.attach();
+      attached = await capture.attach();
     } catch (error) {
       this.captures.delete(event.tabId);
       this.deps.logger.warn('Amount change watcher: failed to attach', {
@@ -109,6 +107,22 @@ export class AmountChangeWatcher {
       });
       return;
     }
+
+    // debugger 被酒店探测占着，本次没挂上。**必须撤销登记** —— 留着这个死 capture 会让
+    // 上面那句 `captures.has()` 判定为「已在监听」，此后这个 tab 上的每次导航都直接 return，
+    // 等探测结束让出 debugger 也再没有机会重挂，这个 tab 就永久拦不到改价了。
+    //
+    // 日志必须与成功路径明确区分：这里若照打 `watching started`，真机排查时看到的是
+    // 「已启动 + 改价没反应」，与携程那次「监听被悄悄停掉」一样无从下手。
+    if (!attached) {
+      this.captures.delete(event.tabId);
+      this.deps.logger.warn('Amount change watcher: not watching, debugger is busy', {
+        channel: event.channelId,
+        tabId: event.tabId,
+      });
+      return;
+    }
+
     this.deps.logger.info('Amount change watching started', {
       channel: event.channelId,
       tabId: event.tabId,
@@ -120,5 +134,9 @@ export class AmountChangeWatcher {
     if (!capture) return;
     this.captures.delete(tabId);
     capture.detach();
+    // 这条日志不是可有可无的：detach 之后这个 tab 就再也拦不到改价了。真机排查时
+    // 「监听被悄悄停掉」与「用户没改价」在日志上长得一模一样，没有这条就无从区分
+    // —— 2026-08-11 携程路由认错时，正是缺了它导致排查绕了几轮。
+    this.deps.logger.info('Amount change watching stopped', { tabId });
   }
 }

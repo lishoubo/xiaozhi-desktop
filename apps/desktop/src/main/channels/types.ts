@@ -63,13 +63,18 @@ export interface AmountChangeAdapter {
   isWatchableUrl(url: string): boolean;
 
   /**
-   * 要拦的保存端点：key 是 `endpointId`（渠道内自定义，会原样带进上报体），
+   * 要拦的端点：key 是 `endpointId`（渠道内自定义，会原样带进上报体），
    * value 是用于匹配 URL 的路径片段。
    *
-   * 用 Map 而非单个常量，是为了「一个渠道有多个保存端点」这个**当下的事实**：抖音改价
+   * 用 Map 而非单个常量，是为了「一个渠道有多个端点」这个**当下的事实**：抖音改价
    * 与改房态房量是两个不同端点，走同一套拦截机制。
+   *
+   * ⚠️ 叫 `watched` 而不是 `save`：**拦下来的不都是保存**。美团的 `calcPriceV2` 是用户
+   * 填写时页面自己发的试算请求，拦它是为了拿「改后价 + 原价」当上下文（请求体里只有
+   * 「+2 元」这种相对操作，算不出绝对价），它本身不构成一次改价。哪个端点是保存、哪个是
+   * 素材，由 `parse` 的返回值区分 —— 机制层不认识这个差别。
    */
-  readonly saveEndpoints: ReadonlyMap<string, string>;
+  readonly watchedEndpoints: ReadonlyMap<string, string>;
 
   /**
    * 这次保存渠道那边真的成功了吗。
@@ -81,8 +86,22 @@ export interface AmountChangeAdapter {
   isSuccessful(responseBody: string): boolean;
 
   /**
-   * 把原始事实解读成上报体。缺关键定位字段（如酒店 ID）时返回 `null` —— 定位不了酒店的
-   * 上报对 RMS 毫无意义，宁可丢弃并记日志。
+   * 把原始事实解读成上报体。
+   *
+   * @param context 同一个页面会话里，本适配器上一次交出的 `{ kind: 'context' }` 内容；
+   *                没有则为 `null`。机制层只负责**存与喂**，不解读其内容 —— 存什么、
+   *                怎么用全在适配器自己手里。
+   *
+   * 三种返回值：
+   * - `{ kind: 'report' }`  —— 这是一次真实的价量态改动，上报
+   * - `{ kind: 'context' }` —— 不是改动，但内容留着给同页面后续的 parse 用（美团 `calcPriceV2`）
+   * - `null`                —— 丢弃。缺关键定位字段（定位不了酒店的上报对 RMS 毫无意义），
+   *                            或这次拦到的根本不该上报（美团 `createFlag: false` 的预检）
    */
-  parse(observed: AmountSaveObserved): OtaAmountChangeObserved | null;
+  parse(observed: AmountSaveObserved, context: JsonObject | null): AmountParseResult | null;
 }
+
+/** 见 `AmountChangeAdapter.parse`。 */
+export type AmountParseResult =
+  | Readonly<{ kind: 'report'; report: OtaAmountChangeObserved }>
+  | Readonly<{ kind: 'context'; context: JsonObject }>;

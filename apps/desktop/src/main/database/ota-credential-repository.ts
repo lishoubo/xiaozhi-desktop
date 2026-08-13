@@ -30,6 +30,7 @@ type OtaCredentialRow = Readonly<{
   id: string;
   channel: string;
   channelAccountId: string | null;
+  channelAccountName: string | null;
   partitionName: string;
   credentialExtra: string | null;
   discoveredAt: number;
@@ -40,6 +41,7 @@ const SELECT_COLUMNS = `
   id,
   channel,
   channel_account_id AS channelAccountId,
+  channel_account_name AS channelAccountName,
   partition_name AS partitionName,
   credential_extra AS credentialExtra,
   discovered_at AS discoveredAt,
@@ -51,6 +53,7 @@ function credentialFromRow(row: OtaCredentialRow): OtaCredential {
     id: toOtaCredentialId(row.id),
     channel: toChannelId(row.channel),
     channelAccountId: row.channelAccountId,
+    channelAccountName: row.channelAccountName,
     partitionName: row.partitionName,
     credentialExtra: parseJsonObject(row.credentialExtra, 'credentialExtra'),
     discoveredAt: row.discoveredAt,
@@ -66,11 +69,11 @@ export class SqliteOtaCredentialRepository implements OtaCredentialRepository {
     this.database
       .prepare(
         `INSERT INTO ota_credential
-          (id, channel, channel_account_id, partition_name, credential_extra,
-           discovered_at, last_refreshed_at)
+          (id, channel, channel_account_id, channel_account_name, partition_name,
+           credential_extra, discovered_at, last_refreshed_at)
          VALUES
-          (@id, @channel, @channelAccountId, @partitionName, @credentialExtra,
-           @discoveredAt, @lastRefreshedAt)`,
+          (@id, @channel, @channelAccountId, @channelAccountName, @partitionName,
+           @credentialExtra, @discoveredAt, @lastRefreshedAt)`,
       )
       .run({
         ...credential,
@@ -132,6 +135,7 @@ export class SqliteOtaCredentialRepository implements OtaCredentialRepository {
       .prepare(
         `UPDATE ota_credential
          SET channel_account_id = @channelAccountId,
+             channel_account_name = @channelAccountName,
              credential_extra = @credentialExtra,
              last_refreshed_at = @lastRefreshedAt,
              updated_at = CURRENT_TIMESTAMP
@@ -140,6 +144,7 @@ export class SqliteOtaCredentialRepository implements OtaCredentialRepository {
       .run({
         id,
         channelAccountId: updated.channelAccountId,
+        channelAccountName: updated.channelAccountName,
         credentialExtra: serializeJsonObject(updated.credentialExtra),
         lastRefreshedAt: updated.lastRefreshedAt,
       });
@@ -163,6 +168,7 @@ export class SqliteOtaCredentialRepository implements OtaCredentialRepository {
         `UPDATE ota_credential
          SET partition_name = @partitionName,
              channel_account_id = @channelAccountId,
+             channel_account_name = @channelAccountName,
              credential_extra = @credentialExtra,
              last_refreshed_at = @lastRefreshedAt,
              updated_at = CURRENT_TIMESTAMP
@@ -172,6 +178,7 @@ export class SqliteOtaCredentialRepository implements OtaCredentialRepository {
         id,
         partitionName: updated.partitionName,
         channelAccountId: updated.channelAccountId,
+        channelAccountName: updated.channelAccountName,
         credentialExtra: serializeJsonObject(updated.credentialExtra),
         lastRefreshedAt: updated.lastRefreshedAt,
       });

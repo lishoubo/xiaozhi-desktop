@@ -7,6 +7,7 @@ function credential(id: string, partitionName: string, discoveredAt: number): Ot
     id,
     channel: 'meituan',
     channelAccountId: '274615733',
+    channelAccountName: 'Btphhldxm',
     partitionName,
     credentialExtra: { login: 'Btphhldxm' },
     discoveredAt,
