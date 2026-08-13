@@ -27,6 +27,7 @@ import {
   createServerTrpcStreamingClient,
 } from '../server-client/trpc-client';
 import { createStaffServerFetch } from '../server-client/staff-server-fetch';
+import { installPrivateCaTrust, loadPackagedPrivateCa } from '../server-client/private-ca-trust';
 import { AUTH_VARIANT, IS_STAFF_AUTH } from '../../shared/auth-variant';
 import { AuthService } from '../services/auth-service';
 import { StaffAuthService } from '../services/staff-auth-service';
@@ -194,6 +195,8 @@ export function createWindowScope(scope: AppScope): WindowScope {
   );
   const serverOrigin = resolveServerOrigin(process.env);
   const apiSession = scope.sessionFactory.sessionForServerApi();
+  const privateCa = loadPackagedPrivateCa(app.isPackaged, process.resourcesPath, process.env);
+  if (privateCa) installPrivateCaTrust(apiSession, serverOrigin, privateCa);
   const serverFetch = createElectronSessionFetch(apiSession);
   const agentFetch = IS_STAFF_AUTH
     ? createStaffServerFetch(serverFetch, scope.rms.tokens, logger)

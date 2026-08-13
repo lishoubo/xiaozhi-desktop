@@ -5,7 +5,7 @@ export const mcpCapabilitySchema = z.enum(['weather', 'hotel_rates', 'hotel_data
 export type McpCapability = z.infer<typeof mcpCapabilitySchema>;
 
 export const HOTEL_DATA_MCP_SERVER_NAME = 'aliyun-dms-hotel-data';
-const HOTEL_DATA_MCP_URL = 'https://dms-mcpr-bfobse-vcyndjbctk.cn-hangzhou.fcapp.run/sse';
+const DEFAULT_HOTEL_DATA_MCP_URL = 'https://dms-mcpver-vjne-ndunixfhxl.cn-hangzhou.fcapp.run/sse';
 
 const mcpMetadataSchema = z.object({
 	capabilities: z.array(mcpCapabilitySchema).default([])
@@ -58,6 +58,8 @@ export type AgentEnvironment = Readonly<{
 	apiKey: string;
 	baseUrl: string;
 	model: string;
+	dmsDatabaseId: string | null;
+	dmsDatabaseName: string | null;
 	mcpServers: Readonly<Record<string, McpServerConfig>>;
 }>;
 
@@ -83,13 +85,15 @@ function publicWeatherServer(): McpServerConfig {
 	};
 }
 
-function hotelDataServer(token: string): McpServerConfig {
+function hotelDataServer(token: string, endpoint: string): McpServerConfig {
 	if (/\r|\n/.test(token)) throw new Error('AI_DMS_MCP_BEARER_TOKEN contains invalid characters');
 	const credential = token.replace(/^Bearer\s+/i, '').trim();
 	if (!credential) throw new Error('AI_DMS_MCP_BEARER_TOKEN is empty');
+	const url = new URL(endpoint);
+	if (url.protocol !== 'https:') throw new Error('AI_DMS_MCP_URL must use HTTPS');
 	return {
 		transport: 'sse',
-		url: HOTEL_DATA_MCP_URL,
+		url: url.toString(),
 		headers: { Authorization: `Bearer ${credential}` },
 		capabilities: ['hotel_data']
 	};
@@ -101,13 +105,29 @@ export function readAgentEnvironment(environment: NodeJS.ProcessEnv): AgentEnvir
 		(environment.AI_PUBLIC_WEATHER_MCP_ENABLED ?? '').trim().toLowerCase()
 	);
 	const dmsBearerToken = environment.AI_DMS_MCP_BEARER_TOKEN?.trim() ?? '';
+	const dmsEndpoint = environment.AI_DMS_MCP_URL?.trim() || DEFAULT_HOTEL_DATA_MCP_URL;
+	const dmsDatabaseId = environment.AI_DMS_DATABASE_ID?.trim() || null;
+	const dmsDatabaseName = environment.AI_DMS_DATABASE_NAME?.trim() || null;
+	if (dmsDatabaseId && !/^\d+$/.test(dmsDatabaseId)) {
+		throw new Error('AI_DMS_DATABASE_ID must be a numeric DMS database ID');
+	}
+	if (dmsDatabaseName && !/^[A-Za-z0-9_$-]{1,64}$/.test(dmsDatabaseName)) {
+		throw new Error('AI_DMS_DATABASE_NAME contains invalid characters');
+	}
+	if (dmsBearerToken && !dmsDatabaseName) {
+		throw new Error('AI_DMS_DATABASE_NAME is required when AI_DMS_MCP_BEARER_TOKEN is configured');
+	}
 	const bundledServers: Record<string, McpServerConfig> = { ...configuredServers };
 	if (publicWeatherEnabled) bundledServers['public-weather'] = publicWeatherServer();
-	if (dmsBearerToken) bundledServers[HOTEL_DATA_MCP_SERVER_NAME] = hotelDataServer(dmsBearerToken);
+	if (dmsBearerToken) {
+		bundledServers[HOTEL_DATA_MCP_SERVER_NAME] = hotelDataServer(dmsBearerToken, dmsEndpoint);
+	}
 	return {
 		apiKey: environment.AI_KIMI_API_KEY?.trim() ?? '',
 		baseUrl: parseKimiBaseUrl(environment.AI_KIMI_BASE_URL),
 		model: environment.AI_KIMI_MODEL?.trim() || 'kimi-k3',
+		dmsDatabaseId,
+		dmsDatabaseName,
 		mcpServers: bundledServers
 	};
 }

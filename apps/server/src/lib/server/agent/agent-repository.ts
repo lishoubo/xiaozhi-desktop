@@ -128,6 +128,13 @@ export class ActiveBusinessExecutionExistsError extends Error {
 	}
 }
 
+export class AgentRunNotRetryableError extends Error {
+	constructor() {
+		super('Agent run is not retryable');
+		this.name = 'AgentRunNotRetryableError';
+	}
+}
+
 export type AgentMemoryRecord = Readonly<{ key: string; content: string; importance: number }>;
 
 export class AgentRepository {
@@ -703,6 +710,177 @@ export class AgentRepository {
 		});
 	}
 
+	async retryBusinessExecution(
+		principal: AgentPrincipal,
+		input: Readonly<{ failedRunId: string; clientRequestId: string }>
+	): Promise<Readonly<{ response: StartAgentRunResponse; created: boolean }>> {
+		return this.database.transaction(async (transaction) => {
+			const existing = await transaction
+				.select({
+					runId: agentRun.id,
+					businessExecutionId: agentRun.businessExecutionId,
+					userMessage: agentMessage
+				})
+				.from(agentRun)
+				.innerJoin(agentMessage, eq(agentRun.userMessageId, agentMessage.id))
+				.where(
+					and(
+						eq(agentRun.ownerEmployeeId, principal.employeeId),
+						eq(agentRun.clientRequestId, input.clientRequestId)
+					)
+				)
+				.limit(1);
+			if (existing[0]?.businessExecutionId) {
+				return {
+					response: {
+						runId: existing[0].runId,
+						businessExecutionId: existing[0].businessExecutionId,
+						userMessage: toMessage(existing[0].userMessage)
+					},
+					created: false
+				};
+			}
+
+			const failedRuns = await transaction
+				.select()
+				.from(agentRun)
+				.where(
+					and(
+						eq(agentRun.id, input.failedRunId),
+						eq(agentRun.ownerEmployeeId, principal.employeeId)
+					)
+				)
+				.limit(1);
+			const failedRun = failedRuns[0];
+			if (!failedRun) throw new AgentAccessDeniedError('Agent run was not found');
+			if (failedRun.status !== 'failed' || !failedRun.businessExecutionId) {
+				throw new AgentRunNotRetryableError();
+			}
+			const laterAttempts = await transaction
+				.select({ id: agentRun.id })
+				.from(agentRun)
+				.where(eq(agentRun.retryOfRunId, failedRun.id))
+				.limit(1);
+			if (laterAttempts[0]) throw new AgentRunNotRetryableError();
+
+			const rows = await transaction
+				.select()
+				.from(agentBusinessExecution)
+				.where(
+					and(
+						eq(agentBusinessExecution.id, failedRun.businessExecutionId),
+						eq(agentBusinessExecution.ownerEmployeeId, principal.employeeId)
+					)
+				)
+				.limit(1);
+			const current = rows[0];
+			if (!current) throw new AgentAccessDeniedError('Agent business execution was not found');
+			const currentState = businessExecutionStateSchema.parse(current.state);
+			if (
+				current.status !== 'failed' ||
+				currentState.status !== 'failed' ||
+				!currentState.retryable ||
+				!currentState.retryCheckpoint
+			) {
+				throw new AgentRunNotRetryableError();
+			}
+
+			const active = await transaction
+				.select({ id: agentBusinessExecution.id })
+				.from(agentBusinessExecution)
+				.where(
+					and(
+						eq(agentBusinessExecution.conversationId, current.conversationId),
+						notInArray(agentBusinessExecution.status, [...terminalBusinessExecutionStatuses])
+					)
+				)
+				.limit(1);
+			if (active[0]) throw new ActiveBusinessExecutionExistsError();
+
+			const nextState = transitionBusinessExecution(currentState, {
+				type: 'execution_retry_requested'
+			});
+			const nextVersion = current.version + 1;
+			const now = this.now();
+			const route = executionRoute(nextState, current.routeKind, current.intent);
+			const restored = await transaction
+				.update(agentBusinessExecution)
+				.set({
+					routeKind: route.routeKind,
+					intent: route.intent,
+					status: nextState.status,
+					state: nextState,
+					version: nextVersion,
+					expiresAt: null,
+					updatedAt: now,
+					completedAt: null
+				})
+				.where(
+					and(
+						eq(agentBusinessExecution.id, current.id),
+						eq(agentBusinessExecution.ownerEmployeeId, principal.employeeId),
+						eq(agentBusinessExecution.version, current.version),
+						eq(agentBusinessExecution.status, 'failed')
+					)
+				)
+				.returning({ id: agentBusinessExecution.id });
+			if (!restored[0]) {
+				throw new StaleBusinessExecutionVersionError(current.version, nextVersion);
+			}
+
+			const event: BusinessExecutionEvent = { type: 'execution_retry_requested' };
+			await transaction.insert(agentBusinessExecutionEvent).values({
+				id: this.generateId(),
+				businessExecutionId: current.id,
+				conversationId: current.conversationId,
+				ownerEmployeeId: principal.employeeId,
+				type: event.type,
+				payload: {
+					type: event.type,
+					previousStatus: currentState.status,
+					nextStatus: nextState.status,
+					version: nextVersion
+				},
+				createdAt: now
+			});
+
+			const message: typeof agentMessage.$inferInsert = {
+				id: this.generateId(),
+				conversationId: current.conversationId,
+				businessExecutionId: current.id,
+				role: 'user',
+				content: '重新尝试上次请求',
+				ui: null,
+				createdAt: now
+			};
+			const runId = this.generateId();
+			await transaction.insert(agentMessage).values(message);
+			await transaction.insert(agentRun).values({
+				id: runId,
+				conversationId: current.conversationId,
+				ownerEmployeeId: principal.employeeId,
+				clientRequestId: input.clientRequestId,
+				userMessageId: message.id,
+				businessExecutionId: current.id,
+				retryOfRunId: failedRun.id,
+				status: 'running',
+				createdAt: now
+			});
+			await transaction
+				.update(agentConversation)
+				.set({ updatedAt: now })
+				.where(eq(agentConversation.id, current.conversationId));
+			return {
+				response: {
+					runId,
+					businessExecutionId: current.id,
+					userMessage: toMessage(message)
+				},
+				created: true
+			};
+		});
+	}
+
 	async getRunContext(principal: AgentPrincipal, runId: string) {
 		const rows = await this.database
 			.select({ run: agentRun, conversation: agentConversation })
@@ -903,7 +1081,14 @@ export class AgentRepository {
 		return rows.map((row) => row.payload);
 	}
 
-	async completeRun(runId: string, status: 'failed' | 'cancelled'): Promise<boolean> {
+	async completeRun(
+		runId: string,
+		status: 'failed' | 'cancelled',
+		failure: Readonly<{ reasonCode: string; retryable: boolean }> = {
+			reasonCode: 'run_failed',
+			retryable: true
+		}
+	): Promise<boolean> {
 		return this.database.transaction(async (transaction) => {
 			const now = this.now();
 			const completed = await transaction
@@ -925,7 +1110,7 @@ export class AgentRepository {
 						previous,
 						status === 'cancelled'
 							? { type: 'execution_cancelled' }
-							: { type: 'execution_failed', reasonCode: 'run_failed', retryable: true }
+							: { type: 'execution_failed', ...failure }
 					);
 					await transaction
 						.update(agentBusinessExecution)

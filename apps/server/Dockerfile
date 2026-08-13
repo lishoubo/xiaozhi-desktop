@@ -41,15 +41,16 @@ RUN npm ci --omit=dev --workspace @hotel-butler/server --workspace @hotel-butler
 COPY --from=build --chown=node:node /workspace/apps/server/build apps/server/build
 COPY --from=build --chown=node:node /workspace/apps/server/drizzle apps/server/drizzle
 COPY --from=build --chown=node:node /workspace/apps/server/scripts/initialize-database.ts apps/server/scripts/initialize-database.ts
+COPY --chown=node:node apps/server/scripts/start-production-https.mjs apps/server/scripts/start-production-https.mjs
 COPY --from=build --chown=node:node /workspace/apps/server/src/lib/server/db/auth.schema.ts apps/server/src/lib/server/db/auth.schema.ts
 COPY --from=build --chown=node:node /workspace/packages/api packages/api
 COPY --chown=node:node apps/server/tests/compose/server-healthcheck.mjs apps/server/tests/compose/server-healthcheck.mjs
 
 ENV NODE_ENV=production
 ENV HOST=0.0.0.0
-ENV PORT=3000
-EXPOSE 3000
+ENV PORT=3443
+EXPOSE 3443
 
 USER node
 
-CMD ["node", "apps/server/build"]
+CMD ["node", "apps/server/scripts/start-production-https.mjs"]

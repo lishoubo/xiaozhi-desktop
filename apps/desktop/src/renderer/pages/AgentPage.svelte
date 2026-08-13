@@ -12,7 +12,7 @@
   import ListX from '@lucide/svelte/icons/list-x';
   import Plus from '@lucide/svelte/icons/plus';
   import Square from '@lucide/svelte/icons/square';
-  import Sun from '@lucide/svelte/icons/sun';
+  import ChartNoAxesCombined from '@lucide/svelte/icons/chart-no-axes-combined';
   import TriangleAlert from '@lucide/svelte/icons/triangle-alert';
   import Trash2 from '@lucide/svelte/icons/trash-2';
   import { autoAnimate } from '@formkit/auto-animate';
@@ -35,6 +35,7 @@
     executionForDisplayedMessage,
     formatConversationUpdatedAt,
     messageOwnsPendingClarification,
+    shouldDisplayExecutionTrace,
   } from '../agent-presentation';
   import {
     LAYOUT_ANIMATION_OPTIONS,
@@ -46,20 +47,26 @@
   import * as AlertDialog from '$lib/components/ui/alert-dialog';
   import { Textarea } from '$lib/components/ui/textarea';
 
-  const quickActionPresentation: Record<AgentQuickActionId, { icon: typeof Sun; tone: string }> = {
-    today_weather: { icon: Sun, tone: 'bg-[#fef7d6] text-[#793400]' },
-    public_hotel_rates: { icon: Hotel, tone: 'bg-[#e6e0f5] text-[#3a2a99]' },
-    hotel_operating_data: { icon: Hotel, tone: 'bg-[#dff2eb] text-[#176548]' },
-  };
+  const quickActionPresentation: Record<AgentQuickActionId, { icon: typeof Hotel; tone: string }> =
+    {
+      yesterday_operating_review: {
+        icon: ChartNoAxesCombined,
+        tone: 'bg-[#fef0cf] text-[#805600]',
+      },
+      public_hotel_rates: { icon: Hotel, tone: 'bg-[#e6e0f5] text-[#3a2a99]' },
+      hotel_operating_data: { icon: Hotel, tone: 'bg-[#dff2eb] text-[#176548]' },
+    };
 
   let prompt = $state('');
   let conversations = $state.raw<AgentConversationSummary[]>([]);
   let quickActions = $state.raw<AgentQuickAction[]>([]);
   let activeConversationId = $state<string | null>(null);
+  let pendingConversationId = $state<string | null>(null);
   const conversationViews = new SvelteMap<string, AgentConversationViewState>();
   let loading = $state(true);
   let starting = $state(false);
   let stoppingRunId = $state<string | null>(null);
+  let retryingRunId = $state<string | null>(null);
   let clarificationSubmitting = $state(false);
   let pageErrorMessage = $state('');
   let deleteTarget = $state.raw<AgentConversationSummary | null>(null);
@@ -75,11 +82,15 @@
   const executions = $derived(activeView?.executions ?? []);
   const activeRunId = $derived(activeView?.activeRunId ?? null);
   const draftContent = $derived(activeView?.draftContent ?? '');
-  const draftUi = $derived(activeView?.draftUi ?? null);
-  const preparingUi = $derived(activeView?.preparingUi ?? false);
   const sending = $derived(starting || activeRunId !== null);
   const stopping = $derived(activeRunId !== null && stoppingRunId === activeRunId);
-  const errorMessage = $derived(pageErrorMessage || activeView?.errorMessage || '');
+  const latestFailure = $derived.by(() => {
+    const execution = executions.at(-1);
+    return execution?.status === 'failed' && execution.failure ? execution : null;
+  });
+  const errorMessage = $derived(
+    pageErrorMessage || activeView?.errorMessage || latestFailure?.failure?.message || '',
+  );
   const activeBusinessExecution = $derived(activeView?.activeBusinessExecution ?? null);
   const pendingClarification = $derived(activeBusinessExecution?.pendingClarification ?? null);
   const hasActiveRuns = $derived(conversations.some((conversation) => conversation.activeRunId));
@@ -125,12 +136,14 @@
 
   function startNewConversation(): void {
     pageErrorMessage = '';
+    pendingConversationId = null;
     activeConversationId = null;
     composer?.focus();
   }
 
   function resetActiveConversation(): void {
     pageErrorMessage = '';
+    pendingConversationId = null;
     activeConversationId = null;
   }
 
@@ -170,17 +183,25 @@
   }
 
   async function openConversation(conversationId: string): Promise<void> {
-    activeConversationId = conversationId;
+    if (conversationId === activeConversationId || conversationId === pendingConversationId) return;
     pageErrorMessage = '';
     const cached = conversationViews.get(conversationId);
     if (cached) {
+      pendingConversationId = null;
+      activeConversationId = conversationId;
       if (cached.activeRunId && cached.errorMessage) void loadConversationState(conversationId);
       return;
     }
+    pendingConversationId = conversationId;
     try {
       await loadConversationState(conversationId);
+      if (pendingConversationId === conversationId) activeConversationId = conversationId;
     } catch {
-      pageErrorMessage = '无法读取该会话，或它不属于当前登录用户。';
+      if (pendingConversationId === conversationId) {
+        pageErrorMessage = '无法读取该会话，或它不属于当前登录用户。';
+      }
+    } finally {
+      if (pendingConversationId === conversationId) pendingConversationId = null;
     }
   }
 
@@ -190,17 +211,22 @@
       conversation.id === conversationId ? snapshot.conversation : conversation,
     );
     const view = hydrateConversationView(snapshot);
+    conversationViews.set(conversationId, view);
     if (!snapshot.activeRun) {
-      conversationViews.set(conversationId, view);
       return;
     }
     pendingRunEvents.delete(snapshot.activeRun.runId);
-    await window.hotelButler.agent.resumeRun(
-      snapshot.activeRun.runId,
-      conversationId,
-      snapshot.activeRun.lastEventId,
-    );
-    conversationViews.set(conversationId, view);
+    void window.hotelButler.agent
+      .resumeRun(snapshot.activeRun.runId, conversationId, snapshot.activeRun.lastEventId)
+      .catch(() => {
+        const current = conversationViews.get(conversationId);
+        if (current) {
+          conversationViews.set(
+            conversationId,
+            withConversationError(current, '实时进度恢复失败，请稍后重新打开会话。'),
+          );
+        }
+      });
     drainPendingRunEvents(snapshot.activeRun.runId);
   }
 
@@ -218,6 +244,37 @@
       pageErrorMessage = '停止当前执行失败，任务仍在继续，请稍后重试。';
     } finally {
       stoppingRunId = null;
+    }
+  }
+
+  async function retryFailedRun(): Promise<void> {
+    const conversationId = activeConversationId;
+    const failedRun = latestFailure;
+    if (!conversationId || !failedRun?.failure?.retryable || activeRunId || retryingRunId) return;
+    retryingRunId = failedRun.runId;
+    pageErrorMessage = '';
+    try {
+      const currentView = conversationViews.get(conversationId);
+      if (!currentView) throw new Error('Agent conversation view is unavailable');
+      const started = await window.hotelButler.agent.retryRun({
+        failedRunId: failedRun.runId,
+        clientRequestId: crypto.randomUUID(),
+      });
+      conversationViews.set(
+        conversationId,
+        addStartedRun({ ...currentView, errorMessage: '' }, started, new Date().toISOString()),
+      );
+      conversations = conversations.map((conversation) =>
+        conversation.id === conversationId
+          ? { ...conversation, activeRunId: started.runId }
+          : conversation,
+      );
+      drainPendingRunEvents(started.runId);
+      await refreshConversations();
+    } catch {
+      pageErrorMessage = '重新执行失败，原执行记录未改变，请稍后再试。';
+    } finally {
+      retryingRunId = null;
     }
   }
 
@@ -460,7 +517,11 @@
             <span
               class="mt-0.5 flex items-center gap-1.5 text-[10px] leading-4 text-muted-foreground/70"
             >
-              {#if conversation.activeRunId}
+              {#if conversation.id === pendingConversationId}
+                <span class="inline-flex items-center gap-1 font-medium text-primary">
+                  <LoaderCircle class="animate-spin" size={11} />正在读取
+                </span>
+              {:else if conversation.activeRunId}
                 <span class="inline-flex items-center gap-1 font-medium text-primary">
                   <span class="size-1.5 animate-pulse rounded-full bg-primary"></span>运行中
                 </span>
@@ -511,10 +572,7 @@
       aria-label="对话内容"
       aria-live="polite"
     >
-      <div
-        class="mx-auto w-full max-w-3xl px-7 py-8"
-        use:autoAnimate={{ ...LAYOUT_ANIMATION_OPTIONS, duration: 260 }}
-      >
+      <div class="mx-auto w-full max-w-3xl px-7 py-8">
         {#if loading}
           <div class="flex items-center justify-center gap-2 py-20 text-sm text-muted-foreground">
             <LoaderCircle class="animate-spin" size={18} />正在读取会话
@@ -560,7 +618,6 @@
             class="mt-6 flex gap-3"
             data-agent-message-id={message.id}
             data-agent-message-role={message.role}
-            in:enter={{ ...SURFACE_TRANSITION_OPTIONS, duration: 240, y: 5 }}
           >
             {#if message.role === 'assistant'}<AgentAvatar size="sm" />{/if}
             <div class="min-w-0 max-w-[82%]">
@@ -576,9 +633,7 @@
               {#if message.ui}
                 <div class="mt-3"><HotelGenerativeUi spec={message.ui} /></div>
               {/if}
-              {#if
-                pendingClarification &&
-                messageOwnsPendingClarification(activeBusinessExecution, message)}
+              {#if pendingClarification && messageOwnsPendingClarification(activeBusinessExecution, message)}
                 <AgentClarificationCard
                   clarification={pendingClarification}
                   submitting={clarificationSubmitting}
@@ -586,17 +641,13 @@
                   oncancel={() => void cancelPendingBusinessExecution()}
                 />
               {/if}
-              {#if execution && message.role === 'assistant'}
+              {#if execution && message.role === 'assistant' && shouldDisplayExecutionTrace(execution)}
                 <AgentExecutionTimeline trace={execution} />
               {/if}
             </div>
           </article>
-          {#if execution && message.role === 'user'}
-            <article
-              class="mt-3 flex gap-3"
-              data-agent-execution-for-message={message.id}
-              in:enter={{ ...SURFACE_TRANSITION_OPTIONS, duration: 220, y: 4 }}
-            >
+          {#if execution && message.role === 'user' && shouldDisplayExecutionTrace(execution)}
+            <article class="mt-3 flex gap-3" data-agent-execution-for-message={message.id}>
               <AgentAvatar size="sm" />
               <div class="min-w-0 flex-1">
                 <AgentExecutionTimeline trace={execution} />
@@ -605,7 +656,7 @@
           {/if}
         {/each}
 
-        {#if sending || draftContent || draftUi}
+        {#if sending || draftContent}
           {@const execution = activeExecution()}
           <article
             class="mt-6 flex gap-3"
@@ -615,32 +666,35 @@
             <div class="min-w-0 flex-1">
               {#if draftContent}
                 <AgentMarkdown content={draftContent} />
-              {:else if preparingUi}
-                <p class="m-0 inline-flex items-center gap-2 text-sm text-muted-foreground">
-                  <LoaderCircle class="animate-spin" size={15} />正在生成结果视图…
-                </p>
               {:else}
                 <p class="m-0 inline-flex items-center gap-2 text-sm text-muted-foreground">
                   <LoaderCircle class="animate-spin" size={15} />正在理解任务…
                 </p>
               {/if}
-              {#if preparingUi}
-                <div
-                  class="mt-3 h-36 animate-pulse rounded-xl border border-border/70 bg-muted/55 motion-reduce:animate-none"
-                  aria-hidden="true"
-                ></div>
+              {#if execution && shouldDisplayExecutionTrace(execution)}
+                <AgentExecutionTimeline trace={execution} />
               {/if}
-              {#if draftUi}<div class="mt-4"><HotelGenerativeUi spec={draftUi} /></div>{/if}
-              {#if execution}<AgentExecutionTimeline trace={execution} />{/if}
             </div>
           </article>
         {/if}
 
         {#if errorMessage}
           <div
-            class="mt-6 flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive"
+            class="mt-6 flex items-center gap-2 rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive"
           >
-            <TriangleAlert class="mt-0.5 shrink-0" size={16} />{errorMessage}
+            <TriangleAlert class="shrink-0" size={16} />
+            <span class="min-w-0 flex-1">{errorMessage}</span>
+            {#if !pageErrorMessage && latestFailure?.failure?.retryable && !activeRunId}
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={retryingRunId !== null}
+                onclick={() => void retryFailedRun()}
+              >
+                {#if retryingRunId}<LoaderCircle class="animate-spin" />{/if}
+                重新尝试
+              </Button>
+            {/if}
           </div>
         {/if}
       </div>

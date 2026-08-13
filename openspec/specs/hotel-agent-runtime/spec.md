@@ -237,6 +237,16 @@ running Run.
 - **THEN** the cancelled trace remains next to its original user message
 - **AND** the later execution and answer remain in chronological order
 
+#### Scenario: Switch to an uncached conversation
+- **WHEN** the employee selects a conversation whose snapshot is not in renderer memory
+- **THEN** the current conversation remains rendered until the target snapshot is ready
+- **AND** the target is committed without replaying message entrance animations
+
+#### Scenario: Display a retryable failure
+- **WHEN** a persisted Run failure is marked retryable
+- **THEN** the desktop presents one manual retry action for the latest failed attempt
+- **AND** a new attempt preserves the failed execution trace in history
+
 ### Requirement: Observable business execution phases
 
 The server SHALL record privacy-safe duration logs for workflow collection, evidence assessment and
@@ -247,6 +257,17 @@ post-validation answer generation so time outside MCP lifecycle events is attrib
 - **WHEN** a business read progresses from collection through answer generation
 - **THEN** logs identify collection strategy, phase duration, assessment status and UI presence
 - **AND** omit user content, tool arguments, evidence data, model output and generated UI payloads
+
+### Requirement: Single generated result UI
+
+One Run SHALL publish at most one successful `render_hotel_ui` lifecycle and UI specification.
+Later render requests SHALL be suppressed and SHALL return the first valid UI without treating an
+error ToolMessage as business evidence.
+
+#### Scenario: Model requests a second render
+- **WHEN** one valid UI has been emitted and the model requests `render_hotel_ui` again
+- **THEN** the second call publishes no started/completed lifecycle events and cannot overwrite UI
+- **AND** the Run completes with the first valid UI and a bounded conclusion
 
 ### Requirement: Persistent conversations and memory
 
@@ -291,6 +312,11 @@ MCP tools SHALL load only from server-side configuration, and business Skills SH
 - **WHEN** the Agent uses the configured DMS MCP
 - **THEN** the provider exposes only approved read tools, constrains arguments before the call and
   compacts oversized results afterward
+- **AND** calls `searchDatabase` for one exact configured schema-name match before exposing tools
+- **AND** pins table discovery, SQL generation and SQL execution to the discovered numeric DMS ID
+- **AND** a resolved operating-summary request uses one code-owned aggregate SELECT against
+  `fact_business_daily`, while generic reads may use bounded schema discovery and SQL generation
+- **AND** instance management, data-change orders and approval tools are never exposed
 
 #### Scenario: Ground a hotel-specific business answer
 
@@ -303,13 +329,15 @@ MCP tools SHALL load only from server-side configuration, and business Skills SH
 
 The Agent SHALL advertise a compact quick-action catalog derived from configured MCP capabilities,
 and SHALL resolve quick-action prompts on the server rather than accepting prompt text from the
-client. The representative catalog SHALL contain only one weather action and SHALL expose a hotel
-operating-data action when the DMS hotel-data capability is configured.
+client. The representative catalog SHALL expose yesterday operating review and configurable-period
+hotel operating-data actions when the DMS hotel-data capability is configured. Weather SHALL remain
+available to natural-language routing but SHALL NOT occupy a quick-action slot.
 
 #### Scenario: Show representative test shortcuts
 
 - **WHEN** weather and hotel-data MCP capabilities are configured
-- **THEN** the catalog exposes `查看今日天气` and `查看酒店经营概览`
+- **THEN** the catalog exposes `昨日经营复盘` and `查看酒店经营概览`
+- **AND** it does not expose a weather shortcut
 - **AND** clicking the operating-data action starts a Run that requires the read-only hotel-data MCP
 
 #### Scenario: Hotel-data MCP is unavailable
@@ -344,8 +372,26 @@ readable within the conversation width.
 #### Scenario: Prepare generated UI
 
 - **WHEN** the runtime starts `render_hotel_ui`
-- **THEN** the desktop immediately indicates that the result view is being prepared
-- **AND** renders only the validated UI spec when it arrives
+- **THEN** the server validates and stages the result view without publishing a partial UI spec
+- **AND** the desktop renders it only with the successful final assistant message
+- **AND** no placeholder frame is displayed while rendering is incomplete
+
+#### Scenario: Reject non-scalar table cells
+
+- **WHEN** a generated Table contains an object, array, non-finite number or a row of the wrong width
+- **THEN** the server rejects that UI candidate
+- **AND** the Agent may finish with a text answer without displaying the rejected view
+
+### Requirement: Proportional execution presentation
+
+The desktop SHALL keep persisted Runs for audit and recovery while hiding empty successful execution
+traces that add no useful information to an ordinary answer.
+
+#### Scenario: Answer a general capability question
+
+- **WHEN** an ordinary answer completes without tool steps, failure or cancellation
+- **THEN** the assistant answer is displayed without an empty execution-plan panel
+- **AND** the Run remains persisted for conversation and audit consistency
 
 ### Requirement: Safe Markdown presentation
 

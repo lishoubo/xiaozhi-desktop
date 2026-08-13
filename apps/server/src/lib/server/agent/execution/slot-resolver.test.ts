@@ -5,6 +5,24 @@ import { BusinessSlotResolver, resolveRelativeDateRange } from './slot-resolver'
 const now = new Date('2026-08-13T04:00:00.000Z');
 
 describe('slot resolution', () => {
+	it('accepts an explicit numeric hotel ID without a directory lookup', async () => {
+		const hotels = { resolve: vi.fn() };
+		const resolver = new BusinessSlotResolver(hotels, () => now);
+		const result = await resolver.resolve({
+			definition: getIntentDefinition('hotel_operating_summary'),
+			intent: 'hotel_operating_summary',
+			slots: {
+				hotelReference: { status: 'candidate', raw: '123' },
+				dateRange: { status: 'candidate', raw: '上个月' }
+			},
+			anchorMessageId: '22222222-2222-4222-8222-222222222222',
+			version: 1
+		});
+
+		expect(result.status).toBe('ready');
+		expect(hotels.resolve).not.toHaveBeenCalled();
+	});
+
 	it('normalizes relative dates with the explicit application timezone', () => {
 		expect(resolveRelativeDateRange('昨天', now)).toEqual({
 			start: '2026-08-12',

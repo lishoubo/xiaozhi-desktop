@@ -128,6 +128,9 @@ export const agentRun = pgTable(
 		businessExecutionId: text('business_execution_id').references(() => agentBusinessExecution.id, {
 			onDelete: 'set null'
 		}),
+		retryOfRunId: text('retry_of_run_id').references((): AnyPgColumn => agentRun.id, {
+			onDelete: 'set null'
+		}),
 		status: text('status', { enum: ['running', 'completed', 'failed', 'cancelled'] }).notNull(),
 		createdAt: timestamp('created_at', { withTimezone: true }).notNull(),
 		completedAt: timestamp('completed_at', { withTimezone: true })
@@ -137,7 +140,8 @@ export const agentRun = pgTable(
 			table.ownerEmployeeId,
 			table.clientRequestId
 		),
-		index('agentRun_conversation_created_idx').on(table.conversationId, table.createdAt)
+		index('agentRun_conversation_created_idx').on(table.conversationId, table.createdAt),
+		index('agentRun_retry_of_idx').on(table.retryOfRunId)
 	]
 );
 

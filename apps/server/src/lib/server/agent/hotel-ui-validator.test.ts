@@ -105,4 +105,24 @@ describe('validateHotelUi', () => {
 			})
 		).toThrow('cannot exceed 50 rows');
 	});
+
+	it('rejects nested table cells before the renderer can coerce them to object text', () => {
+		expect(() =>
+			validateHotelUi({
+				root: 'root',
+				state: {},
+				elements: {
+					root: {
+						type: 'Table',
+						props: {
+							columns: ['日期', '天气'],
+							rows: [['2026-08-13', { temperature: 31 }]]
+						},
+						children: [],
+						visible: true
+					}
+				}
+			})
+		).toThrow('scalar cells');
+	});
 });

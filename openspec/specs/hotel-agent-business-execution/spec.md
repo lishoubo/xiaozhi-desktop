@@ -72,6 +72,23 @@ allowed tools, normalized input, call budget, timeout and evidence requirements.
 - **THEN** the workflow may perform bounded schema discovery and a read query
 - **AND** cannot request an unfiltered data dump or a write
 
+### Requirement: Program-controlled DMS database discovery
+
+The server SHALL resolve the DMS database before exposing downstream hotel-data tools. It SHALL call
+`searchDatabase` with the configured exact schema name, require one unique numeric DatabaseId, and
+optionally compare it with a separately configured pinned ID. The discovery tool SHALL not be exposed
+to the model.
+
+#### Scenario: Discover the configured database
+- **WHEN** the DMS tool catalog is initialized with schema name `rms_data`
+- **THEN** the server calls `searchDatabase` and resolves one exact `rms_data` result
+- **AND** overwrites database IDs for table listing, SQL generation and SQL execution with that ID
+- **AND** restricts table-detail GUIDs to the same schema
+
+#### Scenario: Discovery is ambiguous or mismatched
+- **WHEN** discovery has zero or multiple distinct exact IDs, or differs from the optional pinned ID
+- **THEN** hotel-data tools fail closed before any business query is executed
+
 ### Requirement: Evidence-gated answering
 
 The system SHALL normalize business tool results into bounded evidence envelopes and SHALL assess
@@ -150,3 +167,23 @@ product-owned components separate from model-generated result UI.
 #### Scenario: Generated UI attempts to resume a task
 - **WHEN** a model-generated UI spec contains presentation components
 - **THEN** it cannot submit clarification or change business execution state
+
+### Requirement: Checkpointed manual retry
+
+A retryable business execution failure SHALL persist a bounded server-owned checkpoint. An owned
+manual retry SHALL restore the same business execution through an explicit state transition and
+create a distinct Run attempt linked to the failed Run.
+
+#### Scenario: Retry evidence collection
+- **WHEN** collection fails after slots were resolved and the employee chooses retry
+- **THEN** the immutable resolved request is restored without asking for the same parameters again
+- **AND** the new Run records the failed Run as its predecessor
+
+#### Scenario: Retry grounded answering
+- **WHEN** answer generation fails after evidence validation
+- **THEN** the retry reuses the validated evidence and invokes only answer generation
+- **AND** it does not call MCP data tools again
+
+#### Scenario: Reject an obsolete retry
+- **WHEN** the requested failed Run is not the latest attempt or has no safe checkpoint
+- **THEN** the server rejects the retry without changing execution state

@@ -5,6 +5,7 @@ import { defineConfig } from 'vitest/config';
 export default defineConfig({
   define: {
     __RMS_ORIGIN__: JSON.stringify('http://localhost:8080'),
+    __SERVER_ORIGIN__: JSON.stringify('https://localhost:5173'),
   },
   test: {
     environment: 'node',

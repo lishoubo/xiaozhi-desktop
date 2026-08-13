@@ -42,6 +42,8 @@ export {
   staffUsernameSchema,
   startAgentRunInputSchema,
   startAgentRunResponseSchema,
+  retryAgentRunInputSchema,
+  retryAgentRunResponseSchema,
   submitAgentClarificationInputSchema,
   submitAgentClarificationResponseSchema,
   type AgentCapabilities,
@@ -81,6 +83,8 @@ export {
   type StaffIdentity,
   type StartAgentRunResponse,
   type StartAgentRunInput,
+  type RetryAgentRunInput,
+  type RetryAgentRunResponse,
   type SubmitAgentClarificationInput,
   type SubmitAgentClarificationResponse,
 } from './router';

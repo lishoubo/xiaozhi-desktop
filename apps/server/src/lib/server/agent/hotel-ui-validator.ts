@@ -60,11 +60,32 @@ export function validateHotelUi(spec: GenerativeUiSpec): GenerativeUiSpec {
 		if (element.type === 'Table') {
 			const rows = element.props.rows;
 			const columns = element.props.columns;
+			if (
+				!Array.isArray(columns) ||
+				columns.length === 0 ||
+				!columns.every((column) => typeof column === 'string' && column.trim())
+			) {
+				throw new Error('Generative UI tables require non-empty string columns');
+			}
+			if (!Array.isArray(rows)) throw new Error('Generative UI tables require row arrays');
 			if (Array.isArray(rows) && rows.length > 50) {
 				throw new Error('Generative UI tables cannot exceed 50 rows');
 			}
 			if (Array.isArray(columns) && columns.length > 12) {
 				throw new Error('Generative UI tables cannot exceed 12 columns');
+			}
+			const scalar = (value: unknown): boolean =>
+				value === null ||
+				typeof value === 'string' ||
+				typeof value === 'boolean' ||
+				(typeof value === 'number' && Number.isFinite(value));
+			if (
+				!rows.every(
+					(row) =>
+						Array.isArray(row) && row.length === columns.length && row.every((cell) => scalar(cell))
+				)
+			) {
+				throw new Error('Generative UI tables require rectangular rows with scalar cells');
 			}
 		}
 		if (element.type === 'Link' && typeof element.props.href === 'string') {

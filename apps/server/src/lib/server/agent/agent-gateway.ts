@@ -8,6 +8,8 @@ import type {
 	AgentRunEvent,
 	CancelAgentBusinessExecutionResult,
 	CancelAgentRunResult,
+	RetryAgentRunInput,
+	RetryAgentRunResponse,
 	StartAgentRunInput,
 	StartAgentRunResponse,
 	SubmitAgentClarificationInput,
@@ -21,6 +23,7 @@ import {
 	AgentAccessDeniedError,
 	ActiveBusinessExecutionExistsError,
 	AgentRepository,
+	AgentRunNotRetryableError,
 	StaleBusinessExecutionVersionError
 } from './agent-repository';
 import type { AgentEnvironment } from './agent-config';
@@ -45,6 +48,7 @@ type AgentRepositoryPort = Pick<
 	| 'clearConversations'
 	| 'startRun'
 	| 'resumeBusinessExecution'
+	| 'retryBusinessExecution'
 	| 'getBusinessExecution'
 	| 'transitionBusinessExecution'
 	| 'recoverInterruptedRuns'
@@ -323,6 +327,29 @@ export class HotelAgentGateway implements AgentGateway {
 				'Agent business clarification accepted'
 			);
 			if (result.created) this.launchRun(principal, result.response.runId);
+			return result.response;
+		} catch (error) {
+			throw this.toTrpcError(error);
+		}
+	}
+
+	async retryRun(
+		principal: AgentPrincipal,
+		input: RetryAgentRunInput
+	): Promise<RetryAgentRunResponse> {
+		try {
+			await this.ensureRecovered();
+			const result = await this.repository.retryBusinessExecution(principal, input);
+			if (result.created) this.launchRun(principal, result.response.runId);
+			this.logger.info(
+				{
+					event: result.created ? 'agent.run.retry.accepted' : 'agent.run.retry.reused',
+					runId: result.response.runId,
+					failedRunId: input.failedRunId,
+					conversationId: result.response.userMessage.conversationId
+				},
+				result.created ? 'Agent run retry accepted' : 'Agent run retry reused'
+			);
 			return result.response;
 		} catch (error) {
 			throw this.toTrpcError(error);
@@ -921,7 +948,10 @@ export class HotelAgentGateway implements AgentGateway {
 			);
 			const context = await this.repository.getRunContext(principal, runId);
 			const failure = describeAgentRunFailure(error);
-			const transitioned = await this.repository.completeRun(runId, 'failed');
+			const transitioned = await this.repository.completeRun(runId, 'failed', {
+				reasonCode: 'run_failed',
+				retryable: failure.retryable
+			});
 			if (transitioned) {
 				await this.publish(principal, runId, context.conversation.id, {
 					type: 'run_failed',
@@ -1019,6 +1049,9 @@ export class HotelAgentGateway implements AgentGateway {
 		}
 		if (error instanceof StaleBusinessExecutionVersionError) {
 			return new TRPCError({ code: 'CONFLICT', message: '任务状态已更新，请刷新会话后重试。' });
+		}
+		if (error instanceof AgentRunNotRetryableError) {
+			return new TRPCError({ code: 'CONFLICT', message: '这次执行不能重试，请重新发起请求。' });
 		}
 		if (
 			error instanceof Error &&

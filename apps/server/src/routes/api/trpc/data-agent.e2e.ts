@@ -18,7 +18,17 @@ const runResponseSchema = z.object({
 const conversationMessagesResponseSchema = z.object({
 	result: z.object({
 		data: z.object({
-			messages: z.array(z.object({ role: z.string(), content: z.string() }))
+			messages: z.array(z.object({ role: z.string(), content: z.string() })),
+			activeBusinessExecution: z
+				.object({
+					id: z.string().uuid(),
+					pendingClarification: z.object({
+						interactionId: z.string().uuid(),
+						version: z.number().int(),
+						fields: z.array(z.object({ slot: z.string() }))
+					})
+				})
+				.nullable()
 		})
 	})
 });
@@ -55,7 +65,7 @@ test('answers a real hotel data question through the LLM and DMS MCP', async ({ 
 			data: {
 				conversationId: conversation.id,
 				clientRequestId: randomUUID(),
-				prompt: '请查询真实经营数据：经营概览中 GMV 最高的酒店 ID 是什么？告诉我酒店 ID 和 GMV。'
+				prompt: '请查询酒店 ID 1 上个月的真实经营数据，告诉我 GMV。'
 			}
 		});
 		expect(started.status()).toBe(200);
@@ -84,10 +94,59 @@ test('answers a real hotel data question through the LLM and DMS MCP', async ({ 
 			type: 'run_completed'
 		});
 
+		let dataRunId = run.runId;
+		let loaded = await request.get(
+			`/api/trpc/agent.getConversation?input=${encodeURIComponent(
+				JSON.stringify({ conversationId: conversation.id })
+			)}`
+		);
+		expect(loaded.status()).toBe(200);
+		let conversationState = conversationMessagesResponseSchema.parse(await loaded.json()).result
+			.data;
+		const clarification = conversationState.activeBusinessExecution?.pendingClarification;
+		if (clarification) {
+			const answers = Object.fromEntries(
+				clarification.fields.map((field) => [
+					field.slot,
+					field.slot === 'hotelReference'
+						? '1'
+						: field.slot === 'dateRange'
+							? { start: '2026-07-01', end: '2026-07-31' }
+							: 'GMV'
+				])
+			);
+			const resumed = await request.post('/api/trpc/agent.submitClarification', {
+				data: {
+					businessExecutionId: conversationState.activeBusinessExecution?.id,
+					interactionId: clarification.interactionId,
+					expectedVersion: clarification.version,
+					clientRequestId: randomUUID(),
+					answers
+				}
+			});
+			expect(resumed.status()).toBe(200);
+			dataRunId = runResponseSchema.parse(await resumed.json()).result.data.runId;
+			await expect
+				.poll(
+					async () => {
+						const rows = await database<{ payload: AgentEventPayload }[]>`
+							SELECT payload FROM agent_run_event
+							WHERE run_id = ${dataRunId} AND type IN ('run_completed', 'run_failed')
+							ORDER BY sequence DESC LIMIT 1
+						`;
+						terminalEvent = rows[0]?.payload ?? null;
+						return terminalEvent?.type ?? null;
+					},
+					{ intervals: [1_000, 2_000, 5_000], timeout: 150_000 }
+				)
+				.toMatch(/run_completed|run_failed/);
+			expect(terminalEvent).toMatchObject({ type: 'run_completed' });
+		}
+
 		const eventRows = await database<{ payload: AgentEventPayload }[]>`
 			SELECT payload
 			FROM agent_run_event
-			WHERE run_id = ${run.runId}
+			WHERE run_id = ${dataRunId}
 			ORDER BY sequence
 		`;
 		const startedToolNames = eventRows
@@ -101,14 +160,14 @@ test('answers a real hotel data question through the LLM and DMS MCP', async ({ 
 		expect(startedToolNames).toContain('query_hotel_operating_data_sql');
 		expect(completedToolNames).toContain('query_hotel_operating_data_sql');
 
-		const loaded = await request.get(
+		loaded = await request.get(
 			`/api/trpc/agent.getConversation?input=${encodeURIComponent(
 				JSON.stringify({ conversationId: conversation.id })
 			)}`
 		);
 		expect(loaded.status()).toBe(200);
-		const messages = conversationMessagesResponseSchema.parse(await loaded.json()).result.data
-			.messages;
+		conversationState = conversationMessagesResponseSchema.parse(await loaded.json()).result.data;
+		const messages = conversationState.messages;
 		const assistant = messages.findLast((message) => message.role === 'assistant');
 		expect(assistant?.content).toMatch(/GMV|成交金额/i);
 		expect(assistant?.content).toMatch(/酒店|hotel/i);

@@ -60,7 +60,10 @@ export class BusinessIntentRouter {
 			return {
 				routeKind: 'business_read',
 				intent: quickActionIntent[input.quickActionId],
-				slots: {},
+				slots:
+					input.quickActionId === 'yesterday_operating_review'
+						? { dateRange: { status: 'candidate', raw: '昨天' } }
+						: {},
 				confidence: 1
 			};
 		}

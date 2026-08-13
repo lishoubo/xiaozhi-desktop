@@ -70,6 +70,7 @@ services:
       SHOW_LOCAL_ADMIN_CREDENTIALS: 'true'
       XIAOZHI_RMS_SERVER_URL: ${XIAOZHI_RMS_SERVER_URL:-http://host.docker.internal:8080}
       AI_PUBLIC_WEATHER_MCP_ENABLED: ${AI_PUBLIC_WEATHER_MCP_ENABLED:-true}
+      AI_DMS_DATABASE_NAME: ${AI_DMS_DATABASE_NAME:-}
     ports:
       - '${SERVER_HTTPS_PORT:-4173}:4173'
     extra_hosts:

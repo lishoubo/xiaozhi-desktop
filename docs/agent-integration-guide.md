@@ -11,6 +11,12 @@ AI_KIMI_API_KEY="replace-with-kimi-api-key"
 AI_KIMI_BASE_URL="https://api.moonshot.cn/v1"
 AI_KIMI_MODEL="kimi-k3"
 
+# 新通用 DMS MCP 先按名称发现数据库；ID 可作为额外的上线校验。
+AI_DMS_MCP_URL="https://dms-mcpver-vjne-ndunixfhxl.cn-hangzhou.fcapp.run/sse"
+AI_DMS_MCP_BEARER_TOKEN="replace-with-server-token"
+AI_DMS_DATABASE_NAME="rms_data"
+AI_DMS_DATABASE_ID="replace-with-reviewed-database-id"
+
 # 默认启用仓库固定版本的公共天气 MCP；不需要 API Key。
 AI_PUBLIC_WEATHER_MCP_ENABLED="true"
 
@@ -52,10 +58,12 @@ flowchart LR
   R --> V[Evidence Validator]
   R --> K[Kimi K3 Chat Completions]
   R --> M[@langchain/mcp-adapters]
-  M --> MS[酒店 MCP servers]
+  M --> SD[searchDatabase 精确发现]
+  SD --> MS[固定 DatabaseId 的酒店 MCP 查询]
   R --> SK[SkillProvider 当前为空]
   R --> JU[render_hotel_ui tool]
-  JU -->|ui_spec event| T
+  JU -->|校验并暂存| R
+  R -->|最终 assistant message| T
   UI --> JR[json-render Svelte registry]
 ```
 
@@ -120,14 +128,17 @@ sequenceDiagram
   Agent->>Kimi: 生成最终回答（无数据 MCP）
   opt 适合生成式 UI
     Agent->>Agent: render_hotel_ui(spec)
-    Agent->>DB: 持久化 ui_spec event
-    TRPC-->>Main: ui_spec SSE
-    Main-->>UI: preload stream event
-    UI->>UI: json-render 渲染白名单组件
+    Agent->>Agent: 校验并暂存 UI spec
   end
   Kimi-->>Agent: 最终文本 token
   Agent->>DB: 写 assistant message + terminal event
   TRPC-->>UI: text_delta / run_completed
+  alt 可重试阶段失败且员工选择重新尝试
+    UI->>TRPC: agent.retryRun(failedRunId, clientRequestId)
+    TRPC->>DB: 校验 owner / 最新 attempt / checkpoint + CAS 恢复 execution
+    TRPC->>DB: 新建 retry_of_run_id 指向失败 Run 的新 Run
+    TRPC->>Collector: 从恢复阶段继续；answer checkpoint 不重复调用 MCP
+  end
 ```
 
 ## tRPC contract 使用示例
@@ -166,12 +177,12 @@ subscription.unsubscribe();
 const actions = await client.agent.quickActions.query();
 const started = await client.agent.startRun.mutate({
   conversationId,
-  quickActionId: 'today_weather',
+  quickActionId: 'yesterday_operating_review',
   clientRequestId: crypto.randomUUID(),
 });
 ```
 
-当前默认目录包含“查看今日天气”，配置 DMS 后还会包含“查看酒店经营概览”。天气能力由固定版本的 `@dangahagan/weather-mcp` 提供，使用 NOAA/Open-Meteo 等公共数据源，不需要 API Key；server 通过 stdio 启动本地 MCP 进程，并只加载读工具。
+配置 DMS Token 和 `AI_DMS_DATABASE_NAME` 后，默认目录包含“昨日经营复盘”和“查看酒店经营概览”。天气能力仍可用于自然语言查询，但不再作为快捷入口。server 会先用 `searchDatabase` 精确发现数据库；若同时配置 `AI_DMS_DATABASE_ID`，还会校验发现值是否一致。
 
 “公开酒店价格”只有在 `AI_MCP_SERVERS_JSON` 中配置带 `hotel_rates` capability 的真实价格 MCP 后才会出现在页面。仓库没有内置或冒充携程官方价格 MCP，也不会抓取需要登录的携程页面。依赖本地 RMS/PMS 数据但尚无真实 MCP 的异常订单、库存、对账等快捷项已从目录移除。
 
@@ -196,12 +207,12 @@ const started = await client.agent.startRun.mutate({
 → 生成 EvidenceEnvelope 并执行程序化 scope / period / freshness / empty / filtered 校验
 → sufficient：只把已验证证据交给最终回答模型
 → 最终回答模型生成文字，可调用一次 render_hotel_ui
-→ server 校验 UI spec，保存 assistant Message，发布 run_completed
+→ server 校验并暂存 UI spec；只在保存 assistant Message 和发布 run_completed 时一起提交
 ```
 
 固定天气 MCP 当前返回 Markdown，因此由版本化天气适配器提取常用字段并保留有界原文；它不被假设为 JavaScript 对象。第三方 MCP 若提供 `structuredContent`，证据层优先使用；若只有 JSON 文本则解析后校验；若只有普通文本则保留为 `unstructured` 并在最终回答中说明字段级校验限制。
 
-服务端用不含正文和结果的结构化日志区分耗时：`agent.workflow.collection.*`、`agent.workflow.evidence.assessed`、`agent.answer.model.*` 和 `agent.runtime.ui_spec_generated`。客户端原有的 `tool_started/tool_completed` 继续表示用户可见的工具生命周期。
+服务端用不含正文和结果的结构化日志区分耗时：`agent.workflow.collection.*`、`agent.workflow.evidence.assessed` 和 `agent.answer.model.*`。客户端原有的 `tool_started/tool_completed` 继续表示用户可见的工具生命周期；结果视图只在 Run 成功结束后显示，不提前渲染空框或候选视图。
 
 ## 失败与前端反馈
 
@@ -214,7 +225,11 @@ const started = await client.agent.startRun.mutate({
 - MCP、模型或未预期服务异常发布 `run_failed`，renderer 清除运行中草稿并显示友好错误横幅；
 - SSE 连接中断提示重新打开会话，服务端保留的事件可通过游标恢复。
 
-当前 `run_failed.retryable` 已进入共享事件契约，但 renderer 尚未据此提供一键重试；历史会话恢复也不会还原当时的精确失败横幅。这两项属于后续失败恢复 UI，而不是本次取证链优化已经具备的能力。
+`run_failed.retryable` 会投影到持久化执行轨迹。只有最新失败 attempt 且数据库中存在安全
+checkpoint 时才显示“重新尝试”；重试事务恢复同一个 `agent_business_execution`，并新建
+一个带 `retry_of_run_id` 的 `agent_run`。路由/参数阶段恢复解析，取证阶段复用不可变请求，
+已进入 grounded answering 的失败直接复用已验证证据，不再调用 MCP。配置错误、证据拒绝、
+写操作拒绝、已被更新 attempt 取代的旧失败都不可重试。
 
 ## 用户 session 隔离
 
@@ -244,6 +259,7 @@ type AgentPrincipal = {
 - 最多 100 个 element、序列化后不超过 200 KB；
 - Link 只允许 HTTPS 或应用内相对路径；
 - registry 未声明 action，因此模型生成的 Button 不会自动执行后台写操作。
+- Table 行必须与列等长，单元格只能是字符串、有限数字、布尔值或 `null`；对象和数组会被拒绝，避免显示成 `[object Object]`。
 
 除了 `Table`、`Alert`、`Progress`、`Card`、`Badge`、`Tabs` 和 `Collapsible`，酒店 registry 现在还包含：
 
@@ -258,7 +274,7 @@ type AgentPrincipal = {
 
 ## MCP 与 Skill 扩展
 
-`AI_MCP_SERVERS_JSON` 的每个 entry 交给 `MultiServerMCPClient`，支持 HTTP、SSE 和 stdio。远端必须 HTTPS，本机开发可使用 loopback HTTP。系统没有“开启写工具”的配置：加载层始终拒绝 create/update/delete/refund/pay/publish 等写入语义工具，业务路由层也会把订单、价格、库存、房态、支付和配置变更确定性拒绝。进入业务读取后还会按意图再次缩小工具 allowlist，并限制工具次数和一次证据补查。`capabilities` 接受 `weather`、`hotel_rates` 与内置 DMS 的 `hotel_data`；快捷操作仅在对应能力真实配置时返回。不要把 MCP URL、command、args 或 header 暴露成用户输入。生产 MCP server 仍应按凭证实施真正的只读权限。
+`AI_MCP_SERVERS_JSON` 的每个 entry 交给 `MultiServerMCPClient`，支持 HTTP、SSE 和 stdio。远端必须 HTTPS，本机开发可使用 loopback HTTP。系统没有“开启写工具”的配置：加载层始终拒绝 create/update/delete/refund/pay/publish 等写入语义工具，业务路由层也会把订单、价格、库存、房态、支付和配置变更确定性拒绝。内置 DMS 在工具初始化时由程序调用 `searchDatabase`，按 `AI_DMS_DATABASE_NAME` 要求唯一精确匹配，并可用 `AI_DMS_DATABASE_ID` 二次核对；随后只向 Agent 暴露 `listTables`、受同一 schema 约束的 `getTableDetailInfo`、`generateSql` 与经程序校验的 `executeScript`，且每次覆盖模型提交的 databaseId。无法绑定 DatabaseId 的 `askDatabase`、实例管理、数据变更单和审批工具不会进入 Agent。专用经营概览由代码构造固定聚合 SELECT，只调用一次 SQL 工具；通用酒店数据问题才允许受限 schema/SQL Agent。`capabilities` 接受 `weather`、`hotel_rates` 与内置 DMS 的 `hotel_data`；快捷操作仅在对应能力真实配置时返回。不要把 MCP URL、command、args 或 header 暴露成用户输入。生产 MCP server 仍应按凭证实施真正的只读权限。
 
 Skill 当前是显式空实现：
 
@@ -276,7 +292,7 @@ export interface SkillProvider {
 |---|---|---|
 | `agent_conversation` | 会话标题与生命周期 | `owner_employee_id` |
 | `agent_message` | user/assistant 内容与最终 UI spec | 经 conversation owner |
-| `agent_run` | 幂等 client request 与运行状态 | `owner_employee_id` |
+| `agent_run` | 幂等 client request、运行状态与 retry attempt 血缘 | `owner_employee_id` |
 | `agent_run_event` | SSE 回放、工具步骤与终态 | `owner_employee_id` |
 | `agent_business_execution` | 跨多个 Run 的意图、参数状态、追问、证据阶段与 CAS 版本 | `owner_employee_id` |
 | `agent_business_execution_event` | 执行状态转换审计 | 经 execution owner |

@@ -95,7 +95,7 @@ test('persists Agent conversations under the authenticated desktop session', asy
 	expect(quickActions.status()).toBe(200);
 	const actionCatalog = (await quickActions.json()).result.data;
 	expect(actionCatalog.map((action: { id: string }) => action.id)).toEqual([
-		'today_weather',
+		'yesterday_operating_review',
 		'hotel_operating_data'
 	]);
 	expect(actionCatalog).not.toContainEqual(expect.objectContaining({ prompt: expect.anything() }));
@@ -125,6 +125,94 @@ test('persists Agent conversations under the authenticated desktop session', asy
 		)}`
 	);
 	expect(forgedOwner.status()).toBe(400);
+});
+
+test('creates an owned retry attempt from a persisted execution checkpoint', async ({
+	request
+}) => {
+	const databaseUrl = process.env.DATABASE_URL;
+	if (!databaseUrl) throw new Error('DATABASE_URL is required for the Agent retry E2E');
+	const sql = postgres(databaseUrl);
+	const conversationId = randomUUID();
+	const messageId = randomUUID();
+	const executionId = randomUUID();
+	const failedRunId = randomUUID();
+	const clientRequestId = randomUUID();
+
+	try {
+		const login = await request.post('/api/trpc/auth.loginWithPhoneCode', {
+			data: { phone: '13800138000', code: '654321' }
+		});
+		expect(login.status()).toBe(200);
+		const employeeId = String((await login.json()).result.data.id);
+		await sql`
+			INSERT INTO agent_conversation
+				(id, owner_employee_id, owner_org_id, title, created_at, updated_at)
+			VALUES
+				(${conversationId}, ${employeeId}, '42', '重试 E2E', NOW(), NOW())
+		`;
+		await sql`
+			INSERT INTO agent_message
+				(id, conversation_id, role, content, ui, created_at)
+			VALUES
+				(${messageId}, ${conversationId}, 'user', '昨日经营复盘', NULL, NOW())
+		`;
+		const checkpoint = {
+			status: 'failed',
+			reasonCode: 'mcp_timeout',
+			retryable: true,
+			retryCheckpoint: {
+				kind: 'routing',
+				inputKind: 'quick_action',
+				inputValue: 'yesterday_operating_review'
+			}
+		};
+		await sql`
+			INSERT INTO agent_business_execution
+				(id, conversation_id, trigger_user_message_id, owner_employee_id, owner_org_id,
+				 route_kind, intent, status, state, version, created_at, updated_at, completed_at)
+			VALUES
+				(${executionId}, ${conversationId}, ${messageId}, ${employeeId}, '42',
+				 'business_read', 'hotel_operating_summary', 'failed', ${sql.json(checkpoint)}, 2,
+				 NOW(), NOW(), NOW())
+		`;
+		await sql`
+			UPDATE agent_message SET business_execution_id = ${executionId} WHERE id = ${messageId}
+		`;
+		await sql`
+			INSERT INTO agent_run
+				(id, conversation_id, owner_employee_id, client_request_id, user_message_id,
+				 business_execution_id, status, created_at, completed_at)
+			VALUES
+				(${failedRunId}, ${conversationId}, ${employeeId}, ${randomUUID()}, ${messageId},
+				 ${executionId}, 'failed', NOW(), NOW())
+		`;
+
+		const retried = await request.post('/api/trpc/agent.retryRun', {
+			data: { failedRunId, clientRequestId }
+		});
+		expect(retried.status()).toBe(200);
+		const retryRunId = (await retried.json()).result.data.runId as string;
+		expect(retryRunId).not.toBe(failedRunId);
+		expect(
+			await sql`
+				SELECT retry_of_run_id, business_execution_id
+				FROM agent_run
+				WHERE id = ${retryRunId}
+			`
+		).toEqual([{ retry_of_run_id: failedRunId, business_execution_id: executionId }]);
+		expect(await sql`SELECT status FROM agent_run WHERE id = ${failedRunId}`).toEqual([
+			{ status: 'failed' }
+		]);
+		const repeated = await request.post('/api/trpc/agent.retryRun', {
+			data: { failedRunId, clientRequestId }
+		});
+		expect((await repeated.json()).result.data.runId).toBe(retryRunId);
+		await request.post('/api/trpc/agent.cancelRun', { data: { runId: retryRunId } });
+	} finally {
+		await sql`DELETE FROM agent_conversation WHERE id = ${conversationId}`;
+		await sql.end();
+	}
 });
 
 test('cancels runs and deletes only owned conversations while preserving memory', async ({

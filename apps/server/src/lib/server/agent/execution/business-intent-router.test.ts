@@ -17,6 +17,21 @@ describe('BusinessIntentRouter', () => {
 		expect(classifier.classify).not.toHaveBeenCalled();
 	});
 
+	it('seeds yesterday for the daily operating review shortcut', async () => {
+		const classifier = { classify: vi.fn() };
+		const router = new BusinessIntentRouter(classifier);
+
+		await expect(
+			router.route({ kind: 'quick_action', quickActionId: 'yesterday_operating_review' })
+		).resolves.toEqual({
+			routeKind: 'business_read',
+			intent: 'hotel_operating_summary',
+			slots: { dateRange: { status: 'candidate', raw: '昨天' } },
+			confidence: 1
+		});
+		expect(classifier.classify).not.toHaveBeenCalled();
+	});
+
 	it('routes an unanticipated safe hotel-data read to the generic workflow', async () => {
 		const router = new BusinessIntentRouter({
 			classify: vi.fn().mockResolvedValue({
@@ -60,15 +75,17 @@ describe('BusinessIntentRouter', () => {
 			})
 		});
 
-		await expect(router.route({ kind: 'prompt', text: '查询西湖店上月经营概览' })).resolves.toEqual({
-			routeKind: 'business_read',
-			intent: 'hotel_operating_summary',
-			slots: {
-				hotelReference: { status: 'candidate', raw: '西湖店' },
-				dateRange: { status: 'candidate', raw: '上个月' }
-			},
-			confidence: 0.88
-		});
+		await expect(router.route({ kind: 'prompt', text: '查询西湖店上月经营概览' })).resolves.toEqual(
+			{
+				routeKind: 'business_read',
+				intent: 'hotel_operating_summary',
+				slots: {
+					hotelReference: { status: 'candidate', raw: '西湖店' },
+					dateRange: { status: 'candidate', raw: '上个月' }
+				},
+				confidence: 0.88
+			}
+		);
 	});
 
 	it('denies an explicit business write even when the classifier proposes a read', async () => {

@@ -23,6 +23,7 @@ export function buildAgentExecutionTraces(
 	return runs.map((run) => {
 		const steps = new Map<string, AgentExecutionTrace['steps'][number]>();
 		let assistantMessageId: string | null = null;
+		let failure: AgentExecutionTrace['failure'] = null;
 		for (const event of eventsByRun.get(run.id) ?? []) {
 			if (event.type === 'tool_started') {
 				steps.set(event.toolCallId, {
@@ -40,6 +41,8 @@ export function buildAgentExecutionTraces(
 				});
 			} else if (event.type === 'run_completed') {
 				assistantMessageId = event.message.id;
+			} else if (event.type === 'run_failed') {
+				failure = { message: event.message, retryable: event.retryable };
 			}
 		}
 		return {
@@ -50,7 +53,8 @@ export function buildAgentExecutionTraces(
 			status: run.status,
 			steps: [...steps.values()],
 			createdAt: run.createdAt.toISOString(),
-			completedAt: run.completedAt?.toISOString() ?? null
+			completedAt: run.completedAt?.toISOString() ?? null,
+			failure
 		};
 	});
 }

@@ -12,6 +12,8 @@ import {
   cancelAgentRunResultSchema,
   startAgentRunInputSchema,
   startAgentRunResponseSchema,
+  retryAgentRunInputSchema,
+  retryAgentRunResponseSchema,
   submitAgentClarificationInputSchema,
   submitAgentClarificationResponseSchema,
 } from '@hotel-butler/api/contracts';
@@ -30,6 +32,8 @@ export {
   cancelAgentRunResultSchema,
   startAgentRunInputSchema,
   startAgentRunResponseSchema,
+  retryAgentRunInputSchema,
+  retryAgentRunResponseSchema,
   submitAgentClarificationInputSchema,
   submitAgentClarificationResponseSchema,
 };

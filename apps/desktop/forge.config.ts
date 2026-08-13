@@ -13,10 +13,15 @@ import { FuseV1Options, FuseVersion } from '@electron/fuses';
 
 const nativeRuntimeDependencies = ['better-sqlite3', 'node-addon-api'] as const;
 const require = createRequire(import.meta.url);
+const privateCaPath = process.env.HOTEL_BUTLER_PRIVATE_CA_PATH?.trim();
+if (privateCaPath && path.basename(privateCaPath) !== 'private-ca.pem') {
+  throw new Error('HOTEL_BUTLER_PRIVATE_CA_PATH must point to a file named private-ca.pem');
+}
 
 const config: ForgeConfig = {
   packagerConfig: {
     asar: true,
+    extraResource: privateCaPath ?? undefined,
   },
   hooks: {
     // Forge's Vite plugin excludes externalized modules from the packaged app, so copy the

@@ -160,4 +160,82 @@ describe('business execution state machine', () => {
 			false
 		);
 	});
+
+	it('stores an executing checkpoint on retryable failure and restores it explicitly', () => {
+		const executing: BusinessExecutionState = {
+			status: 'executing',
+			request,
+			evidence: [],
+			followUpUsed: false
+		};
+		const failed = transitionBusinessExecution(executing, {
+			type: 'execution_failed',
+			reasonCode: 'mcp_timeout',
+			retryable: true
+		});
+
+		expect(failed).toEqual({
+			status: 'failed',
+			reasonCode: 'mcp_timeout',
+			retryable: true,
+			retryCheckpoint: {
+				kind: 'executing',
+				request,
+				evidence: [],
+				followUpUsed: false
+			}
+		});
+		expect(transitionBusinessExecution(failed, { type: 'execution_retry_requested' })).toEqual(
+			executing
+		);
+	});
+
+	it('retries grounded answering without discarding validated evidence', () => {
+		const evidence = [
+			{
+				evidenceId: '77777777-7777-4777-8777-777777777777',
+				source: 'hotel_rates_mcp' as const,
+				data: { rates: [688] }
+			}
+		];
+		const answering: BusinessExecutionState = {
+			status: 'answering',
+			mode: 'grounded',
+			request,
+			evidence,
+			limitations: ['价格随时变化。']
+		};
+		const failed = transitionBusinessExecution(answering, {
+			type: 'execution_failed',
+			reasonCode: 'answer_timeout',
+			retryable: true
+		});
+
+		expect(transitionBusinessExecution(failed, { type: 'execution_retry_requested' })).toEqual(
+			answering
+		);
+	});
+
+	it('does not make an unsafe or non-retryable state restorable', () => {
+		const failed = transitionBusinessExecution(
+			{
+				status: 'answering',
+				mode: 'write_denied',
+				request: null,
+				evidence: [],
+				limitations: ['不支持写操作。']
+			},
+			{ type: 'execution_failed', reasonCode: 'unsupported', retryable: true }
+		);
+
+		expect(failed).toEqual({
+			status: 'failed',
+			reasonCode: 'unsupported',
+			retryable: false,
+			retryCheckpoint: null
+		});
+		expect(() =>
+			transitionBusinessExecution(failed, { type: 'execution_retry_requested' })
+		).toThrow(InvalidBusinessExecutionTransitionError);
+	});
 });

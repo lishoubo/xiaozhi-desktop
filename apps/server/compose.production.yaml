@@ -2,7 +2,7 @@ name: hotel-butler-production
 
 services:
   db:
-    image: ${ALIYUN_REGISTRY:?Set ALIYUN_REGISTRY}/${ALIYUN_NAMESPACE:?Set ALIYUN_NAMESPACE}/pgvector:${PGVECTOR_IMAGE_TAG:?Set PGVECTOR_IMAGE_TAG}
+    image: pgvector/pgvector:${PGVECTOR_IMAGE_TAG:-0.8.5-pg18}
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER:?Set POSTGRES_USER}
@@ -19,7 +19,11 @@ services:
       retries: 10
 
   database-init:
-    image: ${ALIYUN_REGISTRY:?Set ALIYUN_REGISTRY}/${ALIYUN_NAMESPACE:?Set ALIYUN_NAMESPACE}/hotel-butler-server:${SERVER_IMAGE_TAG:?Set SERVER_IMAGE_TAG}
+    image: hotel-butler-server:${SERVER_IMAGE_TAG:-production}
+    build:
+      context: ../..
+      dockerfile: apps/server/Dockerfile
+      target: production
     restart: 'no'
     environment:
       NODE_ENV: production
@@ -33,27 +37,44 @@ services:
     command: ['node', '--experimental-strip-types', 'apps/server/scripts/initialize-database.ts']
 
   server:
-    image: ${ALIYUN_REGISTRY:?Set ALIYUN_REGISTRY}/${ALIYUN_NAMESPACE:?Set ALIYUN_NAMESPACE}/hotel-butler-server:${SERVER_IMAGE_TAG:?Set SERVER_IMAGE_TAG}
+    image: hotel-butler-server:${SERVER_IMAGE_TAG:-production}
+    build:
+      context: ../..
+      dockerfile: apps/server/Dockerfile
+      target: production
     restart: unless-stopped
     environment:
       NODE_ENV: production
       DATABASE_URL: ${DATABASE_URL:?Set DATABASE_URL}
       RMS_DATABASE_URL: ${RMS_DATABASE_URL:?Set RMS_DATABASE_URL to the external read-only RMS database}
-      ORIGIN: ${ORIGIN:?Set ORIGIN to the public Caddy HTTPS origin}
+      ORIGIN: ${ORIGIN:?Set ORIGIN to the Electron-facing HTTPS origin}
       BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?Set BETTER_AUTH_SECRET}
       AI_KIMI_API_KEY: ${AI_KIMI_API_KEY:?Set AI_KIMI_API_KEY}
       AI_KIMI_BASE_URL: ${AI_KIMI_BASE_URL:-https://api.moonshot.cn/v1}
       AI_KIMI_MODEL: ${AI_KIMI_MODEL:-kimi-k3}
       AI_PUBLIC_WEATHER_MCP_ENABLED: ${AI_PUBLIC_WEATHER_MCP_ENABLED:-true}
+      AI_DMS_MCP_URL: ${AI_DMS_MCP_URL:-https://dms-mcpver-vjne-ndunixfhxl.cn-hangzhou.fcapp.run/sse}
       AI_DMS_MCP_BEARER_TOKEN: ${AI_DMS_MCP_BEARER_TOKEN:-}
+      AI_DMS_DATABASE_ID: ${AI_DMS_DATABASE_ID:-}
+      AI_DMS_DATABASE_NAME: ${AI_DMS_DATABASE_NAME:-}
       AI_MCP_SERVERS_JSON: ${AI_MCP_SERVERS_JSON:-{}}
       XIAOZHI_RMS_SERVER_URL: ${XIAOZHI_RMS_SERVER_URL:?Set XIAOZHI_RMS_SERVER_URL to the RMS HTTPS API origin}
       LOG_LEVEL: ${LOG_LEVEL:-info}
       HOST: 0.0.0.0
-      PORT: 3000
-      SERVER_HEALTH_URL: http://localhost:3000/api/trpc/system.health
+      PORT: 3443
+      SERVER_TLS_CERT_FILE: /certs/cert.pem
+      SERVER_TLS_KEY_FILE: /certs/key.pem
+      SERVER_HEALTH_URL: ${ORIGIN:?Set ORIGIN to the Electron-facing HTTPS origin}/api/trpc/system.health
+      SERVER_HEALTH_CONNECT_ADDRESS: 127.0.0.1
+      SERVER_HEALTH_CONNECT_PORT: 3443
+      SERVER_HEALTH_CA_FILE: /certs/ca.pem
     ports:
-      - '${SERVER_BIND_ADDRESS:-127.0.0.1}:${SERVER_PORT:-3000}:3000'
+      - '${SERVER_BIND_ADDRESS:-0.0.0.0}:${SERVER_HTTPS_PORT:-443}:3443'
+    volumes:
+      - type: bind
+        source: ${SERVER_TLS_CERT_DIR:?Set SERVER_TLS_CERT_DIR to the production certificate directory}
+        target: /certs
+        read_only: true
     depends_on:
       database-init:
         condition: service_completed_successfully

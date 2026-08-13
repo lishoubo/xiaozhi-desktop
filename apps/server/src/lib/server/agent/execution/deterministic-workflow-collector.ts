@@ -2,6 +2,7 @@ import type { AgentPrincipal } from '@hotel-butler/api';
 import type { StructuredToolInterface } from '@langchain/core/tools';
 import { randomUUID } from 'node:crypto';
 import type { RuntimeEvent } from '../agent-runtime';
+import { HOTEL_DATA_SQL_TOOL_NAME } from '../hotel-data-mcp';
 import type { McpToolProvider } from '../mcp-tool-provider';
 import type { JsonValue, ResolvedBusinessRequest } from './business-execution-state';
 
@@ -95,6 +96,19 @@ function operatingSummaryArgs(
 	const start = Reflect.get(range, 'start');
 	const end = Reflect.get(range, 'end');
 	if (typeof start !== 'string' || typeof end !== 'string') return null;
+	if (tool.name === HOTEL_DATA_SQL_TOOL_NAME) {
+		if (
+			!/^\d+$/.test(hotel) ||
+			!/^\d{4}-\d{2}-\d{2}$/.test(start) ||
+			!/^\d{4}-\d{2}-\d{2}$/.test(end)
+		) {
+			return null;
+		}
+		return {
+			database_id: 'server-configured',
+			script: `SELECT hotel_id, MIN(data_date) AS period_start, MAX(data_date) AS period_end, SUM(gmv) AS gmv, SUM(booking_amount) AS booking_amount, SUM(verified_amount) AS verified_amount, SUM(refund_amount) AS refund_amount, SUM(gmv_coupon_cnt) AS gmv_coupon_cnt, SUM(booking_coupon_cnt) AS booking_coupon_cnt, SUM(verified_coupon_cnt) AS verified_coupon_cnt, SUM(refund_coupon_cnt) AS refund_coupon_cnt, SUM(gmv_room_night) AS gmv_room_night, SUM(booking_room_night) AS booking_room_night, SUM(verified_room_night) AS verified_room_night, SUM(refund_room_night) AS refund_room_night, CASE WHEN SUM(verified_coupon_cnt) > 0 THEN SUM(verified_amount) / SUM(verified_coupon_cnt) ELSE NULL END AS verified_unit_price FROM fact_business_daily WHERE hotel_id = ${hotel} AND data_date BETWEEN '${start}' AND '${end}' AND product_type = 'ALL' GROUP BY hotel_id`
+		};
+	}
 	const question = `查询酒店 ${hotel} 在 ${start} 至 ${end} 的经营概览，仅返回营业收入、出租率、平均房价、RevPAR、间夜量等实际可用的聚合指标及口径。`;
 	const candidates = ['question', 'query', 'prompt', 'input'].map((key) => ({ [key]: question }));
 	return candidates.find((candidate) => schemaAccepts(tool.schema, candidate)) ?? null;
@@ -144,9 +158,9 @@ function selectTool(
 		return tool && args ? { tool, args } : null;
 	}
 	if (request.intent === 'hotel_operating_summary') {
-		const tool = tools.find((candidate) => candidate.name === 'query_hotel_operating_data');
+		const tool = tools.find((candidate) => candidate.name === HOTEL_DATA_SQL_TOOL_NAME);
 		const args = tool ? operatingSummaryArgs(tool, request) : null;
-		return tool && args ? { tool, args } : null;
+		return tool && args && schemaAccepts(tool.schema, args) ? { tool, args } : null;
 	}
 	if (request.intent === 'public_hotel_rates') {
 		for (const tool of tools.filter((candidate) =>
@@ -179,6 +193,9 @@ export class DeterministicWorkflowCollector {
 		input.signal.throwIfAborted();
 		const selected = selectTool(tools, input.request);
 		if (!selected) {
+			if (input.request.intent === 'hotel_operating_summary') {
+				throw new Error('Pinned hotel operating SQL tool is unavailable or incompatible');
+			}
 			return {
 				status: 'fallback',
 				reason: tools.length === 0 ? 'tool_unavailable' : 'incompatible_tool_schema'

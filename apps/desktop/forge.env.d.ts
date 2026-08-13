@@ -11,3 +11,4 @@ declare const __AUTH_VARIANT__: 'staff' | 'phone';
  * 编译期字面量，取值和合法性校验都发生在构建时。
  */
 declare const __RMS_ORIGIN__: string;
+declare const __SERVER_ORIGIN__: string;

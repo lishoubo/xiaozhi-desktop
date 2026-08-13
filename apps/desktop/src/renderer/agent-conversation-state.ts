@@ -67,6 +67,7 @@ export function addStartedRun(
         steps: [],
         createdAt,
         completedAt: null,
+        failure: null,
       },
     ],
     activeRunId: started.runId,
@@ -161,6 +162,7 @@ export function applyRunEvent(
         ...execution,
         status: 'failed',
         completedAt: event.createdAt,
+        failure: { message: event.message, retryable: event.retryable },
       })),
     };
   }

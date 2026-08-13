@@ -4,17 +4,21 @@ import { HOTEL_DATA_MCP_SERVER_NAME } from './agent-config';
 import type { McpCapability, McpServerConfig } from './agent-config';
 import {
 	compactHotelDataToolResult,
-	constrainHotelDataQueryArgs,
+	constrainHotelDataGenerateSqlArgs,
 	constrainHotelDataSqlArgs,
+	constrainHotelDataTableDetailArgs,
 	constrainHotelDataTableListArgs,
+	DMS_DESCRIBE_TABLE_TOOL_NAME,
 	DMS_LIST_TABLES_TOOL_NAME,
-	DMS_QUERY_TOOL_NAME,
+	DMS_GENERATE_SQL_TOOL_NAME,
 	DMS_SQL_TOOL_NAME,
+	DMS_SEARCH_DATABASE_TOOL_NAME,
 	HOTEL_DATA_DESCRIBE_TABLE_TOOL_NAME,
+	HOTEL_DATA_GENERATE_SQL_TOOL_NAME,
 	HOTEL_DATA_LIST_TABLES_TOOL_NAME,
 	HOTEL_DATA_SQL_TOOL_NAME,
-	HOTEL_DATA_TOOL_NAME,
-	isAllowedHotelDataMcpToolName
+	isAllowedHotelDataMcpToolName,
+	selectDmsDatabaseId
 } from './hotel-data-mcp';
 
 const READ_ONLY_TOOL_NAME =
@@ -34,10 +38,10 @@ export function loadMcpServerToolsInOrder<T>(
 }
 
 function configureHotelDataTool(tool: DynamicStructuredTool): DynamicStructuredTool {
-	if (tool.name === DMS_QUERY_TOOL_NAME) {
-		tool.name = HOTEL_DATA_TOOL_NAME;
+	if (tool.name === DMS_GENERATE_SQL_TOOL_NAME) {
+		tool.name = HOTEL_DATA_GENERATE_SQL_TOOL_NAME;
 		tool.description =
-			'用自然语言查询酒店经营数据。优先用于简单指标；若无法生成 SQL，先查看表和字段，再使用受限 SQL 查询工具。只读。';
+			'根据自然语言和已配置的酒店数据库生成只读 SELECT。生成结果仍须交给受限 SQL 工具执行。';
 	} else if (tool.name === DMS_SQL_TOOL_NAME) {
 		tool.name = HOTEL_DATA_SQL_TOOL_NAME;
 		tool.description =
@@ -56,7 +60,11 @@ export class McpToolProvider {
 	private client: MultiServerMCPClient | null = null;
 	private toolsPromise: Promise<readonly DynamicStructuredTool[]> | null = null;
 
-	constructor(private readonly servers: Readonly<Record<string, McpServerConfig>>) {}
+	constructor(
+		private readonly servers: Readonly<Record<string, McpServerConfig>>,
+		private readonly dmsDatabaseId: string | null = null,
+		private readonly dmsDatabaseName: string | null = null
+	) {}
 
 	serverCount(): number {
 		return Object.keys(this.servers).length;
@@ -78,6 +86,8 @@ export class McpToolProvider {
 
 	private async loadTools(): Promise<readonly DynamicStructuredTool[]> {
 		if (this.serverCount() === 0) return [];
+		let resolvedDmsDatabaseId = this.dmsDatabaseId;
+		let resolvedDmsDatabaseName = this.dmsDatabaseName;
 		const connections = Object.fromEntries(
 			Object.entries(this.servers).map(([name, server]) => {
 				if (server.transport === 'stdio') {
@@ -110,10 +120,22 @@ export class McpToolProvider {
 			},
 			beforeToolCall: ({ serverName, name, args }) => {
 				if (serverName !== HOTEL_DATA_MCP_SERVER_NAME) return;
-				if (name === DMS_QUERY_TOOL_NAME) return { args: constrainHotelDataQueryArgs(args) };
-				if (name === DMS_SQL_TOOL_NAME) return { args: constrainHotelDataSqlArgs(args) };
+				if (name === DMS_SEARCH_DATABASE_TOOL_NAME) return;
+				if (name === DMS_GENERATE_SQL_TOOL_NAME) {
+					if (!resolvedDmsDatabaseId) throw new Error('DMS DatabaseId is unresolved');
+					return { args: constrainHotelDataGenerateSqlArgs(args, resolvedDmsDatabaseId) };
+				}
+				if (name === DMS_SQL_TOOL_NAME) {
+					if (!resolvedDmsDatabaseId) throw new Error('DMS DatabaseId is unresolved');
+					return { args: constrainHotelDataSqlArgs(args, resolvedDmsDatabaseId) };
+				}
 				if (name === DMS_LIST_TABLES_TOOL_NAME) {
-					return { args: constrainHotelDataTableListArgs(args) };
+					if (!resolvedDmsDatabaseId) throw new Error('DMS DatabaseId is unresolved');
+					return { args: constrainHotelDataTableListArgs(args, resolvedDmsDatabaseId) };
+				}
+				if (name === DMS_DESCRIBE_TABLE_TOOL_NAME) {
+					if (!resolvedDmsDatabaseName) throw new Error('DMS database name is unresolved');
+					return { args: constrainHotelDataTableDetailArgs(args, resolvedDmsDatabaseName) };
 				}
 			},
 			afterToolCall: ({ serverName, result }) => {
@@ -127,13 +149,35 @@ export class McpToolProvider {
 		const loadedByServer = await loadMcpServerToolsInOrder(serverNames, (name) =>
 			client.getTools(name)
 		);
+		const hotelDataIndex = serverNames.indexOf(HOTEL_DATA_MCP_SERVER_NAME);
+		const hotelDataTools = hotelDataIndex < 0 ? [] : (loadedByServer[hotelDataIndex] ?? []);
+		if (this.dmsDatabaseName) {
+			const searchDatabase = hotelDataTools.find(
+				(tool) => tool.name === DMS_SEARCH_DATABASE_TOOL_NAME
+			);
+			if (!searchDatabase) throw new Error('DMS searchDatabase tool is unavailable');
+			const result = await searchDatabase.invoke({
+				search_key: this.dmsDatabaseName,
+				page_number: 1,
+				page_size: 50
+			});
+			resolvedDmsDatabaseId = selectDmsDatabaseId(result, this.dmsDatabaseName, this.dmsDatabaseId);
+			resolvedDmsDatabaseName = this.dmsDatabaseName;
+		}
+		if (hotelDataTools.length > 0 && !resolvedDmsDatabaseId) {
+			throw new Error('DMS DatabaseId is unresolved');
+		}
 		const selected: DynamicStructuredTool[] = [];
 		for (const [index, name] of serverNames.entries()) {
 			const loaded = loadedByServer[index] ?? [];
 			if (name === HOTEL_DATA_MCP_SERVER_NAME) {
 				selected.push(
 					...loaded
-						.filter((tool) => isAllowedHotelDataMcpToolName(tool.name))
+						.filter(
+							(tool) =>
+								tool.name !== DMS_SEARCH_DATABASE_TOOL_NAME &&
+								isAllowedHotelDataMcpToolName(tool.name)
+						)
 						.map(configureHotelDataTool)
 				);
 				continue;

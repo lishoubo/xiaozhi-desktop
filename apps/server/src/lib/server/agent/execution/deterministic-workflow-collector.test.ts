@@ -76,14 +76,8 @@ describe('deterministic workflow collector', () => {
 		expect(invoke).not.toHaveBeenCalled();
 	});
 
-	it('maps compatible operating-summary and public-rate schemas without model assistance', async () => {
-		const operatingInvoke = vi.fn(async () => ({ revenue: 1000 }));
+	it('maps a compatible public-rate schema without model assistance', async () => {
 		const rateInvoke = vi.fn(async () => ({ rates: [688] }));
-		const operating = tool(operatingInvoke, {
-			name: 'query_hotel_operating_data',
-			description: 'operating',
-			schema: z.object({ question: z.string() })
-		});
 		const rates = tool(rateInvoke, {
 			name: 'search_public_rates',
 			description: 'rates',
@@ -96,15 +90,9 @@ describe('deterministic workflow collector', () => {
 			})
 		});
 		const collector = new DeterministicWorkflowCollector({
-			getTools: vi.fn().mockResolvedValue([operating, rates])
+			getTools: vi.fn().mockResolvedValue([rates])
 		});
 
-		await collector.collect(
-			request('hotel_operating_summary', {
-				hotelReference: 'hotel-1',
-				dateRange: { start: '2026-08-01', end: '2026-08-13' }
-			})
-		);
 		await collector.collect(
 			request('public_hotel_rates', {
 				hotelReference: 'hotel-1',
@@ -115,10 +103,6 @@ describe('deterministic workflow collector', () => {
 			})
 		);
 
-		expect(operatingInvoke).toHaveBeenCalledWith(
-			expect.objectContaining({ question: expect.stringContaining('hotel-1') }),
-			expect.anything()
-		);
 		expect(rateInvoke).toHaveBeenCalledWith(
 			{
 				hotel_id: 'hotel-1',
@@ -129,6 +113,51 @@ describe('deterministic workflow collector', () => {
 			},
 			expect.anything()
 		);
+	});
+
+	it('uses a code-owned aggregate query for the generic DMS endpoint', async () => {
+		const sqlInvoke = vi.fn(async () => ({ hotel_id: 1, gmv: 888 }));
+		const sql = tool(sqlInvoke, {
+			name: 'query_hotel_operating_data_sql',
+			description: 'read-only SQL',
+			schema: z.object({ database_id: z.string(), script: z.string() })
+		});
+		const collector = new DeterministicWorkflowCollector({
+			getTools: vi.fn().mockResolvedValue([sql])
+		});
+
+		const result = await collector.collect(
+			request('hotel_operating_summary', {
+				hotelReference: '1',
+				dateRange: { start: '2026-07-01', end: '2026-07-31' }
+			})
+		);
+
+		expect(result).toMatchObject({
+			status: 'collected',
+			toolEvidence: [{ toolName: 'query_hotel_operating_data_sql' }]
+		});
+		expect(sqlInvoke).toHaveBeenCalledWith(
+			expect.objectContaining({
+				script: expect.stringMatching(/hotel_id = 1.*2026-07-01.*2026-07-31/)
+			}),
+			expect.anything()
+		);
+	});
+
+	it('fails closed instead of entering Agent schema discovery when operating SQL is unavailable', async () => {
+		const collector = new DeterministicWorkflowCollector({
+			getTools: vi.fn().mockResolvedValue([])
+		});
+
+		await expect(
+			collector.collect(
+				request('hotel_operating_summary', {
+					hotelReference: '1',
+					dateRange: { start: '2026-08-12', end: '2026-08-12' }
+				})
+			)
+		).rejects.toThrow('Pinned hotel operating SQL tool');
 	});
 
 	it('leaves generic discovery to the constrained Agent and propagates invoked-tool failures', async () => {

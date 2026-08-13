@@ -8,12 +8,14 @@ import type {
   AgentConversationSummary,
   AgentQuickAction,
   StartAgentRunResponse,
+  RetryAgentRunResponse,
   SubmitAgentClarificationResponse,
 } from '@hotel-butler/api';
 import {
   agentBusinessExecutionIdInputSchema,
   agentConversationIdInputSchema,
   startAgentRunInputSchema,
+  retryAgentRunInputSchema,
   submitAgentClarificationInputSchema,
 } from '../../shared/agent';
 import { IPC_CHANNELS } from '../../shared/ipc-channels';
@@ -29,6 +31,7 @@ export interface AgentOrchestrator {
   deleteConversation(conversationId: string): Promise<AgentConversationDeletionResult>;
   clearConversations(): Promise<AgentConversationDeletionResult>;
   startRun(input: z.infer<typeof startAgentRunInputSchema>): Promise<StartAgentRunResponse>;
+  retryRun(input: z.infer<typeof retryAgentRunInputSchema>): Promise<RetryAgentRunResponse>;
   submitClarification(
     input: z.infer<typeof submitAgentClarificationInputSchema>,
   ): Promise<SubmitAgentClarificationResponse>;
@@ -85,6 +88,12 @@ export function registerAgentHandlers({
     z.tuple([startAgentRunInputSchema]),
     'Agent 请求参数无效',
     (input) => service.startRun(input),
+  );
+  registry.handle(
+    IPC_CHANNELS.agent.retryRun,
+    z.tuple([retryAgentRunInputSchema]),
+    'Agent 重试参数无效',
+    (input) => service.retryRun(input),
   );
   registry.handle(
     IPC_CHANNELS.agent.submitClarification,

@@ -4,6 +4,7 @@ import {
   compactTrendAxisLabel,
   executionForDisplayedMessage,
   messageOwnsPendingClarification,
+  shouldDisplayExecutionTrace,
   trendAxisTickSpacing,
 } from '../../../src/renderer/agent-presentation';
 
@@ -90,6 +91,17 @@ describe('Agent result presentation', () => {
     expect(executionForDisplayedMessage(executions, message(completed.userMessageId, 'user'))).toBe(
       null,
     );
+  });
+
+  it('hides successful empty traces but keeps meaningful or failed execution details', () => {
+    expect(shouldDisplayExecutionTrace(completed)).toBe(false);
+    expect(
+      shouldDisplayExecutionTrace({
+        ...completed,
+        steps: [{ toolCallId: 'tool-1', toolName: 'query', status: 'completed', summary: '完成' }],
+      }),
+    ).toBe(true);
+    expect(shouldDisplayExecutionTrace({ ...completed, status: 'failed' })).toBe(true);
   });
 
   it('compacts common date labels and increases spacing for long labels', () => {

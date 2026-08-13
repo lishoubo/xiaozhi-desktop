@@ -1,9 +1,10 @@
-export const DMS_QUERY_TOOL_NAME = 'askDatabase';
+export const DMS_GENERATE_SQL_TOOL_NAME = 'generateSql';
 export const DMS_SQL_TOOL_NAME = 'executeScript';
 export const DMS_LIST_TABLES_TOOL_NAME = 'listTables';
 export const DMS_DESCRIBE_TABLE_TOOL_NAME = 'getTableDetailInfo';
+export const DMS_SEARCH_DATABASE_TOOL_NAME = 'searchDatabase';
 
-export const HOTEL_DATA_TOOL_NAME = 'query_hotel_operating_data';
+export const HOTEL_DATA_GENERATE_SQL_TOOL_NAME = 'generate_hotel_operating_data_sql';
 export const HOTEL_DATA_SQL_TOOL_NAME = 'query_hotel_operating_data_sql';
 export const HOTEL_DATA_LIST_TABLES_TOOL_NAME = 'list_hotel_data_tables';
 export const HOTEL_DATA_DESCRIBE_TABLE_TOOL_NAME = 'describe_hotel_data_table';
@@ -23,7 +24,7 @@ type CompactionStats = {
 
 export function isHotelDataToolName(name: string): boolean {
 	return [
-		HOTEL_DATA_TOOL_NAME,
+		HOTEL_DATA_GENERATE_SQL_TOOL_NAME,
 		HOTEL_DATA_SQL_TOOL_NAME,
 		HOTEL_DATA_LIST_TABLES_TOOL_NAME,
 		HOTEL_DATA_DESCRIBE_TABLE_TOOL_NAME
@@ -32,11 +33,78 @@ export function isHotelDataToolName(name: string): boolean {
 
 export function isAllowedHotelDataMcpToolName(name: string): boolean {
 	return [
-		DMS_QUERY_TOOL_NAME,
+		DMS_SEARCH_DATABASE_TOOL_NAME,
+		DMS_GENERATE_SQL_TOOL_NAME,
 		DMS_SQL_TOOL_NAME,
 		DMS_LIST_TABLES_TOOL_NAME,
 		DMS_DESCRIBE_TABLE_TOOL_NAME
 	].includes(name);
+}
+
+function collectDatabaseCandidates(value: unknown, candidates: Record<string, unknown>[]): void {
+	let parsed = value;
+	if (typeof value === 'string') {
+		try {
+			parsed = JSON.parse(value);
+		} catch {
+			return;
+		}
+	}
+	if (Array.isArray(parsed)) {
+		for (const item of parsed) collectDatabaseCandidates(item, candidates);
+		return;
+	}
+	if (typeof parsed !== 'object' || parsed === null) return;
+	const record = Object.fromEntries(Object.entries(parsed));
+	if ('DatabaseId' in record && 'SchemaName' in record) candidates.push(record);
+	for (const item of Object.values(record)) collectDatabaseCandidates(item, candidates);
+}
+
+export function selectDmsDatabaseId(
+	result: unknown,
+	databaseName: string,
+	pinnedDatabaseId: string | null
+): string {
+	const candidates: Record<string, unknown>[] = [];
+	collectDatabaseCandidates(result, candidates);
+	const exact = candidates.filter(
+		(candidate) => typeof candidate.SchemaName === 'string' && candidate.SchemaName === databaseName
+	);
+	const exactIds = new Set(
+		exact.flatMap((candidate) => {
+			const value = candidate.DatabaseId;
+			if (typeof value === 'number' && Number.isSafeInteger(value)) return [String(value)];
+			if (typeof value === 'string' && /^\d+$/.test(value)) return [value];
+			return [];
+		})
+	);
+	if (exactIds.size !== 1) {
+		throw new Error(
+			`DMS database discovery did not return a unique exact match for ${databaseName}`
+		);
+	}
+	const databaseId = [...exactIds][0];
+	if (!databaseId) throw new Error('DMS database discovery returned an invalid DatabaseId');
+	if (pinnedDatabaseId && pinnedDatabaseId !== databaseId) {
+		throw new Error('Discovered DMS DatabaseId does not match AI_DMS_DATABASE_ID');
+	}
+	return databaseId;
+}
+
+export function constrainHotelDataGenerateSqlArgs(args: unknown, databaseId: string): unknown {
+	if (typeof args !== 'object' || args === null || Array.isArray(args)) {
+		throw new Error('DMS generateSql 参数格式无效');
+	}
+	const parameters = Object.fromEntries(Object.entries(args));
+	const question = parameters.question;
+	if (typeof question !== 'string' || !question.trim()) {
+		throw new Error('DMS generateSql 缺少自然语言查询参数');
+	}
+	return {
+		...parameters,
+		database_id: databaseId,
+		question: `${question}\n\n结果约束（系统强制）：只生成一条完成问题所需的只读 SELECT；优先聚合、趋势、Top N 和异常，明细最多 ${MAX_RESULT_ROWS} 行。`
+	};
 }
 
 function redactText(value: string, stats: CompactionStats): string {
@@ -113,24 +181,7 @@ export function compactHotelDataResult(content: unknown): string {
 	return `${serialized.slice(0, MAX_RESULT_CHARACTERS)}…[结果已截断]${resultNotice(stats)}`;
 }
 
-export function constrainHotelDataQueryArgs(args: unknown): unknown {
-	if (typeof args !== 'object' || args === null || Array.isArray(args)) {
-		throw new Error('DMS askDatabase 参数格式无效');
-	}
-	const parameters = Object.fromEntries(Object.entries(args));
-	const questionKey = ['question', 'query', 'prompt', 'input'].find(
-		(key) => typeof parameters[key] === 'string'
-	);
-	if (!questionKey) throw new Error('DMS askDatabase 缺少自然语言查询参数');
-	const original = parameters[questionKey];
-	if (typeof original !== 'string') throw new Error('DMS askDatabase 查询参数必须是字符串');
-	return {
-		...parameters,
-		[questionKey]: `${original}\n\n结果约束（系统强制）：只返回完成问题所需的聚合结果或最多 ${MAX_RESULT_ROWS} 行高价值明细；优先查询统计、趋势、Top N 和异常，不返回无筛选的全表明细。`
-	};
-}
-
-export function constrainHotelDataSqlArgs(args: unknown): unknown {
+export function constrainHotelDataSqlArgs(args: unknown, databaseId?: string): unknown {
 	if (typeof args !== 'object' || args === null || Array.isArray(args)) {
 		throw new Error('DMS executeScript 参数格式无效');
 	}
@@ -146,22 +197,46 @@ export function constrainHotelDataSqlArgs(args: unknown): unknown {
 	if (FORBIDDEN_SQL.test(sql)) throw new Error('经营数据 SQL 包含不允许的操作');
 	return {
 		...parameters,
+		...(databaseId ? { database_id: databaseId } : {}),
 		script: `SELECT * FROM (${sql}) AS data_agent_result LIMIT ${MAX_RESULT_ROWS}`
 	};
 }
 
-export function constrainHotelDataTableListArgs(args: unknown): unknown {
+export function constrainHotelDataTableListArgs(args: unknown, databaseId?: string): unknown {
 	if (typeof args !== 'object' || args === null || Array.isArray(args)) {
-		return { page_number: 1, page_size: 50 };
+		return {
+			...(databaseId ? { database_id: databaseId } : {}),
+			page_number: 1,
+			page_size: 50
+		};
 	}
 	const parameters = Object.fromEntries(Object.entries(args));
 	const pageNumber = typeof parameters.page_number === 'number' ? parameters.page_number : 1;
 	const pageSize = typeof parameters.page_size === 'number' ? parameters.page_size : 50;
 	return {
 		...parameters,
+		...(databaseId ? { database_id: databaseId } : {}),
 		page_number: Math.max(1, Math.trunc(pageNumber)),
 		page_size: Math.min(50, Math.max(1, Math.trunc(pageSize)))
 	};
+}
+
+export function constrainHotelDataTableDetailArgs(args: unknown, databaseName: string): unknown {
+	if (typeof args !== 'object' || args === null || Array.isArray(args)) {
+		throw new Error('DMS getTableDetailInfo 参数格式无效');
+	}
+	const tableGuid = Reflect.get(args, 'table_guid');
+	if (typeof tableGuid !== 'string') throw new Error('DMS getTableDetailInfo 缺少 table_guid');
+	const parts = tableGuid.split('.');
+	if (
+		parts.length !== 3 ||
+		!/^IDB_\d+$/.test(parts[0] ?? '') ||
+		parts[1] !== databaseName ||
+		!/^[A-Za-z0-9_$-]+$/.test(parts[2] ?? '')
+	) {
+		throw new Error('DMS table_guid is outside the discovered database');
+	}
+	return { table_guid: tableGuid };
 }
 
 export function compactHotelDataToolResult(

@@ -20,6 +20,8 @@ import {
   phoneNumberSchema,
   startAgentRunInputSchema,
   startAgentRunResponseSchema,
+  retryAgentRunInputSchema,
+  retryAgentRunResponseSchema,
   submitAgentClarificationInputSchema,
   submitAgentClarificationResponseSchema,
   type AgentCapabilities,
@@ -33,6 +35,8 @@ import {
   type EmployeeIdentity,
   type StartAgentRunResponse,
   type StartAgentRunInput,
+  type RetryAgentRunInput,
+  type RetryAgentRunResponse,
   type SubmitAgentClarificationInput,
   type SubmitAgentClarificationResponse,
 } from './contracts';
@@ -79,6 +83,8 @@ export {
   staffUsernameSchema,
   startAgentRunInputSchema,
   startAgentRunResponseSchema,
+  retryAgentRunInputSchema,
+  retryAgentRunResponseSchema,
   submitAgentClarificationInputSchema,
   submitAgentClarificationResponseSchema,
   type AgentCapabilities,
@@ -109,6 +115,8 @@ export {
   type StaffIdentity,
   type StartAgentRunResponse,
   type StartAgentRunInput,
+  type RetryAgentRunInput,
+  type RetryAgentRunResponse,
   type SubmitAgentClarificationInput,
   type SubmitAgentClarificationResponse,
 } from './contracts';
@@ -162,6 +170,7 @@ export interface AgentGateway {
   ): Promise<AgentConversationDeletionResult>;
   clearConversations(principal: AgentPrincipal): Promise<AgentConversationDeletionResult>;
   startRun(principal: AgentPrincipal, input: StartAgentRunInput): Promise<StartAgentRunResponse>;
+  retryRun(principal: AgentPrincipal, input: RetryAgentRunInput): Promise<RetryAgentRunResponse>;
   cancelRun(principal: AgentPrincipal, runId: string): Promise<CancelAgentRunResult>;
   submitClarification(
     principal: AgentPrincipal,
@@ -294,6 +303,10 @@ export const appRouter = t.router({
       .input(startAgentRunInputSchema)
       .output(startAgentRunResponseSchema)
       .mutation(({ ctx, input }) => ctx.agent.startRun(ctx.agentPrincipal, input)),
+    retryRun: agentProcedure
+      .input(retryAgentRunInputSchema)
+      .output(retryAgentRunResponseSchema)
+      .mutation(({ ctx, input }) => ctx.agent.retryRun(ctx.agentPrincipal, input)),
     cancelRun: agentProcedure
       .input(agentRunIdInputSchema)
       .output(cancelAgentRunResultSchema)

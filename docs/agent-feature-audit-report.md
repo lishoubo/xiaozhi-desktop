@@ -1,8 +1,8 @@
 # 酒店 Agent 功能与代码审计报告
 
-审计日期：2026-08-10（公共 MCP 与图表能力已更新）  
-审计范围：本次新增的 Kimi K3 单 Agent、tRPC/SSE、Electron 桥接、酒店快捷操作、MCP、生成式 UI、会话持久化、长期记忆和用户隔离逻辑。  
-结论：功能链路已打通，静态检查、lint、全部单元测试和 server tRPC E2E 通过；仍有两个上线前必须处理的安全门禁，因此当前状态适合继续本地联调，不应直接发布生产。
+审计日期：2026-08-13（重试、通用 DMS MCP 与容器 HTTPS 已更新）
+审计范围：Kimi K3 单 Agent、业务执行状态机、checkpoint 重试、tRPC/SSE、Electron 桥接、受限 MCP、生成式 UI、持久化、容器部署和私有 CA 信任。
+结论：重试与真实 DMS 读取链已打通，静态检查、lint、全部单元测试和定向 E2E 通过；仍有密钥治理、临时 OTP 和依赖公告三项上线门禁，不应直接发布生产。
 
 ## 1. 功能覆盖
 
@@ -15,6 +15,7 @@
 | MCP | 内置固定版本、无 Key 的公共天气 stdio MCP；自定义 server 支持 HTTP/SSE/stdio 与 capability 门禁 | 已打通 |
 | Skill | 保留 `SkillProvider` 接口，当前显式使用空实现 | 符合本期范围 |
 | 会话持久化 | conversation/message/run/event 写入 PostgreSQL，client request ID 提供运行幂等 | 已打通 |
+| 失败重试 | 同一 business execution 保存有界 checkpoint，新 Run 通过 `retry_of_run_id` 保留 attempt 血缘 | 已打通 |
 | 长期记忆 | 当前员工的长期偏好/事实写入 PostgreSQL；跨会话读取，不跨员工共享 | 已打通 |
 | 用户隔离 | owner 不接受客户端输入；由登录态生成 principal，conversation/run/event/memory 查询按员工约束 | 已打通 |
 | 子 Agent | 未创建、未启用 | 符合本期范围 |
@@ -43,13 +44,7 @@ flowchart LR
 
 客户端只发送枚举 ID，不能附带或覆盖快捷操作的内部提示词。`startAgentRunInputSchema` 是 strict union，同时提交 `quickActionId` 和 `prompt` 会得到 `BAD_REQUEST`。
 
-当前默认动作：
-
-1. 查看今日天气
-2. 未来七天天气
-3. 空气质量提醒
-
-“公开酒店价格”是第四个可选动作，只在真实 `hotel_rates` MCP 配置后返回。依赖本地 RMS/PMS 但尚无真实数据接口的异常订单、房态库存、渠道巡检、点评、对账和交班动作已移除，不再展示不可执行入口。全部公共动作只读，不执行预订、改价或支付。
+当前默认动作由真实 MCP capability 决定。配置酒店数据 MCP 后提供“昨日经营复盘”和“查看酒店经营概览”；天气仍可通过自然语言查询，但不再占用快捷入口。“公开酒店价格”只在真实 `hotel_rates` MCP 配置后返回。依赖本地 RMS/PMS 但尚无真实数据接口的异常订单、房态库存、渠道巡检、点评、对账和交班动作已移除，不再展示不可执行入口。全部公共动作只读，不执行预订、改价或支付。
 
 ## 3. 用户与 session 隔离审计
 
@@ -101,7 +96,11 @@ server 构建日志明确提示 `phone_otp.temporary_gateway_enabled`，当前�
 
 ### Dependency audit — 工作区仍有已知依赖公告
 
-`npm audit --workspace @hotel-butler/server --omit=dev` 报告 16 项（6 low、6 moderate、4 high）。其中 `fast-uri@3.1.4` 的 high 公告同时出现在新增天气 MCP 经 `@modelcontextprotocol/sdk -> ajv` 的依赖路径和仓库既有构建依赖路径；其余报告还涉及 `brace-expansion`、`cookie`、旧工具链 `esbuild` 与 `nanoid`。本次没有执行 `npm audit fix`：审计建议中包含会降级或破坏性变更 SvelteKit/Vite 的 `--force` 路径，不能在本功能改动中自动套用。上线前应单独升级依赖并做回归；公共 MCP 仍按不可信输入处理。
+`npm audit --workspace @hotel-butler/server --omit=dev` 报告 16 项（6 low、6 moderate、4 high）。报告涉及 `fast-uri`、`brace-expansion`、`cookie`、`esbuild`、`nanoid` 和现有 Vite/SvelteKit/Drizzle 工具链。自动建议包含 major 版本或不合理降级，未执行 `npm audit fix`。上线前应单独升级依赖并做完整回归；MCP 输出继续按不可信输入处理。
+
+### Resolved — 通用 DMS MCP 权限与调用链
+
+新端点是阿里云通用 DMS MCP，会同时暴露实例管理、数据变更单与审批能力。适配层先用 `searchDatabase` 按 `AI_DMS_DATABASE_NAME` 唯一精确发现数据库，再只保留表目录、字段详情、SQL 生成和受限 SELECT 执行；可用 `AI_DMS_DATABASE_ID` 二次校验发现结果。专用经营概览由代码构造固定聚合 SQL，一次 MCP 调用完成，不再进入模型驱动的 schema 递归。
 
 ### Resolved — Desktop E2E 启动与认证变体
 
@@ -119,16 +118,14 @@ server 构建日志明确提示 `phone_otp.temporary_gateway_enabled`，当前�
 | 命令/检查 | 结果 |
 |---|---|
 | Svelte autofixer（Agent 页面、6 个酒店图表及 shadcn Chart 容器/tooltip） | 全部 0 issues，0 suggestions |
-| API 定向单测 | 14/14 通过 |
-| server 快捷操作、隔离、MCP、生成式 UI 定向单测 | 15/15 通过 |
-| desktop AgentService 定向单测 | 1/1 通过 |
-| 公共天气 MCP 真实冒烟 | 成功加载 7 个只读天气工具，并成功查询上海天气摘要 |
-| desktop Agent renderer E2E build | 通过；主 renderer chunk 约 1.50 MB（gzip 约 455 KB），图表依赖带来后续按需加载优化空间 |
-| `npm run verify` 的 check | API/server/desktop 通过，Svelte 0 error/0 warning |
-| `npm run verify` 的 lint | API/server/desktop 通过 |
-| `npm run verify` 的 unit | desktop 379/379、server 54/54、API 14/14 通过 |
-| server tRPC E2E | 3/3 通过，覆盖认证、会话持久化、快捷操作 catalog 和伪造 owner 拒绝 |
-| desktop E2E | 8 个场景均已验证：完整运行通过 5 个，校正当前 UI/日历断言后其余 3 个定向通过 |
+| 定向单测 | desktop 12/12、API 18/18、server Agent 42/42；DMS 专用收敛另有 19/19 通过 |
+| `npm run verify` 的 check/lint | API/server/desktop 通过，Svelte 0 error/0 warning |
+| `npm run verify` 的 unit | desktop 504/504、server 124/124、API 23/23 通过 |
+| desktop E2E | 首次 7/8；唯一旧日历断言从重复文本数收敛为唯一已保存事件后，定向 1/1 通过 |
+| server tRPC E2E | 8/9 通过；重试 checkpoint/幂等通过，真实 DMS 用例因旧端点假设失败后已重构并定向 1/1 通过 |
+| 真实新 DMS MCP | 仅暴露 4 个产品只读工具；专用经营概览 deterministic SQL 全链 1/1 通过 |
+| 生产容器 | Docker 镜像构建通过；容器内直接 HTTPS 健康检查通过；dev/prod Compose config 通过 |
+| Electron 私有 CA | 生产 package 成功，包内仅 `private-ca.pem`；真实证书链与 IP SAN 校验通过 |
 | `git diff --check` | 通过 |
 
 由于两项 Critical 安全门禁，审计结论仍不是“生产就绪”。在完成密钥治理和真实认证 provider 后，才建议进入发布验收。

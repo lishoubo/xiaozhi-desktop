@@ -48,6 +48,18 @@ export function shouldCaptureToolEvidence(status: string | undefined): boolean {
 	return status !== 'error';
 }
 
+export function shouldSuppressUiRenderCall(
+	toolName: string,
+	toolCallId: string,
+	firstUiRenderCallId: string | null
+): boolean {
+	return (
+		toolName === 'render_hotel_ui' &&
+		firstUiRenderCallId !== null &&
+		firstUiRenderCallId !== toolCallId
+	);
+}
+
 function singleSuccessfulUiRenderMiddleware(hasGeneratedUi: () => boolean) {
 	return createMiddleware({
 		name: 'SingleSuccessfulUiRender',
@@ -123,8 +135,6 @@ export class LangChainAgentRuntime implements AgentRuntime {
 	async run(options: AgentRuntimeRunOptions) {
 		if (!this.environment.apiKey) throw new Error('AI_KIMI_API_KEY is not configured');
 		options.signal.throwIfAborted();
-		const runtimeStartedAt = performance.now();
-
 		let generatedUi: GenerativeUiSpec | null = null;
 		const answerOnly = options.validatedEvidence !== undefined;
 		const [memories, skills] = await Promise.all([
@@ -138,10 +148,10 @@ export class LangChainAgentRuntime implements AgentRuntime {
 				: this.createLocalTools(
 						options,
 						(spec) => {
+							if (generatedUi) throw new DuplicateUiRenderError();
 							generatedUi = spec;
 						},
-						!answerOnly,
-						runtimeStartedAt
+						!answerOnly
 					);
 		const loadedMcpTools = answerOnly ? [] : await this.mcpTools.getTools();
 		options.signal.throwIfAborted();
@@ -189,6 +199,8 @@ export class LangChainAgentRuntime implements AgentRuntime {
 
 		let content = '';
 		const startedTools = new Set<string>();
+		const suppressedTools = new Set<string>();
+		let firstUiRenderCallId: string | null = null;
 		let startedWorkflowToolCount = 0;
 		const completedTools = new Set<string>();
 		const toolArgs = new Map<string, unknown>();
@@ -212,6 +224,12 @@ export class LangChainAgentRuntime implements AgentRuntime {
 					}
 					for (const call of message.tool_call_chunks ?? []) {
 						if (!call.id || !call.name || startedTools.has(call.id)) continue;
+						if (shouldSuppressUiRenderCall(call.name, call.id, firstUiRenderCallId)) {
+							startedTools.add(call.id);
+							suppressedTools.add(call.id);
+							continue;
+						}
+						if (call.name === 'render_hotel_ui') firstUiRenderCallId = call.id;
 						if (
 							call.name !== 'render_hotel_ui' &&
 							startedWorkflowToolCount >= workflowToolCallBudget
@@ -231,6 +249,12 @@ export class LangChainAgentRuntime implements AgentRuntime {
 						if (!call.id) continue;
 						toolArgs.set(call.id, call.args);
 						if (startedTools.has(call.id)) continue;
+						if (shouldSuppressUiRenderCall(call.name, call.id, firstUiRenderCallId)) {
+							startedTools.add(call.id);
+							suppressedTools.add(call.id);
+							continue;
+						}
+						if (call.name === 'render_hotel_ui') firstUiRenderCallId = call.id;
 						if (
 							call.name !== 'render_hotel_ui' &&
 							startedWorkflowToolCount >= workflowToolCallBudget
@@ -250,6 +274,7 @@ export class LangChainAgentRuntime implements AgentRuntime {
 				}
 				if (ToolMessage.isInstance(message)) {
 					const callId = message.tool_call_id;
+					if (suppressedTools.has(callId)) continue;
 					if (completedTools.has(callId)) continue;
 					completedTools.add(callId);
 					if (shouldCaptureToolEvidence(message.status)) {
@@ -282,8 +307,7 @@ export class LangChainAgentRuntime implements AgentRuntime {
 	private createLocalTools(
 		options: AgentRuntimeRunOptions,
 		setUi: (spec: GenerativeUiSpec) => void,
-		allowMemoryWrite: boolean,
-		runtimeStartedAt: number
+		allowMemoryWrite: boolean
 	): StructuredToolInterface[] {
 		const remember = tool(
 			async ({ key, content, importance }) => {
@@ -311,14 +335,8 @@ export class LangChainAgentRuntime implements AgentRuntime {
 				options.signal.throwIfAborted();
 				const validated = this.localToolHandlers.renderUi(spec);
 				setUi(validated);
-				await options.emit({
-					type: 'runtime_phase_completed',
-					phase: 'ui_spec_generated',
-					durationMs: Math.max(0, Math.round(performance.now() - runtimeStartedAt))
-				});
-				await options.emit({ type: 'ui_spec', spec: validated });
 				options.signal.throwIfAborted();
-				return '酒店生成式 UI 已发送到前端。';
+				return '酒店结果视图已通过校验，将随最终答复一起展示。';
 			},
 			{
 				name: 'render_hotel_ui',

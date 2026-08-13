@@ -9,6 +9,8 @@ import type {
   CancelAgentBusinessExecutionResult,
   StartAgentRunInput,
   StartAgentRunResponse,
+  RetryAgentRunInput,
+  RetryAgentRunResponse,
   SubmitAgentClarificationInput,
   SubmitAgentClarificationResponse,
 } from '@hotel-butler/api';
@@ -36,6 +38,7 @@ export interface AgentClient {
     startRun: {
       mutate(input: StartAgentRunInput): Promise<StartAgentRunResponse>;
     };
+    retryRun: { mutate(input: RetryAgentRunInput): Promise<RetryAgentRunResponse> };
     submitClarification: {
       mutate(input: SubmitAgentClarificationInput): Promise<SubmitAgentClarificationResponse>;
     };
@@ -164,6 +167,19 @@ export class AgentService {
   ): Promise<SubmitAgentClarificationResponse> {
     const started = await this.client.agent.submitClarification.mutate(input);
     this.subscribeToRun(started.runId, started.userMessage.conversationId, null, performance.now());
+    return started;
+  }
+
+  async retryRun(input: RetryAgentRunInput): Promise<RetryAgentRunResponse> {
+    const startedAt = performance.now();
+    const started = await this.client.agent.retryRun.mutate(input);
+    this.logger.info('Agent run retry started', {
+      event: 'agent.client.run.retry_started',
+      runId: started.runId,
+      failedRunId: input.failedRunId,
+      conversationId: started.userMessage.conversationId,
+    });
+    this.subscribeToRun(started.runId, started.userMessage.conversationId, null, startedAt);
     return started;
   }
 

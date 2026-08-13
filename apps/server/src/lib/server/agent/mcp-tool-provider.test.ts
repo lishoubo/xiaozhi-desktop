@@ -2,10 +2,12 @@ import { describe, expect, it, vi } from 'vitest';
 import { isReadOnlyMcpToolName, loadMcpServerToolsInOrder } from './mcp-tool-provider';
 import {
 	compactHotelDataResult,
-	constrainHotelDataQueryArgs,
+	constrainHotelDataGenerateSqlArgs,
 	constrainHotelDataSqlArgs,
+	constrainHotelDataTableDetailArgs,
 	constrainHotelDataTableListArgs,
-	isAllowedHotelDataMcpToolName
+	isAllowedHotelDataMcpToolName,
+	selectDmsDatabaseId
 } from './hotel-data-mcp';
 
 describe('isReadOnlyMcpToolName', () => {
@@ -43,7 +45,9 @@ describe('loadMcpServerToolsInOrder', () => {
 
 describe('hotel data MCP guardrails', () => {
 	it('allows only read-oriented DMS data tools and blocks management tools', () => {
-		expect(isAllowedHotelDataMcpToolName('askDatabase')).toBe(true);
+		expect(isAllowedHotelDataMcpToolName('searchDatabase')).toBe(true);
+		expect(isAllowedHotelDataMcpToolName('askDatabase')).toBe(false);
+		expect(isAllowedHotelDataMcpToolName('generateSql')).toBe(true);
 		expect(isAllowedHotelDataMcpToolName('executeScript')).toBe(true);
 		expect(isAllowedHotelDataMcpToolName('listTables')).toBe(true);
 		expect(isAllowedHotelDataMcpToolName('getTableDetailInfo')).toBe(true);
@@ -52,21 +56,28 @@ describe('hotel data MCP guardrails', () => {
 		expect(isAllowedHotelDataMcpToolName('submitOrderApproval')).toBe(false);
 	});
 
-	it('injects bounded and privacy-safe result requirements', () => {
-		const result = constrainHotelDataQueryArgs({
-			question: '查询最近一个月的渠道收入趋势'
-		});
+	it('selects only an exact database name and verifies an optional pinned id', () => {
+		const result = [
+			{ type: 'text', text: JSON.stringify({ DatabaseId: 80914652, SchemaName: 'rms' }) },
+			{ type: 'text', text: JSON.stringify({ DatabaseId: 81918192, SchemaName: 'rms_data' }) },
+			{ structuredContent: { DatabaseId: 81918192, SchemaName: 'rms_data' } }
+		];
 
-		expect(result).toMatchObject({
-			question: expect.stringContaining('最多 50 行')
-		});
-		expect(result).toMatchObject({
-			question: expect.stringContaining('优先查询统计')
-		});
+		expect(selectDmsDatabaseId(result, 'rms_data', '81918192')).toBe('81918192');
+		expect(() => selectDmsDatabaseId(result, 'rms', '81918192')).toThrow('does not match');
+		expect(() => selectDmsDatabaseId(result, 'missing', null)).toThrow('unique exact match');
 	});
 
-	it('rejects a data call without a recognizable natural-language question', () => {
-		expect(() => constrainHotelDataQueryArgs({ databaseId: '1' })).toThrow('缺少自然语言查询参数');
+	it('pins generated SQL and execution to the configured DMS database', () => {
+		expect(
+			constrainHotelDataGenerateSqlArgs(
+				{ database_id: 'attacker', question: '查询 GMV' },
+				'81918192'
+			)
+		).toMatchObject({ database_id: '81918192', question: expect.stringContaining('最多 50 行') });
+		expect(
+			constrainHotelDataSqlArgs({ database_id: 'attacker', script: 'SELECT 1' }, '81918192')
+		).toMatchObject({ database_id: '81918192' });
 	});
 
 	it('bounds table metadata pagination before calling DMS', () => {
@@ -74,6 +85,26 @@ describe('hotel data MCP guardrails', () => {
 			page_number: 1,
 			page_size: 50
 		});
+		expect(constrainHotelDataTableListArgs(null, '81918192')).toEqual({
+			database_id: '81918192',
+			page_number: 1,
+			page_size: 50
+		});
+	});
+
+	it('allows table metadata only inside the discovered database schema', () => {
+		expect(
+			constrainHotelDataTableDetailArgs(
+				{ table_guid: 'IDB_5460502873.rms_data.fact_business_daily' },
+				'rms_data'
+			)
+		).toEqual({ table_guid: 'IDB_5460502873.rms_data.fact_business_daily' });
+		expect(() =>
+			constrainHotelDataTableDetailArgs(
+				{ table_guid: 'IDB_1.other_schema.private_table' },
+				'rms_data'
+			)
+		).toThrow('outside the discovered database');
 	});
 
 	it('wraps a single SELECT with a result limit', () => {

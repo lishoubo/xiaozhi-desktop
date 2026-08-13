@@ -1,5 +1,5 @@
 import type { DynamicStructuredTool } from '@langchain/core/tools';
-import { HOTEL_DATA_TOOL_NAME } from '../hotel-data-mcp';
+import { HOTEL_DATA_SQL_TOOL_NAME } from '../hotel-data-mcp';
 import type { HotelCandidate, HotelReferenceResolver } from './slot-resolver';
 
 type McpToolsPort = Readonly<{ getTools(): Promise<readonly DynamicStructuredTool[]> }>;
@@ -44,12 +44,14 @@ export class McpHotelReferenceResolver implements HotelReferenceResolver {
 	constructor(private readonly tools: McpToolsPort) {}
 
 	async resolve(reference: string): Promise<readonly HotelCandidate[]> {
+		if (!/^\d+$/.test(reference)) return [];
 		const queryTool = (await this.tools.getTools()).find(
-			(tool) => tool.name === HOTEL_DATA_TOOL_NAME
+			(tool) => tool.name === HOTEL_DATA_SQL_TOOL_NAME
 		);
 		if (!queryTool) return [];
 		const result = await queryTool.invoke({
-			question: `只查询与“${reference}”匹配的酒店标识和酒店名称，最多返回 10 个候选，不查询经营指标。`
+			database_id: 'server-configured',
+			script: `SELECT DISTINCT hotel_id, CAST(hotel_id AS CHAR) AS hotel_name FROM fact_business_daily WHERE hotel_id = ${reference} LIMIT 10`
 		});
 		const rows: Record<string, unknown>[] = [];
 		collectRows(result, rows);

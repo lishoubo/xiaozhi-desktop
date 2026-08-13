@@ -33,6 +33,10 @@ export function executionForDisplayedMessage(
   );
 }
 
+export function shouldDisplayExecutionTrace(trace: AgentExecutionTrace): boolean {
+  return trace.steps.length > 0 || trace.status === 'failed' || trace.status === 'cancelled';
+}
+
 export function compactTrendAxisLabel(label: string): string {
   const normalized = label.trim().replace(/\s+/g, ' ');
   const date = normalized.match(/(?:\d{4}\s*[-/.年]\s*)?(\d{1,2})\s*[-/.月]\s*(\d{1,2})\s*日?/);

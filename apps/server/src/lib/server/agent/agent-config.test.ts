@@ -12,6 +12,8 @@ describe('agent configuration', () => {
 			apiKey: 'secret',
 			baseUrl: 'https://api.moonshot.cn/v1',
 			model: 'kimi-k3',
+			dmsDatabaseId: null,
+			dmsDatabaseName: null,
 			mcpServers: {}
 		});
 	});
@@ -76,31 +78,79 @@ describe('agent configuration', () => {
 		const withToken = readAgentEnvironment({
 			AI_KIMI_API_KEY: 'secret',
 			AI_PUBLIC_WEATHER_MCP_ENABLED: 'false',
-			AI_DMS_MCP_BEARER_TOKEN: 'rotated-token'
+			AI_DMS_MCP_BEARER_TOKEN: 'rotated-token',
+			AI_DMS_DATABASE_ID: '81918192',
+			AI_DMS_DATABASE_NAME: 'rms_data'
 		});
 
 		expect(withoutToken.mcpServers).toEqual({});
 		expect(withToken.mcpServers['aliyun-dms-hotel-data']).toEqual({
 			transport: 'sse',
-			url: 'https://dms-mcpr-bfobse-vcyndjbctk.cn-hangzhou.fcapp.run/sse',
+			url: 'https://dms-mcpver-vjne-ndunixfhxl.cn-hangzhou.fcapp.run/sse',
 			headers: { Authorization: 'Bearer rotated-token' },
 			capabilities: ['hotel_data']
 		});
+		expect(withToken.dmsDatabaseId).toBe('81918192');
+		expect(withToken.dmsDatabaseName).toBe('rms_data');
+	});
+
+	it('accepts a configurable HTTPS DMS endpoint and rejects plaintext remote endpoints', () => {
+		const configured = readAgentEnvironment({
+			AI_PUBLIC_WEATHER_MCP_ENABLED: 'false',
+			AI_DMS_MCP_BEARER_TOKEN: 'rotated-token',
+			AI_DMS_DATABASE_ID: '81918192',
+			AI_DMS_DATABASE_NAME: 'rms_data',
+			AI_DMS_MCP_URL: 'https://dms.example.com/sse'
+		});
+		expect(configured.mcpServers['aliyun-dms-hotel-data']).toHaveProperty(
+			'url',
+			'https://dms.example.com/sse'
+		);
+		expect(() =>
+			readAgentEnvironment({
+				AI_DMS_MCP_BEARER_TOKEN: 'rotated-token',
+				AI_DMS_DATABASE_ID: '81918192',
+				AI_DMS_DATABASE_NAME: 'rms_data',
+				AI_DMS_MCP_URL: 'http://dms.example.com/sse'
+			})
+		).toThrow('AI_DMS_MCP_URL must use HTTPS');
 	});
 
 	it('rejects header injection in the DMS token', () => {
 		expect(() =>
 			readAgentEnvironment({
 				AI_KIMI_API_KEY: 'secret',
+				AI_DMS_DATABASE_ID: '81918192',
+				AI_DMS_DATABASE_NAME: 'rms_data',
 				AI_DMS_MCP_BEARER_TOKEN: 'token\nX-Injected: yes'
 			})
 		).toThrow('contains invalid characters');
 	});
 
+	it('requires an exact database name for discovery and accepts an optional pinned id', () => {
+		expect(() => readAgentEnvironment({ AI_DMS_MCP_BEARER_TOKEN: 'rotated-token' })).toThrow(
+			'AI_DMS_DATABASE_NAME is required'
+		);
+		expect(
+			readAgentEnvironment({
+				AI_DMS_MCP_BEARER_TOKEN: 'rotated-token',
+				AI_DMS_DATABASE_NAME: 'rms_data'
+			}).dmsDatabaseName
+		).toBe('rms_data');
+		expect(() =>
+			readAgentEnvironment({
+				AI_DMS_MCP_BEARER_TOKEN: 'rotated-token',
+				AI_DMS_DATABASE_ID: 'rms_data',
+				AI_DMS_DATABASE_NAME: 'rms_data'
+			})
+		).toThrow('must be a numeric DMS database ID');
+	});
+
 	it('accepts either a raw DMS token or a complete Bearer value', () => {
 		const environment = readAgentEnvironment({
 			AI_PUBLIC_WEATHER_MCP_ENABLED: 'false',
-			AI_DMS_MCP_BEARER_TOKEN: 'Bearer rotated-token'
+			AI_DMS_MCP_BEARER_TOKEN: 'Bearer rotated-token',
+			AI_DMS_DATABASE_NAME: 'rms_data'
 		});
 
 		expect(environment.mcpServers['aliyun-dms-hotel-data']).toHaveProperty(

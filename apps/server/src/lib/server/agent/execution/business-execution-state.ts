@@ -82,6 +82,53 @@ const evidenceRecordSchema = z.strictObject({
 	data: jsonValueSchema
 });
 
+export type RetryCheckpoint =
+	| Readonly<{ kind: 'routing'; inputKind: 'prompt' | 'quick_action'; inputValue: string }>
+	| Readonly<{
+			kind: 'resolving_slots';
+			routeKind: AgentBusinessRouteKind;
+			intent: AgentBusinessIntent;
+			slots: SlotCollection;
+	  }>
+	| Readonly<{
+			kind: 'executing';
+			request: ResolvedBusinessRequest;
+			evidence: readonly EvidenceRecord[];
+			followUpUsed: boolean;
+	  }>
+	| Readonly<{
+			kind: 'answering';
+			request: ResolvedBusinessRequest;
+			evidence: readonly EvidenceRecord[];
+			limitations: readonly string[];
+	  }>;
+
+const retryCheckpointSchema: z.ZodType<RetryCheckpoint> = z.discriminatedUnion('kind', [
+	z.strictObject({
+		kind: z.literal('routing'),
+		inputKind: z.enum(['prompt', 'quick_action']),
+		inputValue: z.string().min(1).max(20_000)
+	}),
+	z.strictObject({
+		kind: z.literal('resolving_slots'),
+		routeKind: agentBusinessRouteKindSchema,
+		intent: agentBusinessIntentSchema,
+		slots: slotCollectionSchema
+	}),
+	z.strictObject({
+		kind: z.literal('executing'),
+		request: resolvedBusinessRequestSchema,
+		evidence: z.array(evidenceRecordSchema),
+		followUpUsed: z.boolean()
+	}),
+	z.strictObject({
+		kind: z.literal('answering'),
+		request: resolvedBusinessRequestSchema,
+		evidence: z.array(evidenceRecordSchema),
+		limitations: z.array(z.string().min(1).max(500)).max(10)
+	})
+]);
+
 export type BusinessExecutionState =
 	| Readonly<{
 			status: 'routing';
@@ -122,7 +169,12 @@ export type BusinessExecutionState =
 			limitations: readonly string[];
 	  }>
 	| Readonly<{ status: 'completed'; assistantMessageId: string }>
-	| Readonly<{ status: 'failed'; reasonCode: string; retryable: boolean }>
+	| Readonly<{
+			status: 'failed';
+			reasonCode: string;
+			retryable: boolean;
+			retryCheckpoint: RetryCheckpoint | null;
+	  }>
 	| Readonly<{ status: 'cancelled' }>;
 
 export const businessExecutionStateSchema: z.ZodType<BusinessExecutionState> = z.discriminatedUnion(
@@ -173,7 +225,8 @@ export const businessExecutionStateSchema: z.ZodType<BusinessExecutionState> = z
 		z.strictObject({
 			status: z.literal('failed'),
 			reasonCode: z.string().min(1).max(80),
-			retryable: z.boolean()
+			retryable: z.boolean(),
+			retryCheckpoint: retryCheckpointSchema.nullable().default(null)
 		}),
 		z.strictObject({ status: z.literal('cancelled') })
 	]
@@ -205,6 +258,7 @@ export type BusinessExecutionEvent =
 	| Readonly<{ type: 'evidence_validated'; assessment: EvidenceAssessment }>
 	| Readonly<{ type: 'answer_completed'; assistantMessageId: string }>
 	| Readonly<{ type: 'execution_failed'; reasonCode: string; retryable: boolean }>
+	| Readonly<{ type: 'execution_retry_requested' }>
 	| Readonly<{ type: 'execution_cancelled' }>;
 
 export type PersistedBusinessExecutionEvent = Readonly<{
@@ -299,6 +353,90 @@ function isJsonRecord(value: JsonValue | undefined): value is Readonly<Record<st
 	return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
+function checkpointFromState(state: BusinessExecutionState): RetryCheckpoint | null {
+	switch (state.status) {
+		case 'routing':
+			return { kind: 'routing', inputKind: state.inputKind, inputValue: state.inputValue };
+		case 'resolving_slots':
+			return state.intent
+				? {
+						kind: 'resolving_slots',
+						routeKind: state.routeKind,
+						intent: state.intent,
+						slots: state.slots
+					}
+				: null;
+		case 'ready':
+			return {
+				kind: 'executing',
+				request: state.request,
+				evidence: [],
+				followUpUsed: false
+			};
+		case 'executing':
+			return {
+				kind: 'executing',
+				request: state.request,
+				evidence: state.evidence,
+				followUpUsed: state.followUpUsed
+			};
+		case 'validating_evidence':
+			return {
+				kind: 'executing',
+				request: state.request,
+				evidence: [],
+				followUpUsed: state.followUpUsed
+			};
+		case 'answering':
+			return state.mode === 'grounded' && state.request
+				? {
+						kind: 'answering',
+						request: state.request,
+						evidence: state.evidence,
+						limitations: state.limitations
+					}
+				: null;
+		case 'awaiting_clarification':
+		case 'completed':
+		case 'failed':
+		case 'cancelled':
+			return null;
+	}
+}
+
+function restoreRetryCheckpoint(checkpoint: RetryCheckpoint): BusinessExecutionState {
+	switch (checkpoint.kind) {
+		case 'routing':
+			return {
+				status: 'routing',
+				inputKind: checkpoint.inputKind,
+				inputValue: checkpoint.inputValue
+			};
+		case 'resolving_slots':
+			return {
+				status: 'resolving_slots',
+				routeKind: checkpoint.routeKind,
+				intent: checkpoint.intent,
+				slots: checkpoint.slots
+			};
+		case 'executing':
+			return {
+				status: 'executing',
+				request: checkpoint.request,
+				evidence: checkpoint.evidence,
+				followUpUsed: checkpoint.followUpUsed
+			};
+		case 'answering':
+			return {
+				status: 'answering',
+				mode: 'grounded',
+				request: checkpoint.request,
+				evidence: checkpoint.evidence,
+				limitations: checkpoint.limitations
+			};
+	}
+}
+
 export function transitionBusinessExecution(
 	state: BusinessExecutionState,
 	event: BusinessExecutionEvent
@@ -313,7 +451,13 @@ export function transitionBusinessExecution(
 		event.type === 'execution_failed' &&
 		!['completed', 'failed', 'cancelled'].includes(state.status)
 	) {
-		return { status: 'failed', reasonCode: event.reasonCode, retryable: event.retryable };
+		const retryCheckpoint = event.retryable ? checkpointFromState(state) : null;
+		return {
+			status: 'failed',
+			reasonCode: event.reasonCode,
+			retryable: event.retryable && retryCheckpoint !== null,
+			retryCheckpoint
+		};
 	}
 
 	switch (state.status) {
@@ -387,7 +531,8 @@ export function transitionBusinessExecution(
 				return {
 					status: 'failed',
 					reasonCode: event.assessment.reasonCode,
-					retryable: false
+					retryable: false,
+					retryCheckpoint: null
 				};
 			}
 			return {
@@ -403,8 +548,11 @@ export function transitionBusinessExecution(
 		case 'answering':
 			if (event.type !== 'answer_completed') break;
 			return { status: 'completed', assistantMessageId: event.assistantMessageId };
-		case 'completed':
 		case 'failed':
+			if (event.type !== 'execution_retry_requested') break;
+			if (!state.retryable || !state.retryCheckpoint) break;
+			return restoreRetryCheckpoint(state.retryCheckpoint);
+		case 'completed':
 		case 'cancelled':
 			break;
 	}

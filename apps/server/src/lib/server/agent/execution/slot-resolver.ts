@@ -105,7 +105,7 @@ function unresolvedFields(slots: SlotCollection): readonly string[] {
 
 function fieldLabel(slot: string): string {
 	const labels: Record<string, string> = {
-		hotelReference: '酒店',
+		hotelReference: '酒店 ID',
 		location: '酒店或城市',
 		date: '日期',
 		dateRange: '日期范围',
@@ -229,25 +229,29 @@ export class BusinessSlotResolver {
 
 		const hotelRaw = rawText(slots.hotelReference);
 		if (hotelRaw) {
-			const candidates = await this.hotels.resolve(hotelRaw);
-			const exact = candidates.filter((candidate) => candidate.match !== 'fuzzy');
-			if (exact.length === 1)
-				slots.hotelReference = resolved(exact[0]?.id ?? hotelRaw, 'hotel_exact_match');
-			else if (candidates.length > 1) {
-				slots.hotelReference = {
-					status: 'ambiguous',
-					candidates: candidates.map((candidate) => ({ ...candidate }))
-				};
-			} else if (candidates.length === 0)
-				slots.hotelReference = { status: 'invalid', reasonCode: 'hotel_not_found' };
-			else
-				slots.hotelReference = {
-					status: 'ambiguous',
-					candidates: [
-						candidates[0],
-						{ ...candidates[0], id: hotelRaw, label: `按输入“${hotelRaw}”查询` }
-					]
-				};
+			if (/^\d+$/.test(hotelRaw)) {
+				slots.hotelReference = resolved(hotelRaw, 'explicit_hotel_id');
+			} else {
+				const candidates = await this.hotels.resolve(hotelRaw);
+				const exact = candidates.filter((candidate) => candidate.match !== 'fuzzy');
+				if (exact.length === 1)
+					slots.hotelReference = resolved(exact[0]?.id ?? hotelRaw, 'hotel_exact_match');
+				else if (candidates.length > 1) {
+					slots.hotelReference = {
+						status: 'ambiguous',
+						candidates: candidates.map((candidate) => ({ ...candidate }))
+					};
+				} else if (candidates.length === 0)
+					slots.hotelReference = { status: 'invalid', reasonCode: 'hotel_not_found' };
+				else
+					slots.hotelReference = {
+						status: 'ambiguous',
+						candidates: [
+							candidates[0],
+							{ ...candidates[0], id: hotelRaw, label: `按输入“${hotelRaw}”查询` }
+						]
+					};
+			}
 		}
 
 		for (const name of ['date', 'dateRange', 'checkIn', 'checkOut'] as const) {

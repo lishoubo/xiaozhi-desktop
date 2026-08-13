@@ -234,6 +234,10 @@ export const agentExecutionTraceSchema = z.strictObject({
   steps: z.array(agentExecutionStepSchema),
   createdAt: isoDateSchema,
   completedAt: isoDateSchema.nullable(),
+  failure: z
+    .strictObject({ message: z.string().min(1).max(500), retryable: z.boolean() })
+    .nullable()
+    .optional(),
 });
 export type AgentExecutionTrace = Readonly<z.infer<typeof agentExecutionTraceSchema>>;
 
@@ -267,7 +271,7 @@ export const agentCapabilitiesSchema = z.strictObject({
 export type AgentCapabilities = Readonly<z.infer<typeof agentCapabilitiesSchema>>;
 
 export const agentQuickActionIdSchema = z.enum([
-  'today_weather',
+  'yesterday_operating_review',
   'public_hotel_rates',
   'hotel_operating_data',
 ]);
@@ -358,6 +362,14 @@ export const startAgentRunResponseSchema = z.strictObject({
   userMessage: agentMessageSchema,
 });
 export type StartAgentRunResponse = Readonly<z.infer<typeof startAgentRunResponseSchema>>;
+
+export const retryAgentRunInputSchema = z.strictObject({
+  failedRunId: idSchema,
+  clientRequestId: idSchema,
+});
+export type RetryAgentRunInput = Readonly<z.infer<typeof retryAgentRunInputSchema>>;
+export const retryAgentRunResponseSchema = startAgentRunResponseSchema;
+export type RetryAgentRunResponse = StartAgentRunResponse;
 
 const clarificationAnswerValueSchema = z.union([
   z.string().trim().min(1).max(2_000),

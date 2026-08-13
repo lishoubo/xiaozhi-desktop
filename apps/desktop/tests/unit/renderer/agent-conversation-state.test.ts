@@ -117,4 +117,37 @@ describe('Agent conversation view state', () => {
     expect(updated.activeBusinessExecution).toEqual(execution);
     expect(updated.draftContent).toBe('');
   });
+
+  it('keeps retry metadata on the failed execution for durable recovery UI', () => {
+    const running = addStartedRun(
+      createEmptyConversationView(conversationId),
+      {
+        runId,
+        userMessage: {
+          id: userMessageId,
+          conversationId,
+          role: 'user',
+          content: '查询天气',
+          ui: null,
+          createdAt: '2026-08-12T03:00:00.000Z',
+        },
+      },
+      '2026-08-12T03:00:00.000Z',
+    );
+
+    const failed = applyRunEvent(running, {
+      id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+      runId,
+      conversationId,
+      type: 'run_failed',
+      message: '天气服务暂时不可用。',
+      retryable: true,
+      createdAt: '2026-08-12T03:00:01.000Z',
+    });
+
+    expect(failed.executions[0]).toMatchObject({
+      status: 'failed',
+      failure: { message: '天气服务暂时不可用。', retryable: true },
+    });
+  });
 });

@@ -38,7 +38,11 @@ const desktopSessionRepository = new DrizzleDesktopSessionRepository(db);
 const agentEnvironment = readAgentEnvironment(env);
 const agentRepository = new AgentRepository(db);
 const skillProvider = new EmptySkillProvider();
-const mcpToolProvider = new McpToolProvider(agentEnvironment.mcpServers);
+const mcpToolProvider = new McpToolProvider(
+	agentEnvironment.mcpServers,
+	agentEnvironment.dmsDatabaseId,
+	agentEnvironment.dmsDatabaseName
+);
 const agentRuntime = new LangChainAgentRuntime(
 	agentEnvironment,
 	agentRepository,

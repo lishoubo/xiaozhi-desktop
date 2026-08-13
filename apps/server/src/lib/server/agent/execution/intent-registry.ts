@@ -77,7 +77,7 @@ const byIntent = new Map<AgentBusinessIntent, IntentDefinition>(
 );
 
 export const quickActionIntent = {
-	today_weather: 'weather_operations_advice',
+	yesterday_operating_review: 'hotel_operating_summary',
 	hotel_operating_data: 'hotel_operating_summary',
 	public_hotel_rates: 'public_hotel_rates'
 } as const;

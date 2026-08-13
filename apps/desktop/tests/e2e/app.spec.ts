@@ -446,7 +446,7 @@ test('opens the localized calendar with the seeded holiday group', async () => {
   await expect(page.getByRole('button', { name: '关闭' })).toHaveCount(0);
   await page.getByRole('button', { name: '完成' }).click();
   await expect(page.getByRole('textbox', { name: '备注' })).toHaveCount(0);
-  await expect(page.getByText('新日程')).toHaveCount(2);
+  await expect(page.getByText('新日程', { exact: true })).toHaveCount(1);
 
   await page.getByText('每日运营晨会').click();
   const existingTitle = page.getByRole('textbox', { name: '文本' });
@@ -478,8 +478,9 @@ test('shows only executable public MCP quick actions', async () => {
   await login();
   await page.getByRole('link', { name: '小智AI 管家' }).click();
 
-  await expect(page.getByRole('button', { name: '查看今日天气', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: '昨日经营复盘', exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: '查看酒店经营概览', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: '查看今日天气', exact: true })).toHaveCount(0);
   await expect(page.getByRole('button', { name: '未来七天天气', exact: true })).toHaveCount(0);
   await expect(page.getByRole('button', { name: '空气质量提醒', exact: true })).toHaveCount(0);
   await expect(page.getByRole('button', { name: '预览房态库存' })).toHaveCount(0);

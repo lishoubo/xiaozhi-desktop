@@ -94,6 +94,26 @@ describe('buildAgentExecutionTraces', () => {
 
 		expect(trace).toMatchObject({ status: 'cancelled', assistantMessageId: null });
 	});
+
+	it('retains the safe retry metadata from a persisted failure event', () => {
+		const [trace] = buildAgentExecutionTraces(
+			[
+				{
+					id: runId,
+					userMessageId,
+					status: 'failed',
+					createdAt: new Date('2026-08-12T03:00:00.000Z'),
+					completedAt: new Date('2026-08-12T03:00:01.000Z')
+				}
+			],
+			[event({ type: 'run_failed', message: '数据服务暂时不可用。', retryable: true })]
+		);
+
+		expect(trace).toMatchObject({
+			status: 'failed',
+			failure: { message: '数据服务暂时不可用。', retryable: true }
+		});
+	});
 });
 
 describe('buildActiveRunDraft', () => {

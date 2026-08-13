@@ -5,6 +5,7 @@ import {
 	recoverCompletedUiAfterRenderLimit,
 	selectWorkflowToolNames,
 	shouldCaptureToolEvidence,
+	shouldSuppressUiRenderCall,
 	shouldStopDuplicateUiRender
 } from './langchain-agent-runtime';
 
@@ -55,9 +56,9 @@ describe('selectWorkflowToolNames', () => {
 		expect(selectWorkflowToolNames({ workflowRequest }, available)).toEqual([
 			'query_hotel_operating_data'
 		]);
-		expect(
-			selectWorkflowToolNames({ workflowRequest, validatedEvidence: [] }, available)
-		).toEqual(['render_hotel_ui']);
+		expect(selectWorkflowToolNames({ workflowRequest, validatedEvidence: [] }, available)).toEqual([
+			'render_hotel_ui'
+		]);
 	});
 });
 
@@ -66,5 +67,12 @@ describe('tool evidence capture', () => {
 		expect(shouldCaptureToolEvidence('error')).toBe(false);
 		expect(shouldCaptureToolEvidence('success')).toBe(true);
 		expect(shouldCaptureToolEvidence(undefined)).toBe(true);
+	});
+
+	it('suppresses lifecycle publication for every render call after the first call id', () => {
+		expect(shouldSuppressUiRenderCall('render_hotel_ui', 'render-1', null)).toBe(false);
+		expect(shouldSuppressUiRenderCall('render_hotel_ui', 'render-1', 'render-1')).toBe(false);
+		expect(shouldSuppressUiRenderCall('render_hotel_ui', 'render-2', 'render-1')).toBe(true);
+		expect(shouldSuppressUiRenderCall('query_weather', 'weather-1', 'render-1')).toBe(false);
 	});
 });

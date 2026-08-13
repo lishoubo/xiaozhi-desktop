@@ -9,11 +9,13 @@ import {
   cancelAgentRunResultSchema,
   cancelAgentBusinessExecutionResultSchema,
   startAgentRunResponseSchema,
+  retryAgentRunResponseSchema,
   submitAgentClarificationResponseSchema,
   type AgentStreamEnvelope,
 } from '../../shared/agent';
 import type {
   StartAgentRunInput,
+  RetryAgentRunInput,
   SubmitAgentClarificationInput,
 } from '@hotel-butler/api/contracts';
 import { IPC_CHANNELS } from '../../shared/ipc-channels';
@@ -39,6 +41,8 @@ export function createAgentApi(invoke: ValidatedInvoke, subscribe: ValidatedSubs
       invoke(agentConversationDeletionResultSchema, IPC_CHANNELS.agent.clearConversations),
     startRun: (input: StartAgentRunInput) =>
       invoke(startAgentRunResponseSchema, IPC_CHANNELS.agent.startRun, input),
+    retryRun: (input: RetryAgentRunInput) =>
+      invoke(retryAgentRunResponseSchema, IPC_CHANNELS.agent.retryRun, input),
     submitClarification: (input: SubmitAgentClarificationInput) =>
       invoke(submitAgentClarificationResponseSchema, IPC_CHANNELS.agent.submitClarification, input),
     cancelBusinessExecution: (businessExecutionId: string, expectedVersion: number) =>

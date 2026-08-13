@@ -32,6 +32,7 @@ function createGatewayHarness(
 		clearConversations: vi.fn(),
 		startRun: vi.fn(),
 		resumeBusinessExecution: vi.fn(),
+		retryBusinessExecution: vi.fn(),
 		getBusinessExecution: vi.fn(),
 		transitionBusinessExecution: vi.fn(),
 		recoverInterruptedRuns: vi.fn().mockResolvedValue(0),
@@ -49,6 +50,8 @@ function createGatewayHarness(
 			apiKey: '',
 			baseUrl: 'https://api.moonshot.cn/v1',
 			model: 'kimi-k3',
+			dmsDatabaseId: null,
+			dmsDatabaseName: null,
 			mcpServers: {}
 		},
 		repository,
@@ -111,7 +114,7 @@ describe('HotelAgentGateway hotel quick actions', () => {
 		expect(actions.every((action) => !('prompt' in action))).toBe(true);
 	});
 
-	it('keeps one weather action and exposes hotel operating data when DMS is configured', async () => {
+	it('replaces the weather shortcut with two DMS-backed operating actions', async () => {
 		const { gateway } = createGatewayHarness(
 			vi.fn(async () => []),
 			['weather', 'hotel_data']
@@ -119,13 +122,17 @@ describe('HotelAgentGateway hotel quick actions', () => {
 
 		const actions = await gateway.quickActions();
 
-		expect(actions.map((action) => action.id)).toEqual(['today_weather', 'hotel_operating_data']);
+		expect(actions.map((action) => action.id)).toEqual([
+			'yesterday_operating_review',
+			'hotel_operating_data'
+		]);
 		expect(actions[1]).toMatchObject({
 			label: '查看酒店经营概览',
 			category: 'operations',
 			requiresMcp: true,
 			available: true
 		});
+		expect(actions.some((action) => action.id === 'yesterday_operating_review')).toBe(true);
 	});
 
 	it('rejects a live-data action before persistence when no hotel MCP is configured', async () => {
@@ -317,6 +324,42 @@ describe('HotelAgentGateway cancellation', () => {
 	});
 });
 
+describe('HotelAgentGateway retry', () => {
+	it('retries through the authenticated repository operation and reuses an idempotent attempt', async () => {
+		const { gateway, repository } = createGatewayHarness(vi.fn(async () => []));
+		const principal = { employeeId: '1001', orgId: '42' } as const;
+		const failedRunId = '33333333-3333-4333-8333-333333333333';
+		const retryRunId = '77777777-7777-4777-8777-777777777777';
+		const clientRequestId = '55555555-5555-4555-8555-555555555555';
+		const conversationId = '44444444-4444-4444-8444-444444444444';
+		repository.retryBusinessExecution.mockResolvedValue({
+			created: false,
+			response: {
+				runId: retryRunId,
+				businessExecutionId: '88888888-8888-4888-8888-888888888888',
+				userMessage: {
+					id: '22222222-2222-4222-8222-222222222222',
+					conversationId,
+					businessExecutionId: '88888888-8888-4888-8888-888888888888',
+					role: 'user',
+					content: '重新尝试上次请求',
+					ui: null,
+					createdAt: '2026-08-13T00:00:00.000Z'
+				}
+			}
+		});
+
+		await expect(
+			gateway.retryRun(principal, { failedRunId, clientRequestId })
+		).resolves.toMatchObject({ runId: retryRunId });
+		expect(repository.retryBusinessExecution).toHaveBeenCalledWith(principal, {
+			failedRunId,
+			clientRequestId
+		});
+		expect(repository.getRunContext).not.toHaveBeenCalled();
+	});
+});
+
 describe('HotelAgentGateway deterministic business collection', () => {
 	it('uses the answer model only after deterministic evidence passes assessment', async () => {
 		const { repository, logger } = createGatewayHarness(
@@ -330,7 +373,7 @@ describe('HotelAgentGateway deterministic business collection', () => {
 		const userMessageId = '22222222-2222-4222-8222-222222222222';
 		const assistantMessageId = '99999999-9999-4999-8999-999999999999';
 		const runtime = {
-			run: vi.fn().mockResolvedValue({ content: '天气运营建议', ui: null })
+			run: vi.fn().mockResolvedValue({ content: '昨日经营复盘', ui: null })
 		};
 		const workflowCollector = {
 			collect: vi.fn().mockResolvedValue({
@@ -338,9 +381,9 @@ describe('HotelAgentGateway deterministic business collection', () => {
 				strategy: 'deterministic',
 				toolEvidence: [
 					{
-						toolName: 'get_weather_summary',
-						toolArgs: { city_name: '上海' },
-						result: '# Weather Summary\n\n**Location:** Shanghai\n\n**Temperature:** 29°C'
+						toolName: 'query_hotel_operating_data_sql',
+						toolArgs: { database_id: 'server-configured' },
+						result: { hotel_id: 1, gmv: 1000 }
 					}
 				]
 			})
@@ -350,7 +393,7 @@ describe('HotelAgentGateway deterministic business collection', () => {
 			conversationId,
 			triggerUserMessageId: userMessageId,
 			routeKind: 'business_read' as const,
-			intent: 'weather_operations_advice' as const,
+			intent: 'hotel_operating_summary' as const,
 			status: 'routing' as const,
 			pendingClarification: null,
 			createdAt: '2026-08-13T00:00:00.000Z',
@@ -359,8 +402,11 @@ describe('HotelAgentGateway deterministic business collection', () => {
 		};
 		const request = {
 			routeKind: 'business_read' as const,
-			intent: 'weather_operations_advice' as const,
-			slots: { location: '上海', date: 'today' }
+			intent: 'hotel_operating_summary' as const,
+			slots: {
+				hotelReference: '1',
+				dateRange: { start: '2026-08-12', end: '2026-08-12' }
+			}
 		};
 		repository.startRun.mockResolvedValue({
 			created: true,
@@ -372,7 +418,7 @@ describe('HotelAgentGateway deterministic business collection', () => {
 					conversationId,
 					businessExecutionId,
 					role: 'user',
-					content: '查看今日天气',
+					content: '昨日经营复盘',
 					ui: null,
 					createdAt: '2026-08-13T00:00:00.000Z'
 				}
@@ -384,7 +430,11 @@ describe('HotelAgentGateway deterministic business collection', () => {
 		});
 		repository.getBusinessExecution.mockResolvedValue({
 			summary,
-			state: { status: 'routing', inputKind: 'quick_action', inputValue: 'today_weather' },
+			state: {
+				status: 'routing',
+				inputKind: 'quick_action',
+				inputValue: 'yesterday_operating_review'
+			},
 			version: 1
 		});
 		let version = 1;
@@ -397,7 +447,7 @@ describe('HotelAgentGateway deterministic business collection', () => {
 						state: {
 							status: 'resolving_slots',
 							routeKind: 'business_read',
-							intent: 'weather_operations_advice',
+							intent: 'hotel_operating_summary',
 							slots: event.proposal.slots
 						},
 						version
@@ -439,7 +489,7 @@ describe('HotelAgentGateway deterministic business collection', () => {
 							evidence: [
 								{
 									evidenceId: '77777777-7777-4777-8777-777777777777',
-									source: 'weather_mcp',
+									source: 'aliyun_dms_mcp',
 									data: {}
 								}
 							],
@@ -460,7 +510,7 @@ describe('HotelAgentGateway deterministic business collection', () => {
 			conversationId,
 			businessExecutionId,
 			role: 'assistant',
-			content: '天气运营建议',
+			content: '昨日经营复盘',
 			ui: null,
 			createdAt: '2026-08-13T00:00:01.000Z'
 		});
@@ -469,22 +519,22 @@ describe('HotelAgentGateway deterministic business collection', () => {
 				apiKey: 'configured',
 				baseUrl: 'https://api.moonshot.cn/v1',
 				model: 'kimi-k3',
+				dmsDatabaseId: null,
+				dmsDatabaseName: null,
 				mcpServers: {}
 			},
 			repository,
 			runtime,
 			{ prepare: vi.fn().mockResolvedValue({ summary: null, history: [] }) },
-			{ serverCount: () => 1, capabilities: () => new Set(['weather']) },
+			{ serverCount: () => 1, capabilities: () => new Set(['hotel_data']) },
 			{ list: vi.fn().mockResolvedValue([]) },
 			logger,
 			{
-				route: vi
-					.fn()
-					.mockResolvedValue({
-						routeKind: 'business_read',
-						intent: 'weather_operations_advice',
-						slots: {}
-					})
+				route: vi.fn().mockResolvedValue({
+					routeKind: 'business_read',
+					intent: 'hotel_operating_summary',
+					slots: {}
+				})
 			},
 			{ resolve: vi.fn().mockResolvedValue({ status: 'ready', request }) },
 			workflowCollector
@@ -492,7 +542,7 @@ describe('HotelAgentGateway deterministic business collection', () => {
 
 		await gateway.startRun(principal, {
 			conversationId,
-			quickActionId: 'today_weather',
+			quickActionId: 'yesterday_operating_review',
 			clientRequestId: '55555555-5555-4555-8555-555555555555'
 		});
 		await vi.waitFor(() => expect(repository.finalizeRunSuccess).toHaveBeenCalledOnce());

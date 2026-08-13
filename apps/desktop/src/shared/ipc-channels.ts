@@ -8,6 +8,7 @@ export const IPC_CHANNELS = {
     deleteConversation: 'agent:delete-conversation',
     clearConversations: 'agent:clear-conversations',
     startRun: 'agent:start-run',
+    retryRun: 'agent:retry-run',
     submitClarification: 'agent:submit-clarification',
     cancelBusinessExecution: 'agent:cancel-business-execution',
     resumeRun: 'agent:resume-run',

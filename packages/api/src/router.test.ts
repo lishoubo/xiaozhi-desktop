@@ -36,6 +36,7 @@ describe('appRouter', () => {
       clearConversations: vi.fn(),
       startRun: vi.fn(),
       cancelRun: vi.fn(),
+      retryRun: vi.fn(),
       submitClarification: vi.fn(),
       cancelBusinessExecution: vi.fn(),
       events: vi.fn(),
@@ -116,6 +117,7 @@ describe('appRouter', () => {
       clearConversations: vi.fn(),
       startRun: vi.fn(),
       cancelRun: vi.fn(),
+      retryRun: vi.fn(),
       submitClarification: vi.fn(),
       cancelBusinessExecution: vi.fn(),
       events: vi.fn(),
@@ -153,6 +155,7 @@ describe('appRouter', () => {
       clearConversations: vi.fn(),
       startRun: vi.fn(),
       cancelRun,
+      retryRun: vi.fn(),
       submitClarification: vi.fn(),
       cancelBusinessExecution: vi.fn(),
       events: vi.fn(),
@@ -167,6 +170,47 @@ describe('appRouter', () => {
       status: 'cancelled',
     });
     expect(cancelRun).toHaveBeenCalledWith(principal, runId);
+  });
+
+  it('routes run retry through the authenticated principal', async () => {
+    const principal = { employeeId: '1001', orgId: '42' } as const;
+    const failedRunId = '33333333-3333-4333-8333-333333333333';
+    const clientRequestId = '55555555-5555-4555-8555-555555555555';
+    const retryRun = vi.fn().mockResolvedValue({
+      runId: '77777777-7777-4777-8777-777777777777',
+      businessExecutionId: '88888888-8888-4888-8888-888888888888',
+      userMessage: {
+        id: '22222222-2222-4222-8222-222222222222',
+        conversationId: '44444444-4444-4444-8444-444444444444',
+        businessExecutionId: '88888888-8888-4888-8888-888888888888',
+        role: 'user',
+        content: '重新尝试上次请求',
+        ui: null,
+        createdAt: '2026-08-13T00:00:00.000Z',
+      },
+    });
+    const caller = createCaller({
+      agent: {
+        capabilities: vi.fn(),
+        quickActions: vi.fn(),
+        listConversations: vi.fn(),
+        createConversation: vi.fn(),
+        getConversation: vi.fn(),
+        deleteConversation: vi.fn(),
+        clearConversations: vi.fn(),
+        startRun: vi.fn(),
+        cancelRun: vi.fn(),
+        retryRun,
+        submitClarification: vi.fn(),
+        cancelBusinessExecution: vi.fn(),
+        events: vi.fn(),
+      },
+      agentPrincipal: vi.fn().mockResolvedValue(principal),
+    });
+
+    await caller.agent.retryRun({ failedRunId, clientRequestId });
+
+    expect(retryRun).toHaveBeenCalledWith(principal, { failedRunId, clientRequestId });
   });
 
   it('routes clarification and waiting-execution cancellation through the authenticated principal', async () => {
@@ -202,6 +246,7 @@ describe('appRouter', () => {
         clearConversations: vi.fn(),
         startRun: vi.fn(),
         cancelRun: vi.fn(),
+        retryRun: vi.fn(),
         submitClarification,
         cancelBusinessExecution,
         events: vi.fn(),
@@ -244,6 +289,7 @@ describe('appRouter', () => {
       clearConversations: vi.fn(),
       startRun: vi.fn(),
       cancelRun: vi.fn(),
+      retryRun: vi.fn(),
       submitClarification: vi.fn(),
       cancelBusinessExecution: vi.fn(),
       events: vi.fn(),
@@ -272,6 +318,7 @@ describe('appRouter', () => {
       clearConversations,
       startRun: vi.fn(),
       cancelRun: vi.fn(),
+      retryRun: vi.fn(),
       submitClarification: vi.fn(),
       cancelBusinessExecution: vi.fn(),
       events: vi.fn(),
@@ -295,9 +342,9 @@ describe('appRouter', () => {
     const principal = { employeeId: '1001', orgId: '42' } as const;
     const quickActions = vi.fn().mockResolvedValue([
       {
-        id: 'today_weather',
-        label: '查看今日天气',
-        description: '查询酒店所在地天气',
+        id: 'yesterday_operating_review',
+        label: '昨日经营复盘',
+        description: '查询酒店昨日经营表现',
         category: 'operations',
         requiresMcp: true,
         available: true,
@@ -324,6 +371,7 @@ describe('appRouter', () => {
       clearConversations: vi.fn(),
       startRun,
       cancelRun: vi.fn(),
+      retryRun: vi.fn(),
       submitClarification: vi.fn(),
       cancelBusinessExecution: vi.fn(),
       events: vi.fn(),
@@ -336,20 +384,20 @@ describe('appRouter', () => {
     await expect(caller.agent.quickActions()).resolves.toHaveLength(1);
     await caller.agent.startRun({
       conversationId: '11111111-1111-4111-8111-111111111111',
-      quickActionId: 'today_weather',
+      quickActionId: 'yesterday_operating_review',
       clientRequestId: '44444444-4444-4444-8444-444444444444',
     });
 
     expect(quickActions).toHaveBeenCalledWith();
     expect(startRun).toHaveBeenCalledWith(principal, {
       conversationId: '11111111-1111-4111-8111-111111111111',
-      quickActionId: 'today_weather',
+      quickActionId: 'yesterday_operating_review',
       clientRequestId: '44444444-4444-4444-8444-444444444444',
     });
     await expect(
       caller.agent.startRun({
         conversationId: '11111111-1111-4111-8111-111111111111',
-        quickActionId: 'today_weather',
+        quickActionId: 'yesterday_operating_review',
         prompt: '覆盖服务端提示词',
         clientRequestId: '55555555-5555-4555-8555-555555555555',
       } as never),
