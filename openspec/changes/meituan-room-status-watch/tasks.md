@@ -33,8 +33,8 @@
 
 - [x] 4.1 `npm run check:types` + `npm run lint` 通过（重点看 `channels/` 分层约束）
 - [x] 4.2 `npm run test:unit` 跑一次全量，如实记录结果
-- [ ] 4.3 真机验证：美团商品页单独改房态一次、改房量一次，确认各自拦到、判定成功、`endpointId` 与 `changeRaw` 符合预期
-- [ ] 4.4 真机确认 `inventory/check` 确实**没有**产生第二条上报
+- [x] 4.3 真机验证：**房态**（开房 + 关房）已验证通过（rmsChangeId 13-16/21/22）。⚠️ **房量本期不验**（用户决定），代码与单测已就位但未经真机
+- [x] 4.4 真机确认关房时 `deductRoomCount` **没有**产生第二条上报（只出一条，rmsChangeId 21）。⚠️ `inventory/check` 那条依赖房量验证，随 4.3 一并搁置
 - [ ] 4.5 若能构造一次被美团拒绝的操作，抓失败响应样本回填踩点文档
 - [x] 4.6 验证证据写入 `openspec/changes/meituan-room-status-watch/verification.md`
 

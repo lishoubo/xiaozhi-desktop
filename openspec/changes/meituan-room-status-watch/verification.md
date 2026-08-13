@@ -1,7 +1,7 @@
 # 美团房态房量监听 —— 验证证据
 
-> 记录时间：2026-08-13。自动化验证已完成；真机验证**开房已通过，关房/房量待复验**
-> （关房端点在联调中才发现走独立路径，见下方「真机联调纠正」）。
+> 记录时间：2026-08-13。自动化验证 + **房态真机验证均已通过**。
+> 房量（`inventory-update`）经用户决定本期不验，见「未完成」。
 
 ## 自动化验证
 
@@ -75,26 +75,50 @@ WATCH_PATH                              未改（前缀已覆盖，见下）
 **教训**：踩点文档里两个操作看着走同一端点时，不能假定就是同一端点 —— `submitaudit`
 这种带审核语义的操作，渠道往往会单独开一条链路。
 
-### 真机验证进度
+### 真机验证进度 ✅（2026-08-13，账号 278040373 / yinjijiudian，门店 1756785213）
 
-| 场景 | 状态 |
-|---|---|
-| 开房 `inventory-status-switch` | ✅ 通过（rmsChangeId 13/14/15/16，`status:1`，DISPATCHED） |
-| 关房 `inventory-roomstatus-submitaudit` | ⬜ **端点已补，尚未真机复验** |
-| 改房量 `inventory-update` | ⬜ 未验 |
+| 场景 | endpointId | rmsChangeId | 结果 |
+|---|---|---|---|
+| 开房 | `inventory-status-switch` | 13-16, 22 | ✅ `status:1`，DISPATCHED |
+| **关房** | `inventory-roomstatus-submitaudit` | **21** | ✅ `status:0`，DISPATCHED |
+| 改房量 | `inventory-update` | — | ⬜ 本期不验（用户决定） |
+
+关房实际上报的 `changeRaw`，与踩点逐字段对上：
+
+```json
+{"partnerId":4720332,"poiId":"1756785213","pattern":1,"containerId":282464264,
+ "date":"2026-08-17","status":0,"roomId":413866969,
+ "goodsIds":[952161333,2429288289,2429295192],
+ "limitType":1,"roomName":"悦享大床房","roomCategory":1,"reason":""}
+```
+
+### 逐条兑现的设计决策
+
+- **关房走独立端点**（本次修正）—— `endpointId` 正确落在 `inventory-roomstatus-submitaudit`，
+  与开房的 `status/switch` 分得干净。修正前这条路一次都拦不到。
+- **`deductRoomCount` 没有被误拦** —— 关房只产生**一条**上报（21）。这是设计时标为风险的
+  一条：拦了会让一次关房出两条、两个 `operationId`，RMS 会以为改了两次。
+- **`goodsIds` 完整带出** —— 三个售卖商品都在，RMS 可直接用它反查（比 `roomId` 直接）。
+- **单值 `date` 与开房的 `startDate`/`endDate` 形状差异**在报文里如实体现，未被强行归一。
+- **`changeRaw` 原样透传** —— `containerId`/`pattern`/`limitType`/`roomCategory` 这些语义
+  未确认的字段全部保留。
+
+### 一个观察：discovery 失败不影响已有凭证
+
+本次启动时出现 `Meituan discovery outcome { kind: 'none' }`（页面尚未就绪），但上报体里
+`channelAccountId` / `channelAccountName` 照常带上 —— 凭证取自此前已保存的记录，
+discovery 失败不影响存量。
 
 ## 未完成
 
 | 任务 | 内容 | 阻塞原因 |
 |---|---|---|
-| 4.3 | **关房**与**改房量**各一次真机验证 | 关房端点刚补上，待复验 |
-| 4.4 | 确认 `inventory/check` 没产生第二条上报（改房量时看） | 同上 |
-| 4.4b | 确认关房时 `deductRoomCount` 没产生第二条上报 | 同上 —— 与 check 同一类风险 |
-| 4.5 | 抓一次**被美团拒绝**的失败响应样本 | 需构造失败场景 |
-| 5.1 | 与携程那份 delta 一并合并进 `openspec/specs/` | 携程已真机通过，等美团验完一并做 |
+| 4.3b | **改房量** `inventory-update` 真机验证 | **本期不验**（用户决定）。代码与单测已就位，未经真机 |
+| 4.4 | 确认 `inventory/check` 没产生第二条上报 | 依赖 4.3b，一并搁置 |
+| 4.5 | 抓一次**被美团拒绝**的失败响应样本 | 需构造失败场景，本次未遇到 |
 
-⚠️ **4.3 未完成前不得声称本变更「已验证可用」** —— 单测覆盖的是解析与判定逻辑，
-拦不拦得到只有真机能证。
+⚠️ **房量这条路未经真机**：单测覆盖了解析逻辑，但「`check` 会不会被误拦」只有真机能证。
+真要启用房量监听前，应先补这一验。
 
 ### 真机时重点看什么
 
@@ -102,10 +126,9 @@ WATCH_PATH                              未改（前缀已覆盖，见下）
 1. 停在 /ebooking/merchant/product，日志应有 `Amount change watching started`
 2. 开房一次     → endpointId=inventory-status-switch，changeRaw.status=1   ✅ 已验
 3. 关房一次     → endpointId=inventory-roomstatus-submitaudit
-                  changeRaw.status=0、date（单值）、goodsIds 有值
-                  ⚠️ **只应有一条上报** —— 若出现两条（一条来自 deductRoomCount），
-                     说明连带扣量被误拦
-4. 改房量一次   → endpointId=inventory-update，changeType=roomStatus
+                  changeRaw.status=0、date（单值）、goodsIds 有值           ✅ 已验
+                  只有一条上报，deductRoomCount 未被误拦                    ✅ 已验
+4. 改房量一次   → endpointId=inventory-update，changeType=roomStatus        ⬜ 本期不验
                   ⚠️ **只应有一条上报** —— 若出现两条（一条来自 check），
                      说明 check 被误拦，属严重问题
 5. changeRaw 里 countType/invSwitch/limitChangeValue/count 应完整保留
