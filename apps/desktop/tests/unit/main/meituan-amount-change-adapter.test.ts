@@ -102,6 +102,87 @@ const REAL_SUCCESS_RESPONSE = JSON.stringify({
   success: true,
 });
 
+// ─── 房态房量（踩点 `docs/踩点/美团/单房态房量01.md`）────────────────────────────
+
+const REAL_ROOM_STATUS_URL =
+  'https://me.meituan.com/api/gw/v1/product/goods/inventory/status/switch?yodaReady=h5&csecplatform=4';
+const REAL_INVENTORY_URL =
+  'https://me.meituan.com/api/gw/v1/product/goods/inventory/update?yodaReady=h5&csecplatform=4';
+
+/** 单独关房（`status: 0`）。开房那份只差 `status: 1` 与多一个 `syncChecked`。 */
+const REAL_ROOM_STATUS_BODY = {
+  partnerId: 4595635,
+  poiId: '762662011',
+  pattern: 1,
+  containerId: 221352465,
+  startDate: '2026-09-30',
+  endDate: '2026-09-30',
+  status: 0,
+  roomId: 354223780,
+  limitType: 1,
+  roomCategory: 1,
+} as const;
+
+/**
+ * 改房量 —— ⚠️ 同一请求里**房态与房量并存**：`invSwitch` 是房态，`countType`/`count`/
+ * `limitChangeValue` 是房量。两个日期段各带一组参数。
+ */
+const REAL_INVENTORY_BODY = {
+  poiId: '762662011',
+  partnerId: 4595635,
+  changeType: 1,
+  modifyInventoryModelList: [
+    {
+      modifyInventorySubjectsModel: {
+        goodsIdList: [],
+        dayRoomIdList: [354223780],
+        hourRoomIdList: [],
+      },
+      separateOperateInvDateList: [
+        {
+          startDate: '2026-09-30',
+          endDate: '2026-09-30',
+          modifyParamByEffectWeek: [
+            {
+              effectWeek: [1, 2, 3, 4, 5, 6, 7],
+              updateInventoryUnifyInvUnitParam: {
+                invSwitch: 1,
+                countType: 1526,
+                limitChangeValue: 3,
+                count: 1,
+              },
+            },
+          ],
+        },
+        {
+          startDate: '2026-09-29',
+          endDate: '2026-09-29',
+          modifyParamByEffectWeek: [
+            {
+              effectWeek: [1, 2, 3, 4, 5, 6, 7],
+              updateInventoryUnifyInvUnitParam: {
+                invSwitch: 0,
+                countType: 1020,
+                limitChangeValue: 0,
+                count: 0,
+              },
+            },
+          ],
+        },
+      ],
+    },
+  ],
+} as const;
+
+/** 房态房量的真实成功响应 —— 与改价同构（`code` + `success`），只有 `data` 是布尔。 */
+const ROOM_STATUS_SUCCESS_RESPONSE = JSON.stringify({
+  code: 10000,
+  error: null,
+  traceId: '4981198717741582555',
+  data: true,
+  success: true,
+});
+
 function createLogger() {
   return {
     debug: vi.fn(),
@@ -498,13 +579,56 @@ describe('美团价量态改动适配器', () => {
   });
 
   describe('watchedEndpoints', () => {
-    it('拦保存端点与试算端点两个', () => {
+    it('拦改价两个端点 + 房态房量两个端点', () => {
       const adapter = createMeituanAmountChangeAdapter(createLogger());
 
       expect([...adapter.watchedEndpoints.entries()]).toEqual([
         ['updatePriceV2', '/api/gw/v1/product/price/updatePriceV2'],
         ['calcPriceV2', '/api/gw/v1/product/price/separate/calcPriceV2'],
+        ['inventory-status-switch', '/api/gw/v1/product/goods/inventory/status/switch'],
+        ['inventory-update', '/api/gw/v1/product/goods/inventory/update'],
       ]);
+    });
+
+    /**
+     * ⚠️ **回归护栏**：改房量时美团会先打 `check` 再打 `update`，两者请求体**逐字节相同**。
+     * 拦了 check 就会把一次改动上报两遍，而两条的 operationId 不同、RMS 幂等挡不住，
+     * 会被当成用户改了两次。与抖音「只收 save_* 不收 check_*」同一类问题。
+     */
+    it('不拦 inventory/check —— 它与 update 请求体相同，拦了会重复上报', () => {
+      const adapter = createMeituanAmountChangeAdapter(createLogger());
+      const checkUrl = 'https://me.meituan.com/api/gw/v1/product/goods/inventory/check?yodaReady=h5';
+
+      const matched = [...adapter.watchedEndpoints.values()].filter((fragment) =>
+        checkUrl.includes(fragment),
+      );
+      expect(matched).toEqual([]);
+    });
+
+    /** `matchEndpoint` 是首个命中即返回，片段之间不能有包含关系。 */
+    it('四个端点片段互不为子串', () => {
+      const adapter = createMeituanAmountChangeAdapter(createLogger());
+      const fragments = [...adapter.watchedEndpoints.values()];
+
+      for (const a of fragments) {
+        for (const b of fragments) {
+          if (a === b) continue;
+          expect(a.includes(b)).toBe(false);
+        }
+      }
+    });
+
+    it('四个端点各自只命中自己的 URL', () => {
+      const adapter = createMeituanAmountChangeAdapter(createLogger());
+      const matchOne = (url: string) =>
+        [...adapter.watchedEndpoints.entries()]
+          .filter(([, fragment]) => url.includes(fragment))
+          .map(([id]) => id);
+
+      expect(matchOne(REAL_ENDPOINT_URL)).toEqual(['updatePriceV2']);
+      expect(matchOne(REAL_CALC_URL)).toEqual(['calcPriceV2']);
+      expect(matchOne(REAL_ROOM_STATUS_URL)).toEqual(['inventory-status-switch']);
+      expect(matchOne(REAL_INVENTORY_URL)).toEqual(['inventory-update']);
     });
 
     /** 两个端点的路径前缀有重叠，匹配是 `url.includes`，别把试算认成保存。 */
@@ -517,6 +641,208 @@ describe('美团价量态改动适配器', () => {
       expect(REAL_CALC_URL).not.toContain(updateFragment);
       expect(REAL_ENDPOINT_URL).toContain(updateFragment);
       expect(REAL_ENDPOINT_URL).not.toContain(calcFragment);
+    });
+  });
+
+  /**
+   * 房态房量 —— 与改价那条路完全独立：不需要试算素材，当场就能上报；请求体也没有一个
+   * 字段与改价同名。
+   */
+  describe('parse — 房态房量', () => {
+    const roomStatusObserved = (
+      endpointId: string,
+      requestBody: JsonObject,
+      endpointUrl: string,
+    ): AmountSaveObserved => ({
+      endpointId,
+      endpointUrl,
+      requestBody,
+      responseBody: ROOM_STATUS_SUCCESS_RESPONSE,
+      pageUrl: 'https://me.meituan.com/ebooking/merchant/product',
+    });
+
+    it('单独关房：changeType 为 roomStatus，门店取 poiId', () => {
+      const adapter = createMeituanAmountChangeAdapter(createLogger());
+      const report = reportOf(
+        adapter.parse(
+          roomStatusObserved('inventory-status-switch', REAL_ROOM_STATUS_BODY, REAL_ROOM_STATUS_URL),
+          null,
+        ),
+      );
+
+      expect(report?.changeType).toBe('roomStatus');
+      expect(report?.endpointId).toBe('inventory-status-switch');
+      expect(report?.otaHotelId).toBe('762662011');
+      // 开关方向由 RMS 从 changeRaw 读 —— desktop 不解读渠道语义。
+      expect(report?.changeRaw).toEqual(REAL_ROOM_STATUS_BODY);
+    });
+
+    it('单独开房：与关房同一个 endpointId，只有 status 不同', () => {
+      const adapter = createMeituanAmountChangeAdapter(createLogger());
+      const report = reportOf(
+        adapter.parse(
+          roomStatusObserved(
+            'inventory-status-switch',
+            { ...REAL_ROOM_STATUS_BODY, status: 1, syncChecked: false },
+            REAL_ROOM_STATUS_URL,
+          ),
+          null,
+        ),
+      );
+
+      expect(report?.endpointId).toBe('inventory-status-switch');
+      expect(report?.changeRaw).toMatchObject({ status: 1 });
+    });
+
+    it('改房量：changeType 为 roomStatus，用自己的 endpointId', () => {
+      const adapter = createMeituanAmountChangeAdapter(createLogger());
+      const report = reportOf(
+        adapter.parse(
+          roomStatusObserved('inventory-update', REAL_INVENTORY_BODY, REAL_INVENTORY_URL),
+          null,
+        ),
+      );
+
+      expect(report?.changeType).toBe('roomStatus');
+      expect(report?.endpointId).toBe('inventory-update');
+      expect(report?.otaHotelId).toBe('762662011');
+    });
+
+    /**
+     * ⚠️ **回归护栏**：`countType`（1526/1020/1620/1720 四个值对应房量设值/清零/+1/-1）、
+     * `invSwitch`、`limitChangeValue`、`count` 目前都没踩清语义 —— **看不懂正是不能剔的
+     * 理由**：剔了永久丢失，留着 RMS 日后踩清就能直接用。这条防止日后有人「顺手清理」。
+     */
+    it('房量语义字段全部原样保留，一个不剔', () => {
+      const adapter = createMeituanAmountChangeAdapter(createLogger());
+      const report = reportOf(
+        adapter.parse(
+          roomStatusObserved('inventory-update', REAL_INVENTORY_BODY, REAL_INVENTORY_URL),
+          null,
+        ),
+      );
+
+      expect(report?.changeRaw).toEqual(REAL_INVENTORY_BODY);
+    });
+
+    /**
+     * 一次 update 就是用户的一次操作 —— 房态（invSwitch）与房量（count）并存时**只发一条**。
+     * 拆成两条会生成两个 operationId，让 RMS 以为用户改了两次。
+     */
+    it('房态房量并存时只产出一条上报', () => {
+      const adapter = createMeituanAmountChangeAdapter(createLogger());
+      const result = adapter.parse(
+        roomStatusObserved('inventory-update', REAL_INVENTORY_BODY, REAL_INVENTORY_URL),
+        null,
+      );
+
+      expect(result?.kind).toBe('report');
+      const params =
+        REAL_INVENTORY_BODY.modifyInventoryModelList[0].separateOperateInvDateList[0]
+          .modifyParamByEffectWeek[0].updateInventoryUnifyInvUnitParam;
+      // 同一条上报里房态与房量都在。
+      expect(params).toMatchObject({ invSwitch: 1, count: 1 });
+    });
+
+    /** 钟点房走 hourRoomIdList —— 只收 dayRoomIdList 会把这种场景误判成「没有房型」而丢弃。 */
+    it('只有 hourRoomIdList 有值时照常上报', () => {
+      const adapter = createMeituanAmountChangeAdapter(createLogger());
+      const report = reportOf(
+        adapter.parse(
+          roomStatusObserved(
+            'inventory-update',
+            {
+              poiId: '762662011',
+              modifyInventoryModelList: [
+                {
+                  modifyInventorySubjectsModel: {
+                    goodsIdList: [],
+                    dayRoomIdList: [],
+                    hourRoomIdList: [354223999],
+                  },
+                  separateOperateInvDateList: [],
+                },
+              ],
+            },
+            REAL_INVENTORY_URL,
+          ),
+          null,
+        ),
+      );
+
+      expect(report?.changeType).toBe('roomStatus');
+    });
+
+    it('房型标识全空时返回 null 并记 warn', () => {
+      const logger = createLogger();
+      const adapter = createMeituanAmountChangeAdapter(logger);
+
+      expect(
+        adapter.parse(
+          roomStatusObserved(
+            'inventory-update',
+            {
+              poiId: '762662011',
+              modifyInventoryModelList: [
+                {
+                  modifyInventorySubjectsModel: {
+                    goodsIdList: [],
+                    dayRoomIdList: [],
+                    hourRoomIdList: [],
+                  },
+                },
+              ],
+            },
+            REAL_INVENTORY_URL,
+          ),
+          null,
+        ),
+      ).toBeNull();
+      expect(logger.warn).toHaveBeenCalled();
+    });
+
+    it('房态请求体没有 roomId 时返回 null', () => {
+      const logger = createLogger();
+      const adapter = createMeituanAmountChangeAdapter(logger);
+
+      expect(
+        adapter.parse(
+          roomStatusObserved(
+            'inventory-status-switch',
+            { poiId: '762662011', status: 0 },
+            REAL_ROOM_STATUS_URL,
+          ),
+          null,
+        ),
+      ).toBeNull();
+      expect(logger.warn).toHaveBeenCalled();
+    });
+
+    /** 房态房量不参与改价的 calc/update 配对，没有素材也能直接上报。 */
+    it('不需要试算上下文', () => {
+      const adapter = createMeituanAmountChangeAdapter(createLogger());
+      const report = reportOf(
+        adapter.parse(
+          roomStatusObserved('inventory-status-switch', REAL_ROOM_STATUS_BODY, REAL_ROOM_STATUS_URL),
+          null,
+        ),
+      );
+
+      expect(report).toBeDefined();
+    });
+  });
+
+  describe('isSuccessful — 房态房量', () => {
+    /** 响应与改价同构，只有 data 从任务串变成布尔；判定看的是 code + success。 */
+    it('data 为布尔的真实成功响应判为成功', () => {
+      const adapter = createMeituanAmountChangeAdapter(createLogger());
+      expect(adapter.isSuccessful(ROOM_STATUS_SUCCESS_RESPONSE, 'inventory-update')).toBe(true);
+    });
+
+    it('success 为 false 时判为失败', () => {
+      const adapter = createMeituanAmountChangeAdapter(createLogger());
+      const rejected = JSON.stringify({ code: 10000, error: '房态修改失败', data: false, success: false });
+      expect(adapter.isSuccessful(rejected, 'inventory-status-switch')).toBe(false);
     });
   });
 });

@@ -1,9 +1,26 @@
 /**
- * 美团的价量态改动适配器 —— 三渠道里最特殊的一个：**上报的不是保存请求，而是试算结果**。
+ * 美团的价量态改动适配器 —— 当前管**四个端点**：改价（试算 + 提交）、房态、房量。
  *
- * 踩点：`docs/踩点/美团/改价踩点.md`
- * 📄 **上报内容的规格（`changeRaw` 里有什么、RMS 怎么解读）见
- * `./amount-change-payload.ts`** —— 本文件只讲「怎么拦、怎么分流」。
+ * 踩点：`docs/踩点/美团/改价踩点.md`（改价）、`docs/踩点/美团/单房态房量01.md`（房态房量）
+ *
+ * 📄 **改价上报内容的规格见 `./amount-change-payload.ts`**；房态房量**没有 payload 模型
+ * 文件** —— 它们原样透传请求体，没有需要说明的转换（理由见 `parseRoomStatusOrInventory`）。
+ * 本文件只讲「怎么拦、怎么分流」。
+ *
+ * ## 两条路互不相干
+ *
+ * ```
+ * 改价   calcPriceV2 ──素材──► updatePriceV2 ──► 上报（内容取自试算）  changeType: 'price'
+ * 量态   inventory/status/switch ──► 上报（当场，原样）                changeType: 'roomStatus'
+ *        inventory/update        ──► 上报（当场，原样）                changeType: 'roomStatus'
+ * ```
+ *
+ * 改价那条要跨两个请求配对（下面详述）；量态这条**当场就能上报**，不需要素材，所以
+ * `parse` 一进来就先把它们分流出去。两类请求体没有一个字段同名。
+ *
+ * ⚠️ `inventory/update` 一次请求里**房态与房量并存**（`invSwitch` + `count`），只发一条
+ * 上报、不按维度拆 —— 这正是 `changeType` 把量态类统称为 `roomStatus`（意向标记而非精确
+ * 分类）的原因。
  *
  * ## 为什么上报试算：提交体算不出绝对价
  *
@@ -74,6 +91,21 @@ const MEITUAN_HOTEL_HOSTNAME = 'me.meituan.com';
  * 成本是零，漏认的代价是**整条监听被关掉** —— `AmountChangeWatcher` 见到不可监听的 URL
  * 会 `stopWatching()` → `detach()`，此后这个 tab 再改多少次价都拦不到（携程真机踩过这个坑，
  * 见 `ctrip/amount-change-adapter.ts` 的 `WATCH_PATHS` 注释）。
+ *
+ * ## 加房态房量时**无需**改这里（2026-08-13 已核对，别再排查一遍）
+ *
+ * 当初「多认兄弟路由」的取舍在这里兑现了 —— 三种场景的页面级 URL 实为同一个：
+ *
+ * ```
+ * /ebooking/merchant/product#/batch-price    改价（批量）
+ * /ebooking/merchant/product#/index          改价（非批量）
+ * /ebooking/merchant/product#/index          房态房量     ← 踩点 referer 实测
+ * ```
+ *
+ * `#/index` 是 **hash 路由**，hash 不参与 `pathname` 匹配，所以前缀早已覆盖。
+ *
+ * 三渠道对照：**只有抖音房态需要放开页面路径**（在 `/hotel/status`，是另一条路由），
+ * 携程（房态页即改价日历页）与美团都不用。
  */
 const WATCH_PATH = '/ebooking/merchant/product';
 
@@ -81,9 +113,20 @@ const WATCH_PATH = '/ebooking/merchant/product';
 const UPDATE_ENDPOINT_ID = 'updatePriceV2';
 /** 试算端点 —— 不是改价，拦它只为拿价格素材，见文件头「相对操作」。 */
 const CALC_ENDPOINT_ID = 'calcPriceV2';
+/** 单独改房态（开/关某房型某日期的可售状态）。 */
+const ROOM_STATUS_ENDPOINT_ID = 'inventory-status-switch';
+/** 改房量 —— ⚠️ 同一请求里**顺带带房态**（`invSwitch`），见文件头。 */
+const INVENTORY_ENDPOINT_ID = 'inventory-update';
 
 /**
- * 要拦的端点 —— **两个里只有一个是保存**。
+ * 要拦的端点 —— **四个里只有三个构成上报**。
+ *
+ * | endpointId | 用途 | 上报吗 |
+ * |---|---|---|
+ * | `updatePriceV2` | 改价提交 | ✅ `changeType: 'price'` |
+ * | `calcPriceV2` | 改价试算 | ❌ 只作素材（`{ kind: 'context' }`） |
+ * | `inventory-status-switch` | 单独改房态 | ✅ `changeType: 'roomStatus'` |
+ * | `inventory-update` | 改房量（顺带房态） | ✅ `changeType: 'roomStatus'` |
  *
  * `updatePriceV2` 的 `V2` 是美团的接口版本后缀，属于**部署产物**（将来出 V3 就会变），
  * 但与携程那个 `soa2/23783` 服务编号不同：版本号是接口契约的一部分，请求体形状随之改，
@@ -92,12 +135,31 @@ const CALC_ENDPOINT_ID = 'calcPriceV2';
  * `calcPriceV2` 是用户在页面上填写时前端自己发的试算请求，**永远不会作为独立上报出现**
  * —— `parse` 见到它一律返回 `{ kind: 'context' }`，内容附在下一条 `updatePriceV2` 的上报里。
  *
- * 二期做房态房量时在这里加一行即可，机制层不动 —— 但要先确认房态页的路由是否仍在
- * `WATCH_PATH` 前缀下，不在就得同步放开。
+ * ## ⚠️ `/inventory/check` **故意不拦**
+ *
+ * 改房量时美团会先打 `check` 再打 `update`，两者请求体**逐字节相同**（踩点
+ * `单房态房量01.md` 两份 curl 的 `--data-raw` 完全一致）。两个都拦 = 一次改动上报两遍，
+ * 而两条上报的 `operationId` 不同，**RMS 的幂等挡不住**，会被当成用户改了两次。
+ *
+ * 这是本链路第三次遇到同一类问题：
+ *
+ * ```
+ * 抖音改价    只收 save_*，不收 check_*      端点层面区分
+ * 美团改价    看 createFlag 是否为 true       同端点，靠字段区分
+ * 美团房量    只收 update，不收 check         端点层面区分（与抖音同解）
+ * ```
+ *
+ * ## 四个路径互不为子串
+ *
+ * `matchEndpoint` 是 `url.includes(fragment)` 首个命中即返回，片段之间不能有包含关系。
+ * 有单测钉住这一点。
  */
 const WATCHED_ENDPOINTS: ReadonlyMap<string, string> = new Map([
   [UPDATE_ENDPOINT_ID, '/api/gw/v1/product/price/updatePriceV2'],
   [CALC_ENDPOINT_ID, '/api/gw/v1/product/price/separate/calcPriceV2'],
+  [ROOM_STATUS_ENDPOINT_ID, '/api/gw/v1/product/goods/inventory/status/switch'],
+  // ⚠️ 只认 `/inventory/update`，**不认** `/inventory/check`（见上方说明）。
+  [INVENTORY_ENDPOINT_ID, '/api/gw/v1/product/goods/inventory/update'],
 ]);
 
 const MEITUAN_CHANNEL = toChannelId('meituan');
@@ -120,6 +182,40 @@ function goodsIdsOf(requestBody: JsonObject): readonly string[] {
     if (typeof baseInfo !== 'object' || baseInfo === null || Array.isArray(baseInfo)) continue;
     const goodsId = idToString((baseInfo as Record<string, unknown>).goodsId);
     if (goodsId) found.add(goodsId);
+  }
+  return [...found];
+}
+
+/**
+ * 房量请求体里这次改动涉及的房型 —— **三个列表都收**。
+ *
+ * ```
+ * modifyInventoryModelList[]
+ *   └── modifyInventorySubjectsModel
+ *         ├── dayRoomIdList[]    日房      踩点样本里唯一有值的
+ *         ├── hourRoomIdList[]   钟点房    无样本，但字段名摆明了是房型
+ *         └── goodsIdList[]      商品      踩点里是空数组
+ * ```
+ *
+ * 只收 `dayRoomIdList` 会在钟点房场景把整次操作误判成「没有房型标识」而丢弃 —— 宁可多认。
+ * 仅用于「拦到的是不是一次真实操作」的判定，不进上报体（`changeRaw` 里有全量）。
+ */
+function inventoryRoomIdsOf(requestBody: JsonObject): readonly string[] {
+  const models = requestBody.modifyInventoryModelList;
+  if (!Array.isArray(models)) return [];
+  const found = new Set<string>();
+  for (const model of models) {
+    if (typeof model !== 'object' || model === null || Array.isArray(model)) continue;
+    const subjects = (model as Record<string, unknown>).modifyInventorySubjectsModel;
+    if (typeof subjects !== 'object' || subjects === null || Array.isArray(subjects)) continue;
+    for (const key of ['dayRoomIdList', 'hourRoomIdList', 'goodsIdList']) {
+      const list = (subjects as Record<string, unknown>)[key];
+      if (!Array.isArray(list)) continue;
+      for (const id of list) {
+        const roomId = idToString(id);
+        if (roomId) found.add(roomId);
+      }
+    }
   }
   return [...found];
 }
@@ -163,8 +259,17 @@ function isCalcContext(value: JsonObject | null): value is JsonObject & CalcCont
  * （宁可留着上一条也不要存个空结果），所以它也要过这一关。
  */
 /*
- * 不收 `endpointId` 形参：美团两个端点（`calcPriceV2` 试算、`updatePriceV2` 提交）的成功
- * 响应形状一致（见上方说明），无需按端点分支。函数少一个形参与接口结构兼容。
+ * 不收 `endpointId` 形参：美团**四个端点的成功响应信封同构**，无需按端点分支。
+ *
+ * ```
+ * calcPriceV2 / updatePriceV2    {code:10000, success:true, data:"hotel_sc_dealing__…"}
+ * inventory/status/switch        {code:10000, success:true, data:true}
+ * inventory/update               同上
+ * ```
+ *
+ * 只有 `data` 的形状不同（任务串 vs 布尔），而判定本来就不看 `data`，看的是
+ * `code` + `success`。与携程那种「三个端点响应形状两两不同、光看响应体分不出自己在判哪个」
+ * 的处境不一样，不必为对齐签名而强加一个用不上的分支。函数少一个形参与接口结构兼容。
  */
 function isMeituanSaveSuccessful(responseBody: string): boolean {
   let parsed: unknown;
@@ -176,6 +281,72 @@ function isMeituanSaveSuccessful(responseBody: string): boolean {
   if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return false;
   const envelope = parsed as Record<string, unknown>;
   return envelope.code === 10000 && envelope.success === true;
+}
+
+/**
+ * 房态与房量的解读 —— 两个端点共用这一个函数：定位字段的取法不同（下面按 endpointId 分），
+ * 但**上报体的构造完全一致**（都是 `roomStatus` + 原样透传）。
+ *
+ * ## `changeRaw` 完全原样，不裁剪
+ *
+ * 与改价那条路（发的是重塑过的试算结果）相反，这里一个字段都不动：
+ *
+ * - **没有该剔的噪音** —— 设备指纹与签名（`mtgsig` 等）在 URL 与请求头里，本来就不进
+ *   `requestBody`；也没有携程 `holidyInfo` 那种静态字典。
+ * - **含义未知的字段更要留** —— `countType`（踩点里 1526/1020/1620/1720 四个值对应房量
+ *   设值/清零/+1/-1）、`invSwitch`、`limitChangeValue`、`count` 目前都没踩清语义。
+ *   裁剪的判据是「与本次改动无关」，**不是「我们看不看得懂」**：剔了永久丢失，留着 RMS
+ *   日后踩清就能直接用。
+ *
+ * ## 房态房量并存时只发一条
+ *
+ * `inventory/update` 一次请求里 `invSwitch`（房态）与 `count`/`countType`（房量）都有。
+ * **按请求上报一条，不按维度拆**：一次 update 就是用户的一次操作，拆开需要 desktop 先读懂
+ * 那些没踩清的字段（违背只当探针的定位），且会生成两个 `operationId` 让 RMS 以为改了两次。
+ *
+ * 所以两个端点的 `changeType` 都是 `roomStatus` —— 它是**量态类的意向标记**，实际改了
+ * 什么由 RMS 从 `changeRaw` 读。见 `OtaChangeType` 的说明。
+ */
+function parseRoomStatusOrInventory(
+  observed: AmountSaveObserved,
+  logger: AppLogger,
+): AmountParseResult | null {
+  // 门店：两个端点都在顶层 `poiId`，是三渠道里最可靠的（美团一次只改一家）。
+  const otaHotelId = idToString(observed.requestBody.poiId);
+
+  // 房型定位：两个端点的形状差异极大 —— 房态是顶层单值，房量嵌在四层结构里。
+  const roomIds =
+    observed.endpointId === ROOM_STATUS_ENDPOINT_ID
+      ? [idToString(observed.requestBody.roomId)].filter((id) => id.length > 0)
+      : inventoryRoomIdsOf(observed.requestBody);
+
+  // 硬错误：一个房型都取不到，说明拦到的不是我们以为的操作。
+  if (roomIds.length === 0) {
+    logger.warn('Meituan room status: request body had no room identifiers', {
+      endpointId: observed.endpointId,
+      requestBodyKeys: Object.keys(observed.requestBody),
+    });
+    return null;
+  }
+
+  if (!otaHotelId) {
+    logger.warn('Meituan room status: no poiId, RMS will resolve by room id', {
+      endpointId: observed.endpointId,
+      roomIds,
+    });
+  }
+
+  return {
+    kind: 'report',
+    report: {
+      source: MEITUAN_CHANNEL,
+      changeType: 'roomStatus',
+      endpointId: observed.endpointId,
+      endpointUrl: observed.endpointUrl,
+      otaHotelId,
+      changeRaw: observed.requestBody,
+    },
+  };
 }
 
 export function createMeituanAmountChangeAdapter(logger: AppLogger): AmountChangeAdapter {
@@ -191,6 +362,15 @@ export function createMeituanAmountChangeAdapter(logger: AppLogger): AmountChang
     isSuccessful: isMeituanSaveSuccessful,
 
     parse(observed: AmountSaveObserved, context: JsonObject | null): AmountParseResult | null {
+      // 房态房量：与改价那条路完全独立（请求体没有一个字段同名），先分流出去。
+      // 不参与下面的 calc/update 配对 —— 它们是**当场就能上报**的，不需要素材。
+      if (
+        observed.endpointId === ROOM_STATUS_ENDPOINT_ID ||
+        observed.endpointId === INVENTORY_ENDPOINT_ID
+      ) {
+        return parseRoomStatusOrInventory(observed, logger);
+      }
+
       // 试算：**上报的素材就是它**，但此刻还不能发 —— 用户可能算完不提交。先存着。
       if (observed.endpointId === CALC_ENDPOINT_ID) {
         const changeRaw = toMeituanAmountChangeRaw(observed.responseBody);
