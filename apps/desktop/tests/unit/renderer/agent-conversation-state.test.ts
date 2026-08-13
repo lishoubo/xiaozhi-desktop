@@ -119,7 +119,7 @@ describe('Agent conversation view state', () => {
   });
 
   it('keeps retry metadata on the failed execution for durable recovery UI', () => {
-    const running = addStartedRun(
+    const started = addStartedRun(
       createEmptyConversationView(conversationId),
       {
         runId,
@@ -134,6 +134,14 @@ describe('Agent conversation view state', () => {
       },
       '2026-08-12T03:00:00.000Z',
     );
+    const running = applyRunEvent(started, {
+      id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaab',
+      runId,
+      conversationId,
+      type: 'text_delta',
+      delta: '正在组织回答',
+      createdAt: '2026-08-12T03:00:00.500Z',
+    });
 
     const failed = applyRunEvent(running, {
       id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
@@ -148,6 +156,13 @@ describe('Agent conversation view state', () => {
     expect(failed.executions[0]).toMatchObject({
       status: 'failed',
       failure: { message: '天气服务暂时不可用。', retryable: true },
+    });
+    expect(failed).toMatchObject({
+      activeRunId: null,
+      draftContent: '',
+      draftUi: null,
+      preparingUi: false,
+      errorMessage: '天气服务暂时不可用。',
     });
   });
 });

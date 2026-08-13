@@ -337,7 +337,7 @@ function mergeClarificationAnswers(
 			const value = answers[key] ?? null;
 			return [
 				key,
-				field?.kind === 'date'
+				field?.kind === 'date' || (field?.kind === 'text' && key === 'hotelReference')
 					? { status: 'candidate' as const, raw: value }
 					: {
 							status: 'resolved' as const,
@@ -420,6 +420,28 @@ function restoreRetryCheckpoint(checkpoint: RetryCheckpoint): BusinessExecutionS
 				slots: checkpoint.slots
 			};
 		case 'executing':
+			if (
+				typeof checkpoint.request.slots.hotelReference === 'string' &&
+				!/^[0-9]+$/.test(checkpoint.request.slots.hotelReference)
+			) {
+				return {
+					status: 'resolving_slots',
+					routeKind: checkpoint.request.routeKind,
+					intent: checkpoint.request.intent,
+					slots: Object.fromEntries(
+						Object.entries(checkpoint.request.slots).map(([name, value]) => [
+							name,
+							name === 'hotelReference'
+								? { status: 'candidate' as const, raw: value }
+								: {
+										status: 'resolved' as const,
+										value,
+										source: { kind: 'derived' as const, detail: 'retry_checkpoint' }
+									}
+						])
+					)
+				};
+			}
 			return {
 				status: 'executing',
 				request: checkpoint.request,

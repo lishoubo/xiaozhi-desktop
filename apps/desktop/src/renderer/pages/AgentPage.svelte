@@ -37,12 +37,7 @@
     messageOwnsPendingClarification,
     shouldDisplayExecutionTrace,
   } from '../agent-presentation';
-  import {
-    LAYOUT_ANIMATION_OPTIONS,
-    PAGE_ENTER_OPTIONS,
-    SURFACE_TRANSITION_OPTIONS,
-    enter,
-  } from '../motion';
+  import { LAYOUT_ANIMATION_OPTIONS, PAGE_ENTER_OPTIONS, enter } from '../motion';
   import { Button } from '$lib/components/ui/button';
   import * as AlertDialog from '$lib/components/ui/alert-dialog';
   import { Textarea } from '$lib/components/ui/textarea';
@@ -658,10 +653,7 @@
 
         {#if sending || draftContent}
           {@const execution = activeExecution()}
-          <article
-            class="mt-6 flex gap-3"
-            in:enter={{ ...SURFACE_TRANSITION_OPTIONS, duration: 240, y: 5 }}
-          >
+          <article class="mt-6 flex gap-3">
             <AgentAvatar size="sm" />
             <div class="min-w-0 flex-1">
               {#if draftContent}

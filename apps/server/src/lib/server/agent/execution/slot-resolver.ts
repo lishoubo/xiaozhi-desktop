@@ -16,7 +16,7 @@ export type HotelCandidate = Readonly<{
 }>;
 
 export interface HotelReferenceResolver {
-	resolve(reference: string): Promise<readonly HotelCandidate[]>;
+	resolve(reference: string, orgId: string): Promise<readonly HotelCandidate[]>;
 }
 
 export type SlotResolution =
@@ -105,7 +105,7 @@ function unresolvedFields(slots: SlotCollection): readonly string[] {
 
 function fieldLabel(slot: string): string {
 	const labels: Record<string, string> = {
-		hotelReference: '酒店 ID',
+		hotelReference: '酒店',
 		location: '酒店或城市',
 		date: '日期',
 		dateRange: '日期范围',
@@ -205,6 +205,7 @@ export class BusinessSlotResolver {
 		input: Readonly<{
 			definition: IntentDefinition;
 			intent: AgentBusinessIntent;
+			orgId: string;
 			slots: SlotCollection;
 			anchorMessageId: string;
 			version: number;
@@ -232,7 +233,7 @@ export class BusinessSlotResolver {
 			if (/^\d+$/.test(hotelRaw)) {
 				slots.hotelReference = resolved(hotelRaw, 'explicit_hotel_id');
 			} else {
-				const candidates = await this.hotels.resolve(hotelRaw);
+				const candidates = await this.hotels.resolve(hotelRaw, input.orgId);
 				const exact = candidates.filter((candidate) => candidate.match !== 'fuzzy');
 				if (exact.length === 1)
 					slots.hotelReference = resolved(exact[0]?.id ?? hotelRaw, 'hotel_exact_match');
@@ -244,13 +245,7 @@ export class BusinessSlotResolver {
 				} else if (candidates.length === 0)
 					slots.hotelReference = { status: 'invalid', reasonCode: 'hotel_not_found' };
 				else
-					slots.hotelReference = {
-						status: 'ambiguous',
-						candidates: [
-							candidates[0],
-							{ ...candidates[0], id: hotelRaw, label: `按输入“${hotelRaw}”查询` }
-						]
-					};
+					slots.hotelReference = resolved(candidates[0]?.id ?? hotelRaw, 'only_accessible_hotel');
 			}
 		}
 

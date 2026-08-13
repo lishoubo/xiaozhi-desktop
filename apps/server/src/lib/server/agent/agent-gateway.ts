@@ -622,6 +622,7 @@ export class HotelAgentGateway implements AgentGateway {
 					const resolution = await this.slotResolver.resolve({
 						definition: getIntentDefinition(execution.state.intent),
 						intent: execution.state.intent,
+						orgId: principal.orgId,
 						slots: execution.state.slots,
 						anchorMessageId: execution.summary.triggerUserMessageId,
 						version: execution.version + 1

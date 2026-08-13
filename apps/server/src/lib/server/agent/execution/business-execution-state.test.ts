@@ -134,6 +134,43 @@ describe('business execution state machine', () => {
 		).toThrow(/allowed choice/);
 	});
 
+	it('keeps a typed hotel name unresolved until the hotel directory maps it to an ID', () => {
+		const hotelClarification: AgentPendingClarification = {
+			...clarification,
+			fields: [
+				{
+					kind: 'text',
+					slot: 'hotelReference',
+					label: '酒店',
+					required: true,
+					maxLength: 200
+				}
+			]
+		};
+		const waiting: BusinessExecutionState = {
+			status: 'awaiting_clarification',
+			routeKind: 'business_read',
+			intent: 'hotel_operating_summary',
+			slots: { hotelReference: { status: 'missing' } },
+			clarification: hotelClarification
+		};
+
+		expect(
+			transitionBusinessExecution(waiting, {
+				type: 'clarification_submitted',
+				answers: { hotelReference: '包头璞禾咖啡酒店（禧瑞都店）' }
+			})
+		).toMatchObject({
+			status: 'resolving_slots',
+			slots: {
+				hotelReference: {
+					status: 'candidate',
+					raw: '包头璞禾咖啡酒店（禧瑞都店）'
+				}
+			}
+		});
+	});
+
 	it('rejects illegal and terminal transitions', () => {
 		expect(() =>
 			transitionBusinessExecution(
@@ -188,6 +225,32 @@ describe('business execution state machine', () => {
 		expect(transitionBusinessExecution(failed, { type: 'execution_retry_requested' })).toEqual(
 			executing
 		);
+	});
+
+	it('re-resolves a legacy retry checkpoint that stored a hotel name as an ID', () => {
+		const legacyRequest: ResolvedBusinessRequest = {
+			routeKind: 'business_read',
+			intent: 'hotel_operating_summary',
+			slots: {
+				hotelReference: '包头璞禾咖啡酒店（禧瑞都店）',
+				dateRange: { start: '2026-08-13', end: '2026-08-14' }
+			}
+		};
+		const failed = transitionBusinessExecution(
+			{ status: 'executing', request: legacyRequest, evidence: [], followUpUsed: false },
+			{ type: 'execution_failed', reasonCode: 'upstream_failure', retryable: true }
+		);
+
+		expect(
+			transitionBusinessExecution(failed, { type: 'execution_retry_requested' })
+		).toMatchObject({
+			status: 'resolving_slots',
+			intent: 'hotel_operating_summary',
+			slots: {
+				hotelReference: { status: 'candidate', raw: '包头璞禾咖啡酒店（禧瑞都店）' },
+				dateRange: { status: 'resolved' }
+			}
+		});
 	});
 
 	it('retries grounded answering without discarding validated evidence', () => {

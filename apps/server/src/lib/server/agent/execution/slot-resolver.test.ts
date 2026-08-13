@@ -11,6 +11,7 @@ describe('slot resolution', () => {
 		const result = await resolver.resolve({
 			definition: getIntentDefinition('hotel_operating_summary'),
 			intent: 'hotel_operating_summary',
+			orgId: '42',
 			slots: {
 				hotelReference: { status: 'candidate', raw: '123' },
 				dateRange: { status: 'candidate', raw: '上个月' }
@@ -49,6 +50,7 @@ describe('slot resolution', () => {
 		const result = await resolver.resolve({
 			definition: getIntentDefinition('public_hotel_rates'),
 			intent: 'public_hotel_rates',
+			orgId: '42',
 			slots: { hotelReference: { status: 'candidate', raw: '西湖店' } },
 			anchorMessageId: '22222222-2222-4222-8222-222222222222',
 			version: 2
@@ -86,6 +88,7 @@ describe('slot resolution', () => {
 		const result = await resolver.resolve({
 			definition: getIntentDefinition('public_hotel_rates'),
 			intent: 'public_hotel_rates',
+			orgId: '42',
 			slots: {
 				hotelReference: { status: 'candidate', raw: '杭州西湖店' },
 				checkIn: { status: 'candidate', raw: '明天' },

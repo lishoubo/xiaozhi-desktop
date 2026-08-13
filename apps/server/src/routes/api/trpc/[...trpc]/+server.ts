@@ -24,7 +24,11 @@ import { HotelAgentGateway } from '$lib/server/agent/agent-gateway';
 import { BusinessIntentRouter } from '$lib/server/agent/execution/business-intent-router';
 import { LangChainRouteClassifier } from '$lib/server/agent/execution/langchain-route-classifier';
 import { BusinessSlotResolver } from '$lib/server/agent/execution/slot-resolver';
-import { McpHotelReferenceResolver } from '$lib/server/agent/execution/mcp-hotel-reference-resolver';
+import { RmsHotelReferenceResolver } from '$lib/server/agent/execution/rms-hotel-reference-resolver';
+import {
+	DmsHotelReferenceResolver,
+	FallbackHotelReferenceResolver
+} from '$lib/server/agent/execution/dms-hotel-reference-resolver';
 import { DeterministicWorkflowCollector } from '$lib/server/agent/execution/deterministic-workflow-collector';
 import { resolveStaffAgentPrincipal } from '$lib/server/agent/staff-agent-principal';
 import type { RequestHandler } from './$types';
@@ -63,7 +67,12 @@ const agentGateway = new HotelAgentGateway(
 	skillProvider,
 	serverLogger,
 	new BusinessIntentRouter(new LangChainRouteClassifier(agentEnvironment)),
-	new BusinessSlotResolver(new McpHotelReferenceResolver(mcpToolProvider)),
+	new BusinessSlotResolver(
+		new FallbackHotelReferenceResolver(
+			new RmsHotelReferenceResolver({ execute: (sql, values) => rmsClient.execute(sql, values) }),
+			new DmsHotelReferenceResolver(mcpToolProvider)
+		)
+	),
 	new DeterministicWorkflowCollector(mcpToolProvider)
 );
 

@@ -73,12 +73,20 @@ filtering state and available observation metadata before answer generation.
 - **WHEN** the provider omits rows, hides credential fields or truncates values
 - **THEN** the evidence records filtering and the final answer discloses the material limitation
 
-### Requirement: Honest shared hotel scope
+### Requirement: Honest hotel resolution scope
 
-Until a trusted hotel directory and per-hotel authorization source are introduced, hotel candidate
-discovery and data queries SHALL retain the shared access scope granted by the configured DMS token.
+Hotel-name resolution SHALL first query active hotels in the authenticated employee's RMS
+organization. When that directory has no match, candidate discovery MAY fall back to the bounded
+hotel IDs visible to the configured DMS token, and data queries SHALL retain the shared access scope
+granted by that token.
 
-#### Scenario: Resolve a hotel candidate through DMS
-- **WHEN** the execution uses DMS to find hotel-name candidates
-- **THEN** it labels the candidates as shared-token results
+#### Scenario: Resolve a hotel through the RMS directory
+- **WHEN** an active hotel name or short name matches inside the authenticated organization
+- **THEN** the execution resolves it to the RMS hotel ID with a parameterized read query
+- **AND** does not query another organization's hotel directory
+
+#### Scenario: Fall back to shared DMS hotel IDs
+- **WHEN** the authenticated organization's RMS hotel directory has no matching hotel
+- **THEN** the execution retrieves a bounded distinct hotel-ID list from DMS
+- **AND** presents multiple IDs as explicit clarification choices rather than guessing from the name
 - **AND** does not represent them as employee-specific hotel authorization
