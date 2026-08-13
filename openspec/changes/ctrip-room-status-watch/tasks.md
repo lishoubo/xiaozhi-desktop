@@ -57,7 +57,7 @@
 
 - [x] 8.1 `npx tsc --noEmit` + eslint 通过（重点看分层约束：`channels/` 未引入对 `services`/`database` 的依赖）
 - [x] 8.2 跑一次 desktop 全量单测，如实记录结果
-- [ ] 8.3 真机验证：在携程日历页开房/关房各一次，确认拦到、判定成功、上报体的 `changeType` 与 `changeRaw` 符合预期
+- [x] 8.3 真机验证：在携程日历页开房/关房各一次，确认拦到、判定成功、上报体的 `changeType` 与 `changeRaw` 符合预期
 - [ ] 8.4 若能构造一次**被携程拒绝**的房态操作，抓失败响应样本回填踩点文档，据实收紧 `isSuccessful`（成功样本已于 2026-08-13 补齐）
 - [x] 8.5 验证证据写入 `openspec/changes/ctrip-room-status-watch/verification.md`
 

@@ -6,6 +6,7 @@
 ## 1. 端点
 
 - [x] 1.1 加两个端点常量：`inventory-status-switch` → `/api/gw/v1/product/goods/inventory/status/switch`，`inventory-update` → `/api/gw/v1/product/goods/inventory/update`
+- [x] 1.4 **（联调追加）** 关房走独立端点 `inventory-roomstatus-submitaudit` → `/api/gw/v1/product/goods/inventory/roomstatus/submitaudit`，并新建 `room-close-payload.ts` 说明其形状；同时明确不拦 `order/others/deductRoomCount`（关房的连带扣量）
 - [x] 1.2 注释写清 **`inventory/check` 为什么不拦**：与 `update` 请求体逐字节相同，两个都拦会让一次改动上报两遍且幂等挡不住（见 design 决策 2）
 - [x] 1.3 注释确认 `WATCH_PATH` 无需改动（referer 实测是 `/ebooking/merchant/product`，`#/index` 是 hash 路由不参与匹配），把这个结论留下免得后人重复排查
 

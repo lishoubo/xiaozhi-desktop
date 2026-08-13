@@ -1,6 +1,6 @@
 # 携程房态监听 —— 验证证据
 
-> 记录时间：2026-08-13。自动化验证已完成；**真机验证尚未进行**（见「未完成」）。
+> 记录时间：2026-08-13。自动化验证 + **真机验证均已通过**。
 
 ## 自动化验证
 
@@ -44,27 +44,39 @@
   helper 形参用了 `Record<string, unknown>` 而非 `JsonObject`）。vitest 不做类型检查，
   只跑测试不会发现 —— 记录在此说明**两道关卡都必须跑**。
 
-## 未完成（需真机）
+## 真机验证 ✅ 已通过（2026-08-13 20:05–20:11）
+
+账号 `85068938` / 银际酒店(包头市青山王府井文化路店)，rms-server 本地 `localhost:8080`。
+
+| 时刻 | 操作 | endpointId | changeType | roomStatus | rmsChangeId | rmsStatus |
+|---|---|---|---|---|---|---|
+| 20:08:26 | 关房（多门店） | `setbatchroombookablestatus` | `roomStatus` | — | 17 | DISPATCHED |
+| 20:08:36 | 关房（多门店） | 同上 | `roomStatus` | — | 18 | DISPATCHED |
+| 20:10:12 | **关房** | 同上 | `roomStatus` | **`"N"`** | 19 | DISPATCHED |
+| 20:10:42 | **开房** | 同上 | `roomStatus` | **`"G"`** | 20 | DISPATCHED |
+
+### 逐条兑现的设计决策
+
+- **开/关房同一个 `endpointId`**（决策 4）—— 19 与 20 的 `endpointId` 完全相同，
+  只有 `changeRaw.roomStatus` 是 `N` / `G`。RMS 据此区分方向。
+- **`holidyInfo` 确被剔除**（决策 5）—— 实际上报的
+  `dateItemInfoDtoList: [{"startDate":"2026-08-19","endDate":"2026-08-19"}]`，
+  节假日字典不在其中，其余字段（`weekDayIndex`/`pageType`/`processType`/
+  `originalRoomProductIds`）原样保留。
+- **`isSuccessful` 按端点分支生效**（决策 6）—— 四次全部判定成功并上报。若仍走改价
+  老模块那条查 `roomPriceSetResults` 的路径，`data: null` 会让每次都判失败、零上报。
+- **多门店分支真实触发**（风险表最后一行）—— 前两次日志出现
+  `Ctrip room status: one save spans multiple hotels { hotelIds: ['115348672','115355969'] }`，
+  `otaHotelId` 取第一家，完整清单在 `changeRaw` 里。⚠️ **这不是假想场景，RMS 必须遍历
+  `changeRaw.hotelRoomInfoDtoList[].hotelID`**。
+- **`changeType` 全链路打通** —— `rmsStatus: DISPATCHED` 说明 rms-server 收下了带新字段的
+  报文，未因未知字段拒绝。
+
+`rmsItems` 分别为 8 / 8 / 1 / 1，与操作涉及的房型数一致（RMS 侧自行展开）。
+
+## 未完成
 
 | 任务 | 内容 | 阻塞原因 |
 |---|---|---|
-| 8.3 | 携程日历页开房/关房各一次，确认拦到、判定成功、上报体符合预期 | 需真实携程账号与登录态 |
-| 8.4 | 抓一次**被携程拒绝**的房态响应样本 | 同上；且需构造出失败场景 |
-| 9.1 | 把 spec delta 合并进 `openspec/specs/` | 应在真机验收后做 |
-
-⚠️ **8.3 未完成前不得声称本变更「已验证可用」** —— 单测覆盖的是解析与判定逻辑，
-拦不拦得到、CDP 会不会与酒店探测抢 debugger，只有真机能证。
-
-### 真机时重点看什么
-
-```
-1. 停在 /ebkovsroom/inventory/calendar，日志应有 `Amount change watching started`
-   （若出现 `not watching, debugger is busy` → 与酒店探测抢 debugger，见 watcher 注释）
-2. 关房一次 → 日志 `Amount change observed` 且 endpointId=setbatchroombookablestatus
-3. 上报体 changeType=roomStatus、changeRaw.roomStatus='N'、dateItemInfoDtoList 无 holidyInfo
-4. 开房一次 → 同上，changeRaw.roomStatus='G'，endpointId 与关房**相同**
-5. 顺带在同一页面改一次价 → changeType=price，证明两条路互不干扰
-```
-
-若第 2 步没有任何日志，先看有没有 `Amount change watching stopped` —— 携程改价那次
-（2026-08-11）的坑正是监听被悄悄停掉，而不是解析出错。
+| 8.4 | 抓一次**被携程拒绝**的房态响应样本 | 需构造失败场景（如改已售罄日期），本次未遇到 |
+| 9.1 | 把 spec delta 合并进 `openspec/specs/` | 等美团关房也真机验完，两份 delta 一并合并 |
