@@ -99,6 +99,39 @@ export type AmountSaveObserved = Readonly<{
  *    不代表价格已生效。
  * 3. **上报失败不重试落盘**：网络失败重试 1 次后放弃，偶发漏报是已知取舍。
  */
+/**
+ * 这次改动属于哪一类 —— **意向标记，不是精确分类**。
+ *
+ * ```
+ * price       价格类改动
+ * roomStatus  量态类改动的统称 —— 房态开关 + 房量，两者不再细分
+ * ```
+ *
+ * ## ⚠️ 为什么 `roomStatus` 不拆成「房态」「房量」两个值
+ *
+ * **一个渠道端点可能在一次请求里同时改房态和房量**，拆了就必然有说不准的情况：抖音的
+ * `batch_save_stock_state_calendar` 就是这样（同一个 `calendar_ari_list` 里房态一条、
+ * 库存一条），一个端点只能给一个值，报哪个都是错的。
+ *
+ * ## ⚠️ RMS 必须读 `changeRaw`，不能只认 `changeType`
+ *
+ * 这个字段只回答「这次是价还是量态」，**不回答「量态里究竟改了什么」**。RMS 按它分流之后，
+ * 仍必须从 `changeRaw` 里读实际改动的内容。只认 `changeType` 就分支处理的失效方式很隐蔽：
+ * 接抖音那个端点时会把请求体里的房量部分整段漏掉，**且没有任何报错**。
+ *
+ * ## 与 `endpointId` 是两个粒度，互不替代
+ *
+ * ```
+ * changeType   改的是什么      price / roomStatus        RMS 分流用
+ * endpointId   走的哪个接口    setRCRoomPrice 等          RMS 解析 changeRaw 形状用
+ * ```
+ *
+ * 携程改价有新老两套模块、`changeRaw` 形状完全不同，光有 `changeType: 'price'` 解析不了
+ * —— 所以 `endpointId` 删不掉。反过来，靠 `(source, endpointId)` 查表反推语义则要求 RMS
+ * 侧维护一张映射表，desktop 每加一个端点都得通知对方同步一行 —— 所以 `changeType` 也省不掉。
+ */
+export type OtaChangeType = 'price' | 'roomStatus';
+
 export type OtaAmountChangeReport = Readonly<{
   /** 幂等键，desktop 生成。RMS 据此去重（同一次改价重试上报不该跟两次价）。 */
   operationId: string;
@@ -111,7 +144,15 @@ export type OtaAmountChangeReport = Readonly<{
   source: ChannelId;
   /** 实际访问的完整 URL —— 出问题时凭这个复现「改的是哪个页面的哪个接口」。 */
   endpointUrl: string;
-  /** 渠道内区分这次改的是价格还是房态房量。 */
+  /**
+   * 这次改的是价还是量态。**意向标记，RMS 仍须读 `changeRaw` 确认实际改了什么** ——
+   * 完整说明见 `OtaChangeType`。
+   */
+  changeType: OtaChangeType;
+  /**
+   * 渠道内走的是哪个接口。与 `changeType` 是两个粒度：这个决定 `changeRaw` 的**形状**
+   * （携程改价新老两套模块形状完全不同），`changeType` 决定 RMS 怎么**分流**。
+   */
   endpointId: string;
 
   /**
@@ -155,6 +196,9 @@ export type OtaAmountChangeReport = Readonly<{
  * 身份字段（操作人、渠道账号）不在这里：适配器活在 `channels/`，eslint 禁止它依赖
  * `services/` 与 `database/`，够不着 `StaffIdentity` 和 `OtaCredential`。这些由
  * `AmountChangeReportService` 在上报环节补齐 —— 与幂等键、时间戳同一个道理。
+ *
+ * ⚠️ `changeType` **故意不在 Omit 列表里**：这次改的是价还是量态，只有最懂渠道的适配器
+ * 才判得准（同一渠道的不同端点语义不同），service 层无从推断，所以由适配器负责提供。
  */
 export type OtaAmountChangeObserved = Omit<
   OtaAmountChangeReport,

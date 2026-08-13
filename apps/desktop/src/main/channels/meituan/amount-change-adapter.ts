@@ -162,6 +162,10 @@ function isCalcContext(value: JsonObject | null): value is JsonObject & CalcCont
  * `calcPriceV2` 的成功响应同样是这个形状，直接共用 —— 试算失败时不该覆盖上下文
  * （宁可留着上一条也不要存个空结果），所以它也要过这一关。
  */
+/*
+ * 不收 `endpointId` 形参：美团两个端点（`calcPriceV2` 试算、`updatePriceV2` 提交）的成功
+ * 响应形状一致（见上方说明），无需按端点分支。函数少一个形参与接口结构兼容。
+ */
 function isMeituanSaveSuccessful(responseBody: string): boolean {
   let parsed: unknown;
   try {
@@ -252,6 +256,9 @@ export function createMeituanAmountChangeAdapter(logger: AppLogger): AmountChang
         kind: 'report',
         report: {
           source: MEITUAN_CHANNEL,
+          // 本渠道当前只实装了改价。美团的房态与房量是**两个独立端点**
+          // （`inventory/status/switch` 与 `inventory/update`），二期加时都归 'roomStatus'。
+          changeType: 'price',
           // ⚠️ 上报的是**试算**那条，不是提交那条 —— 这两个字段要如实说明内容的出处。
           endpointId: CALC_ENDPOINT_ID,
           endpointUrl: context.endpointUrl,

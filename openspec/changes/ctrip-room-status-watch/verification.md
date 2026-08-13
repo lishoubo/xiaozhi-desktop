@@ -1,0 +1,70 @@
+# 携程房态监听 —— 验证证据
+
+> 记录时间：2026-08-13。自动化验证已完成；**真机验证尚未进行**（见「未完成」）。
+
+## 自动化验证
+
+| 项 | 命令 | 结果 |
+|---|---|---|
+| 类型检查 | `npm run check:types`（`tsc --noEmit -p tsconfig.node.json`） | ✅ 通过，无输出 |
+| Lint（含分层约束） | `npm run lint`（`eslint --ext .ts,.tsx,.mts .`） | ✅ 通过，无输出 |
+| 单测（全量） | `npm run test:unit` | ✅ **79 个文件 / 505 tests passed** |
+
+分层约束重点核对：`channels/` 未引入对 `services/`、`database/`、`electron` 的依赖 —— 新增的
+`room-status-payload.ts` 只 import `shared/types/json`，eslint 的边界规则未报错。
+
+### 本次改动直接命中的测试
+
+```
+✓ ctrip-amount-change-adapter.test.ts     31 tests   （新增房态 11 条）
+✓ ctrip-room-status-payload.test.ts        5 tests   （🆕 全新文件）
+✓ ctrip-amount-change-payload.test.ts      3 tests
+✓ douyin-amount-change-adapter.test.ts    12 tests
+✓ meituan-amount-change-adapter.test.ts   23 tests
+✓ amount-save-capture.test.ts             13 tests
+✓ amount-change-watcher.test.ts            8 tests
+✓ amount-change-report-service.test.ts     7 tests
+✓ rms-amount-change-gateway-http.test.ts   8 tests   （新增 changeType 断言 1 条）
+                                          ─────────
+                                          110 tests
+```
+
+### 两条关键回归护栏
+
+1. **`data: null` 的房态响应判为成功** —— 用踩点真实响应断言。若有人日后把房态并回改价
+   老模块那条查 `roomPriceSetResults` 的路径，这条立刻失败。没有它，失效方式是**静默漏报**。
+2. **同一份响应按 `batchsetroomprice` 判时为 false** —— 反向证明 `endpointId` 分支确实生效，
+   而不是碰巧两条路径都返回 true。
+
+### 过程中被测试挡下的真实问题
+
+- `douyin-amount-change-adapter.test.ts` 的 `toEqual` 全等断言捕获了漏加 `changeType` 的
+  上报体（把 `changeType` 设为**必填**字段的用意正在于此：类型检查 + 全等断言双重兜底）。
+- `npx tsc --noEmit` 捕获两处 test-only 类型问题（对象字面量把 `changeType` 宽化成 `string`、
+  helper 形参用了 `Record<string, unknown>` 而非 `JsonObject`）。vitest 不做类型检查，
+  只跑测试不会发现 —— 记录在此说明**两道关卡都必须跑**。
+
+## 未完成（需真机）
+
+| 任务 | 内容 | 阻塞原因 |
+|---|---|---|
+| 8.3 | 携程日历页开房/关房各一次，确认拦到、判定成功、上报体符合预期 | 需真实携程账号与登录态 |
+| 8.4 | 抓一次**被携程拒绝**的房态响应样本 | 同上；且需构造出失败场景 |
+| 9.1 | 把 spec delta 合并进 `openspec/specs/` | 应在真机验收后做 |
+
+⚠️ **8.3 未完成前不得声称本变更「已验证可用」** —— 单测覆盖的是解析与判定逻辑，
+拦不拦得到、CDP 会不会与酒店探测抢 debugger，只有真机能证。
+
+### 真机时重点看什么
+
+```
+1. 停在 /ebkovsroom/inventory/calendar，日志应有 `Amount change watching started`
+   （若出现 `not watching, debugger is busy` → 与酒店探测抢 debugger，见 watcher 注释）
+2. 关房一次 → 日志 `Amount change observed` 且 endpointId=setbatchroombookablestatus
+3. 上报体 changeType=roomStatus、changeRaw.roomStatus='N'、dateItemInfoDtoList 无 holidyInfo
+4. 开房一次 → 同上，changeRaw.roomStatus='G'，endpointId 与关房**相同**
+5. 顺带在同一页面改一次价 → changeType=price，证明两条路互不干扰
+```
+
+若第 2 步没有任何日志，先看有没有 `Amount change watching stopped` —— 携程改价那次
+（2026-08-11）的坑正是监听被悄悄停掉，而不是解析出错。

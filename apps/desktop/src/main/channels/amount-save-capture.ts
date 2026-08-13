@@ -275,7 +275,7 @@ export class AmountSaveCapture {
     }
 
     // 渠道自己说没成功就不上报——这是防脏数据的关键一步，理由见文件头。
-    if (!this.adapter.isSuccessful(responseBody)) {
+    if (!this.adapter.isSuccessful(responseBody, saved.endpointId)) {
       this.logger.warn('Amount save capture: channel rejected the save, not reporting', {
         endpointId: saved.endpointId,
         bodySnippet: responseBody.slice(0, 200),

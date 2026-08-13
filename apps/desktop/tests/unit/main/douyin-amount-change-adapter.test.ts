@@ -76,7 +76,7 @@ describe('douyin amount change adapter', () => {
   describe('isSuccessful', () => {
     it('StatusCode 为 0 判为成功', () => {
       const adapter = createDouyinAmountChangeAdapter(createLogger());
-      expect(adapter.isSuccessful('{"BaseResp":{"StatusCode":0},"status_code":0}')).toBe(true);
+      expect(adapter.isSuccessful('{"BaseResp":{"StatusCode":0},"status_code":0}', 'save_amount_calendar')).toBe(true);
     });
 
     /** 真实失败样本：踩点 `修改价格.md` 里限价规则拒绝的那次。 */
@@ -89,12 +89,12 @@ describe('douyin amount change adapter', () => {
         },
         status_code: 103810209,
       });
-      expect(adapter.isSuccessful(rejected)).toBe(false);
+      expect(adapter.isSuccessful(rejected, 'save_amount_calendar')).toBe(false);
     });
 
     it('响应体不是合法 JSON 时判为失败', () => {
       const adapter = createDouyinAmountChangeAdapter(createLogger());
-      expect(adapter.isSuccessful('<html>502 Bad Gateway</html>')).toBe(false);
+      expect(adapter.isSuccessful('<html>502 Bad Gateway</html>', 'save_amount_calendar')).toBe(false);
     });
   });
 
@@ -105,6 +105,7 @@ describe('douyin amount change adapter', () => {
         kind: 'report',
         report: {
           source: 'douyin',
+          changeType: 'price',
           endpointId: 'save_amount_calendar',
           endpointUrl: 'https://life.douyin.com/life/trip/hotel/save_amount_calendar',
           otaHotelId: '7245504927202543672',

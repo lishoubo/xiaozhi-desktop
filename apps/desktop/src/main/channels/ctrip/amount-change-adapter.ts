@@ -1,9 +1,27 @@
 /**
- * 携程的价量态改动适配器。
+ * 携程的价量态改动适配器 —— 当前管**三个端点**：改价新老两套模块 + 房态。
  *
- * 踩点：`docs/踩点/携程/改价.md`
- * 📄 **上报内容的规格（`changeRaw` 里有什么、两套模块怎么分辨、RMS 怎么解读）见
- * `./amount-change-payload.ts`** —— 本文件只讲「怎么拦、怎么判、怎么定位」。
+ * 踩点：`docs/踩点/携程/改价.md`（改价）、`docs/踩点/携程/房量01.md`（房态）
+ *
+ * 📄 **上报内容的规格（`changeRaw` 里有什么、RMS 怎么解读）分成两份，按用途看：**
+ * - 改价 → `./amount-change-payload.ts`（含新老两套模块怎么分辨）
+ * - 房态 → `./room-status-payload.ts`（含 `roomStatus` 的 G/N 语义）
+ *
+ * 本文件只讲「怎么拦、怎么判、怎么定位」。
+ *
+ * ## 房态与改价共用一套机制，只在适配器内分流
+ *
+ * ```
+ * 页面 /ebkovsroom/inventory/calendar   ← 同一张日历页，改价与房态都在这里
+ *   ├── 改价 → batchsetroomprice / setRCRoomPrice → changeType: 'price'
+ *   └── 房态 → setbatchroombookablestatus          → changeType: 'roomStatus'
+ * ```
+ *
+ * 两者请求体**没有一个字段同名**（改价 `roomPriceInfoList` / 房态 `hotelRoomInfoDtoList`），
+ * 所以 `parse` 先按 `endpointId` 分流，各走各的取值逻辑，不共用。
+ *
+ * 开房与关房**不拆两个 `endpointId`**：同端点、同形状，整个请求体只差 `roomStatus` 一个
+ * 字段（`G` 开 / `N` 关）。拆了等于让 desktop 解读渠道语义，与「忠实透传」的定位冲突。
  *
  * ## 与抖音的三处结构性差异
  *
@@ -33,6 +51,7 @@ import type { JsonObject } from '../../../shared/types/json';
 import { isTrustedHotelUrl } from '../trusted-hotel-url';
 import type { AmountChangeAdapter, AmountParseResult } from '../types';
 import { toCtripAmountChangeRaw } from './amount-change-payload';
+import { toCtripRoomStatusRaw } from './room-status-payload';
 import type { AppLogger } from '../../../shared/logging';
 
 const CTRIP_EBOOKING_HOSTNAME = 'ebooking.ctrip.com';
@@ -57,22 +76,44 @@ const CTRIP_EBOOKING_HOSTNAME = 'ebooking.ctrip.com';
  * 拦不到。真机日志：
  * `[DIAG] 导航 { url: '.../rateplan/batchPriceSetting', 可监听: false, 当前在监听: true }`
  * 紧跟着就是 `监听已停止`。
+ *
+ * ## 加房态时**无需**改这里（2026-08-13 已核对，别再排查一遍）
+ *
+ * 房态踩点的 referer 是 `/ebkovsroom/inventory/calendar?microJump=true` —— 就是改价老模块
+ * 那张**日历页**，已被第一条前缀覆盖。房态与改价在携程是同一个页面上的两个操作。
+ *
+ * 这一点与抖音相反：抖音房态在 `/hotel/status`，是另一条路由，二期光加端点常量不够，
+ * 必须同时放开 `WATCH_PATH`，否则页面匹配不上就根本不会 attach。
  */
 const WATCH_PATHS: readonly string[] = ['/ebkovsroom/inventory', '/rateplan/batchPriceSetting'];
 
 /**
- * 要拦的保存端点 —— **携程有两套并存的改价模块**（2026-08-11 真机验证发现）。
+ * 要拦的端点 —— 携程当前认**三个**：两套并存的改价模块 + 房态。
  *
- * | 模块 | 页面 | 保存端点 | 来源 |
- * |---|---|---|---|
- * | `ebkovsroom`（老） | `/ebkovsroom/inventory/calendar` | `/api/inventory/batchsetroomprice` | 踩点那份 curl |
- * | `rateplan`（新） | `/rateplan/batchPriceSetting` | `/restapi/soa2/23783/setRCRoomPrice` | 真机实测走的这条 |
+ * | 用途 | 模块 | 页面 | 端点 | 来源 |
+ * |---|---|---|---|---|
+ * | 改价 | `ebkovsroom`（老） | `/ebkovsroom/inventory/calendar` | `/api/inventory/batchsetroomprice` | 踩点 `改价.md` |
+ * | 改价 | `rateplan`（新） | `/rateplan/batchPriceSetting` | `/restapi/soa2/23783/setRCRoomPrice` | 2026-08-11 真机 |
+ * | 房态 | `ebkovsroom` | `/ebkovsroom/inventory/calendar` | `/api/inventory/setbatchroombookablestatus` | 踩点 `房量01.md` |
  *
- * 踩点文档只覆盖了老模块。真机走左侧菜单「批量设价」进的是 `rateplan` 新模块，
+ * 改价踩点文档只覆盖了老模块。真机走左侧菜单「批量设价」进的是 `rateplan` 新模块，
  * 用的是完全不同的 `soa2/23783` 接口 —— 只认踩点那个端点会**一次都拦不到**。
  *
- * 两个都留：不确定哪些账号/入口会走哪一套，多认一个端点的成本只是一行常量。
- * 二期做房态房量时同理在这里加行，但要同步放开 `WATCH_PATHS`。
+ * 两个改价端点都留：不确定哪些账号/入口会走哪一套，多认一个端点的成本只是一行常量。
+ *
+ * ## 三个路径互不为子串，分发不会串味
+ *
+ * `AmountSaveCapture.matchEndpoint` 是 `url.includes(fragment)` **首个命中即返回**，
+ * 所以片段之间不能有包含关系：
+ *
+ * ```
+ * /ebkovsroom/api/inventory/batchsetroomprice            改价老
+ * /ebkovsroom/api/inventory/setbatchroombookablestatus   房态     ← 与上一条前缀相同但
+ * /setRCRoomPrice                                        改价新      末段不同，互不为子串
+ * ```
+ *
+ * 注意 `batchsetroomprice` 与 `setbatchroombookablestatus` 只是**看着像**（都含 `batch`、
+ * `room`），实际互不包含。有单测钉住这一点。
  *
  * ## 为什么新端点不写死 `soa2/23783`
  *
@@ -90,7 +131,12 @@ const WATCHED_ENDPOINTS: ReadonlyMap<string, string> = new Map([
   // 「前缀 + 跳过中间编号 + 方法名」，所以片段只取方法名。误匹配风险由 `isWatchableUrl`
   // 兜底：只有停在携程改价页时才会 attach，那种上下文里不会有别的服务叫这个名字。
   ['setRCRoomPrice', '/setRCRoomPrice'],
+  // 房态（开房/关房共用此端点，靠请求体 `roomStatus` 的 G/N 区分，不拆两个 endpointId）。
+  ['setbatchroombookablestatus', '/ebkovsroom/api/inventory/setbatchroombookablestatus'],
 ]);
+
+/** 房态端点的 `endpointId`。判定与解析都要按它分支，抽成常量避免拼错。 */
+const ROOM_STATUS_ENDPOINT_ID = 'setbatchroombookablestatus';
 
 const CTRIP_CHANNEL = toChannelId('ctrip');
 
@@ -163,20 +209,69 @@ function roomProductIdsOf(requestBody: JsonObject): readonly string[] {
   return [...found];
 }
 
+/** 房态请求体里的房型条目 —— 与改价的 `roomPriceInfoList` 是完全不同的字段名。 */
+function hotelRoomInfoListOf(requestBody: JsonObject): readonly Record<string, unknown>[] {
+  const list = requestBody.hotelRoomInfoDtoList;
+  if (!Array.isArray(list)) return [];
+  return list.filter(
+    (item): item is Record<string, unknown> =>
+      typeof item === 'object' && item !== null && !Array.isArray(item),
+  );
+}
+
+/** 房态涉及的门店 —— 与改价老模块同样可能多家，保持出现顺序并去重。 */
+function roomStatusHotelIdsOf(requestBody: JsonObject): readonly string[] {
+  const found = new Set<string>();
+  for (const item of hotelRoomInfoListOf(requestBody)) {
+    const hotelId = idToString(item.hotelID);
+    if (hotelId) found.add(hotelId);
+  }
+  return [...found];
+}
+
 /**
- * 携程的成功判定：**外层 HTTP 语义 + 内层每家门店的结果都要看**。
+ * 房态涉及的房型 —— 两处都收：`hotelRoomInfoDtoList[].roomTypeID` 与顶层
+ * `originalRoomProductIds[]`。踩点里两者指向同一批房型，但**只是这一份样本如此**，
+ * 不能断定永远相等；两处都收才不会因为携程在某个场景下只填其一而丢掉定位依据。
  *
- * 踩点成功样本：`{code: 200, data: {roomPriceSetResults: [{resultCode: 0, statusDesc: "房价设置成功"}, ...]}}`
- *
- * 只看外层 `code === 200` 不够 —— 携程这类接口的惯例是外层表示「请求处理完了」，
- * 单条业务失败（限价、佣金校验 `checkIllegalCommission` 不过等）体现在
- * `roomPriceSetResults[].resultCode`。抖音那边有 `103810209 限价规则` 的真实失败样本，
- * 携程的 `checkIllegalCommission: "T"` 说明同样存在服务端拒绝的路径。
- *
- * 判定取**保守**口径：任何一条 `resultCode !== 0` 就整体判失败，不上报。宁可漏报一次
- * 部分成功的改价，也不让 RMS 按一个没生效的价格去跟价（跟价错了是脏数据，漏报只是少跟一次）。
+ * 这里只用于「拦到的是不是一次真实房态操作」的判定，不进上报体（`changeRaw` 里有全量）。
  */
-function isCtripSaveSuccessful(responseBody: string): boolean {
+function roomStatusRoomIdsOf(requestBody: JsonObject): readonly string[] {
+  const found = new Set<string>();
+  for (const item of hotelRoomInfoListOf(requestBody)) {
+    const roomTypeId = idToString(item.roomTypeID);
+    if (roomTypeId) found.add(roomTypeId);
+  }
+  const productIds = requestBody.originalRoomProductIds;
+  if (Array.isArray(productIds)) {
+    for (const productId of productIds) {
+      const id = idToString(productId);
+      if (id) found.add(id);
+    }
+  }
+  return [...found];
+}
+
+/**
+ * 携程的成功判定 —— **必须按 `endpointId` 分支**，三个端点的响应形状两两不同：
+ *
+ * ```
+ * batchsetroomprice            {code:200, data:{roomPriceSetResults:[{resultCode}]}}
+ * setRCRoomPrice               {resStatus:{rcode}, ResponseStatus:{Ack}}
+ * setbatchroombookablestatus   {code:200, returnCode:"200", data:null}   ← 无内层明细
+ * ```
+ *
+ * ## ⚠️ 为什么不能只靠响应形状自辨
+ *
+ * 房态成功是「`code:200` + 用不了的 `data`」，而改价老模块**响应结构异常**时也是这个样子
+ * —— 两者形状上无法区分。真按形状猜，房态的每一次成功都会走进改价老模块分支，然后卡在
+ * `data === null` 上判成失败，而失效方式是**静默漏报**：日志上与「用户根本没改房态」
+ * 一模一样（2026-08-11 携程改价那次就吃过「监听被悄悄停掉」查不出来的亏）。
+ *
+ * 改价两套模块之间仍沿用形状自辨（`resStatus` 在不在），因为那两个都是**改价**、
+ * 判据本身也没有交叉；房态则必须靠 `endpointId` 明确切开。
+ */
+function isCtripSaveSuccessful(responseBody: string, endpointId: string): boolean {
   let parsed: unknown;
   try {
     parsed = JSON.parse(responseBody);
@@ -187,6 +282,8 @@ function isCtripSaveSuccessful(responseBody: string): boolean {
 
   const envelope = parsed as Record<string, unknown>;
 
+  if (endpointId === ROOM_STATUS_ENDPOINT_ID) return isRoomStatusSuccessful(envelope);
+
   // 新模块 `setRCRoomPrice`：`{ taskId, resStatus: {rcode}, ResponseStatus: {Ack, Errors} }`
   // 两个都要看：`rcode` 是业务码，`Ack`/`Errors` 是携程 SOA 框架层的结果。
   if (envelope.resStatus !== undefined || envelope.ResponseStatus !== undefined) {
@@ -194,6 +291,14 @@ function isCtripSaveSuccessful(responseBody: string): boolean {
   }
 
   // 老模块 `batchsetroomprice`：外层 code + 每家门店的 resultCode。
+  //
+  // 只看外层 `code === 200` 不够 —— 携程这类接口的惯例是外层表示「请求处理完了」，
+  // 单条业务失败（限价、佣金校验 `checkIllegalCommission` 不过等）体现在
+  // `roomPriceSetResults[].resultCode`。抖音那边有 `103810209 限价规则` 的真实失败样本，
+  // 携程的 `checkIllegalCommission: "T"` 说明同样存在服务端拒绝的路径。
+  //
+  // 判定取**保守**口径：任何一条 `resultCode !== 0` 就整体判失败，不上报。宁可漏报一次
+  // 部分成功的改价，也不让 RMS 按一个没生效的价格去跟价（跟价错了是脏数据，漏报只是少跟一次）。
   if (envelope.code !== 200) return false;
 
   const data = envelope.data;
@@ -242,6 +347,69 @@ function isNewModuleSuccessful(envelope: Record<string, unknown>): boolean {
   return true;
 }
 
+/**
+ * 房态端点的成功判定。踩点 `房量01.md` 的成功样本（开房/关房共用）：
+ *
+ * ```json
+ * { "code": 200, "message": "房态设置成功。", "totalCount": 0,
+ *   "returnCode": "200", "data": null,
+ *   "otherData": "房态设置成功。", "extendData": [] }
+ * ```
+ *
+ * ⚠️ **`data` 是 `null`** —— 这个端点没有内层结果明细，成功与否只能看外层。绝不能套用
+ * 改价老模块查 `data.roomPriceSetResults[].resultCode` 的路径，那会把每次成功都判成失败。
+ *
+ * 取 `code` 与 `returnCode` **双重确认**：携程两个都给了，比只认一个稳。不认 `message`
+ * 的中文文案 —— 文案随时可能改，用它当判据太脆。
+ *
+ * ⚠️ **只有成功样本，没有失败样本**：携程拒绝房态操作时的响应形状未知，所以这个判定
+ * 存在「过松」的风险（把某种失败当成功）。真机若能构造一次失败应抓样本回填踩点文档并收紧。
+ */
+function isRoomStatusSuccessful(envelope: Record<string, unknown>): boolean {
+  return envelope.code === 200 && envelope.returnCode === '200';
+}
+
+/**
+ * 房态（开房/关房）的解读。开关方向不在这里判 —— `roomStatus` 的 `G`/`N` 原样留在
+ * `changeRaw` 里交给 RMS，desktop 不解读渠道语义。规格见 `./room-status-payload.ts`。
+ */
+function parseRoomStatus(observed: AmountSaveObserved, logger: AppLogger): AmountParseResult | null {
+  const hotelIds = roomStatusHotelIdsOf(observed.requestBody);
+  const roomIds = roomStatusRoomIdsOf(observed.requestBody);
+
+  // 硬错误判定：一个房型都取不到，说明拦到的不是房态操作 —— 上报出去 RMS 也处理不了。
+  if (roomIds.length === 0) {
+    logger.warn('Ctrip room status: request body had no room identifiers', {
+      endpointId: observed.endpointId,
+      requestBodyKeys: Object.keys(observed.requestBody),
+    });
+    return null;
+  }
+
+  // 与改价老模块同样的单值契约代价：一次可能改多家门店，`otaHotelId` 只放得下第一家。
+  // 记 info 备查 —— 真出现时要确认 RMS 侧是遍历 changeRaw 全量处理的。
+  if (hotelIds.length > 1) {
+    logger.info('Ctrip room status: one save spans multiple hotels', {
+      endpointId: observed.endpointId,
+      hotelIds,
+    });
+  }
+
+  return {
+    kind: 'report',
+    report: {
+      source: CTRIP_CHANNEL,
+      changeType: 'roomStatus',
+      endpointId: observed.endpointId,
+      endpointUrl: observed.endpointUrl,
+      // 房态请求体里 hotelID 是有的（不像改价新模块那样缺失）；真缺了也不阻断，留空串
+      // 让 RMS 按房型反查。
+      otaHotelId: hotelIds[0] ?? '',
+      changeRaw: toCtripRoomStatusRaw(observed.requestBody),
+    },
+  };
+}
+
 export function createCtripAmountChangeAdapter(logger: AppLogger): AmountChangeAdapter {
   return {
     watchedEndpoints: WATCHED_ENDPOINTS,
@@ -255,6 +423,11 @@ export function createCtripAmountChangeAdapter(logger: AppLogger): AmountChangeA
     isSuccessful: isCtripSaveSuccessful,
 
     parse(observed: AmountSaveObserved): AmountParseResult | null {
+      // 房态与改价的请求体没有一个字段同名，分流后各走各的，不共用取值逻辑。
+      if (observed.endpointId === ROOM_STATUS_ENDPOINT_ID) {
+        return parseRoomStatus(observed, logger);
+      }
+
       const hotelIds = hotelIdsOf(observed.requestBody);
       const roomTypeIds = roomTypeIdsOf(observed.requestBody);
       const roomProductIds = roomProductIdsOf(observed.requestBody);
@@ -293,6 +466,7 @@ export function createCtripAmountChangeAdapter(logger: AppLogger): AmountChangeA
         kind: 'report',
         report: {
           source: CTRIP_CHANNEL,
+          changeType: 'price',
           endpointId: observed.endpointId,
           endpointUrl: observed.endpointUrl,
           // 单值契约的代价：取第一家。新模块没有门店 ID 时是空串（尽力而为，不阻断）。

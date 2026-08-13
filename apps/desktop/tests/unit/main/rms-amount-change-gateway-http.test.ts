@@ -11,6 +11,7 @@ const REPORT: OtaAmountChangeReport = {
   loginUserName: '张三',
   source: toChannelId('ctrip'),
   endpointUrl: 'https://ebooking.ctrip.com/restapi/soa2/setRCRoomPrice',
+  changeType: 'price',
   endpointId: 'setRCRoomPrice',
   otaHotelId: '',
   channelAccountId: '12324831',
@@ -56,10 +57,24 @@ describe('HttpRmsAmountChangeGateway', () => {
     expect(bodyOf(fetch)).toMatchObject({
       operationId: REPORT.operationId,
       source: 'ctrip',
+      changeType: 'price',
       endpointId: 'setRCRoomPrice',
       otaHotelId: '',
       submitAt: REPORT.submitAt,
     });
+  });
+
+  /** changeType 决定 RMS 怎么分流这条上报，漏发等于让服务端无从判断改的是价还是量态。 */
+  it('sends changeType for a room-status report too', async () => {
+    const { gateway, fetch } = setup({ code: 0, data: { id: 1, status: 'DISPATCHED', items: 1 } });
+
+    await gateway.reportAmountChange({
+      ...REPORT,
+      changeType: 'roomStatus',
+      endpointId: 'setbatchroombookablestatus',
+    });
+
+    expect(bodyOf(fetch)).toMatchObject({ changeType: 'roomStatus' });
   });
 
   it('omits the operator fields — the server takes identity from the JWT, not the payload', async () => {

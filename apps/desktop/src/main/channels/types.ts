@@ -82,8 +82,25 @@ export interface AmountChangeAdapter {
    * 必须由适配器判断，不能写在机制层：抖音看 `BaseResp.StatusCode === 0`，其余渠道的
    * 响应形状完全不同。这一步是防脏数据的关键——渠道自己都没保存成功却上报，会让 RMS
    * 按一个不存在的价格去跟价，造成渠道间价格不一致。
+   *
+   * ## ⚠️ 为什么要给 `endpointId`：同一渠道的不同端点，响应形状可以完全不同
+   *
+   * 携程三个端点两两不同，且**光看响应体分不出自己在判哪一个**：
+   *
+   * ```
+   * batchsetroomprice            {code:200, data:{roomPriceSetResults:[{resultCode}]}}
+   * setRCRoomPrice               {resStatus:{rcode}, ResponseStatus:{Ack}}
+   * setbatchroombookablestatus   {code:200, returnCode:"200", data:null}  ← 没有内层明细
+   * ```
+   *
+   * 房态成功是「`code:200` + 用不了的 `data`」，改价响应结构异常也是「`code:200` + 用不了的
+   * `data`」—— 靠形状自辨必然把房态的每一次成功都判成失败，而失效方式是**静默漏报**：
+   * 日志上与「用户根本没改房态」一模一样。
+   *
+   * `endpointId` 在机制层本来就算好了（`amount-save-capture.ts` 的 `matchEndpoint`），
+   * 传下来零成本。渠道只有单一端点、或响应形状本就一致时（抖音、美团）忽略这个参数即可。
    */
-  isSuccessful(responseBody: string): boolean;
+  isSuccessful(responseBody: string, endpointId: string): boolean;
 
   /**
    * 把原始事实解读成上报体。

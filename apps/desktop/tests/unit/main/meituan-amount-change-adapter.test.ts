@@ -261,7 +261,7 @@ describe('美团价量态改动适配器', () => {
   describe('isSuccessful', () => {
     it('踩点的真实成功响应判为成功', () => {
       const adapter = createMeituanAmountChangeAdapter(createLogger());
-      expect(adapter.isSuccessful(REAL_SUCCESS_RESPONSE)).toBe(true);
+      expect(adapter.isSuccessful(REAL_SUCCESS_RESPONSE, 'updatePriceV2')).toBe(true);
     });
 
     it('网关码非 10000 判为失败', () => {
@@ -269,6 +269,7 @@ describe('美团价量态改动适配器', () => {
       expect(
         adapter.isSuccessful(
           JSON.stringify({ code: 10001, error: '限价规则不通过', data: null, success: false }),
+          'updatePriceV2',
         ),
       ).toBe(false);
     });
@@ -276,13 +277,13 @@ describe('美团价量态改动适配器', () => {
     it('code 为 10000 但 success 为 false 时仍判失败（保守口径）', () => {
       const adapter = createMeituanAmountChangeAdapter(createLogger());
       expect(
-        adapter.isSuccessful(JSON.stringify({ code: 10000, error: null, success: false })),
+        adapter.isSuccessful(JSON.stringify({ code: 10000, error: null, success: false }), 'updatePriceV2'),
       ).toBe(false);
     });
 
     it('响应体不是 JSON 时判为失败', () => {
       const adapter = createMeituanAmountChangeAdapter(createLogger());
-      expect(adapter.isSuccessful('<html>502 Bad Gateway</html>')).toBe(false);
+      expect(adapter.isSuccessful('<html>502 Bad Gateway</html>', 'updatePriceV2')).toBe(false);
     });
   });
 
