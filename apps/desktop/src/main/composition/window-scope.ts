@@ -8,7 +8,6 @@
 import { app, type BrowserWindow } from 'electron';
 import { BrowserManager } from '../browser/browser-manager';
 import { amountChangeAdapters, hotelProbes, loginUrlMatchers } from '../channels/registry';
-import { removeSelectionKeysExpression } from '../channels/binding-reset';
 import { BrowserCookieImporter } from '../cookie-import/browser-cookie-importer';
 import { registerAuthHandlers } from '../ipc/auth-handlers';
 import { registerBrowserHandlers } from '../ipc/browser-handlers';
@@ -161,15 +160,8 @@ export function createWindowScope(scope: AppScope): WindowScope {
     browserManager,
     loginDetector,
     otaCredentialRepository: scope.otaCredentialRepository,
-    // 绑定前清掉渠道记住的门店选择。脚本由 `channels/binding-reset.ts` 生成
-    // （渠道知识在那边），这里只负责把它送进标签页 —— ota-tab 层不得 import browser/。
-    removeSelectionKeys: async (tabId, prefixes) => {
-      const removed = await browserManager.runInTab(
-        tabId,
-        removeSelectionKeysExpression(prefixes),
-      );
-      return Array.isArray(removed) ? (removed as readonly string[]) : null;
-    },
+    readInjectableCookies: (partitionName) =>
+      scope.sessionFactory.readInjectableCookies(partitionName),
     logger,
   });
 

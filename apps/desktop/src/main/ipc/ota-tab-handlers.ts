@@ -31,8 +31,12 @@ export interface OtaTabOrchestrator {
     intent?: OtaTabIntent,
   ): Promise<BrowserTab>;
   openExisting(credentialId: string, intent?: OtaTabIntent): BrowserTab;
-  /** 复用账号原有 partition（不再新建），故不需要 environment。 */
-  openExistingForBinding(credentialId: string, intent?: OtaTabIntent): BrowserTab;
+  /** 开一份新 partition 并注入原账号 cookie（为什么必须新建见 `OtaTabService`）。 */
+  openExistingForBinding(
+    environment: PendingPartition['environment'],
+    credentialId: string,
+    intent?: OtaTabIntent,
+  ): Promise<BrowserTab>;
 }
 
 type RegisterOtaTabHandlersOptions = Readonly<{
@@ -76,7 +80,8 @@ export function registerOtaTabHandlers({
     IPC_CHANNELS.otaTab.openExistingForBinding,
     z.tuple([otaCredentialIdSchema, otaTabIntentSchema.nullish().default(null)]),
     '登录凭据标识无效',
-    (credentialId, intent) => service.openExistingForBinding(credentialId, intent ?? undefined),
+    (credentialId, intent) =>
+      service.openExistingForBinding('prod', credentialId, intent ?? undefined),
   );
 
   return () => registry.dispose();

@@ -9,7 +9,6 @@
 import { toOtaCredentialId, type ChannelId } from '../ids';
 import type { OtaCredentialRepository } from '../database/ota-credential-repository';
 import { otaChannelLandingUrl } from '../channels/landing-url';
-import { bindingResetKeyPrefixes } from '../channels/binding-reset';
 import type { BrowserTab } from '../../shared/browser';
 import type { AppLogger } from '../../shared/logging';
 import { readImportedCookies } from '../cookie-import/store';
@@ -26,21 +25,18 @@ type BrowserManagerTabOpener = Pick<
   'createAndNewPartition' | 'createWithAlreadyPartition'
 >;
 
+type CookiesSetDetails = import('electron').CookiesSetDetails;
+
 export type OtaTabServiceDependencies = Readonly<{
   userDataDir: string;
   browserManager: BrowserManagerTabOpener;
   loginDetector: Pick<LoginDetector, 'register'>;
   otaCredentialRepository: Pick<OtaCredentialRepository, 'findById'>;
   /**
-   * 在指定标签页里按前缀删 localStorage 键，返回被删的键名。
-   *
-   * 窄回调：本层不得 import `browser/`，由 composition root 接到 BrowserManager
-   * 的页面脚本执行能力。绑定流程用它清掉渠道记住的「上次选的门店」。
+   * 读出一份登录态里可再注入的 cookie。由 composition root 接到
+   * `SessionFactory.readInjectableCookies`——本层不得 import `browser/`。
    */
-  removeSelectionKeys: (
-    tabId: string,
-    prefixes: readonly string[],
-  ) => Promise<readonly string[] | null>;
+  readInjectableCookies: (partitionName: string) => Promise<readonly CookiesSetDetails[]>;
   logger: AppLogger;
 }>;
 
@@ -101,56 +97,57 @@ export class OtaTabService {
   }
 
   /**
-   * 「用这个账号走一次绑定」——绑定流程专用。
+   * 「用这个账号走一次绑定」——绑定流程专用。开**一份新的 partition**，把账号原有
+   * 的 cookie 注入进去。
    *
-   * 与 `openExisting` 的差别只有一处：绑定要求用户**这一次**重新选门店，而渠道会
-   * 记住上次的选择（抖音的 `core:PoiSwitch:*`），直接跳过选公司页落到上次那家门店
-   * ——一个账号管多家门店时，第二家就绑不了了。所以开 tab 后要把那条记忆删掉。
+   * ## 为什么必须新建，而不是复用原 partition
    *
-   * 此前的做法是**每次绑定新开一份 partition**、把 cookie 搬过去、把 localStorage
-   * 甩掉。目的一样，代价是每绑一次泄漏一份 partition，且 cookie 搬运可能丢字段。
-   * 现在复用原 partition + 按前缀删键：partition 零产出，cookie 一个字节不动。
+   * 绑定要求用户**这一次**重新选门店（一个抖音账号可管多家）。复用原 partition
+   * 打开 `/p/login` 会直接落到上次那家门店，用户没有选择机会。
    *
-   * 方法名说的是**意图**（为绑定而打开）不是手段（换 partition / 删键）——手段这次
-   * 就换过一轮，名字不该跟着作废。删哪些键由渠道自己声明，见 `binding-reset.ts`；
-   * 没有声明的渠道（携程、美团都没有选店页）连脚本都不注入。
+   * 2026-08-14 用 CDP 逐层排查过，**本地存储不是原因**，三条路全部实测无效：
+   *
+   * | 试过的做法 | 实测结果 |
+   * |---|---|
+   * | 删 localStorage 的 `core:PoiSwitch:*` 键 | ❌ 日志确认删掉了（`removedCount: 1`），页面照样跳。该键是页面落地后**抄下来的结果**，不是原因 |
+   * | 清 Service Worker（`clearStorageData` 与 `clearData` 两种 API 都试过） | ❌ 用 `Network.setBypassServiceWorker` 绕开 SW 后照样跳 —— SW 只是缓存了本来就会发生的跳转 |
+   * | 拦掉页面自身的跳转，停在 `/p/login` | ❌ 停住后该页无可见内容，它只是中转页，选公司页不在这个地址上 |
+   *
+   * 真正的原因在**服务端**：`/p/login` 的页面脚本先调 `/passport/account/info/v2/`，
+   * 从响应里拿到「这个会话上次用的 life_account_id」，然后自己跳过去（CDP 实测
+   * `reason=scriptInitiated`，全程 HTTP 200 无 302）。这份记忆绑在登录会话上，
+   * 清任何本地存储都动不了它。
+   *
+   * 新建 partition 之所以有效：注入的 cookie 与原会话并不完全等价
+   * （`readInjectableCookies` 搬不动 session cookie 等），抖音因此不认得「上次那家」，
+   * 只好重新问。**它是靠这个差异生效的**，不是我们主动控制的机制 —— 抖音若改了判定，
+   * 这条路会再次失效；届时请从上面的排查结论重新找入口，**不要再试一遍那三条**。
+   *
+   * ## 代价与它的归宿
+   *
+   * 每次绑定留下一份新 partition。`e977c06` 当年记的是「已知代价，partition 生命周期
+   * 治理另行处理」——那件事已经做完：这里创建的 partition 会登记进 `partitions.json`
+   * 账本（`pending`），认领后转 `claimed`，没被认领的由启动清理当孤儿回收。
    */
-  openExistingForBinding(credentialId: string, intent?: OtaTabIntent): BrowserTab {
+  async openExistingForBinding(
+    environment: PendingPartition['environment'],
+    credentialId: string,
+    intent?: OtaTabIntent,
+  ): Promise<BrowserTab> {
     const credential = this.deps.otaCredentialRepository.findById(toOtaCredentialId(credentialId));
     if (!credential) throw new Error('未找到该登录凭据');
 
-    const tab = this.deps.browserManager.createWithAlreadyPartition(
-      credential.partitionName,
+    const cookies = await this.deps.readInjectableCookies(credential.partitionName);
+    const { tab, partitionName } = await this.deps.browserManager.createAndNewPartition(
+      environment,
       credential.channel,
       otaChannelLandingUrl(credential.channel),
+      { importedCookies: cookies },
     );
     this.deps.loginDetector.register(tab.id, credential.channel, intent);
-    void this.resetSelectionMemory(tab.id, credential.channel);
+    // 登记进账本：这正是 e977c06 当年欠下、本轮补上的那一环。
+    await this.rememberPendingPartition(partitionName, credential.channel, environment);
     return tab;
-  }
-
-  /**
-   * 删掉渠道记住的「上次选的门店」。失败**不阻断绑定**：最坏结果是页面跳过选店页，
-   * 用户看得见（停在了某家门店而不是选择页），比因为清理失败连标签页都开不出来强。
-   */
-  private async resetSelectionMemory(tabId: string, channel: ChannelId): Promise<void> {
-    const prefixes = bindingResetKeyPrefixes(channel);
-    if (prefixes.length === 0) return;
-
-    try {
-      const removed = await this.deps.removeSelectionKeys(tabId, prefixes);
-      // 删了 0 个是**要警惕的信号**：键名可能被渠道改了，绑定会静默地跳过选店页。
-      // 日志是唯一能指认这件事的线索，所以两种结果都记。
-      this.deps.logger.info('Binding selection memory reset', {
-        channel,
-        removedCount: removed?.length ?? -1,
-      });
-    } catch (error) {
-      this.deps.logger.warn('Binding selection memory could not be reset', {
-        channel,
-        errorName: error instanceof Error ? error.name : 'UnknownError',
-      });
-    }
   }
 
   openExisting(credentialId: string, intent?: OtaTabIntent): BrowserTab {

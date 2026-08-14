@@ -52,42 +52,49 @@ session.clearStorageData({ storages: ['localstorage'] })   // cookie 原样保�
 | 现状：新建 partition + 搬 cookie | +1 份 partition | 靠 `readInjectableCookies` 搬运，可能丢字段 | 搬运不完整 → 登录态失效 |
 | **改为：复用 + 只清 localstorage** | **0** | **原地不动，零搬运** | 需验证抖音是否真的只依赖 localStorage |
 
-### 3.1.1 ✅ 已实测定位到那条记录（2026-08-14）
+### 3.1.1 🔴 三次误判与最终根因（2026-08-14 真机 CDP 排查）
 
-用户澄清了业务场景（**一个抖音账号管多家门店**，绑第 2 家时必须能重新选店，
-不能靠"换账号"重置），并确认复用 partition 会跳到上次那家门店、流程走不通
-—— 这个前提**成立且已被多次实测**，不是过时结论。
+**入口 5 最终维持「新建 partition」，本节记录为什么其余三条路都不行。**
+每一条都真机试过，避免下次有人重走。
 
-直接扫真机 partition 的存储，一击命中：
+| # | 判断 | 做法 | 实测结果 |
+|---|---|---|---|
+| v1 | `e977c06`：复用 partition 带着 localStorage 的选店记录 | 新建 partition 甩掉它 | ✅ 有效，但**归因是错的** |
+| v2 | 沿用 v1 归因 | 只删 `core:PoiSwitch:*` 键 | ❌ 日志确认 `removedCount: 1` 删掉了，页面照样跳。该键是页面落地后**抄下来的结果** |
+| v3 | Service Worker 拦截导航（`fromSW=true`） | `clearStorageData` / `clearData` 两种 API 清 SW | ❌ 用 `Network.setBypassServiceWorker` 绕开 SW 后**照样跳** —— SW 只是缓存了本来就会发生的跳转 |
+| v4 | 页面 JS 自己跳（`reason=scriptInitiated`） | 拦掉跳转停在 `/p/login` | ❌ 停住后该页无可见内容，它只是中转页，选公司页不在这个地址 |
+
+**真正的根因在服务端**：`/p/login` 的页面脚本先调 `/passport/account/info/v2/`，
+从响应里拿到「这个会话上次用的 `life_account_id`」，然后自己跳过去。CDP 实证：
 
 ```
-$ strings <partition>/Local\ Storage/leveldb/*
-core:PoiSwitch:poi_7202809170041505832_104680039472
-                   ↑ 门店 poi_id        ↑ 账号 uuid（= credential.channelAccountId）
+① /passport/account/info/v2/?aid=303313&language=cn                      ← 无参数
+② /passport/account/info/v2/?...&root_life_account_id=7202809170041505832  ← 参数来自①的响应
+[导航发起] reason=scriptInitiated   全程 HTTP 200，无 302
 ```
 
-| 存储 | 是否有选店记录 |
-|---|---|
-| **localStorage** | ✅ `core:PoiSwitch:poi_<poiId>_<uuid>` —— **唯一一处** |
-| IndexedDB | ❌ 扫过 `poiswitch` / `poi_72` / `current_poi` / `selectedPoi`，全无 |
-| sessionStorage | 随 tab 关闭自然消失，不在范围 |
+这份记忆绑在**登录会话**上，清任何本地存储都动不了它。
 
-**方案成立。** 且键名带账号 uuid，说明抖音自己就是按「账号 + 门店」记的。
+### 3.1.2 定稿：维持新建 partition，但补上账本
 
-### 3.1.2 两档实现，建议从保守档起步
+`e977c06` 的做法之所以有效：注入的 cookie 与原会话**不完全等价**
+（`readInjectableCookies` 搬不动 session cookie 等），抖音因此不认得「上次那家」，
+只好重新问。
 
-| | 档 A：清整个 localStorage | 档 B：只删 `core:PoiSwitch:*` 键 |
-|---|---|---|
-| 手段 | `clearStorageData({ storages: ['localstorage'] })` | 在页面上下文 `localStorage.removeItem(key)` |
-| 影响面 | 抖音全部 localStorage（含埋点、AB 配置、Garfish 微前端缓存） | 仅选店记录 |
-| 风险 | 未知副作用：抖音把登录相关状态也放 localStorage 的话可能掉登录态 | 几乎为零 |
-| 依赖 | Electron 官方 API | 依赖键名前缀 `core:PoiSwitch:`，抖音改名即失效 |
+⚠️ **这是靠差异生效，不是我们主动控制的机制。** 抖音若改了判定方式，这条路会再次
+失效 —— 届时应从 §3.1.1 的排查结论重新找入口，**不要再试一遍那四条**。该警告已写进
+`OtaTabService.openExistingForBinding` 的方法注释，与代码同处一地。
 
-**建议 B 起步、A 兜底**：先按前缀删键（配一条「删了几个」的日志），真机验证绑定
-流程能停在选公司页；若抖音改了键名导致失效，再退到档 A。两者都不必新建 partition。
+代价（每次绑定留一份 partition）由本 change 的账本 + 启动清理接手，这正是当年那句
+「已知代价，partition 生命周期治理另行处理」所指望的。真机验证（2026-08-15）：
 
-⚠️ 档 B 需要在 tab 加载抖音页面**之后、导航到选店页之前**执行，时机上挂在
-`OtaTabService` 开 tab 后的第一次导航更稳妥 —— 具体挂点在实现时定。
+```
+00:10:37  Login session created → Browser tab created  915ef78a
+账本      915ef78a  pending           ← 绑定时新建，已记账
+          f5740df2  claimed → 5133e179（走进内蒙古）  ← 用户选完公司后的那份
+```
+
+中间产物 `915ef78a` 留在 `pending`，下次启动按孤儿回收 —— 不再是无从追溯的僵尸。
 
 ### 3.1.3 ⚠️ 酒店管理不是「1 个入口」，是 5 条路（用户提醒，已核实）
 

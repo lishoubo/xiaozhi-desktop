@@ -23,13 +23,6 @@ afterEach(() => {
 const CTRIP = toChannelId('ctrip');
 const DOUYIN = toChannelId('douyin');
 
-/** 清理是 fire-and-forget 的：开 tab 同步返回，删键在微任务里跑完。 */
-async function flushMicrotasks(): Promise<void> {
-  await Promise.resolve();
-  await Promise.resolve();
-  await Promise.resolve();
-}
-
 function setup(credential?: unknown) {
   const userDataDir = tempUserDataDir();
   const tab = { id: 'tab-1', channelId: CTRIP };
@@ -38,17 +31,25 @@ function setup(credential?: unknown) {
     createWithAlreadyPartition: vi.fn().mockReturnValue(tab),
   };
   const loginDetector = { register: vi.fn() };
-  const removeSelectionKeys = vi.fn().mockResolvedValue([]);
+  const readInjectableCookies = vi.fn().mockResolvedValue([]);
   const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
   const service = new OtaTabService({
     userDataDir,
     browserManager: browserManager as never,
     loginDetector,
     otaCredentialRepository: { findById: vi.fn().mockReturnValue(credential ?? null) },
-    removeSelectionKeys,
+    readInjectableCookies,
     logger,
   });
-  return { service, browserManager, loginDetector, userDataDir, tab, removeSelectionKeys, logger };
+  return {
+    service,
+    browserManager,
+    loginDetector,
+    userDataDir,
+    tab,
+    readInjectableCookies,
+    logger,
+  };
 }
 
 describe('OtaTabService', () => {
@@ -142,84 +143,67 @@ describe('OtaTabService', () => {
   });
 
   /**
-   * 绑定专用：**复用**账号原有 partition。此前是新开一份 + 搬 cookie，为的是甩掉
-   * 「上次选的门店」；现在改成原地删那条记忆（见下一条用例），partition 零产出、
-   * cookie 一个字节不动。
+   * 绑定专用：开**新** partition 并注入原账号 cookie。
+   *
+   * 为什么不能复用原 partition：本地存储不是原因（删 localStorage 键、清 Service
+   * Worker、拦跳转三条路都实测无效），抖音把「上次选哪家公司」记在服务端会话上。
+   * 新建 partition 靠 cookie 注入的不完全等价性生效，详见 OtaTabService 的注释。
    */
-  it('openExistingForBinding() 复用原 partition，不再新建也不搬 cookie', () => {
-    const { service, browserManager, loginDetector } = setup({
+  it('openExistingForBinding() 开新 partition 并注入原账号 cookie', async () => {
+    const { service, browserManager, loginDetector, readInjectableCookies } = setup({
       id: toOtaCredentialId('credential-1'),
-      channel: CTRIP,
+      channel: DOUYIN,
       partitionName: 'persist:existing',
     });
+    readInjectableCookies.mockResolvedValue([{ name: 'sid', value: 'v1' }]);
 
-    service.openExistingForBinding('credential-1', {
+    await service.openExistingForBinding('prod', 'credential-1', {
       kind: 'bind-hotel',
       requestId: 'req-1',
     });
 
-    // 复用账号原有 partition —— 不再新建、不再搬 cookie。
-    expect(browserManager.createWithAlreadyPartition).toHaveBeenCalledWith(
-      'persist:existing',
-      CTRIP,
+    // cookie 取自账号原有的 partition……
+    expect(readInjectableCookies).toHaveBeenCalledWith('persist:existing');
+    // ……但开的是新 partition，不是复用那一个。
+    expect(browserManager.createWithAlreadyPartition).not.toHaveBeenCalled();
+    expect(browserManager.createAndNewPartition).toHaveBeenCalledWith(
+      'prod',
+      DOUYIN,
       expect.any(String),
+      { importedCookies: [{ name: 'sid', value: 'v1' }] },
     );
-    expect(browserManager.createAndNewPartition).not.toHaveBeenCalled();
-    expect(loginDetector.register).toHaveBeenCalledWith('tab-1', CTRIP, {
+    expect(loginDetector.register).toHaveBeenCalledWith('tab-1', DOUYIN, {
       kind: 'bind-hotel',
       requestId: 'req-1',
     });
   });
 
-  /** 抖音会记住上次选的门店，绑第二家时必须先删掉那条记忆，否则跳过选店页。 */
-  it('openExistingForBinding() 对抖音清掉门店选择记忆', async () => {
-    const { service, removeSelectionKeys } = setup({
+  /**
+   * 新建的 partition 必须进账本 —— 这正是 e977c06 当年欠下的那一环：
+   * 没人记账，绑定留下的中间 partition 就成了无从追溯的孤儿。
+   */
+  it('openExistingForBinding() 把新 partition 登记进账本', async () => {
+    const { service, userDataDir } = setup({
       id: toOtaCredentialId('credential-1'),
       channel: DOUYIN,
-      partitionName: 'persist:douyin-existing',
-    });
-
-    service.openExistingForBinding('credential-1');
-    await flushMicrotasks();
-
-    expect(removeSelectionKeys).toHaveBeenCalledWith('tab-1', ['core:PoiSwitch:']);
-  });
-
-  /** 携程/美团后台没有选店页，没有可清的记忆 —— 连脚本都不该注入。 */
-  it('openExistingForBinding() 对携程不注入清理脚本', async () => {
-    const { service, removeSelectionKeys } = setup({
-      id: toOtaCredentialId('credential-1'),
-      channel: CTRIP,
       partitionName: 'persist:existing',
     });
 
-    service.openExistingForBinding('credential-1');
-    await flushMicrotasks();
+    await service.openExistingForBinding('prod', 'credential-1');
 
-    expect(removeSelectionKeys).not.toHaveBeenCalled();
+    const ledger = JSON.parse(
+      fs.readFileSync(path.join(userDataDir, 'partitions.json'), 'utf8'),
+    ) as { partitionName: string; state: { kind: string } }[];
+    expect(ledger).toEqual([
+      expect.objectContaining({ state: { kind: 'pending' } }),
+    ]);
   });
 
-  /** 清理是尽力而为：失败只记警告，标签页照常打开，用户仍能看见页面自己判断。 */
-  it('openExistingForBinding() 清理失败不影响开标签页', async () => {
-    const { service, removeSelectionKeys, logger } = setup({
-      id: toOtaCredentialId('credential-1'),
-      channel: DOUYIN,
-      partitionName: 'persist:douyin-existing',
-    });
-    removeSelectionKeys.mockRejectedValue(new Error('tab gone'));
-
-    expect(() => service.openExistingForBinding('credential-1')).not.toThrow();
-    await flushMicrotasks();
-
-    expect(logger.warn).toHaveBeenCalledWith(
-      'Binding selection memory could not be reset',
-      expect.objectContaining({ channel: DOUYIN }),
-    );
-  });
-
-  it('openExistingForBinding() 找不到凭据时报错', () => {
+  it('openExistingForBinding() 找不到凭据时报错', async () => {
     const { service } = setup();
 
-    expect(() => service.openExistingForBinding('credential-1')).toThrow('未找到该登录凭据');
+    await expect(service.openExistingForBinding('prod', 'credential-1')).rejects.toThrow(
+      '未找到该登录凭据',
+    );
   });
 });

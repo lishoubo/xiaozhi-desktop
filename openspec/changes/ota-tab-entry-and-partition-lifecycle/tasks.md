@@ -140,19 +140,30 @@ partition，现在 **cookie 数为 0**。`a033f181`（sandouhotel）只剩 7 条
 - [x] `close(tabId)` 只重试**该 tab 自己的** partition。本次关闭唯一新增的事实是
       「它少了一个占用者」，与集合里其他条目无关 —— 原实现的全量重扫是事故放大器
 
-### ③ 第 5 条路 + ③b 重命名
+### ③ 第 5 条路 —— ⚠️ 三次尝试失败，最终维持新建 partition
 
-- [x] `channels/binding-reset.ts` 🆕 渠道声明「绑定前要清哪些 localStorage 键前缀」，
-      抖音 `core:PoiSwitch:`，携程/美团不注册 → 连脚本都不注入
-- [x] `openExistingForBinding` 复用原 partition，开 tab 后删键；**cookie 零搬运**
-- [x] `BrowserManager.runInTab()` 🆕 —— 页面脚本执行能力，脚本内容由调用方给，
-      本类不认识任何渠道
-- [x] 清理失败**不阻断绑定**（最坏是页面跳过选店页，用户看得见）
-- [x] 删了 0 个也记 info：键名被渠道改掉时，日志是唯一线索
+**初稿设想「复用 partition + 清本地存储」，四条路真机全败**（详见 design §3.1.1）：
+删 `core:PoiSwitch:` 键 ❌、清 Service Worker 两种 API ❌、绕开 SW ❌、拦跳转 ❌。
+
+根因是**服务端记着这个会话上次用的 `life_account_id`**，页面脚本读到就自己跳走
+（CDP 实证 `reason=scriptInitiated`，全程 200 无 302），清本地存储动不了它。
+
+- [x] 维持 `e977c06` 的做法：新建 partition + 注入原账号 cookie
+- [x] **但补上账本登记**（`recordPartitionCreated`）—— 这正是当年那句「已知代价，
+      partition 生命周期治理另行处理」欠下的一环
+- [x] 四条失败路径 + 根因写进 `openExistingForBinding` 方法注释，并注明
+      「这条路靠 cookie 不完全等价生效、抖音改判定就会再失效」的警告
+- [x] ❌ 删除 `channels/binding-reset.ts` 与 `BrowserManager.runInTab()`
+      （基于错误诊断加的，已无用）
+- [x] 🔴 **真机验证通过**（2026-08-15）：绑定停在选公司页、成功绑定清水湾舒馨酒店；
+      账本记录 `915ef78a → pending`、`f5740df2 → claimed`
+
+### ③b 重命名
 - [x] 四层重命名：channel 字符串 / preload / service / renderer store 全部对齐
       （`open`→`openForNewLogin`、`createFromCookie`→`openWithImportedCookie`、
       `openExistingInFreshPartition`→`openExistingForBinding`）
-- [x] `openExistingForBinding` 不再需要 `environment` 参数（不新建 partition 了）
+- [x] 新名描述**意图**而非手段 —— 事实证明这个选择是对的：手段在本轮换了三轮
+      （复用+删键 → 复用+清SW → 回到新建 partition），名字一次都没作废
 
 ### ④ 账本（`file-store/partition-ledger.ts` 🆕）
 
