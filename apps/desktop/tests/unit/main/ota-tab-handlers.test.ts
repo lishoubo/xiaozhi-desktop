@@ -33,10 +33,10 @@ const TAB = { id: 'tab-1', channelId: 'douyin' };
 function setup() {
   const sender = {};
   const service = {
-    open: vi.fn(),
-    createFromCookie: vi.fn(),
+    openForNewLogin: vi.fn(),
+    openWithImportedCookie: vi.fn(),
     openExisting: vi.fn(() => TAB as never),
-    openExistingInFreshPartition: vi.fn().mockResolvedValue(TAB as never),
+    openExistingForBinding: vi.fn(() => TAB as never),
   };
   registerOtaTabHandlers({
     window: { webContents: sender },

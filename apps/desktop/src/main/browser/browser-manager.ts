@@ -28,6 +28,20 @@ export type TabNavigatedEvent = Readonly<{
 /** 标签页关闭后广播的事实，供订阅方清理自己按 tabId 维护的状态。 */
 export type TabClosedEvent = Readonly<{ tabId: string }>;
 
+export type BrowserManagerOptions = Readonly<{
+  /**
+   * 这个 partition 是否仍是某条 credential 的登录态。
+   *
+   * 窄回调而非仓储：`BrowserManager` 属于 window scope、不认识数据库，
+   * 由 composition root 接到 `OtaCredentialRepository.findByPartitionName`
+   * （与 `setPartitionRetirer` 同一套路）。
+   *
+   * 缺省实现返回 false —— 只在测试等未装配场景出现；生产装配**必须**传入，
+   * 否则退休清理会退化成事故前的行为。
+   */
+  isPartitionClaimed?: (partitionName: string) => boolean;
+}>;
+
 type ManagedTab = {
   id: string;
   channelId: string;
@@ -72,13 +86,17 @@ export class BrowserManager extends EventEmitter {
     active?.view.webContents.reload();
   };
 
+  private readonly isPartitionClaimed: (partitionName: string) => boolean;
+
   constructor(
     private readonly window: BrowserWindow,
     private readonly logger: AppLogger,
     sessionFactory: SessionFactory = new SessionFactory(logger),
+    options: BrowserManagerOptions = {},
   ) {
     super();
     this.sessionFactory = sessionFactory;
+    this.isPartitionClaimed = options.isPartitionClaimed ?? (() => false);
     this.window.webContents.on('before-input-event', this.handleShellInput);
   }
 
@@ -186,9 +204,25 @@ export class BrowserManager extends EventEmitter {
     tab.view.webContents.close();
     this.logger.info('Browser tab closed', { channelId: tab.channelId });
     this.emit('tab:closed', { tabId } satisfies TabClosedEvent);
-    for (const retiredPartition of this.retiredPartitions) {
-      void this.clearRetiredPartitionWhenUnused(retiredPartition).catch(() => {});
+    // 只重试**这个 tab 自己的** partition：本次关闭唯一新增的事实是「它少了一个
+    // 占用者」，与退休集合里其他条目无关。原实现在这里遍历整个集合，等于让每次
+    // 关标签页都去碰一遍所有待清项 —— 那是真机事故的放大器。
+    if (this.retiredPartitions.has(tab.partitionName)) {
+      void this.clearRetiredPartitionWhenUnused(tab.partitionName).catch(() => {});
     }
+  }
+
+  /**
+   * 在标签页里执行一段脚本并取回结果。**只给 `ota-tab` 层用**（绑定前清掉渠道
+   * 记住的门店选择），脚本内容由调用方决定 —— 本类不认识任何渠道。
+   *
+   * 标签页不存在或已销毁时返回 null 而不是抛错：调用方是「尽力而为」的清理，
+   * 用户提前关掉标签页不该被当成故障。
+   */
+  async runInTab(tabId: string, expression: string): Promise<unknown> {
+    const tab = this.tabs.get(tabId);
+    if (!tab || tab.view.webContents.isDestroyed()) return null;
+    return tab.view.webContents.executeJavaScript(expression);
   }
 
   /**
@@ -273,9 +307,32 @@ export class BrowserManager extends EventEmitter {
     if (tabCount > 0) this.logger.info('Browser workspace closed', { tabCount });
   }
 
+  /**
+   * 清空一份退休 partition 的存储。**不可逆**，两道守卫都通过才动手：
+   *
+   * - G1 没有标签页正在用它 —— 不通过则保留退休标记，等标签页关闭后补清
+   * - G2 没有 credential 指向它 —— 不通过则**撤销退休标记**，见下
+   *
+   * G2 是真机事故的直接教训（连续绑定多个美团账号后，5 个 credential 指向的
+   * partition 被清空，用户点账号只看到登录页）：原实现只问「有没有标签页开着」，
+   * 而标签页早就关了，于是把某个账号**当前**的登录态清掉了。
+   *
+   * G2 不通过时撤销标记而非保留：既然它已经是某条 credential 的登录态，
+   * 「退休」这个判断本身就是错的。留着标记的话，之后每一次关闭标签页都会重新
+   * 尝试清它，只要某一刻 credential 短暂不指向它（例如归并中途）就会得手。
+   */
   private async clearRetiredPartitionWhenUnused(partitionName: string): Promise<void> {
     const stillUsed = [...this.tabs.values()].some((tab) => tab.partitionName === partitionName);
     if (stillUsed) return;
+
+    if (this.isPartitionClaimed(partitionName)) {
+      this.retiredPartitions.delete(partitionName);
+      this.logger.warn('Retire cancelled: partition is claimed by a credential', {
+        partitionName,
+      });
+      return;
+    }
+
     try {
       await this.sessionFactory.clearAccountSession(partitionName);
       this.retiredPartitions.delete(partitionName);

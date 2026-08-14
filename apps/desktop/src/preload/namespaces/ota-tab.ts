@@ -11,10 +11,10 @@ export function createOtaTabApi(invoke: ValidatedInvoke) {
      * 同 `openExisting`，但换一份干净 partition（只带 cookie，不带上次的门店选择）。
      * 绑定流程用它，好让渠道重新问一次「要操作哪家门店」。
      */
-    openExistingInFreshPartition: (credentialId: string, intent?: OtaTabIntentDto) =>
+    openExistingForBinding: (credentialId: string, intent?: OtaTabIntentDto) =>
       invoke(
         browserTabSchema,
-        IPC_CHANNELS.otaTab.openExistingInFreshPartition,
+        IPC_CHANNELS.otaTab.openExistingForBinding,
         credentialId,
         intent,
       ),

@@ -8,6 +8,7 @@
 import { app, type BrowserWindow } from 'electron';
 import { BrowserManager } from '../browser/browser-manager';
 import { amountChangeAdapters, hotelProbes, loginUrlMatchers } from '../channels/registry';
+import { removeSelectionKeysExpression } from '../channels/binding-reset';
 import { BrowserCookieImporter } from '../cookie-import/browser-cookie-importer';
 import { registerAuthHandlers } from '../ipc/auth-handlers';
 import { registerBrowserHandlers } from '../ipc/browser-handlers';
@@ -53,7 +54,13 @@ export function createWindowScope(scope: AppScope): WindowScope {
   logger.info('Main window created');
 
   const tabEventBus = new TabEventBus();
-  const browserManager = new BrowserManager(window, logger, scope.sessionFactory);
+  const browserManager = new BrowserManager(window, logger, scope.sessionFactory, {
+    // 退休清理的第二道守卫：这份 partition 还是不是某个账号当前的登录态。
+    // 缺了它，清理只看「有没有标签页开着」，会把已认领的登录态一并清空
+    // （真机事故：连续绑定多个美团账号后 5 个账号掉登录）。
+    isPartitionClaimed: (partitionName) =>
+      scope.otaCredentialRepository.findByPartitionName(partitionName) !== null,
+  });
   onDispose(() => browserManager.destroy());
 
   // 回填 app scope 需要的窗口级能力，窗口销毁时撤回。
@@ -154,8 +161,16 @@ export function createWindowScope(scope: AppScope): WindowScope {
     browserManager,
     loginDetector,
     otaCredentialRepository: scope.otaCredentialRepository,
-    readInjectableCookies: (partitionName) =>
-      scope.sessionFactory.readInjectableCookies(partitionName),
+    // 绑定前清掉渠道记住的门店选择。脚本由 `channels/binding-reset.ts` 生成
+    // （渠道知识在那边），这里只负责把它送进标签页 —— ota-tab 层不得 import browser/。
+    removeSelectionKeys: async (tabId, prefixes) => {
+      const removed = await browserManager.runInTab(
+        tabId,
+        removeSelectionKeysExpression(prefixes),
+      );
+      return Array.isArray(removed) ? (removed as readonly string[]) : null;
+    },
+    logger,
   });
 
   onDispose(registerBrowserHandlers({ window, manager: browserManager, logger }));

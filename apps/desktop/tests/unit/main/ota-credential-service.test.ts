@@ -47,7 +47,7 @@ function createDeps(
     discoverMeituan: vi.fn().mockResolvedValue({ kind: 'none' }),
     credentialRepository,
     generateCredentialId: vi.fn(() => 'generated-credential-id'),
-    removePendingPartition: vi.fn().mockResolvedValue(undefined),
+    markPartitionClaimed: vi.fn().mockResolvedValue(undefined),
     logger: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
     ...overrides,
   } as DiscoverAndCreateDependencies;
@@ -323,7 +323,7 @@ describe('OtaCredentialService', () => {
       discoveredAt: expect.any(Number),
       lastRefreshedAt: expect.any(Number),
     });
-    expect(deps.removePendingPartition).toHaveBeenCalledTimes(1);
+    expect(deps.markPartitionClaimed).toHaveBeenCalledTimes(1);
     expect(onAccountBound).toHaveBeenCalledTimes(1);
     expect(onAccountBound).toHaveBeenCalledWith(meituanChannel);
   });
@@ -454,7 +454,11 @@ describe('OtaCredentialService', () => {
         {} as never,
       ),
     ).resolves.not.toBeNull();
-    expect(deps.removePendingPartition).toHaveBeenCalledWith(meituanPartitionName);
+    // 认领时带上是哪条 credential 认的 —— 账本据此记录归属。
+    expect(deps.markPartitionClaimed).toHaveBeenCalledWith(
+      meituanPartitionName,
+      expect.any(String),
+    );
     expect(deps.logger.warn).toHaveBeenCalledWith(
       'Replaced credential partition could not be retired',
       { channel: meituanChannel, errorName: 'Error' },
@@ -477,7 +481,7 @@ describe('OtaCredentialService', () => {
 
     expect(deps.credentialRepository.create).not.toHaveBeenCalled();
     expect(deps.credentialRepository.updateIdentity).not.toHaveBeenCalled();
-    expect(deps.removePendingPartition).not.toHaveBeenCalled();
+    expect(deps.markPartitionClaimed).not.toHaveBeenCalled();
   });
   /**
    * 真机踩过的坑：第二次导航返回 null 会让 `HotelProbeDispatcher` 以为「这次

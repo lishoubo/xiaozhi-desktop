@@ -31,7 +31,8 @@ export type DiscoverAndCreateDependencies = Readonly<{
   discoverMeituan: DiscoverMeituan;
   credentialRepository: OtaCredentialRepository;
   generateCredentialId: () => string;
-  removePendingPartition: (partitionName: string) => Promise<void>;
+  /** 探测成功后把 partition 在账本里标记为「已被这条 credential 认领」。 */
+  markPartitionClaimed: (partitionName: string, credentialId: string) => Promise<void>;
   onCredentialPartitionReplaced?: (
     previousPartitionName: string,
     nextPartitionName: string,
@@ -198,7 +199,7 @@ export class OtaCredentialService {
       });
     }
 
-    await this.deps.removePendingPartition(partitionName);
+    await this.deps.markPartitionClaimed(partitionName, credential.id);
     if (replacedPartitionName && replacedPartitionName !== partitionName) {
       try {
         await this.deps.onCredentialPartitionReplaced?.(replacedPartitionName, partitionName);

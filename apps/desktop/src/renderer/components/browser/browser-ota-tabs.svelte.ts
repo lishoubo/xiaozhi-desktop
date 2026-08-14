@@ -129,11 +129,11 @@ class BrowserOtaTabsStore {
    * 绑定专用：同 `openExisting`，但换一份干净 partition。复用旧 partition 会带上
    * 「上次选的哪个门店」，渠道据此跳过选择页，用户就没机会选这次要绑的那家。
    */
-  async openExistingInFreshPartition(
+  async openExistingForBinding(
     credentialId: string,
     intent?: OtaTabIntentDto,
   ): Promise<BrowserTab> {
-    const tab = await window.hotelButler.otaTab.openExistingInFreshPartition(credentialId, intent);
+    const tab = await window.hotelButler.otaTab.openExistingForBinding(credentialId, intent);
     return this.adopt(tab);
   }
 

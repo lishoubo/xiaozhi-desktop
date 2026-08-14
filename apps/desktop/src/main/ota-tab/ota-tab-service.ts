@@ -9,9 +9,14 @@
 import { toOtaCredentialId, type ChannelId } from '../ids';
 import type { OtaCredentialRepository } from '../database/ota-credential-repository';
 import { otaChannelLandingUrl } from '../channels/landing-url';
+import { bindingResetKeyPrefixes } from '../channels/binding-reset';
 import type { BrowserTab } from '../../shared/browser';
+import type { AppLogger } from '../../shared/logging';
 import { readImportedCookies } from '../cookie-import/store';
-import { addPendingPartition, type PendingPartition } from '../file-store/pending-partitions-store';
+import {
+  recordPartitionCreated,
+  type PendingPartition,
+} from '../file-store/partition-ledger';
 import type { LoginDetector } from './login-detector';
 import type { OtaTabIntent } from './intent';
 
@@ -21,18 +26,22 @@ type BrowserManagerTabOpener = Pick<
   'createAndNewPartition' | 'createWithAlreadyPartition'
 >;
 
-type CookiesSetDetails = import('electron').CookiesSetDetails;
-
 export type OtaTabServiceDependencies = Readonly<{
   userDataDir: string;
   browserManager: BrowserManagerTabOpener;
   loginDetector: Pick<LoginDetector, 'register'>;
   otaCredentialRepository: Pick<OtaCredentialRepository, 'findById'>;
   /**
-   * 读出一份登录态里可再注入的 cookie。由 composition root 接到
-   * `SessionFactory.readInjectableCookies`——本层不得 import `browser/`。
+   * 在指定标签页里按前缀删 localStorage 键，返回被删的键名。
+   *
+   * 窄回调：本层不得 import `browser/`，由 composition root 接到 BrowserManager
+   * 的页面脚本执行能力。绑定流程用它清掉渠道记住的「上次选的门店」。
    */
-  readInjectableCookies: (partitionName: string) => Promise<readonly CookiesSetDetails[]>;
+  removeSelectionKeys: (
+    tabId: string,
+    prefixes: readonly string[],
+  ) => Promise<readonly string[] | null>;
+  logger: AppLogger;
 }>;
 
 export class OtaTabService {
@@ -45,7 +54,7 @@ export class OtaTabService {
    * 「新登录账号」快捷方式带 `bind-hotel` 意图走这条路：新账号可操作的门店未知，
    * 登录成功后必须探测并让用户确认。
    */
-  async open(
+  async openForNewLogin(
     environment: PendingPartition['environment'],
     channel: ChannelId,
     url: string,
@@ -71,7 +80,7 @@ export class OtaTabService {
    * 登录判定，却永远不探测门店——绑定流程走这条路就会卡在「登录成功了但没有候选
    * 可选」。三个开口都收 intent，这一层才真正与渠道无关。
    */
-  async createFromCookie(
+  async openWithImportedCookie(
     environment: PendingPartition['environment'],
     channel: ChannelId,
     url: string,
@@ -92,50 +101,56 @@ export class OtaTabService {
   }
 
   /**
-   * 打开已有账号（流程B）。`intent` 说明"这次打开是为了做什么"：带上它，登录
-   * 判定完成后才会探测酒店并把候选通知到 UI；不带则只开 tab 并做判定，不探测。
-   * intent 由 `LoginDetector` 保管（挂在 tab 记录上，随 tab 关闭一起消失），
-   * 并随 `tab:credential-checked` 广播带给下游。
+   * 「用这个账号走一次绑定」——绑定流程专用。
+   *
+   * 与 `openExisting` 的差别只有一处：绑定要求用户**这一次**重新选门店，而渠道会
+   * 记住上次的选择（抖音的 `core:PoiSwitch:*`），直接跳过选公司页落到上次那家门店
+   * ——一个账号管多家门店时，第二家就绑不了了。所以开 tab 后要把那条记忆删掉。
+   *
+   * 此前的做法是**每次绑定新开一份 partition**、把 cookie 搬过去、把 localStorage
+   * 甩掉。目的一样，代价是每绑一次泄漏一份 partition，且 cookie 搬运可能丢字段。
+   * 现在复用原 partition + 按前缀删键：partition 零产出，cookie 一个字节不动。
+   *
+   * 方法名说的是**意图**（为绑定而打开）不是手段（换 partition / 删键）——手段这次
+   * 就换过一轮，名字不该跟着作废。删哪些键由渠道自己声明，见 `binding-reset.ts`；
+   * 没有声明的渠道（携程、美团都没有选店页）连脚本都不注入。
    */
-  /**
-   * 打开已有账号，但**换一份干净的 partition**——绑定流程专用。
-   *
-   * 与 `openExisting` 的差别只有一处：那边复用账号原有的 partition，这边新开一份
-   * 并把原 partition 的 cookie 注入进去。原因在渠道行为而非我们的偏好：
-   *
-   * ```
-   * 复用 partition → localStorage 里留着「上次选的是哪个 group」
-   *                → 抖音直接跳过选公司页，落到上次那个门店的首页
-   *                → 用户没有机会选这次要绑的门店
-   *
-   * 全新 partition → 没有任何选择记录，抖音必须重新问一次
-   *                → 停在选公司页（与「导入 Cookie 首次登录」完全同一条路）
-   * ```
-   *
-   * 只带 cookie、不带 localStorage，正是要点：cookie 是登录态（要保住），
-   * localStorage 才是那条挡路的选择记录（要丢掉）。
-   *
-   * 代价是每次绑定都会留下一份新 partition。已知，暂时接受——partition 的生命周期
-   * 治理是另一件事。
-   */
-  async openExistingInFreshPartition(
-    environment: PendingPartition['environment'],
-    credentialId: string,
-    intent?: OtaTabIntent,
-  ): Promise<BrowserTab> {
+  openExistingForBinding(credentialId: string, intent?: OtaTabIntent): BrowserTab {
     const credential = this.deps.otaCredentialRepository.findById(toOtaCredentialId(credentialId));
     if (!credential) throw new Error('未找到该登录凭据');
 
-    const cookies = await this.deps.readInjectableCookies(credential.partitionName);
-    const { tab, partitionName } = await this.deps.browserManager.createAndNewPartition(
-      environment,
+    const tab = this.deps.browserManager.createWithAlreadyPartition(
+      credential.partitionName,
       credential.channel,
       otaChannelLandingUrl(credential.channel),
-      { importedCookies: cookies },
     );
     this.deps.loginDetector.register(tab.id, credential.channel, intent);
-    await this.rememberPendingPartition(partitionName, credential.channel, environment);
+    void this.resetSelectionMemory(tab.id, credential.channel);
     return tab;
+  }
+
+  /**
+   * 删掉渠道记住的「上次选的门店」。失败**不阻断绑定**：最坏结果是页面跳过选店页，
+   * 用户看得见（停在了某家门店而不是选择页），比因为清理失败连标签页都开不出来强。
+   */
+  private async resetSelectionMemory(tabId: string, channel: ChannelId): Promise<void> {
+    const prefixes = bindingResetKeyPrefixes(channel);
+    if (prefixes.length === 0) return;
+
+    try {
+      const removed = await this.deps.removeSelectionKeys(tabId, prefixes);
+      // 删了 0 个是**要警惕的信号**：键名可能被渠道改了，绑定会静默地跳过选店页。
+      // 日志是唯一能指认这件事的线索，所以两种结果都记。
+      this.deps.logger.info('Binding selection memory reset', {
+        channel,
+        removedCount: removed?.length ?? -1,
+      });
+    } catch (error) {
+      this.deps.logger.warn('Binding selection memory could not be reset', {
+        channel,
+        errorName: error instanceof Error ? error.name : 'UnknownError',
+      });
+    }
   }
 
   openExisting(credentialId: string, intent?: OtaTabIntent): BrowserTab {
@@ -151,12 +166,13 @@ export class OtaTabService {
     return tab;
   }
 
+  /** 登记进账本，状态 pending —— 探测成功后由 credential 侧改成 claimed。 */
   private rememberPendingPartition(
     partitionName: string,
     channel: ChannelId,
     environment: PendingPartition['environment'],
   ): Promise<void> {
-    return addPendingPartition(this.deps.userDataDir, {
+    return recordPartitionCreated(this.deps.userDataDir, {
       partitionName,
       channel,
       environment,

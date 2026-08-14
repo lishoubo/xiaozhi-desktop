@@ -20,7 +20,11 @@ import {
 } from '../database/application-database';
 import { SqliteOtaCredentialRepository } from '../database/ota-credential-repository';
 import { SqliteOtaHotelRepository } from '../database/ota-hotel-repository';
-import { removePendingPartition } from '../file-store/pending-partitions-store';
+import { updatePartitionState } from '../file-store/partition-ledger';
+import {
+  cleanupOrphanPartitions,
+  cleanupRetiredPartitions,
+} from '../browser/partition-cleanup';
 import { HttpRmsHotelGateway } from '../gateway/rms/rms-hotel-gateway-http';
 import { HttpRmsOtaAccountGateway } from '../gateway/rms/rms-ota-account-gateway-http';
 import type { ChannelId } from '../ids';
@@ -60,6 +64,8 @@ export type AppScope = Readonly<{
   setPartitionRetirer(retire: ((partitionName: string) => Promise<void>) | null): void;
   /** 由 window scope 回填：账号绑定成功后通知渲染进程刷新。 */
   setAccountBoundNotifier(notify: ((channel: ChannelId) => void) | null): void;
+  /** 启动时回收退休与孤儿 partition；失败不阻断启动。 */
+  cleanupPartitionsOnStartup(): Promise<void>;
   /**
    * 由 window scope 回填：绑定流程要开 OTA 标签页，而 `OtaTabService` 依赖
    * 窗口级的 `BrowserManager`。窗口不存在时调用会明确失败，不静默吞掉。
@@ -124,9 +130,19 @@ export function createAppScope(logger: AppLogger): AppScope {
     discoverMeituan: createMeituanDiscovery(logger),
     credentialRepository: otaCredentialRepository,
     generateCredentialId: () => randomUUID(),
-    removePendingPartition: (partitionName) => removePendingPartition(userDataDir, partitionName),
-    onCredentialPartitionReplaced: (previousPartitionName) =>
-      retirePartition?.(previousPartitionName),
+    // 探测成功 = 这份 partition 被某条 credential 认领了。此前这里是把它从
+    // 「待认领」清单里删掉（记录随之消失、无从追溯），现在改为推进状态。
+    markPartitionClaimed: (partitionName, credentialId) =>
+      updatePartitionState(userDataDir, partitionName, { kind: 'claimed', credentialId }),
+    onCredentialPartitionReplaced: async (previousPartitionName) => {
+      // 先落账本再清理：清理可能因「仍有标签页占用」而推迟，甚至跨重启才完成。
+      // 只记在内存里的话，重启后这份 partition 就永远没人清了（旧实现的缺陷）。
+      await updatePartitionState(userDataDir, previousPartitionName, {
+        kind: 'retired',
+        retiredAt: new Date().toISOString(),
+      });
+      await retirePartition?.(previousPartitionName);
+    },
     logger,
     onAccountBound: (channel) => notifyAccountBound?.(channel),
   });
@@ -163,6 +179,41 @@ export function createAppScope(logger: AppLogger): AppScope {
       authClient: rmsAuthClient,
       tokens: rmsTokens,
       fetch: authenticatedRmsFetch,
+    },
+    /**
+     * 启动时回收 partition。放在这里而不是 `index.ts`：那是进程入口，不含业务
+     * 装配。此刻还没有任何标签页，「有没有人在用」的守卫天然满足，是最安全的时机。
+     *
+     * 两步都以 credential 表为准（账本只是索引）：
+     * 1. 账本里 `retired` 的 → 清空
+     * 2. 账本外的孤儿（磁盘上有目录、无人认领）→ 清空
+     *
+     * 失败只记日志，绝不阻断启动 —— 清理是卫生工作，不该让用户打不开应用。
+     */
+    async cleanupPartitionsOnStartup() {
+      const isPartitionClaimed = (partitionName: string): boolean =>
+        otaCredentialRepository.findByPartitionName(partitionName) !== null;
+      const clearPartitionStorage = (partitionName: string): Promise<void> =>
+        sessionFactory.clearAccountSession(partitionName);
+
+      try {
+        await cleanupRetiredPartitions({
+          userDataDir,
+          isPartitionClaimed,
+          clearPartitionStorage,
+          logger,
+        });
+        await cleanupOrphanPartitions({
+          userDataDir,
+          isPartitionClaimed,
+          clearPartitionStorage,
+          logger,
+        });
+      } catch (error) {
+        logger.warn('Partition cleanup failed at startup', {
+          errorName: error instanceof Error ? error.name : 'UnknownError',
+        });
+      }
     },
     setPartitionRetirer(retire) {
       retirePartition = retire;

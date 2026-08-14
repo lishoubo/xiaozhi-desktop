@@ -111,43 +111,126 @@ partition，现在 **cookie 数为 0**。`a033f181`（sandouhotel）只剩 7 条
 
 ---
 
-## P0 止血（⏸ 用户决定：**不抢跑，随 design 一起做**）
+## 实施结果（2026-08-14，五项全部完成）
 
-> 2026-08-14：用户确认当前受损账号都在测试环境，数据丢失可接受，因此**不单独止血**，
-> 避免改出一个与 design 结论重复或冲突的临时守卫。bug 本身已在上面完整记录。
+| # | 任务 | 状态 |
+|---|---|---|
+| ① | G2 守卫：不清被 credential 引用的 partition | ✅ |
+| ② | `close()` 不再全量重扫退休集合 | ✅ |
+| ③ | 第 5 条路：复用 partition + 删抖音 PoiSwitch 键 | ✅ |
+| ③b | 四层重命名对齐（含 IPC 契约） | ✅ |
+| ④ | `partitions.json` 账本 + 启动清理 | ✅ |
+| ⑤ | 存量孤儿 partition 清理 | ✅ |
+| ⑥ | `SessionFactory.cache` 语义订正（原诊断有误） | ✅ |
 
-- [ ] `browser-manager.ts` 给 `clearRetiredPartitionWhenUnused` 加**第二道守卫**：
-      该 partition 仍被某条 credential 引用则**绝不清理**
-  - `BrowserManager` 在 window scope，不得直接依赖仓储 → 注入窄回调
-    （照 `setPartitionRetirer` 的现有套路），如 `isPartitionClaimed(name): boolean`
-  - 守卫失败时记 warn 并**从 `retiredPartitions` 移除**，避免它永远留在集合里被反复重扫
-- [ ] 测试：退休一个仍被 credential 引用的 partition → 不调 `clearAccountSession`
-- [ ] 测试：`close()` 不再无差别重扫全集合（或重扫时守卫生效）
+**验证**：`lint` ✅ / `check:types` ✅ / `check:svelte` ✅（994 文件 0 错误）/
+全量 `test:unit` → **82 文件 577 用例全过**（改动前 80 文件 554 用例）。
+⚠️ 全部为单测，**真机未验**，见下方门禁。
 
-## 需要在 design 里回答的问题
+### ① G2 守卫（`browser-manager.ts`）
 
-- [ ] **入口收敛**：4 个新建入口是否都必须新建？特别是入口 5
-      （`openExistingInFreshPartition`，每次绑定必留一份新 partition）——
-      它换新 partition 的真实目的是「丢掉 localStorage 里的选店记录」，
-      有没有不新建 partition 的办法（如只清 localStorage）？
-- [ ] **生命周期定义**：`创建 → 认领 → 替换 → 退休 → 清理` 每一步的触发条件、
-      守卫、以及**谁负责**（现在退休触发挂在 `close()` 上，明显错位）
-- [ ] **事实来源**：partition 全集现在散在三处（credential 表 / `pending-partitions.json` /
-      磁盘目录），且 `listPendingPartitions` **全仓零调用方**（已 grep 确认，
-      `pending-partitions.json` 只写不读）。要不要升级成单一事实来源？
-- [ ] **清理触发点**：应用启动时？空闲时？还是跟着替换事件走？
-- [ ] **`retiredPartitions` 跨重启丢失**：它是 window scope 的内存 Set，
-      重启即清空 —— 标记了退休但没清成的 partition 会永远留在磁盘上
-- [ ] **`SessionFactory.cache` 无淘汰**：`Map<string, Session>` 只增不减
-      （仅 `clearAccountSession` 里 delete 一次），tab 关闭不释放
-- [ ] **存量修复**：11 个孤儿目录怎么清；5 个已损坏 credential 怎么办
-      （提示用户重新登录？还是直接删 credential 让用户重新走绑定？）
-- [ ] ⚠️ **`clearAccountSession` 不删目录**：Electron 无此 API，只能
-      `clearStorageData` + `clearCache`。所以「清理」的上限是清空内容，
-      目录数只增不减 —— design 要正视这个天花板
+- [x] 注入 `isPartitionClaimed` 窄回调（照 `setPartitionRetirer` 套路，
+      `BrowserManager` 仍不认识仓储）；window-scope 接 `findByPartitionName`
+- [x] 守卫命中时**撤销**退休标记 + warn —— 留着会被之后每次 `close()` 反复重扫，
+      只要某刻 credential 短暂不指向它就会得手
+- [x] 测试 5 条，其中「仍被引用绝不清理」「撤销后不再重试」**已确认在旧代码上失败**
+
+### ② 退休触发时机（`browser-manager.ts`）
+
+- [x] `close(tabId)` 只重试**该 tab 自己的** partition。本次关闭唯一新增的事实是
+      「它少了一个占用者」，与集合里其他条目无关 —— 原实现的全量重扫是事故放大器
+
+### ③ 第 5 条路 + ③b 重命名
+
+- [x] `channels/binding-reset.ts` 🆕 渠道声明「绑定前要清哪些 localStorage 键前缀」，
+      抖音 `core:PoiSwitch:`，携程/美团不注册 → 连脚本都不注入
+- [x] `openExistingForBinding` 复用原 partition，开 tab 后删键；**cookie 零搬运**
+- [x] `BrowserManager.runInTab()` 🆕 —— 页面脚本执行能力，脚本内容由调用方给，
+      本类不认识任何渠道
+- [x] 清理失败**不阻断绑定**（最坏是页面跳过选店页，用户看得见）
+- [x] 删了 0 个也记 info：键名被渠道改掉时，日志是唯一线索
+- [x] 四层重命名：channel 字符串 / preload / service / renderer store 全部对齐
+      （`open`→`openForNewLogin`、`createFromCookie`→`openWithImportedCookie`、
+      `openExistingInFreshPartition`→`openExistingForBinding`）
+- [x] `openExistingForBinding` 不再需要 `environment` 参数（不新建 partition 了）
+
+### ④ 账本（`file-store/partition-ledger.ts` 🆕）
+
+- [x] 状态机 `pending → claimed → retired → cleared`，三个接线点全部改到账本：
+      创建（`ota-tab-service`）/ 认领（`markPartitionClaimed`，取代原
+      `removePendingPartition`）/ 退休（`onCredentialPartitionReplaced` 先落账本再清理）
+- [x] `cleared` 按 50 条 + 30 天双上限裁剪；**活状态不裁**
+- [x] 🐛 实现中修掉一处：时间戳解析失败原会被当成「无限旧」直接丢弃 —— 改为保留，
+      裁剪不该因为一个脏时间戳静默删记录
+- [x] 账本损坏当作空账本，不阻断启动（它是索引，credential 表才是权威）
+- [x] ❌ 删除 `pending-partitions-store.ts`（已被账本取代，`PendingPartition`
+      类型迁入账本）
+- [x] 测试 10 条（含并发不丢条目、损坏文件、裁剪四种情形）
+
+### ⑤ 启动清理（`browser/partition-cleanup.ts` 🆕）
+
+- [x] `cleanupRetiredPartitions` —— 清账本里 `retired` 的
+- [x] `cleanupOrphanPartitions` —— 扫磁盘找账本外的孤儿（存量 11 个走这条）
+- [x] **两者都仍查 credential 表**：账本只是索引，以 credential 表为准（事故教训）
+- [x] `isOtaLoginPartition` 守卫：`server-api` / `rms-api` 段数不足，天然挡在外面
+- [x] 在 `app-scope` 装配、`index.ts` 启动后 fire-and-forget 调用；
+      失败只记日志，**绝不阻断启动**
+- [x] 测试 11 条（含「账本说 retired 但 credential 还在用 → 绝不清」
+      「不碰基础设施 partition」「单个失败不阻断其余」）
+
+## design 待答问题 —— 已全部收敛
+
+| 问题 | 结论 |
+|---|---|
+| 4 个新建入口是否都必须新建 | 实为 **8 条路**（酒店管理是 4 条不是 1 条，用户提醒后核实）。只有「绑定·选已有账号」可收敛，已改 |
+| 生命周期定义 | `pending → claimed → retired → cleared`，见 `partition-ledger.ts` |
+| 事实来源 | `partitions.json` 账本；旧 `pending-partitions.json`（只写不读）已删 |
+| 清理触发点 | 启动时（无标签页占用，最安全）+ 替换事件即时 + tab 关闭补清该 tab 那一个 |
+| `retiredPartitions` 跨重启丢失 | 退休状态落账本，启动清理兜底 |
+| 存量修复 | 11 个孤儿由 `cleanupOrphanPartitions` 静默清理；5 个已损坏 credential **不自动删**（身份信息仍有效，走现有 reauth 流程重新登录） |
+| `clearAccountSession` 不删目录 | 已正视：清理上限是清空内容，目录数只增不减。控量靠减少产出 |
+
+### ⑥ `SessionFactory.cache` —— ✅ 已改，但**原诊断是错的**
+
+初稿把它记成「只增不减的内存泄漏，该加淘汰」。用户追问「为什么会有这一层」，
+重新读代码后发现**判断错了两处**：
+
+| | 初稿以为 | 实际 |
+|---|---|---|
+| 它是什么 | Session 对象池 | **「已装过安全 handler」的标记表** |
+| 该怎么办 | 加淘汰策略 | **不该淘汰**，条目只增不减是正确行为 |
+
+理由：`session.fromPartition()` 对同名**永远返回同一个 Session**（Electron 语义），
+对象由 Electron 全局持有 —— 我们缓存它毫无意义，也管不着它的生命周期。这层唯一的
+职责是让 `denyEmbeddedPagePermissions`（两个**覆盖式** setter）只装一次。而「已装过」
+这个事实在整个进程生命周期内恒真，撤销标记只会导致重复装。
+
+- [x] `Map<string, Session>` → `Set<string> configuredPartitions`，类型即语义
+- [x] `fromPartitionCached` → `configuredSession`（旧名暗示「缓存对象」，是误导之源）
+- [x] 🐛 **删掉 `clearAccountSession` 里那次 `cache.delete()`** —— 清空存储不销毁
+      Session、handler 仍挂着，撤销标记纯属多余。**该行为已被测试锁住**
+      （「清空存储后不重装安全 handler」，已确认在旧代码上失败）
+- [x] 顺带修正类注释：原写「只负责拿对象」，现在还负责装安全配置；
+      并写明本类**不管理 Session 生命周期**（Electron 不给销毁 API）
+- [x] 一处过度断言的旧测试改掉：原断言 `fromPartition` 只被调一次（锁的是实现细节），
+      改为断言「拿到同一个 jar」这个真正的契约
+
+### ⏭ 未做（如实记录）
+- [ ] 🔜 **intent 梳理**（用户明确另开一轮）：第 8 条路「重新登录·换账号」借用
+      绑定意图，日志上与「新增绑定」无法区分，缺来源标记。见 `design.md` §3.3 问题 2
 
 ## 完成门禁
 
-- P0 止血必须**真机验证**：连续绑定多个账号后，确认已认领的 partition 登录态不丢
-- 触及 partition 生命周期 → 按 CLAUDE.md 同步 `openspec/specs/` 对应 capability
-- 存量数据修复涉及删除用户数据 → **执行前必须取得用户确认**
+- [ ] 🔴 **真机验证（未做，归档阻塞项）**。全部改动只经单测，以下必须真机确认：
+  - **连续绑定多个账号后，已认领的 partition 登录态不丢** —— 这是事故本体，
+    最该验的一条（复现路径：像 2026-08-13 那样连续绑 4 个美团账号，每个登两次）
+  - **抖音绑定能停在选公司页**（档 B 删键是否真的生效；日志看
+    `Binding selection memory reset` 的 `removedCount`，为 0 说明键名变了）
+  - **携程/美团绑定不受影响**（它们不注册前缀，应完全走原路径）
+  - **重新登录·恢复同账号仍落到同一门店**（§3.3 问题 2：这条路绝不能清 PoiSwitch）
+  - **启动清理不误清在用登录态**（本次最大风险；启动后查 `partitions.json`
+    与各 partition 的 cookie 数）
+- [ ] 存量 11 个孤儿的清理会在下次启动自动执行 —— 用户已确认「清理掉就好」
+- [ ] 触及 partition 生命周期 → 按 CLAUDE.md 同步 `openspec/specs/` 对应 capability
+- ⚠️ 5 个已损坏 credential（yungeerAI / wudeAI / sandouhotel / anmanAI / BaijiaAI）
+  的登录态**找不回来**，需用户重新登录；本次改动只保证不再发生
