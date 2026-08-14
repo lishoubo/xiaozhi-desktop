@@ -9,7 +9,7 @@ export const HOTEL_DATA_SQL_TOOL_NAME = 'query_hotel_operating_data_sql';
 export const HOTEL_DATA_LIST_TABLES_TOOL_NAME = 'list_hotel_data_tables';
 export const HOTEL_DATA_DESCRIBE_TABLE_TOOL_NAME = 'describe_hotel_data_table';
 
-const MAX_RESULT_ROWS = 50;
+export const HOTEL_DATA_RESULT_ROW_LIMIT = 75;
 const MAX_RESULT_CHARACTERS = 40_000;
 const MAX_VALUE_CHARACTERS = 1_000;
 const CREDENTIAL_FIELD = /authorization|credential|password|passwd|secret|token/i;
@@ -103,7 +103,7 @@ export function constrainHotelDataGenerateSqlArgs(args: unknown, databaseId: str
 	return {
 		...parameters,
 		database_id: databaseId,
-		question: `${question}\n\n结果约束（系统强制）：只生成一条完成问题所需的只读 SELECT；优先聚合、趋势、Top N 和异常，明细最多 ${MAX_RESULT_ROWS} 行。`
+		question: `${question}\n\n结果约束（系统强制）：只生成一条完成问题所需的只读 SELECT；优先聚合、趋势、Top N 和异常，明细最多 ${HOTEL_DATA_RESULT_ROW_LIMIT} 行。`
 	};
 }
 
@@ -136,8 +136,12 @@ function compactValue(value: unknown, stats: CompactionStats, depth = 0): unknow
 	}
 	if (typeof value === 'number' || typeof value === 'boolean' || value === null) return value;
 	if (Array.isArray(value)) {
-		if (value.length > MAX_RESULT_ROWS) stats.omittedRows += value.length - MAX_RESULT_ROWS;
-		return value.slice(0, MAX_RESULT_ROWS).map((item) => compactValue(item, stats, depth + 1));
+		if (value.length > HOTEL_DATA_RESULT_ROW_LIMIT) {
+			stats.omittedRows += value.length - HOTEL_DATA_RESULT_ROW_LIMIT;
+		}
+		return value
+			.slice(0, HOTEL_DATA_RESULT_ROW_LIMIT)
+			.map((item) => compactValue(item, stats, depth + 1));
 	}
 	if (typeof value !== 'object') return String(value);
 	return Object.fromEntries(
@@ -198,7 +202,7 @@ export function constrainHotelDataSqlArgs(args: unknown, databaseId?: string): u
 	return {
 		...parameters,
 		...(databaseId ? { database_id: databaseId } : {}),
-		script: `SELECT * FROM (${sql}) AS data_agent_result LIMIT ${MAX_RESULT_ROWS}`
+		script: `SELECT * FROM (${sql}) AS data_agent_result LIMIT ${HOTEL_DATA_RESULT_ROW_LIMIT}`
 	};
 }
 

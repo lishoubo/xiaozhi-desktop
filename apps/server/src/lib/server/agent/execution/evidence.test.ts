@@ -67,7 +67,7 @@ describe('business evidence', () => {
 			request,
 			toolName: 'query_hotel_operating_data',
 			toolArgs: { question: 'query' },
-			result: Array.from({ length: 55 }, (_, index) => ({ hotel_id: 'hotel-1', value: index }))
+			result: Array.from({ length: 80 }, (_, index) => ({ hotel_id: 'hotel-1', value: index }))
 		});
 
 		expect(evidence).toMatchObject({
@@ -82,7 +82,7 @@ describe('business evidence', () => {
 			filtered: true
 		});
 		expect(evidence.queryFingerprint).toMatch(/^[a-f0-9]{64}$/);
-		expect(Array.isArray(evidence.data) && evidence.data).toHaveLength(50);
+		expect(Array.isArray(evidence.data) && evidence.data).toHaveLength(75);
 	});
 
 	it('allows one follow-up for empty data and becomes inconclusive afterward', () => {

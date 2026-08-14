@@ -6,6 +6,7 @@ import {
 	hotelRadialChartPropsSchema,
 	hotelTrendChartPropsSchema
 } from '@hotel-butler/api';
+import { HOTEL_DATA_RESULT_ROW_LIMIT } from './hotel-data-mcp';
 
 const ALLOWED_UI_COMPONENTS = new Set([
 	'Card',
@@ -68,8 +69,10 @@ export function validateHotelUi(spec: GenerativeUiSpec): GenerativeUiSpec {
 				throw new Error('Generative UI tables require non-empty string columns');
 			}
 			if (!Array.isArray(rows)) throw new Error('Generative UI tables require row arrays');
-			if (Array.isArray(rows) && rows.length > 50) {
-				throw new Error('Generative UI tables cannot exceed 50 rows');
+			if (Array.isArray(rows) && rows.length > HOTEL_DATA_RESULT_ROW_LIMIT) {
+				throw new Error(
+					`Generative UI tables cannot exceed ${HOTEL_DATA_RESULT_ROW_LIMIT} rows`
+				);
 			}
 			if (Array.isArray(columns) && columns.length > 12) {
 				throw new Error('Generative UI tables cannot exceed 12 columns');

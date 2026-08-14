@@ -1,3 +1,5 @@
+import { HOTEL_DATA_RESULT_ROW_LIMIT } from './hotel-data-mcp';
+
 type MemoryRecord = Readonly<{ key: string; content: string; importance: number }>;
 type Skill = Readonly<{ name: string; instructions: string }>;
 
@@ -24,11 +26,11 @@ export function buildHotelAgentSystemPrompt(input: HotelAgentPromptInput): strin
 
 酒店经营数据规则：${hotelDataRule}
 
-查询优先要求聚合、趋势、Top N 和异常记录，默认最多 50 行，不请求无筛选的全表明细。工具返回 DATA_RESULT_FILTERED 时，基于保留结果给出自然、可核验的摘要，并明确提示结果为适合界面展示而过滤的部分；不要声称它是完整数据。工具查询失败时最多调整条件重试一次；仍失败则说明数据服务暂时不可用或查询条件不足，并建议用户缩小日期范围、确认酒店或稍后重试，不暴露内部异常、SQL、服务地址或凭证。
+查询优先要求聚合、趋势、Top N 和异常记录，默认最多 ${HOTEL_DATA_RESULT_ROW_LIMIT} 行，不请求无筛选的全表明细。工具返回 DATA_RESULT_FILTERED 时，基于保留结果给出自然、可核验的摘要，并明确提示结果为适合界面展示而过滤的部分；不要声称它是完整数据。工具查询失败时最多调整条件重试一次；仍失败则说明数据服务暂时不可用或查询条件不足，并建议用户缩小日期范围、确认酒店或稍后重试，不暴露内部异常、SQL、服务地址或凭证。
 
 适合比较或操作的数据可调用 render_hotel_ui。只使用工具 schema 允许的组件；不得在 UI 中展示密码、Token、Authorization 等系统凭证。只有在视图已经是你准备随最终答案交付的确定版本时才调用；如果数据结构或展示方式拿不准，直接使用文字回答，不要提交候选视图。
 
-经营数据或天气工具返回足够数据后，如果表格或图表明显提升理解，调用一次 render_hotel_ui，再组织最终文字结论，不要先生成长篇分析。一次调用必须把需要的图表、表格和卡片合并进同一个 UI spec；工具成功后不得为了换组件、调整样式或重复表达再次调用，直接用文字补充不足。少量单值和简单结论直接用文本；2–50 行可比较明细用 Table；Table 每个单元格只能是字符串、数字、布尔值或 null，禁止把对象或数组直接作为单元格。趋势、构成或排名使用对应图表。拿不准图表格式时优先使用文字，其次使用满足标量单元格约束的 Table。Table 最多 50 行、12 列。生成 UI 后仍需用一两句话说明结论、查询口径和是否经过过滤。
+经营数据或天气工具返回足够数据后，如果表格或图表明显提升理解，调用一次 render_hotel_ui，再组织最终文字结论，不要先生成长篇分析。一次调用必须把需要的图表、表格和卡片合并进同一个 UI spec；工具成功后不得为了换组件、调整样式或重复表达再次调用，直接用文字补充不足。少量单值和简单结论直接用文本；2–${HOTEL_DATA_RESULT_ROW_LIMIT} 行可比较明细用 Table；Table 每个单元格只能是字符串、数字、布尔值或 null，禁止把对象或数组直接作为单元格。趋势、构成或排名使用对应图表。拿不准图表格式时优先使用文字，其次使用满足标量单元格约束的 Table。Table 最多 ${HOTEL_DATA_RESULT_ROW_LIMIT} 行、12 列。生成 UI 后仍需用一两句话说明结论、查询口径和是否经过过滤。
 
 酒店图表组件：连续趋势用 HotelAreaChart；需要精确比较的价格、评分、温度趋势用 HotelLineChart；渠道、房型等离散比较用 HotelBarChart；2–5 类构成用 HotelDonutChart；统一量纲的 3–8 个维度用 HotelRadarChart；一个入住率、清扫率或到账率目标用 HotelRadialChart。图表 props 必须包含单位与真实数据来源；经营数据来源写“阿里云 DMS MCP”，不要再用重复指标卡表达同一组数据。
 

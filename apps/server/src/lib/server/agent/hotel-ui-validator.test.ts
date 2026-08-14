@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { validateHotelUi } from './hotel-ui-validator';
 
 describe('validateHotelUi', () => {
-	it('accepts a bounded hotel table UI', () => {
+	it('accepts a hotel table at the 75-row display limit', () => {
 		expect(
 			validateHotelUi({
 				root: 'root',
@@ -10,7 +10,10 @@ describe('validateHotelUi', () => {
 				elements: {
 					root: {
 						type: 'Table',
-						props: { columns: ['订单', '状态'], rows: [['A-1', '待确认']] },
+						props: {
+							columns: ['订单', '状态'],
+							rows: Array.from({ length: 75 }, (_, index) => [`A-${index + 1}`, '待确认'])
+						},
 						children: [],
 						visible: true
 					}
@@ -96,14 +99,14 @@ describe('validateHotelUi', () => {
 						type: 'Table',
 						props: {
 							columns: ['日期', '收入'],
-							rows: Array.from({ length: 51 }, (_, index) => [index, index * 100])
+							rows: Array.from({ length: 76 }, (_, index) => [index, index * 100])
 						},
 						children: [],
 						visible: true
 					}
 				}
 			})
-		).toThrow('cannot exceed 50 rows');
+		).toThrow('cannot exceed 75 rows');
 	});
 
 	it('rejects nested table cells before the renderer can coerce them to object text', () => {

@@ -74,7 +74,7 @@ describe('hotel data MCP guardrails', () => {
 				{ database_id: 'attacker', question: '查询 GMV' },
 				'81918192'
 			)
-		).toMatchObject({ database_id: '81918192', question: expect.stringContaining('最多 50 行') });
+		).toMatchObject({ database_id: '81918192', question: expect.stringContaining('最多 75 行') });
 		expect(
 			constrainHotelDataSqlArgs({ database_id: 'attacker', script: 'SELECT 1' }, '81918192')
 		).toMatchObject({ database_id: '81918192' });
@@ -114,7 +114,7 @@ describe('hotel data MCP guardrails', () => {
 			})
 		).toEqual({
 			script:
-				'SELECT * FROM (SELECT hotel_id, SUM(gmv) AS gmv FROM fact_business_daily GROUP BY hotel_id) AS data_agent_result LIMIT 50'
+				'SELECT * FROM (SELECT hotel_id, SUM(gmv) AS gmv FROM fact_business_daily GROUP BY hotel_id) AS data_agent_result LIMIT 75'
 		});
 	});
 
@@ -132,7 +132,7 @@ describe('hotel data MCP guardrails', () => {
 	});
 
 	it('preserves business fields and filters oversized result sets before model ingestion', () => {
-		const rows = Array.from({ length: 55 }, (_, index) => ({
+		const rows = Array.from({ length: 80 }, (_, index) => ({
 			hotel_id: 7,
 			date: `2026-08-${String(index + 1).padStart(2, '0')}`,
 			revenue: index * 100,

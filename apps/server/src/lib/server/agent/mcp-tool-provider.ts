@@ -18,6 +18,7 @@ import {
 	HOTEL_DATA_DESCRIBE_TABLE_TOOL_NAME,
 	HOTEL_DATA_GENERATE_SQL_TOOL_NAME,
 	HOTEL_DATA_LIST_TABLES_TOOL_NAME,
+	HOTEL_DATA_RESULT_ROW_LIMIT,
 	HOTEL_DATA_SQL_TOOL_NAME,
 	isAllowedHotelDataMcpToolName,
 	selectDmsDatabaseId
@@ -59,7 +60,7 @@ function configureHotelDataTool(tool: DynamicStructuredTool): DynamicStructuredT
 	} else if (tool.name === DMS_SQL_TOOL_NAME) {
 		tool.name = HOTEL_DATA_SQL_TOOL_NAME;
 		tool.description =
-			'执行一条酒店经营数据 SELECT/CTE 查询。系统会拒绝写操作、多语句、注释、文件操作、锁和高风险函数，并将结果限制为 50 行。';
+			`执行一条酒店经营数据 SELECT/CTE 查询。系统会拒绝写操作、多语句、注释、文件操作、锁和高风险函数，并将结果限制为 ${HOTEL_DATA_RESULT_ROW_LIMIT} 行。`;
 	} else if (tool.name === DMS_LIST_TABLES_TOOL_NAME) {
 		tool.name = HOTEL_DATA_LIST_TABLES_TOOL_NAME;
 		tool.description = '列出或搜索 DMS 当前数据库中的业务表。只读。';
