@@ -58,6 +58,20 @@ without starting services or changing firewall rules.
 - **AND** existing runtime file permissions and the dedicated logrotate rule are normalized
 - **AND** no service, firewall or remote system is changed
 
+### Requirement: Guarded production bundle upload
+
+The upload command SHALL connect only to `121.199.29.74` with the ignored local
+`apps/server/rms-agent-key.pem`, upload the current-HEAD deployment artifact and checksum to a
+private directory under the supplied SSH user's home, and verify SHA-256 remotely. It SHALL retain
+normal OpenSSH host-key verification, SHALL replace a same-name artifact only after a staged checksum
+passes, and SHALL NOT extract, deploy or start services.
+
+#### Scenario: Stage a bundle on production
+- **WHEN** an operator supplies the SSH username and runs the upload command
+- **THEN** unsafe key permissions, missing/current-revision artifacts and checksum failures stop transfer
+- **AND** a verified transfer replaces its same-name files under `~/hotel-butler-upload/`
+- **AND** the `current-release` marker is updated only after verification and publication
+
 ### Requirement: Single-upload sensitive deployment bundle
 
 The repository SHALL retain a credential-free source archive and SHALL additionally provide an

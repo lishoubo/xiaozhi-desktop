@@ -98,6 +98,20 @@ on a new host without starting services or modifying firewall rules.
 - **AND** placeholder settings, permissive private-file modes, invalid IP TLS material, the CA signing
   key, desktop source and unrelated private keys are rejected before publication
 
+### Requirement: Guarded production bundle upload
+
+The repository SHALL provide an upload command fixed to production host `121.199.29.74` that uses
+the ignored `apps/server/rms-agent-key.pem`, selects the deployment artifact matching current `HEAD`,
+and uploads the artifact plus checksum to a mode-`0700` directory under the SSH user's home. It
+SHALL preserve OpenSSH host-key verification and SHALL NOT extract files or start services.
+
+#### Scenario: Upload the current production artifact
+- **WHEN** an operator supplies a valid SSH username and runs the upload command
+- **THEN** local checksum and private-key permissions are validated before connecting
+- **AND** the upload is staged and its remote SHA-256 checksum is verified before publication
+- **AND** an existing same-name artifact and checksum are replaced only after successful verification
+- **AND** `current-release` identifies the verified artifact for copy-paste extraction commands
+
 ### Requirement: Production server observability
 
 The server SHALL emit structured start and completion or failure events for every outbound RMS HTTP

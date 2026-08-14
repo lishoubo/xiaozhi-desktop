@@ -45,3 +45,9 @@
 - [x] 8.1 Add an explicitly sensitive deployment bundle containing source, `.env.production` and server TLS.
 - [x] 8.2 Fail closed on placeholders, unsafe permissions, invalid certificates or unexpected private keys.
 - [x] 8.3 Document secure transfer, extraction, host preparation and Compose startup.
+
+## 9. Production bundle upload
+
+- [x] 9.1 Add a guarded SSH/SCP uploader fixed to `121.199.29.74` and the local RMS agent key.
+- [x] 9.2 Verify the local and remote checksum without extracting or starting production services.
+- [x] 9.3 Document SSH user input, host fingerprint verification and the remote staging directory.

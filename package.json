@@ -53,6 +53,7 @@
     "package:desktop:production": "node --experimental-strip-types apps/desktop/scripts/package-production.ts",
     "package:server:source": "node --experimental-strip-types apps/server/scripts/package-production-source.ts",
     "package:server:production": "node --experimental-strip-types apps/server/scripts/package-production-source.ts --include-runtime",
+    "upload:server:production": "bash apps/server/scripts/upload-production-bundle.sh",
     "prepare:server:production-host": "bash apps/server/scripts/prepare-production-host.sh",
     "db:validate": "npm run db:validate --workspace @hotel-butler/desktop",
     "db:start": "npm run db:start --workspace @hotel-butler/server",

@@ -62,4 +62,18 @@ describe('deployment environment boundaries', () => {
 		expect(hostPreparation).toContain('maxsize 50M');
 		expect(hostPreparation).toContain('rotate 14');
 	});
+
+	it('uploads the current deployment bundle without weakening SSH verification', () => {
+		const uploader = readFileSync(`${serverDirectory}/scripts/upload-production-bundle.sh`, 'utf8');
+
+		expect(uploader).toContain('server_ip="121.199.29.74"');
+		expect(uploader).toContain('apps/server/rms-agent-key.pem');
+		expect(uploader).toContain('sha256sum -c');
+		expect(uploader).toContain('.incoming-${revision}-${upload_id}');
+		expect(uploader).toContain('mv -f');
+		expect(uploader).toContain('current-release');
+		expect(uploader).not.toContain('test ! -e');
+		expect(uploader).not.toContain('StrictHostKeyChecking=no');
+		expect(uploader).not.toContain('docker compose');
+	});
 });

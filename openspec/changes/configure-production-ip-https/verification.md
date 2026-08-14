@@ -106,3 +106,19 @@ allow-listed operational metadata, desktop paths are delegated to Electron rathe
 the two auth profiles cannot share a log file, server file logs remain available independently of
 Docker logs, and the sensitive bundle excludes the CA signing key. It also corrected time measurement
 to a monotonic clock and uses logrotate `maxsize` alongside `daily` so both thresholds are effective.
+
+## Production upload extension
+
+- Added `npm run upload:server:production -- <ssh-user>`, fixed to `121.199.29.74` and the ignored
+  `apps/server/rms-agent-key.pem`.
+- The uploader selects only the deployment archive named for current `HEAD`, validates mode-restricted
+  key material and the local checksum, uploads into a unique staging directory under the SSH user's
+  mode-`0700` `~/hotel-butler-upload/`, then verifies SHA-256 remotely before replacing same-name files.
+- Successful publication updates `current-release`; the README validates that marker and provides
+  copy-paste commands for checksum verification, extraction under `/opt`, host preparation, Compose
+  validation and explicit startup.
+- The script preserves normal OpenSSH host-key verification and contains no extraction, Docker,
+  service-start or deployment command. No SSH/SCP call was executed during verification because the
+  user requested the script, not an immediate remote upload.
+- `bash -n`, a focused deployment policy test (5 tests), server type/Svelte checks, server lint and
+  `git diff --check` passed. The existing private key is ignored and has mode `0600`.

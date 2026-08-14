@@ -154,21 +154,55 @@ npm run package:server:production
 员密码和服务端私钥，权限为 `0600`；只能通过受控通道传输，不得提交 Git、发到群聊或
 作为普通日志附件。
 
-新服务器上的首次安装示例（不会推送镜像，也不需要 Docker 私服）：
+`.env.production` 中的 `XIAOZHI_RMS_SERVER_URL` 必须是实际 RMS HTTPS 地址；保留占位值
+时部署包命令会故意失败。
+
+### 上传生产部署包
+
+部署包生成后，传入服务器的 SSH 用户名即可上传：
 
 ```bash
-sha256sum -c hotel-butler-server-deployment-<commit>.tar.gz.sha256
+npm run upload:server:production -- <ssh-user>
+```
+
+上传脚本固定连接 `121.199.29.74`，固定使用被 Git 忽略的
+`apps/server/rms-agent-key.pem`，并只选择与当前 `HEAD` 对应的部署包。执行顺序是：
+
+1. 检查私钥权限、部署包及本地 SHA-256；
+2. 通过 SSH 创建远端 `~/hotel-butler-upload/`（权限 `0700`）；
+3. 通过 SCP 上传到唯一的 `.incoming-*` 临时目录；
+4. 在临时目录再次校验 SHA-256，成功后覆盖正式目录中的同名压缩包和 checksum。
+
+首次连接时 OpenSSH 会显示服务器主机指纹，应先与云平台控制台提供的指纹核对后再接受。
+网络中断或 checksum 失败不会覆盖正式文件。脚本不会使用 `StrictHostKeyChecking=no`，
+也不会自动解压、运行 Docker 或修改线上服务。
+上传成功后，再按照下方首次安装步骤从 `~/hotel-butler-upload/` 使用该压缩包。
+
+上传成功后，在服务器执行下面整段命令即可校验并解压，不需要手工填写 commit ID：
+
+```bash
+cd "$HOME/hotel-butler-upload"
+DEPLOY_ARCHIVE="$(cat current-release)"
+case "$DEPLOY_ARCHIVE" in
+  hotel-butler-server-deployment-????????????.tar.gz) ;;
+  *) echo "current-release 内容非法" >&2; exit 1 ;;
+esac
+sha256sum -c "${DEPLOY_ARCHIVE}.sha256"
 sudo install -d -o "$USER" -g "$(id -gn)" -m 0750 /opt/hotel-butler
-tar -xzf hotel-butler-server-deployment-<commit>.tar.gz -C /opt
+tar -xzf "$DEPLOY_ARCHIVE" -C /opt
 sudo HOTEL_BUTLER_DEPLOY_USER="$USER" \
   bash /opt/hotel-butler/app/apps/server/scripts/prepare-production-host.sh
+```
+
+解压和目录准备不会启动服务。确认生产配置后，再执行：
+
+```bash
 cd /opt/hotel-butler/app
+docker compose --env-file apps/server/.env.production \
+  -f apps/server/compose.production.yaml config --quiet
 docker compose --env-file apps/server/.env.production \
   -f apps/server/compose.production.yaml up --build --detach --wait
 ```
-
-当前 `.env.production` 中的 `XIAOZHI_RMS_SERVER_URL` 必须先替换成真实 RMS HTTPS 地址；
-保留占位值时部署包命令会故意失败。
 
 ### 生产目录与关键文件
 
