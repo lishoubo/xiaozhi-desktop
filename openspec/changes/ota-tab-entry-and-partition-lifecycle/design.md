@@ -140,6 +140,59 @@ ReauthOtaAccountDialog
 **结论**：需要改的只有 ①（新建+搬 cookie → 复用+删 PoiSwitch 键）。
 ② 和 ④ 是「新登录」，本来就该开干净 partition，不动；③ 不动；⑤ 是错误分支。
 
+### 3.4 🔜 下一轮：intent 梳理的起点（2026-08-15 记，明天接着做）
+
+#### 已核实的事实
+
+`main/ota-tab/intent.ts` 现在是个判别联合，只有两个 `kind`：
+
+```ts
+BindHotelIntent  { kind: 'bind-hotel';  requestId }
+ReauthOtaIntent  { kind: 'reauth-ota';  requestId; expectedChannelAccountId }
+```
+
+而**真实的打开路径有 8 条**（§3.2），其中带 intent 的只有绑定与重登相关几条，
+第 1、2、3、4 条路不带 intent（不带就不探测门店 —— 探测会操作用户正在看的页面）。
+
+#### 关键分界：`replacingOtaHotelId` 现在完全活在 renderer
+
+已 grep 确认，它只出现在三处，**从没进过主进程的 `OtaTabIntent`**：
+
+```
+cross-route-intents.ts        意图字段声明
+ReauthOtaAccountDialog.svelte 换账号时写入
+BindHotelDialog.svelte        读出来做 requiresUnbindBeforeBinding 判断
+```
+
+所以第 8 条路的区分信息**渲染进程有、主进程没有** —— 而日志由主进程打，
+这正是它与第 6 条路在日志上分不开的原因。
+
+#### 明天要先回答的问题（顺序很重要）
+
+1. 🔴 **第 8 条路到底是「一次绑定」还是「一次特殊的重新登录」？**
+   这个判断直接决定下面选 A 还是 B，先答它：
+   - 从用户视角：它是「重新登录」对话框里的一个选项
+   - 从流程视角：它确实要重新确认门店，走完整绑定是对的
+   - 从代码视角：目前与第 6 条路完全同形
+
+2. 据此选方案：
+
+   | | A：加 `origin` 标记 | B：升成独立 `kind` |
+   |---|---|---|
+   | 形状 | `{ kind: 'bind-hotel', requestId, origin: 'add-binding' \| 'reauth-switch-account' }` | 新增 `SwitchAccountIntent` |
+   | 下游 | 无需改分支，只多一个日志字段 | `HotelProbeDispatcher` 等订阅方要处理新 kind |
+   | 适合 | 「同一件事，来源不同」 | 「本来就是两件事」 |
+
+3. **`replacingOtaHotelId` 要不要一并进 intent？**
+   倾向**不进**：intent 表达「为什么打开这个 tab」，不表达业务约束；而且
+   「已有活跃绑定就不能换门店」的权威在**远端 RMS**（提交时会被拒），
+   本地拦只是提前告知，属于 UI 职责。除非明天发现主进程也需要它做校验。
+
+4. 顺带看一眼：8 条路里**该带 intent 而没带**的有没有？
+   （`createFromCookie` 曾经就是漏带 intent 的那个，见 `e977c06` 的「顺带两处」）
+
+---
+
 ### 3.2 收敛后的入口表
 
 共 **8 条路**（浏览器工作区 4 + 酒店管理 4，§3.1.3）：
@@ -237,7 +290,7 @@ openExistingInFreshPartition   ← "打开已有账号，但换一份干净的 p
 **只用于日志与可观测性**，不改变流程分支。
 
 > ⚠️ 这一条落在 intent 设计上，用户明确本轮先解决入口、intent 另开一轮 ——
-> 故**本次只记录，不实现**。
+> 故**本次只记录，不实现**。下一轮的起点见 §3.4。
 
 #### ⚠️ 问题 3：同一个东西，三层三个名字
 
