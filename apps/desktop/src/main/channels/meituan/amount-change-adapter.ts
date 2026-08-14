@@ -1,5 +1,5 @@
 /**
- * 美团的价量态改动适配器 —— 当前管**四个端点**：改价（试算 + 提交）、房态、房量。
+ * 美团的价量态改动适配器 —— 当前管**五个端点**：改价（试算 + 提交）、开房、关房、房量。
  *
  * 踩点：`docs/踩点/美团/改价踩点.md`（改价）、`docs/踩点/美团/单房态房量01.md`（房态房量）
  *
@@ -297,13 +297,17 @@ function isCalcContext(value: JsonObject | null): value is JsonObject & CalcCont
  * （宁可留着上一条也不要存个空结果），所以它也要过这一关。
  */
 /*
- * 不收 `endpointId` 形参：美团**四个端点的成功响应信封同构**，无需按端点分支。
+ * 不收 `endpointId` 形参：美团**五个端点的成功响应信封同构**，无需按端点分支。
  *
  * ```
- * calcPriceV2 / updatePriceV2    {code:10000, success:true, data:"hotel_sc_dealing__…"}
- * inventory/status/switch        {code:10000, success:true, data:true}
- * inventory/update               同上
+ * calcPriceV2 / updatePriceV2      {code:10000, success:true, data:"hotel_sc_dealing__…"}
+ * inventory/status/switch          {code:10000, success:true, data:true}
+ * inventory/roomstatus/submitaudit 同上
+ * inventory/update                 同上
  * ```
+ *
+ * ⚠️ 这个"信封同构"是**当下五个端点的事实**，不是美团的普遍保证。再加端点时要回来核对
+ * 它的响应形状，别默认沿用 —— 携程就是三个端点形状两两不同的反例。
  *
  * 只有 `data` 的形状不同（任务串 vs 布尔），而判定本来就不看 `data`，看的是
  * `code` + `success`。与携程那种「三个端点响应形状两两不同、光看响应体分不出自己在判哪个」

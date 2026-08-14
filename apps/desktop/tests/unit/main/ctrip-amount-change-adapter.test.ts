@@ -524,11 +524,38 @@ describe('ctrip amount change adapter', () => {
         expect(adapter.isSuccessful(rejected, 'setbatchroombookablestatus')).toBe(false);
       });
 
-      /** 双重确认：code 与 returnCode 都要对得上。 */
-      it('returnCode 对不上时判为失败', () => {
+      /** returnCode 明确给出且不是 200 —— 否决。 */
+      it('returnCode 明确不是 200 时判为失败', () => {
         const adapter = createCtripAmountChangeAdapter(createLogger());
         const odd = JSON.stringify({ code: 200, returnCode: '500', data: null });
         expect(adapter.isSuccessful(odd, 'setbatchroombookablestatus')).toBe(false);
+      });
+
+      /**
+       * ⚠️ **回归护栏**：`returnCode` 的类型在携程各端点间**并不稳定** —— 改价老模块的
+       * 成功响应里它是 `null`（见上方 `REAL_SUCCESS_RESPONSE`）。房态目前只有一个样本
+       * 给的是字符串 `"200"`，若据此写死严格相等，携程哪天改成数字或某个变体不给这个
+       * 字段，就会**每次成功都判失败**且静默漏报 —— 与 2026-08-13 美团关房全丢同类。
+       *
+       * 所以判据是：`code === 200` 为主，`returnCode` 只在明确不是 200 时否决。
+       */
+      it('returnCode 是数字 200 时同样判为成功', () => {
+        const adapter = createCtripAmountChangeAdapter(createLogger());
+        const numeric = JSON.stringify({ code: 200, returnCode: 200, data: null });
+        expect(adapter.isSuccessful(numeric, 'setbatchroombookablestatus')).toBe(true);
+      });
+
+      it('returnCode 缺失或为 null 时不阻断（携程在别的端点上确实会给 null）', () => {
+        const adapter = createCtripAmountChangeAdapter(createLogger());
+        expect(
+          adapter.isSuccessful(JSON.stringify({ code: 200, data: null }), 'setbatchroombookablestatus'),
+        ).toBe(true);
+        expect(
+          adapter.isSuccessful(
+            JSON.stringify({ code: 200, returnCode: null, data: null }),
+            'setbatchroombookablestatus',
+          ),
+        ).toBe(true);
       });
 
       it('响应体不是合法 JSON 时判为失败', () => {

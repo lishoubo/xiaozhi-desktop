@@ -359,14 +359,28 @@ function isNewModuleSuccessful(envelope: Record<string, unknown>): boolean {
  * ⚠️ **`data` 是 `null`** —— 这个端点没有内层结果明细，成功与否只能看外层。绝不能套用
  * 改价老模块查 `data.roomPriceSetResults[].resultCode` 的路径，那会把每次成功都判成失败。
  *
- * 取 `code` 与 `returnCode` **双重确认**：携程两个都给了，比只认一个稳。不认 `message`
- * 的中文文案 —— 文案随时可能改，用它当判据太脆。
+ * ## 判据：`code` 为主，`returnCode` 只做否决
+ *
+ * ⚠️ **不能要求 `returnCode` 严格等于字符串 `'200'`** —— 携程这个字段的类型在不同端点间
+ * 并不稳定：改价老模块的成功响应里它是 `null`（见 `ctrip-amount-change-adapter.test.ts`
+ * 的 `REAL_SUCCESS_RESPONSE`）。房态目前只有一个样本给的是 `"200"`，据此写死会让
+ * 「携程哪天改成数字 `200`」或「某个房态变体不给这个字段」变成**每次成功都判失败**，
+ * 而失效方式是静默漏报 —— 与本文件头警告的、以及 2026-08-13 美团关房全丢的是同一类问题。
+ *
+ * 所以：`code === 200` 是主判据；`returnCode` 只在**明确给出且明确不是 200** 时才否决，
+ * 缺失或 `null` 都不阻断。数字与字符串都接受。
+ *
+ * 不认 `message` 的中文文案 —— 文案随时可能改，用它当判据太脆。
  *
  * ⚠️ **只有成功样本，没有失败样本**：携程拒绝房态操作时的响应形状未知，所以这个判定
  * 存在「过松」的风险（把某种失败当成功）。真机若能构造一次失败应抓样本回填踩点文档并收紧。
  */
 function isRoomStatusSuccessful(envelope: Record<string, unknown>): boolean {
-  return envelope.code === 200 && envelope.returnCode === '200';
+  if (envelope.code !== 200) return false;
+  const returnCode = envelope.returnCode;
+  // 缺失/ null 不阻断（携程在别的端点上确实会给 null）；给了值就必须是 200。
+  if (returnCode === undefined || returnCode === null) return true;
+  return String(returnCode) === '200';
 }
 
 /**
@@ -392,6 +406,16 @@ function parseRoomStatus(observed: AmountSaveObserved, logger: AppLogger): Amoun
     logger.info('Ctrip room status: one save spans multiple hotels', {
       endpointId: observed.endpointId,
       hotelIds,
+    });
+  }
+
+  // 只有 `originalRoomProductIds` 而没有 `hotelRoomInfoDtoList` 时会走到这里：上报体的
+  // `otaHotelId` 是空串，且 `changeRaw` 里也没有任何 `hotelID`，RMS 只能靠房型反查。
+  // 与改价分支同一口径记 info —— 真出现时要能在日志里追溯到，而不是只看到一条门店为空的上报。
+  if (hotelIds.length === 0) {
+    logger.info('Ctrip room status: no hotelID in body, RMS will resolve by room product', {
+      endpointId: observed.endpointId,
+      roomIds,
     });
   }
 
