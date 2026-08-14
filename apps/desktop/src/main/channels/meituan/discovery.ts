@@ -43,7 +43,11 @@ export function createMeituanDiscovery(logger: AppLogger): DiscoverMeituan {
       );
       const identity = parseMeituanAccountIdentityCandidates(rawIdentity);
       if (!identity) {
-        logger.warn('Meituan account identity discovery returned no valid account');
+        // 与下面 catch 的区别：这里请求发出去了、也拿到了响应，只是里面没有能用的
+        // 账号（多半是接口变了或未登录）；catch 那条是请求本身没成。
+        logger.warn('Meituan discovery: identity response held no usable account', {
+          hasResponse: rawIdentity != null,
+        });
         return { kind: 'none' };
       }
 

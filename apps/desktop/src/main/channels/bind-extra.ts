@@ -43,11 +43,18 @@ export function withChannelAccount(
  *
  * | 渠道 | 键 | 内容 |
  * |---|---|---|
- * | 携程 | `hotelName` | 酒店名 |
+ * | 携程 | `userName` | 账号名（如「银际青山店」） |
  * | 抖音 | `name` | 账号名 |
  * | 美团 | `login` | 登录名（美团既没有 `hotelName` 也没有 `name`） |
+ * | 携程（旧记录） | `hotelName` | 酒店名 —— 见下 |
  *
- * 键名不重叠，所以按优先级依次取即可，不必按渠道分支。取不到返回 null——名字只是
+ * ⚠️ **顺序有意义，`hotelName` 必须排在最后**：携程改用 `HEAppInfo` 之后，它的
+ * `credentialExtra` 里 `userName`（账号名）与 `hotelName`（酒店名）**同时存在**。
+ * 这个函数要的是「账号叫什么」，把 `hotelName` 排前面会让携程账号一律显示成酒店名
+ * ——那正是改口径前的旧行为。`hotelName` 仍留在表里只为兜住不迁移的老记录
+ * （它们没有 `userName`），新记录永远轮不到它。
+ *
+ * 其余键名互不重叠，按优先级依次取即可，不必按渠道分支。取不到返回 null——名字只是
  * 展示增强，缺了不该阻断绑定。
  *
  * 导出是因为改价上报也要这个名字（`AmountChangeReportService`）。两处必须同一份实现：
@@ -57,9 +64,10 @@ export function withChannelAccount(
 export function channelAccountNameOf(credentialExtra: JsonObject | null): string | null {
   if (credentialExtra === null) return null;
   return (
-    nonBlank(credentialExtra.hotelName) ??
+    nonBlank(credentialExtra.userName) ??
     nonBlank(credentialExtra.name) ??
-    nonBlank(credentialExtra.login)
+    nonBlank(credentialExtra.login) ??
+    nonBlank(credentialExtra.hotelName)
   );
 }
 

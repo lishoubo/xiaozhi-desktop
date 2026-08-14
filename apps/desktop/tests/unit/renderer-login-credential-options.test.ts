@@ -32,4 +32,31 @@ describe('buildLoginCredentialOptions', () => {
       ),
     ).toEqual(['older']);
   });
+
+  /**
+   * 携程标签取账号名而非酒店名：一个账号可以管多家门店，用门店名认账号在多店
+   * 场景下会串。老记录没有 `userName`，才退回 `hotelName`。
+   */
+  it('携程标签优先账号名，老记录退回酒店名', () => {
+    const ctrip = (id: string, extra: OtaCredentialDto['credentialExtra']): OtaCredentialDto => ({
+      id,
+      channel: 'ctrip',
+      channelAccountId: id,
+      channelAccountName: null,
+      partitionName: `persist:xiaozhi:prod:ctrip:${id}`,
+      credentialExtra: extra,
+      discoveredAt: 1,
+      lastRefreshedAt: 1,
+    });
+
+    expect(
+      buildLoginCredentialOptions([
+        ctrip('new', {
+          userName: '银际青山店',
+          hotelName: '银际酒店(包头市青山王府井文化路店)',
+        }),
+        ctrip('old', { hotelId: 'ct-1', hotelName: '平江府' }),
+      ]).map((option) => option.label),
+    ).toEqual(['银际青山店', '平江府']);
+  });
 });

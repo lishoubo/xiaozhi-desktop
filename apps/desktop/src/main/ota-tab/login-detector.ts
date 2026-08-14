@@ -48,6 +48,19 @@ export type LoginDetectorDependencies = Readonly<{
 
 export class LoginDetector {
   private readonly loginTabs = new Map<string, LoginTabState>();
+  /**
+   * 这个 tab 的探测「已经落定或正在进行」，不必再触发。
+   *
+   * 两条退出规则，缺一不可：
+   * - 探测**成功**（返回非 null）→ 保留标记，同 tab 后续导航不再重复探测。
+   * - 探测**失败**（返回 null 或抛错）→ **必须移除**，否则这个 tab 就被判死：
+   *   后续任何导航都直接走 not-applicable，用户刷新也没用，只能关掉重开。
+   *   抖音探测有轮询超时，页面慢一点就返回 null，这条路很常走。
+   *
+   * 与 `OtaCredentialService.inflight` 的分工：这里是 **tab 维度**的门，管
+   * 「这个标签页要不要再探一次」；那边是 **partition 维度**的门，管「同一份登录
+   * 态不要被并发探测」。两者语义不同，不要合并成一个。
+   */
   private readonly triggered = new Set<string>();
 
   constructor(private readonly deps: LoginDetectorDependencies) {
@@ -99,13 +112,20 @@ export class LoginDetector {
     }
 
     this.triggered.add(event.tabId);
-    // 必须 await：广播早于写库会让下游查到 null，永久错过探测机会。
-    const credential = await this.deps.triggerDiscovery(
-      event.partitionName,
-      state.channel,
-      event.url,
-      event.webContents,
-    );
+    let credential: OtaCredential | null = null;
+    try {
+      // 必须 await：广播早于写库会让下游查到 null，永久错过探测机会。
+      credential = await this.deps.triggerDiscovery(
+        event.partitionName,
+        state.channel,
+        event.url,
+        event.webContents,
+      );
+    } finally {
+      // 没探出凭证就把门重新打开，让这个 tab 的下一次导航还能再试。抛错走同一条
+      // 路——探测崩了更应该允许重试，而不是把标签页永久判死。
+      if (!credential) this.triggered.delete(event.tabId);
+    }
     this.deps.tabEventBus.emitCredentialChecked({
       ...baseEvent,
       outcome: { kind: 'checked', credential },

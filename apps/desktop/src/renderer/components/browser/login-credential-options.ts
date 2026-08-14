@@ -19,7 +19,9 @@ function credentialLabel(credential: OtaCredentialDto): string {
       : credential.channel === 'meituan'
         ? (nonEmptyText(extra?.login) ?? nonEmptyText(extra?.maskedPhone))
         : credential.channel === 'ctrip'
-          ? nonEmptyText(extra?.hotelName)
+          ? // 账号名优先于酒店名：一个携程账号可以管多家门店，用门店名认账号会串。
+            // `hotelName` 兜的是没有 `userName` 的老记录。
+            (nonEmptyText(extra?.userName) ?? nonEmptyText(extra?.hotelName))
           : undefined;
   return preferred ?? credential.channelAccountId ?? '未识别账号';
 }

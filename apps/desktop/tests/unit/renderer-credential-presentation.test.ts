@@ -62,7 +62,36 @@ describe('credentialPresentation', () => {
     ]);
   });
 
-  it('展开携程 extra：酒店 ID，内部标记 identitySource 不上屏', () => {
+  it('展开携程 extra：标题取账号名，酒店退为佐证，identitySource 不上屏', () => {
+    const presentation = credentialPresentation(
+      credential({
+        channel: 'ctrip',
+        channelAccountId: '12324831',
+        credentialExtra: {
+          huid: '12324831',
+          userName: '银际青山店',
+          login: '银际酒店青山王府井店',
+          userType: 'HOTEL',
+          masterHotelId: '85068938',
+          hotelName: '银际酒店(包头市青山王府井文化路店)',
+          identitySource: 'he-app-info',
+        },
+      }),
+    );
+
+    // 账号名而非酒店名：一个账号可管多店，用店名认账号会串。
+    expect(presentation.title).toBe('银际青山店');
+    expect(presentation.details).toEqual([
+      { label: '账号 ID', value: '12324831' },
+      { label: '酒店 ID', value: '85068938' },
+      { label: '酒店', value: '银际酒店(包头市青山王府井文化路店)' },
+      // `login` 是美团那一列的标签，携程也有同名键，一并展示不冲突。
+      { label: '登录名', value: '银际酒店青山王府井店' },
+    ]);
+  });
+
+  /** 老记录不迁移：没有 `userName`，标题退回酒店名，`hotelId` 仍要上屏。 */
+  it('携程老记录退回酒店名与 hotelId', () => {
     const presentation = credentialPresentation(
       credential({
         channel: 'ctrip',
@@ -75,6 +104,7 @@ describe('credentialPresentation', () => {
     expect(presentation.details).toEqual([
       { label: '账号 ID', value: 'ct-123' },
       { label: '酒店 ID', value: 'ct-123' },
+      { label: '酒店', value: '平江府' },
     ]);
   });
 

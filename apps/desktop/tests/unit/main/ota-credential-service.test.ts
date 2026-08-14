@@ -39,6 +39,7 @@ function createDeps(
     findByChannelAndAccountId: vi.fn(() => null),
     updateIdentity: vi.fn(),
     updatePartitionAndIdentity: vi.fn(),
+    deleteById: vi.fn(),
   };
   return {
     discoverCtrip: vi.fn().mockResolvedValue({ kind: 'none' }),
@@ -63,15 +64,17 @@ describe('OtaCredentialService', () => {
     expect(deps.credentialRepository.create).not.toHaveBeenCalled();
   });
 
-  it('携程单酒店结果创建带 hotel-dom 临时身份的 credential', async () => {
+  it('携程单酒店结果创建带 HEAppInfo 账号身份的 credential', async () => {
     const discoverCtrip = vi.fn().mockResolvedValue({
       kind: 'found',
       credential: {
         channelAccountId: '12345',
         credentialExtra: {
-          hotelId: '12345',
+          huid: '12324831',
+          userName: '携程测试账号',
+          masterHotelId: '12345',
           hotelName: '携程测试酒店',
-          identitySource: 'hotel-dom',
+          identitySource: 'he-app-info',
         },
       },
       hotels: [
@@ -99,20 +102,23 @@ describe('OtaCredentialService', () => {
       id: toOtaCredentialId('generated-credential-id'),
       channel: ctripChannel,
       channelAccountId: '12345',
-      // 携程的名字取自 credentialExtra.hotelName —— 渠道差异在写入时抹平。
-      channelAccountName: '携程测试酒店',
+      // 携程的名字取自 credentialExtra.userName（账号名，不是酒店名）——
+      // 渠道差异在写入时抹平，见 channelAccountNameOf。
+      channelAccountName: '携程测试账号',
       partitionName: ctripPartitionName,
       credentialExtra: {
-        hotelId: '12345',
+        huid: '12324831',
+        userName: '携程测试账号',
+        masterHotelId: '12345',
         hotelName: '携程测试酒店',
-        identitySource: 'hotel-dom',
+        identitySource: 'he-app-info',
       },
       discoveredAt: expect.any(Number),
       lastRefreshedAt: expect.any(Number),
     });
   });
 
-  it('携程已有 credential 时刷新 hotel-dom 临时身份', async () => {
+  it('携程已有 credential 时刷新 HEAppInfo 账号身份', async () => {
     const existingCredential = credential({
       channel: ctripChannel,
       partitionName: ctripPartitionName,
@@ -122,9 +128,11 @@ describe('OtaCredentialService', () => {
       credential: {
         channelAccountId: '12345',
         credentialExtra: {
-          hotelId: '12345',
+          huid: '12324831',
+          userName: '携程测试账号',
+          masterHotelId: '12345',
           hotelName: '携程测试酒店',
-          identitySource: 'hotel-dom',
+          identitySource: 'he-app-info',
         },
       },
       hotels: [
@@ -142,9 +150,11 @@ describe('OtaCredentialService', () => {
       channelAccountId: '12345',
       channelAccountName: null,
       credentialExtra: {
-        hotelId: '12345',
+        huid: '12324831',
+        userName: '携程测试账号',
+        masterHotelId: '12345',
         hotelName: '携程测试酒店',
-        identitySource: 'hotel-dom',
+        identitySource: 'he-app-info',
       },
       lastRefreshedAt: 200,
     });
@@ -160,38 +170,16 @@ describe('OtaCredentialService', () => {
     expect(deps.credentialRepository.create).not.toHaveBeenCalled();
     expect(deps.credentialRepository.updateIdentity).toHaveBeenCalledWith(existingCredential.id, {
       channelAccountId: '12345',
-      channelAccountName: '携程测试酒店',
+      channelAccountName: '携程测试账号',
       credentialExtra: {
-        hotelId: '12345',
+        huid: '12324831',
+        userName: '携程测试账号',
+        masterHotelId: '12345',
         hotelName: '携程测试酒店',
-        identitySource: 'hotel-dom',
+        identitySource: 'he-app-info',
       },
       lastRefreshedAt: expect.any(Number),
     });
-  });
-
-  it('携程多酒店结果不创建 credential', async () => {
-    const discoverCtrip = vi.fn().mockResolvedValue({
-      kind: 'multiple',
-      hotels: [
-        { otaHotelId: toOtaHotelId('1'), otaHotelName: '门店A', bindExtra: null },
-        { otaHotelId: toOtaHotelId('2'), otaHotelName: '门店B', bindExtra: null },
-      ],
-    });
-    const deps = createDeps({ discoverCtrip });
-    const discoverAndCreate = new OtaCredentialService(deps);
-
-    await expect(
-      discoverAndCreate.trigger(
-        ctripPartitionName,
-        ctripChannel,
-        'https://ebooking.ctrip.com/home/mainland',
-        {} as never,
-      ),
-    ).resolves.toBeNull();
-
-    expect(deps.credentialRepository.create).not.toHaveBeenCalled();
-    expect(deps.credentialRepository.updateIdentity).not.toHaveBeenCalled();
   });
 
   it('抖音发现结果创建带登录用户身份的 credential', async () => {
@@ -525,5 +513,107 @@ describe('OtaCredentialService', () => {
 
     expect(second).toEqual(existing);
     expect(discoverDouyin).toHaveBeenCalledTimes(1);
+  });
+
+  /**
+   * 用户在渠道后台**直接切换账号**（携程/美团都支持），partition 不变：
+   *
+   * ```
+   * existing   = 账号 A 的 credential（按 partition 查到）
+   * identified = 账号 B 的 credential（按渠道账号 ID 查到，B 以前登过）
+   * 两者 id 不同 → 旧代码进第一个分支后撞上 `if (existing) throw`
+   *              → 被 trigger 的 catch 吞成一行 warn → 返回 null
+   *              → 用户看到「切了账号但没反应」
+   * ```
+   *
+   * 「两条 credential 指向同一 partition」由 `partition_name` 的 UNIQUE 约束
+   * （migration 3）兜底，不需要 service 再用 if 硬挡一道。
+   */
+  it('同一 partition 内切换到另一个已知账号时完成归并，不抛错', async () => {
+    const accountA = credential({
+      id: toOtaCredentialId('credential-a'),
+      channel: meituanChannel,
+      partitionName: meituanPartitionName,
+      channelAccountId: '111',
+    });
+    const accountB = credential({
+      id: toOtaCredentialId('credential-b'),
+      channel: meituanChannel,
+      partitionName: 'persist:xiaozhi:prod:meituan:old-b',
+      channelAccountId: '222',
+    });
+    const discoverMeituan = vi.fn().mockResolvedValue({
+      kind: 'found',
+      credential: { channelAccountId: '222', credentialExtra: { login: 'accountB' } },
+    });
+    const deps = createDeps({ discoverMeituan });
+    vi.mocked(deps.credentialRepository.findByPartitionName).mockReturnValue(accountA);
+    vi.mocked(deps.credentialRepository.findByChannelAndAccountId).mockReturnValue(accountB);
+    vi.mocked(deps.credentialRepository.updatePartitionAndIdentity).mockReturnValue({
+      ...accountB,
+      partitionName: meituanPartitionName,
+    });
+    const service = new OtaCredentialService(deps);
+
+    const result = await service.trigger(
+      meituanPartitionName,
+      meituanChannel,
+      'https://me.meituan.com/ebooking/index.html',
+      {} as never,
+    );
+
+    // 账号 B 的 credential 迁到当前 partition，而不是整条链路失败。
+    expect(result).not.toBeNull();
+    expect(deps.credentialRepository.updatePartitionAndIdentity).toHaveBeenCalledWith(
+      toOtaCredentialId('credential-b'),
+      expect.objectContaining({
+        partitionName: meituanPartitionName,
+        channelAccountId: '222',
+      }),
+    );
+  });
+
+  /**
+   * 账号 B 让出 partition 后，账号 A 那条 credential 仍指向同一个 partition ——
+   * UNIQUE 约束不允许两条并存，且它已经不是这份登录态的主人了。
+   */
+  it('被顶替的旧账号被清理', async () => {
+    const accountA = credential({
+      id: toOtaCredentialId('credential-a'),
+      channel: meituanChannel,
+      partitionName: meituanPartitionName,
+      channelAccountId: '111',
+    });
+    const accountB = credential({
+      id: toOtaCredentialId('credential-b'),
+      channel: meituanChannel,
+      partitionName: 'persist:xiaozhi:prod:meituan:old-b',
+      channelAccountId: '222',
+    });
+    const discoverMeituan = vi.fn().mockResolvedValue({
+      kind: 'found',
+      credential: { channelAccountId: '222', credentialExtra: { login: 'accountB' } },
+    });
+    const deps = createDeps({ discoverMeituan });
+    vi.mocked(deps.credentialRepository.findByPartitionName).mockReturnValue(accountA);
+    vi.mocked(deps.credentialRepository.findByChannelAndAccountId).mockReturnValue(accountB);
+    vi.mocked(deps.credentialRepository.updatePartitionAndIdentity).mockReturnValue({
+      ...accountB,
+      partitionName: meituanPartitionName,
+    });
+    const service = new OtaCredentialService(deps);
+
+    await service.trigger(
+      meituanPartitionName,
+      meituanChannel,
+      'https://me.meituan.com/ebooking/index.html',
+      {} as never,
+    );
+
+    // A 被顶替：它已经没有可用登录态（partition 归 B 了），留着会成为账号列表里
+    // 一个点了就打开别人页面的错误选项 —— 直接清理，连同它名下的 ota_hotel 行。
+    expect(deps.credentialRepository.deleteById).toHaveBeenCalledWith(
+      toOtaCredentialId('credential-a'),
+    );
   });
 });
