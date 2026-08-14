@@ -89,6 +89,7 @@ on a new host without starting services or modifying firewall rules.
 - **WHEN** an operator packages a clean revision and prepares a new host
 - **THEN** the source archive contains all Docker build inputs and no deployment secrets
 - **AND** the host has the directories required by production Compose mounts
+- **AND** a root-operated bootstrap creates a dedicated non-login deployment owner when no non-root owner was supplied
 - **AND** `.env.production` and TLS files are transferred separately
 
 #### Scenario: Build a single-upload production deployment bundle

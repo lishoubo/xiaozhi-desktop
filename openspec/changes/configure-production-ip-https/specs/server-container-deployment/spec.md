@@ -52,8 +52,9 @@ without starting services or changing firewall rules.
 - **AND** unsafe or incomplete archive content fails before publication
 
 #### Scenario: Prepare a new production host
-- **WHEN** an authorized operator runs the host preparation command with valid deploy identities
-- **THEN** application, TLS, PostgreSQL persistence and server log directories are created with explicit modes
+- **WHEN** an authorized root operator runs the host preparation command without an existing non-root deploy identity
+- **THEN** a dedicated non-login deployment owner with a non-conflicting UID is created idempotently
+- **AND** application, TLS, PostgreSQL persistence and server log directories are created with explicit modes
   and container-readable ownership
 - **AND** existing runtime file permissions and the dedicated logrotate rule are normalized
 - **AND** no service, firewall or remote system is changed

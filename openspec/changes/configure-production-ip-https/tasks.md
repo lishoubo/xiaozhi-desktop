@@ -51,3 +51,8 @@
 - [x] 9.1 Add a guarded SSH/SCP uploader fixed to `121.199.29.74` and the local RMS agent key.
 - [x] 9.2 Verify the local and remote checksum without extracting or starting production services.
 - [x] 9.3 Document SSH user input, host fingerprint verification and the remote staging directory.
+
+## 10. Root-operated host bootstrap
+
+- [x] 10.1 Make host preparation idempotently create a dedicated non-login deployment owner when root has no non-root deploy identity.
+- [x] 10.2 Document the root deployment path and verify account provisioning, directory ownership and shell syntax.

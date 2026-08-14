@@ -200,9 +200,29 @@ esac
 sha256sum -c "${DEPLOY_ARCHIVE}.sha256"
 sudo install -d -o "$USER" -g "$(id -gn)" -m 0750 /opt/hotel-butler
 tar -xzf "$DEPLOY_ARCHIVE" -C /opt
-sudo HOTEL_BUTLER_DEPLOY_USER="$USER" \
+sudo bash /opt/hotel-butler/app/apps/server/scripts/prepare-production-host.sh
+```
+
+如果当前是 root，主机准备脚本会在首次执行时自动创建不允许交互登录的
+`hotelbutler` 本地部署用户（默认 UID `2000`），用于持有应用、生产配置和 TLS 文件；
+脚本还会将解压后的应用目录递归设置为该用户所有。
+
+如果服务器已经存在同名 `hotelbutler` 用户，脚本不会重复创建：UID 为 `2000` 且
+shell 为 `/usr/sbin/nologin`、`/sbin/nologin` 或 `/bin/false` 时直接复用；如果同名用户的
+UID 或 shell 不符合这些安全条件，脚本会在改变目录所有权之前失败，不会修改该账号。
+此时应显式选择另一个用户名和未占用的 UID：
+
+```bash
+sudo HOTEL_BUTLER_DEPLOY_USER=hotelbutler_app HOTEL_BUTLER_DEPLOY_UID=2001 \
   bash /opt/hotel-butler/app/apps/server/scripts/prepare-production-host.sh
 ```
+
+自动创建的部署 UID 必须与 PostgreSQL `999` 和 server `1000` 容器运行 UID 分离。
+非 root 用户通过 `sudo` 执行时，默认使用 `SUDO_USER` 作为所有者。如需指定另一个
+已有或待创建的本地用户，可传入 `HOTEL_BUTLER_DEPLOY_USER=<name>`。
+`hotelbutler` 只承担文件所有权，不加入 `docker` 组，也不用它执行部署命令。后续
+Docker Compose 仍由 root 执行；如果当前就是 root，直接执行下文的 `docker compose`
+命令，不需要再加 `sudo`。
 
 重复部署时可以复用同一段命令。解压和目录准备都不会启动服务。
 

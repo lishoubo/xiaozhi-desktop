@@ -59,6 +59,22 @@ describe('deployment environment boundaries', () => {
 		expect(hostPreparation).toContain(
 			'server_log_dir="${SERVER_LOG_DIR:-/var/log/hotel-butler/server}"'
 		);
+		expect(hostPreparation).toContain('default_deploy_user="hotelbutler"');
+		expect(hostPreparation).toContain('preferred_deploy_uid="${HOTEL_BUTLER_DEPLOY_UID:-2000}"');
+		expect(hostPreparation).toContain('useradd --uid "${preferred_deploy_uid}" --user-group');
+		expect(hostPreparation).toContain('--shell "${nologin_shell}" "${deploy_user}"');
+		expect(hostPreparation).toContain('Deployment owner must not be root');
+		expect(hostPreparation).toContain(
+			'Deployment owner UID conflicts with the PostgreSQL container UID'
+		);
+		expect(hostPreparation).toContain('deploy_user_is_automatic=true');
+		expect(hostPreparation).toContain('Existing automatic deployment owner has unexpected UID');
+		expect(hostPreparation).toContain(
+			'Existing automatic deployment owner must use a non-login shell'
+		);
+		expect(hostPreparation).toContain(
+			'chown -R "${deploy_uid}:${deploy_group}" "${app_directory}"'
+		);
 		expect(hostPreparation).toContain('maxsize 50M');
 		expect(hostPreparation).toContain('rotate 14');
 	});

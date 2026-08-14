@@ -52,10 +52,20 @@ keys. It verifies required Docker inputs and emits a SHA-256 sidecar.
 
 The new-host preparation command creates `/opt/hotel-butler/app`,
 `/opt/hotel-butler/tls/server` and `/var/lib/hotel-butler/postgresql` with explicit deploy, server and
-database ownership. Paths and numeric container IDs are configurable, validated and never inferred
-from environment-file contents. The command does not upload secrets, modify firewall rules, start
+database ownership. It must run as root because these paths cross system-owned filesystem trees. If
+the invoking identity resolves to root or no deploy owner is supplied, the command idempotently
+creates a dedicated `hotelbutler` local account with a non-login shell and uses it as the
+application/TLS owner. Its default UID is 2000 and must remain distinct from the PostgreSQL and
+server container UIDs; an operator can override it when the host already uses that UID. A valid
+existing non-root account can still be selected explicitly. An automatically selected existing
+`hotelbutler` account is reused only when its UID and non-login shell match the managed account;
+the script fails before changing ownership when the name belongs to an incompatible account. Paths,
+account names and numeric container IDs are validated before mutation and are never inferred from
+environment-file contents. The command does not upload secrets, modify firewall rules, start
 Compose or deploy remotely. Runtime `.env.production` and server TLS files remain separate,
-permission-restricted transfers.
+permission-restricted transfers. The dedicated owner is not granted Docker access and is not an
+interactive deployment identity; the authorized root operator remains responsible for subsequent
+Compose commands.
 
 The safe source archive remains credential-free. A separate, explicitly named production deployment
 command creates one sensitive bundle containing the clean committed source, the ignored

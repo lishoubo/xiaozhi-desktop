@@ -17,7 +17,8 @@ certificate, shipping a private key, or building a desktop client that still tar
   production package is built.
 - Fix the public API port at 35443, publish PostgreSQL on host port 35432 for operator GUI access,
   and generate an ignored production environment file with a high-entropy database password.
-- Add a clean-revision server source archive command and a new-host directory preparation command.
+- Add a clean-revision server source archive command and a new-host directory preparation command
+  that provisions a dedicated non-login deployment owner when a root operator has not prepared one.
 - Add structured logging around every outbound RMS HTTP call and persist production server logs in
   a host-mounted directory for incident diagnosis.
 - Make desktop production logs use Electron's OS-native logs directory with an auth-profile-specific

@@ -1,5 +1,24 @@
 # Verification: Production IP HTTPS
 
+## 2026-08-14 root-operated host bootstrap
+
+- `bash -n apps/server/scripts/prepare-production-host.sh` passed.
+- `npm run test:unit:server -- --run src/lib/server/deployment-environment.test.ts` passed: 1 file,
+  5 tests.
+- An ephemeral `hotel-butler-server:local` container executed the host preparation script twice.
+  The first pass created `hotelbutler` with UID/GID `2000:2000` and a non-login shell; the second
+  reported `created: false`. Directory evidence was application `2000:2000 0750`, TLS
+  `2000:1000 0750`, PostgreSQL `999:999 0700`, and server logs `1000:1000 0750`.
+- A second ephemeral behavior check placed a root-owned release file under the application tree;
+  the idempotent preparation pass changed it to UID 2000. A pre-existing automatic `hotelbutler`
+  account with unexpected UID 2001 was rejected before PostgreSQL or log directories were created.
+- `npx prettier --check` for the touched documentation and test files passed; `git diff --check`
+  passed.
+- `TRUST_STORES=nss npm run verify` completed checks, lint, and all unit suites successfully
+  (desktop 506 tests, server 161 tests, API 24 tests). The full command then stopped before desktop
+  E2E because the operator's already-running local server occupied `http://localhost:4173`.
+  That environment was intentionally not stopped or modified, and the full suite was not rerun.
+
 ## Result
 
 The production certificate, Compose configuration, generated environment and macOS arm64 desktop
