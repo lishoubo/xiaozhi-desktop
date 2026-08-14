@@ -143,6 +143,10 @@ export function validateProductionEnvironmentText(environment: string): void {
 	}
 }
 
+export function containsPrivateKeyMaterial(contents: Buffer | string): boolean {
+	return /-----BEGIN (?:[A-Z0-9]+ )*PRIVATE KEY-----/.test(contents.toString());
+}
+
 function assertNoUnexpectedPrivateKeys(directory: string, allowedPrivateKey?: string): void {
 	for (const entry of readdirSync(directory, { withFileTypes: true })) {
 		const entryPath = path.join(directory, entry.name);
@@ -156,7 +160,7 @@ function assertNoUnexpectedPrivateKeys(directory: string, allowedPrivateKey?: st
 		if (
 			entry.isFile() &&
 			path.resolve(entryPath) !== allowedPrivateKey &&
-			readFileSync(entryPath).includes(Buffer.from('PRIVATE KEY-----'))
+			containsPrivateKeyMaterial(readFileSync(entryPath))
 		) {
 			throw new Error(`Deployment archive contains private key material: ${entryPath}`);
 		}

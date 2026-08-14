@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
 	archiveEntryIsForbidden,
+	containsPrivateKeyMaterial,
 	validateArchiveEntries,
 	validateDeploymentArchiveEntries,
 	validateProductionEnvironmentText
@@ -86,5 +87,18 @@ describe('production source archive policy', () => {
 		expect(() =>
 			validateProductionEnvironmentText(complete.replace(/^AI_KIMI_API_KEY=.*$/m, ''))
 		).toThrow('AI_KIMI_API_KEY');
+	});
+
+	it('distinguishes real PEM private keys from scanner source text', () => {
+		expect(containsPrivateKeyMaterial("Buffer.from('PRIVATE KEY-----')")).toBe(false);
+		expect(
+			containsPrivateKeyMaterial(`${['-----BEGIN', 'PRIVATE KEY-----'].join(' ')}\nsecret`)
+		).toBe(true);
+		expect(
+			containsPrivateKeyMaterial(`${['-----BEGIN RSA', 'PRIVATE KEY-----'].join(' ')}\nsecret`)
+		).toBe(true);
+		expect(
+			containsPrivateKeyMaterial(`${['-----BEGIN EC', 'PRIVATE KEY-----'].join(' ')}\nsecret`)
+		).toBe(true);
 	});
 });
