@@ -98,7 +98,18 @@ export function createServerLogger(options: ServerLoggerOptions = {}): Logger {
 		}
 	};
 
-	return options.destination ? pino(loggerOptions, options.destination) : pino(loggerOptions);
+	if (options.destination) return pino(loggerOptions, options.destination);
+
+	const filePath = env.SERVER_LOG_FILE?.trim();
+	if (!filePath) return pino(loggerOptions);
+
+	return pino(
+		loggerOptions,
+		pino.multistream([
+			pino.destination(1),
+			pino.destination({ dest: filePath, mkdir: false, sync: false })
+		])
+	);
 }
 
 export const serverLogger = createServerLogger();

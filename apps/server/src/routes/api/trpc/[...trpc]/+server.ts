@@ -85,7 +85,10 @@ const handleTrpcRequest: RequestHandler = ({ locals, request }) =>
 				agentPrincipal: async () => {
 					const authorization = req.headers.get('authorization');
 					if (authorization) {
-						return resolveStaffAgentPrincipal(authorization, env);
+						return resolveStaffAgentPrincipal(authorization, env, globalThis.fetch, {
+							logger: locals.logger,
+							requestId: locals.requestId
+						});
 					}
 					const employee = await desktopSession.currentEmployee();
 					return employee ? { employeeId: employee.id, orgId: employee.orgId } : null;

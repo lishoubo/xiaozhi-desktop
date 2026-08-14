@@ -5,7 +5,11 @@
 import { app, BrowserWindow } from 'electron';
 import log from 'electron-log/main';
 import started from 'electron-squirrel-startup';
-import { configureMainLogging } from './logging/configure-main-logging';
+import { AUTH_VARIANT } from '../shared/auth-variant';
+import {
+  configureDesktopLogDirectory,
+  configureMainLogging,
+} from './logging/configure-main-logging';
 import { configureNetworkPrivacy } from './security/network-privacy';
 import { createAppScope, type AppScope } from './composition/app-scope';
 import { createWindowScope, type WindowScope } from './composition/window-scope';
@@ -14,9 +18,11 @@ let appScope: AppScope | null = null;
 let windowScope: WindowScope | null = null;
 
 configureNetworkPrivacy(app.commandLine);
+const logsDirectory = configureDesktopLogDirectory(app, AUTH_VARIANT);
 configureMainLogging(log, {
   appVersion: app.getVersion(),
   isPackaged: app.isPackaged,
+  logsDirectory,
   platform: process.platform,
 });
 

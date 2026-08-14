@@ -4,6 +4,7 @@ services:
   db:
     image: pgvector/pgvector:${PGVECTOR_IMAGE_TAG:-0.8.5-pg18}
     restart: unless-stopped
+    command: ['postgres', '-p', '${POSTGRES_PORT:-35432}']
     environment:
       POSTGRES_USER: ${POSTGRES_USER:?Set POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}
@@ -12,8 +13,14 @@ services:
       - type: bind
         source: ${POSTGRES_DATA_DIR:?Set POSTGRES_DATA_DIR}
         target: /var/lib/postgresql
+    ports:
+      - '${POSTGRES_BIND_ADDRESS:-0.0.0.0}:${POSTGRES_PORT:-35432}:${POSTGRES_PORT:-35432}'
     healthcheck:
-      test: ['CMD-SHELL', 'pg_isready -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"']
+      test:
+        [
+          'CMD-SHELL',
+          'pg_isready -p ${POSTGRES_PORT:-35432} -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"'
+        ]
       interval: 10s
       timeout: 5s
       retries: 10
@@ -60,6 +67,7 @@ services:
       AI_MCP_SERVERS_JSON: ${AI_MCP_SERVERS_JSON:-{}}
       XIAOZHI_RMS_SERVER_URL: ${XIAOZHI_RMS_SERVER_URL:?Set XIAOZHI_RMS_SERVER_URL to the RMS HTTPS API origin}
       LOG_LEVEL: ${LOG_LEVEL:-info}
+      SERVER_LOG_FILE: /var/log/hotel-butler/server.jsonl
       HOST: 0.0.0.0
       PORT: 3443
       SERVER_TLS_CERT_FILE: /certs/cert.pem
@@ -69,12 +77,20 @@ services:
       SERVER_HEALTH_CONNECT_PORT: 3443
       SERVER_HEALTH_CA_FILE: /certs/ca.pem
     ports:
-      - '${SERVER_BIND_ADDRESS:-0.0.0.0}:${SERVER_HTTPS_PORT:-443}:3443'
+      - '${SERVER_BIND_ADDRESS:-0.0.0.0}:${SERVER_HTTPS_PORT:-35443}:3443'
     volumes:
       - type: bind
         source: ${SERVER_TLS_CERT_DIR:?Set SERVER_TLS_CERT_DIR to the production certificate directory}
         target: /certs
         read_only: true
+      - type: bind
+        source: ${SERVER_LOG_DIR:?Set SERVER_LOG_DIR to the production server log directory}
+        target: /var/log/hotel-butler
+    logging:
+      driver: local
+      options:
+        max-size: 20m
+        max-file: 5
     depends_on:
       database-init:
         condition: service_completed_successfully

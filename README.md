@@ -128,6 +128,75 @@ RMS_DATABASE_URL=mysql://readonly-user:password@rms-host:3306/rms-database
 
 无需更换服务端镜像或认证模式。
 
+### 单次上传的生产部署包
+
+普通源码包仍然不含任何凭证：
+
+```bash
+npm run package:server:source
+```
+
+需要“一次上传后即可部署”时，使用显式的敏感部署包：
+
+```bash
+npm run package:server:production
+```
+
+该命令只接受干净、已提交的 Git 修订，并在 `output/deploy/` 生成
+`hotel-butler-server-deployment-<commit>.tar.gz` 及 SHA-256 文件。压缩包包含：
+
+- server 构建源码；
+- `apps/server/.env.production`；
+- `tls/server/{cert.pem,key.pem,ca.pem}`。
+
+脚本会拒绝配置占位值、权限过宽的私有文件、失效或不匹配 `121.199.29.74` 的证书，
+也不会包含 CA 签名私钥或 desktop 源码。该压缩包本身含数据库密码、API Key、管理
+员密码和服务端私钥，权限为 `0600`；只能通过受控通道传输，不得提交 Git、发到群聊或
+作为普通日志附件。
+
+新服务器上的首次安装示例（不会推送镜像，也不需要 Docker 私服）：
+
+```bash
+sha256sum -c hotel-butler-server-deployment-<commit>.tar.gz.sha256
+sudo install -d -o "$USER" -g "$(id -gn)" -m 0750 /opt/hotel-butler
+tar -xzf hotel-butler-server-deployment-<commit>.tar.gz -C /opt
+sudo HOTEL_BUTLER_DEPLOY_USER="$USER" \
+  bash /opt/hotel-butler/app/apps/server/scripts/prepare-production-host.sh
+cd /opt/hotel-butler/app
+docker compose --env-file apps/server/.env.production \
+  -f apps/server/compose.production.yaml up --build --detach --wait
+```
+
+当前 `.env.production` 中的 `XIAOZHI_RMS_SERVER_URL` 必须先替换成真实 RMS HTTPS 地址；
+保留占位值时部署包命令会故意失败。
+
+### 生产目录与关键文件
+
+| 路径 | 内容 | 安全属性 |
+|---|---|---|
+| `/opt/hotel-butler/app/` | Compose 与 server 构建源码 | 部署用户可读写 |
+| `/opt/hotel-butler/app/apps/server/.env.production` | 数据库、RMS、AI 和管理员配置 | **敏感，`0600`** |
+| `/opt/hotel-butler/tls/server/cert.pem` | `121.199.29.74` 服务证书 | 可公开 |
+| `/opt/hotel-butler/tls/server/ca.pem` | 桌面端信任的公开 CA | 可公开 |
+| `/opt/hotel-butler/tls/server/key.pem` | HTTPS 服务私钥 | **敏感，仅部署用户/容器可读** |
+| `/var/lib/hotel-butler/postgresql/` | PostgreSQL 持久数据 | **敏感，不作普通文件复制** |
+| `/var/log/hotel-butler/server/server.jsonl` | Pino 结构化服务日志 | 已脱敏，外发前仍需复核 |
+
+服务日志同时保留在 Docker stdout，可实时查看：
+
+```bash
+npm run compose:prod:logs
+# 或
+docker compose --env-file apps/server/.env.production \
+  -f apps/server/compose.production.yaml logs --follow server
+```
+
+Docker 的 stdout 日志使用 `local` 驱动，单文件 20 MiB、最多 5 个文件。主机准备脚本
+会在已安装 `logrotate` 时创建 `/etc/logrotate.d/hotel-butler-server`：`server.jsonl` 每日
+或达到 50 MiB 时轮转，保留 14 份并压缩；未安装时脚本会明确告警，应改由日志采集代理
+负责轮转。RMS `/api/v1/me` 调用会记录 request ID、操作名、目标 origin/path、HTTP 状态、
+结果分类和耗时，不记录 Bearer、响应正文或员工身份。
+
 ## 桌面端生产打包
 
 ### 必要构建变量
@@ -196,6 +265,38 @@ phone 产物使用独立标识：
 Executable: hotel-butler-phone
 Bundle ID:  com.hotelbutler.desktop.phone
 ```
+
+### 桌面端生产日志与本地数据
+
+桌面主进程使用 Electron 官方的应用日志目录，并按构建 Profile 再隔离一层。当前日志
+为 `main.log`；打包版记录 `info` 及以上，达到 10 MiB 后轮转为 `main.old.log`。staff 与
+phone 不会写入同一个日志文件。
+
+| 系统 | 生产日志目录 |
+|---|---|
+| macOS | `~/Library/Logs/小智酒店管家/{staff\|phone}/` |
+| Windows | `%APPDATA%\小智酒店管家\logs\{staff\|phone}\` |
+| Linux | `${XDG_CONFIG_HOME:-$HOME/.config}/小智酒店管家/logs/{staff\|phone}/` |
+
+这是 Electron 的 per-user 目录，不需要管理员权限，也不应写到安装目录。程序启动日志会
+同时记录解析后的 `logFilePath`，便于现场确认实际位置。
+
+桌面业务数据位于 Electron `userData` 目录：
+
+| 系统 | `userData` 根目录 |
+|---|---|
+| macOS | `~/Library/Application Support/小智酒店管家/` |
+| Windows | `%APPDATA%\小智酒店管家\` |
+| Linux | `${XDG_CONFIG_HOME:-$HOME/.config}/小智酒店管家/` |
+
+关键文件包括 `hotel-butler.sqlite`、加密的 `staff-auth.json`、
+`cookie-imports/`、`pending-partitions.json` 以及 Chromium session/partition 数据。它们
+可能包含业务数据、登录态或 Cookie，不能当作普通排错附件上传。`main.log` 已经过统一
+脱敏，但提交给第三方前仍应人工检查。
+
+桌面端直接访问 RMS 的登录、刷新、退出、身份与业务接口也统一记录
+`rms.http.request.started/completed/failed`，包括请求 ID、尝试次数、操作、HTTP 状态和
+耗时；URL 查询参数、请求体、用户名、密码、Token 和响应正文不会写入日志。
 
 ## 验证
 

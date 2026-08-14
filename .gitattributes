@@ -1,0 +1,3 @@
+/apps/server/.env export-ignore
+/apps/server/.github export-ignore
+/apps/server/AGENTS.md export-ignore

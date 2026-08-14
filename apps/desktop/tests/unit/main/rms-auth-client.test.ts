@@ -17,6 +17,8 @@ function setup(response: unknown = { code: 0, message: 'ok', data: TOKEN_PAIR })
     origin: ORIGIN,
     fetch: fetch as unknown as typeof globalThis.fetch,
     logger,
+    now: vi.fn().mockReturnValueOnce(10).mockReturnValueOnce(17),
+    requestIdFactory: () => 'desktop-rms-auth-1',
   });
   return { client, fetch, logger };
 }
@@ -36,6 +38,20 @@ describe('createRmsAuthClient user-agent', () => {
 
     // eslint-disable-next-line no-control-regex -- 刻意匹配 ASCII 范围之外的字符。
     expect(headersOf(fetch)['user-agent']).toMatch(/^[\x00-\x7F]+$/);
+  });
+
+  it('logs a safe start and completion for the remote call', async () => {
+    const { client, logger } = setup();
+
+    await client.login('staff-1', 'secret-password');
+
+    const serialized = JSON.stringify(logger.info.mock.calls);
+    expect(serialized).toContain('rms.http.request.started');
+    expect(serialized).toContain('rms.http.request.completed');
+    expect(serialized).toContain('desktop-rms-auth-1');
+    expect(serialized).toContain('"durationMs":7');
+    expect(serialized).not.toContain('staff-1');
+    expect(serialized).not.toContain('secret-password');
   });
 
   it('sends an ASCII-only user-agent on every authenticated call', async () => {

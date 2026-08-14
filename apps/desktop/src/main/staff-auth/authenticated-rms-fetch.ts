@@ -17,7 +17,9 @@
  * 认证层不擅自清登录态。
  */
 import type { AppLogger } from '../../shared/logging';
+import { randomUUID } from 'node:crypto';
 import type { RmsTokenProvider } from './rms-token-provider';
+import { executeLoggedRmsFetch } from './rms-http-logging';
 
 /**
  * 覆盖 Electron 的默认 UA：默认值里带着中文应用名（"小智酒店管家"），会被
@@ -30,34 +32,50 @@ export type AuthenticatedRmsFetchDependencies = Readonly<{
   fetch: typeof globalThis.fetch;
   provider: RmsTokenProvider;
   logger: AppLogger;
+  now?: () => number;
+  requestIdFactory?: () => string;
 }>;
 
 export function createAuthenticatedRmsFetch(
   deps: AuthenticatedRmsFetchDependencies,
 ): typeof globalThis.fetch {
   const { fetch, provider, logger } = deps;
+  const now = deps.now ?? (() => performance.now());
+  const requestIdFactory = deps.requestIdFactory ?? randomUUID;
 
   const send = async (
     input: RequestInfo | URL,
     init: RequestInit | undefined,
     accessToken: string,
+    requestId: string,
+    attempt: number,
   ): Promise<Response> => {
     const headers = new Headers(init?.headers);
     headers.set('authorization', `Bearer ${accessToken}`);
     headers.set('user-agent', RMS_USER_AGENT);
     if (!headers.has('accept')) headers.set('accept', 'application/json');
 
-    return fetch(input, { ...init, headers });
+    return executeLoggedRmsFetch({
+      attempt,
+      fetch,
+      input,
+      init: { ...init, headers },
+      logger,
+      now,
+      operation: 'authenticated_fetch',
+      requestId,
+    });
   };
 
   return async (input, init) => {
-    const response = await send(input, init, await provider.accessToken());
+    const requestId = requestIdFactory();
+    const response = await send(input, init, await provider.accessToken(), requestId, 1);
     if (response.status !== 401) return response;
 
     // 401 只说明服务端不认这个 token。本地缓存可能已经陈旧（换了机器、
     // 服务端重启清了会话），丢掉重取一次是有意义的；再失败就不是缓存问题。
     logger.warn('RMS rejected the access token; retrying once with a fresh one');
     provider.invalidate();
-    return send(input, init, await provider.accessToken());
+    return send(input, init, await provider.accessToken(), requestId, 2);
   };
 }
