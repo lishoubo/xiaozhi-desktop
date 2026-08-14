@@ -272,6 +272,9 @@ export type AgentCapabilities = Readonly<z.infer<typeof agentCapabilitiesSchema>
 
 export const agentQuickActionIdSchema = z.enum([
   'yesterday_operating_review',
+  'last_7_days_operating_trend',
+  'month_to_date_operating_progress',
+  'channel_operating_comparison',
   'public_hotel_rates',
   'hotel_operating_data',
 ]);
@@ -409,6 +412,8 @@ export const agentBusinessExecutionIdInputSchema = z.strictObject({
 export const cancelAgentBusinessExecutionResultSchema = z.strictObject({
   businessExecutionId: idSchema,
   status: z.literal('cancelled'),
+  userMessage: agentMessageSchema,
+  assistantMessage: agentMessageSchema,
 });
 export type CancelAgentBusinessExecutionResult = Readonly<
   z.infer<typeof cancelAgentBusinessExecutionResultSchema>

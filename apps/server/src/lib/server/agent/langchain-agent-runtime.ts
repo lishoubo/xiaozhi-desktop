@@ -5,6 +5,7 @@ import type { BaseMessageLike } from '@langchain/core/messages';
 import { tool, type StructuredToolInterface } from '@langchain/core/tools';
 import { ChatOpenAI } from '@langchain/openai';
 import { createAgent, createMiddleware } from 'langchain';
+import { Effect } from 'effect';
 import { z } from 'zod';
 import type { AgentRepository } from './agent-repository';
 import type { AgentEnvironment } from './agent-config';
@@ -15,6 +16,14 @@ import { buildHotelAgentSystemPrompt } from './hotel-agent-prompt';
 import { HotelAgentToolHandlers } from './hotel-agent-tool-handlers';
 import type { SkillProvider } from './skill-provider';
 import { getIntentDefinition } from './execution/intent-registry';
+import {
+	agentPromise,
+	AgentConfigurationError,
+	AgentProtocolError,
+	AgentUpstreamError,
+	isAgentExecutionError,
+	runAgentEffect
+} from './agent-effect';
 
 function textContent(value: unknown): string {
 	if (typeof value === 'string') return value;
@@ -133,14 +142,34 @@ export class LangChainAgentRuntime implements AgentRuntime {
 	}
 
 	async run(options: AgentRuntimeRunOptions) {
-		if (!this.environment.apiKey) throw new Error('AI_KIMI_API_KEY is not configured');
+		if (!this.environment.apiKey) {
+			throw new AgentConfigurationError({ setting: 'AI_KIMI_API_KEY' });
+		}
 		options.signal.throwIfAborted();
 		let generatedUi: GenerativeUiSpec | null = null;
 		const answerOnly = options.validatedEvidence !== undefined;
-		const [memories, skills] = await Promise.all([
-			answerOnly ? Promise.resolve([]) : this.repository.listMemories(options.principal),
-			answerOnly ? Promise.resolve([]) : this.skills.list()
-		]);
+		const [memories, skills] = answerOnly
+			? [[], []]
+			: await runAgentEffect(
+					Effect.all(
+						[
+							agentPromise({
+								service: 'persistence',
+								operation: 'load_agent_memories',
+								timeoutMs: 10_000,
+								try: () => this.repository.listMemories(options.principal)
+							}),
+							agentPromise({
+								service: 'persistence',
+								operation: 'load_agent_skills',
+								timeoutMs: 10_000,
+								try: () => this.skills.list()
+							})
+						],
+						{ concurrency: 'unbounded' }
+					),
+					options.signal
+				);
 		options.signal.throwIfAborted();
 		const localTools =
 			options.workflowRequest && !answerOnly
@@ -153,7 +182,17 @@ export class LangChainAgentRuntime implements AgentRuntime {
 						},
 						!answerOnly
 					);
-		const loadedMcpTools = answerOnly ? [] : await this.mcpTools.getTools();
+		const loadedMcpTools = answerOnly
+			? []
+			: await runAgentEffect(
+					agentPromise({
+						service: 'mcp',
+						operation: 'load_runtime_tools',
+						timeoutMs: 55_000,
+						try: () => this.mcpTools.getTools()
+					}),
+					options.signal
+				);
 		options.signal.throwIfAborted();
 		const workflowMcpTools =
 			options.workflowRequest && !answerOnly
@@ -234,7 +273,10 @@ export class LangChainAgentRuntime implements AgentRuntime {
 							call.name !== 'render_hotel_ui' &&
 							startedWorkflowToolCount >= workflowToolCallBudget
 						) {
-							throw new Error('Business workflow tool-call budget exceeded');
+							throw new AgentProtocolError({
+								operation: 'execute_business_workflow',
+								reason: 'Business workflow tool-call budget exceeded'
+							});
 						}
 						if (call.name !== 'render_hotel_ui') startedWorkflowToolCount += 1;
 						startedTools.add(call.id);
@@ -259,7 +301,10 @@ export class LangChainAgentRuntime implements AgentRuntime {
 							call.name !== 'render_hotel_ui' &&
 							startedWorkflowToolCount >= workflowToolCallBudget
 						) {
-							throw new Error('Business workflow tool-call budget exceeded');
+							throw new AgentProtocolError({
+								operation: 'execute_business_workflow',
+								reason: 'Business workflow tool-call budget exceeded'
+							});
 						}
 						if (call.name !== 'render_hotel_ui') startedWorkflowToolCount += 1;
 						startedTools.add(call.id);
@@ -298,7 +343,15 @@ export class LangChainAgentRuntime implements AgentRuntime {
 			}
 		} catch (error) {
 			const recovered = recoverCompletedUiAfterRenderLimit(error, content, generatedUi);
-			if (!recovered) throw error;
+			if (!recovered) {
+				if (isAgentExecutionError(error)) throw error;
+				throw new AgentUpstreamError({
+					service: answerOnly ? 'model' : options.workflowRequest ? 'mcp' : 'model',
+					operation: answerOnly ? 'generate_grounded_answer' : 'run_agent_stream',
+					kind: 'unavailable',
+					cause: error
+				});
+			}
 			return recovered;
 		}
 		return { content, ui: generatedUi, toolEvidence };

@@ -1,4 +1,5 @@
 import type { ExecuteValues } from 'mysql2';
+import { agentPromise, AgentUpstreamError, runAgentEffect } from '../agent-effect';
 import type { HotelCandidate, HotelReferenceResolver } from './slot-resolver';
 
 export interface HotelQueryExecutor {
@@ -35,9 +36,15 @@ export class RmsHotelReferenceResolver implements HotelReferenceResolver {
 	async resolve(reference: string, orgId: string): Promise<readonly HotelCandidate[]> {
 		const query = reference.trim();
 		if (!query || !/^\d+$/.test(orgId)) return [];
-		const [rows] = await this.executor.execute(
-			`SELECT id, name, short_name
-			 FROM hotel
+		const [rows] = await runAgentEffect(
+			agentPromise({
+				service: 'rms',
+				operation: 'resolve_hotel_reference',
+				timeoutMs: 10_000,
+				try: () =>
+					this.executor.execute(
+						`SELECT id, name, short_name
+				 FROM hotel
 			 WHERE org_id = ?
 			   AND status = 1
 			   AND (
@@ -46,13 +53,27 @@ export class RmsHotelReferenceResolver implements HotelReferenceResolver {
 			   )
 			 ORDER BY CASE WHEN name = ? OR short_name = ? THEN 0 ELSE 1 END, id ASC
 			 LIMIT 10`,
-			[orgId, query, query, query, query, query, query]
+						[orgId, query, query, query, query, query, query]
+					)
+			})
 		);
-		if (!Array.isArray(rows)) throw new Error('RMS hotel query returned invalid rows');
+		if (!Array.isArray(rows)) {
+			throw new AgentUpstreamError({
+				service: 'rms',
+				operation: 'resolve_hotel_reference',
+				kind: 'invalid_response'
+			});
+		}
 
 		const target = normalized(query);
 		return rows.map((row) => {
-			if (!isHotelRow(row)) throw new Error('RMS hotel query returned an invalid row');
+			if (!isHotelRow(row)) {
+				throw new AgentUpstreamError({
+					service: 'rms',
+					operation: 'resolve_hotel_reference',
+					kind: 'invalid_response'
+				});
+			}
 			const name = row.name.trim();
 			const shortName = row.short_name.trim();
 			const normalizedName = normalized(name);

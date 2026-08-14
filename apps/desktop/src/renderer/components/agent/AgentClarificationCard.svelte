@@ -50,7 +50,7 @@
 >
   <p class="m-0 text-sm font-medium text-foreground">{clarification.prompt}</p>
   {#if expired}
-    <p class="mt-2 mb-0 text-xs text-destructive">这次补充信息已过期，请取消任务后重新发起。</p>
+    <p class="mt-2 mb-0 text-xs text-destructive">这次补充信息已过期，请取消后重新发起。</p>
   {/if}
   <div class="mt-4 grid gap-3">
     {#each clarification.fields as field (field.slot)}
@@ -108,10 +108,10 @@
     {/each}
   </div>
   <div class="mt-4 flex justify-end gap-2">
-    <Button type="button" variant="ghost" disabled={submitting} onclick={oncancel}>取消任务</Button>
+    <Button type="button" variant="ghost" disabled={submitting} onclick={oncancel}>取消</Button>
     <Button type="submit" disabled={submitting || expired}>
       {#if submitting}<LoaderCircle class="animate-spin" />{/if}
-      继续执行
+      确认
     </Button>
   </div>
 </form>

@@ -13,6 +13,9 @@
   import Plus from '@lucide/svelte/icons/plus';
   import Square from '@lucide/svelte/icons/square';
   import ChartNoAxesCombined from '@lucide/svelte/icons/chart-no-axes-combined';
+  import ChartSpline from '@lucide/svelte/icons/chart-spline';
+  import CalendarRange from '@lucide/svelte/icons/calendar-range';
+  import Columns3 from '@lucide/svelte/icons/columns-3';
   import TriangleAlert from '@lucide/svelte/icons/triangle-alert';
   import Trash2 from '@lucide/svelte/icons/trash-2';
   import { autoAnimate } from '@formkit/auto-animate';
@@ -34,6 +37,7 @@
   import {
     executionForDisplayedMessage,
     formatConversationUpdatedAt,
+    isPendingBusinessExecutionConflict,
     messageOwnsPendingClarification,
     shouldDisplayExecutionTrace,
   } from '../agent-presentation';
@@ -47,6 +51,18 @@
       yesterday_operating_review: {
         icon: ChartNoAxesCombined,
         tone: 'bg-[#fef0cf] text-[#805600]',
+      },
+      last_7_days_operating_trend: {
+        icon: ChartSpline,
+        tone: 'bg-[#dcecfa] text-[#24557a]',
+      },
+      month_to_date_operating_progress: {
+        icon: CalendarRange,
+        tone: 'bg-[#fde0ec] text-[#863a5f]',
+      },
+      channel_operating_comparison: {
+        icon: Columns3,
+        tone: 'bg-[#d9f3e1] text-[#176548]',
       },
       public_hotel_rates: { icon: Hotel, tone: 'bg-[#e6e0f5] text-[#3a2a99]' },
       hotel_operating_data: { icon: Hotel, tone: 'bg-[#dff2eb] text-[#176548]' },
@@ -88,6 +104,7 @@
   );
   const activeBusinessExecution = $derived(activeView?.activeBusinessExecution ?? null);
   const pendingClarification = $derived(activeBusinessExecution?.pendingClarification ?? null);
+  const quickActionsBlocked = $derived(activeBusinessExecution !== null);
   const hasActiveRuns = $derived(conversations.some((conversation) => conversation.activeRunId));
   const activeConversation = $derived(
     conversations.find((conversation) => conversation.id === activeConversationId) ?? null,
@@ -331,8 +348,24 @@
     const clarification = pendingClarification;
     if (!conversationId || !execution || !clarification || clarificationSubmitting) return;
     clarificationSubmitting = true;
+    pageErrorMessage = '';
     try {
-      await window.hotelButler.agent.cancelBusinessExecution(execution.id, clarification.version);
+      const cancelled = await window.hotelButler.agent.cancelBusinessExecution(
+        execution.id,
+        clarification.version,
+      );
+      const currentView = conversationViews.get(conversationId);
+      if (currentView) {
+        conversationViews.set(conversationId, {
+          ...currentView,
+          messages: [
+            ...currentView.messages,
+            cancelled.userMessage,
+            cancelled.assistantMessage,
+          ],
+          activeBusinessExecution: null,
+        });
+      }
       await loadConversationState(conversationId);
     } catch {
       pageErrorMessage = '取消任务失败，请刷新会话后重试。';
@@ -343,6 +376,10 @@
 
   async function executeQuickAction(action: AgentQuickAction): Promise<void> {
     if (!action.available || sending) return;
+    if (quickActionsBlocked) {
+      pageErrorMessage = '当前任务正在等待补充信息，请先确认或取消当前任务。';
+      return;
+    }
     await startRun({ quickActionId: action.id });
   }
 
@@ -381,12 +418,24 @@
       );
       drainPendingRunEvents(started.runId);
       await refreshConversations();
-    } catch {
+    } catch (error) {
       if (restorePrompt) prompt = restorePrompt;
-      pageErrorMessage =
-        'quickActionId' in request
-          ? '快捷操作启动失败，请确认所需酒店 MCP 数据源已配置。'
-          : '消息发送失败，请检查登录状态或稍后重试。';
+      if ('quickActionId' in request && isPendingBusinessExecutionConflict(error)) {
+        pageErrorMessage = '当前任务正在等待补充信息，请先确认或取消当前任务。';
+        if (activeConversationId) {
+          try {
+            await loadConversationState(activeConversationId);
+          } catch {
+            pageErrorMessage =
+              '当前任务正在等待补充信息，但状态刷新失败；请重新打开会话后确认或取消。';
+          }
+        }
+      } else {
+        pageErrorMessage =
+          'quickActionId' in request
+            ? '快捷操作启动失败，请确认所需酒店 MCP 数据源已配置。'
+            : '消息发送失败，请检查登录状态或稍后重试。';
+      }
     } finally {
       starting = false;
     }
@@ -589,6 +638,7 @@
                   ]}
                   type="button"
                   disabled={!action.available || sending}
+                  title={action.description}
                   onclick={() => void executeQuickAction(action)}
                 >
                   <span class={['mb-3 grid size-8 place-items-center rounded-lg', action.tone]}>
@@ -628,7 +678,7 @@
               {#if message.ui}
                 <div class="mt-3"><HotelGenerativeUi spec={message.ui} /></div>
               {/if}
-              {#if pendingClarification && messageOwnsPendingClarification(activeBusinessExecution, message)}
+              {#if pendingClarification && messageOwnsPendingClarification(activeBusinessExecution, message, messages)}
                 <AgentClarificationCard
                   clarification={pendingClarification}
                   submitting={clarificationSubmitting}
@@ -695,11 +745,11 @@
     <footer class="shrink-0 border-t border-border/60 bg-background/95 px-6 pt-3 pb-4">
       <div class="mx-auto max-w-3xl">
         {#if quickActionCards.length > 0 && messages.length > 0}
-          <div class="mb-2 flex gap-2 overflow-x-auto pb-1" aria-label="酒店快捷操作">
+          <div class="mb-2 flex flex-wrap items-center gap-1.5" aria-label="酒店快捷操作">
             {#each quickActionCards as action (action.id)}
               <button
                 class={[
-                  'inline-flex shrink-0 items-center gap-1.5 rounded-full border border-border bg-background px-3 py-1.5 text-xs transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none',
+                  'inline-flex items-center gap-1 rounded-full border border-border bg-background px-2.5 py-1 text-[11px] leading-4 transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none',
                   action.available
                     ? 'text-foreground hover:border-input hover:bg-muted'
                     : 'cursor-not-allowed text-muted-foreground opacity-60',
@@ -711,7 +761,7 @@
                   : `${action.description}（需配置酒店 MCP）`}
                 onclick={() => void executeQuickAction(action)}
               >
-                <action.icon size={13} />
+                <action.icon size={12} />
                 {action.label}
                 {#if !action.available}<span class="text-[10px]">需 MCP</span>{/if}
               </button>

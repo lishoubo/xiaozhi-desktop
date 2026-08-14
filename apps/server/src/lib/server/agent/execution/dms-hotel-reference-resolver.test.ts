@@ -15,23 +15,38 @@ function queryTool(result: unknown): DynamicStructuredTool {
 	});
 }
 
-describe('DMS hotel reference fallback', () => {
-	it('turns the bounded DMS hotel ID list into explicit clarification choices', async () => {
+describe('DMS hotel reference resolver', () => {
+	it('resolves a hotel name from the bounded MCP name-to-ID directory', async () => {
 		const resolver = new DmsHotelReferenceResolver({
 			getTools: vi.fn().mockResolvedValue([
 				queryTool([
 					{
 						type: 'text',
-						text: '| hotel_id |\n| --- |\n| 2 |\n| 4 |'
+						text:
+							'| hotel_id | ota_hotel_name |\n| --- | --- |\n| 4 | 包头璞禾咖啡酒店(禧瑞都店) |\n| 4 | 璞禾咖啡酒店禧瑞都店 |\n| 5 | 另一家酒店 |'
 					}
 				])
 			])
 		});
 
-		await expect(resolver.resolve('未录入目录的酒店', '42')).resolves.toEqual([
-			{ id: '2', label: '酒店 ID 2', match: 'fuzzy', accessScope: 'shared_dms_token' },
-			{ id: '4', label: '酒店 ID 4', match: 'fuzzy', accessScope: 'shared_dms_token' }
+		await expect(resolver.resolve('包头璞禾咖啡酒店（禧瑞都店）', '42')).resolves.toEqual([
+			{
+				id: '4',
+				label: '包头璞禾咖啡酒店(禧瑞都店)',
+				match: 'exact',
+				accessScope: 'shared_dms_token'
+			}
 		]);
+	});
+
+	it('does not offer unrelated bare hotel IDs when the MCP name directory has no match', async () => {
+		const resolver = new DmsHotelReferenceResolver({
+			getTools: vi.fn().mockResolvedValue([
+				queryTool('| hotel_id | ota_hotel_name |\n| --- | --- |\n| 4 | 另一家酒店 |')
+			])
+		});
+
+		await expect(resolver.resolve('西湖店', '42')).resolves.toEqual([]);
 	});
 
 	it('uses DMS only when the organization hotel directory has no match', async () => {

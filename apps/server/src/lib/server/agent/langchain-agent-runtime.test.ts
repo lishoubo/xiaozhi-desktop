@@ -41,7 +41,7 @@ describe('recoverCompletedUiAfterRenderLimit', () => {
 
 describe('selectWorkflowToolNames', () => {
 	const available = [
-		'query_hotel_operating_data',
+		'query_hotel_operating_data_sql',
 		'query_weather_forecast',
 		'search_room_rates',
 		'update_room_rate'
@@ -54,7 +54,7 @@ describe('selectWorkflowToolNames', () => {
 			slots: {}
 		};
 		expect(selectWorkflowToolNames({ workflowRequest }, available)).toEqual([
-			'query_hotel_operating_data'
+			'query_hotel_operating_data_sql'
 		]);
 		expect(selectWorkflowToolNames({ workflowRequest, validatedEvidence: [] }, available)).toEqual([
 			'render_hotel_ui'

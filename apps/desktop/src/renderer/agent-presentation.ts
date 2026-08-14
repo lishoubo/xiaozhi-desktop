@@ -7,12 +7,17 @@ import type {
 export function messageOwnsPendingClarification(
   execution: AgentBusinessExecutionSummary | null,
   message: AgentMessage,
+  messages: readonly AgentMessage[],
 ): boolean {
+  const latestExecutionMessage = messages.findLast(
+    (candidate) => candidate.businessExecutionId === execution?.id,
+  );
   return (
     execution !== null &&
     execution.pendingClarification !== null &&
     message.role === 'assistant' &&
-    message.businessExecutionId === execution.id
+    message.businessExecutionId === execution.id &&
+    latestExecutionMessage?.id === message.id
   );
 }
 
@@ -35,6 +40,13 @@ export function executionForDisplayedMessage(
 
 export function shouldDisplayExecutionTrace(trace: AgentExecutionTrace): boolean {
   return trace.steps.length > 0 || trace.status === 'failed' || trace.status === 'cancelled';
+}
+
+export function isPendingBusinessExecutionConflict(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    /等待补充的任务|先回答或取消|active business execution/i.test(error.message)
+  );
 }
 
 export function compactTrendAxisLabel(label: string): string {

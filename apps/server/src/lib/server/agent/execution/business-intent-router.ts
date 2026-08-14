@@ -57,13 +57,39 @@ export class BusinessIntentRouter {
 			| Readonly<{ kind: 'prompt'; text: string }>
 	): Promise<RouteDecision> {
 		if (input.kind === 'quick_action') {
+			const dateRange =
+				input.quickActionId === 'yesterday_operating_review'
+					? '昨天'
+					: input.quickActionId === 'last_7_days_operating_trend' ||
+							input.quickActionId === 'channel_operating_comparison'
+						? '最近7天'
+						: input.quickActionId === 'month_to_date_operating_progress'
+							? '本月至今'
+							: null;
 			return {
 				routeKind: 'business_read',
 				intent: quickActionIntent[input.quickActionId],
-				slots:
-					input.quickActionId === 'yesterday_operating_review'
-						? { dateRange: { status: 'candidate', raw: '昨天' } }
-						: {},
+				slots: {
+					...(dateRange ? { dateRange: { status: 'candidate' as const, raw: dateRange } } : {}),
+					...(input.quickActionId === 'last_7_days_operating_trend'
+						? {
+								metrics: {
+									status: 'resolved' as const,
+									value: '按日经营趋势',
+									source: { kind: 'quick_action' as const }
+								}
+							}
+						: {}),
+					...(input.quickActionId === 'channel_operating_comparison'
+						? {
+								metrics: {
+									status: 'resolved' as const,
+									value: '按渠道比较经营指标',
+									source: { kind: 'quick_action' as const }
+								}
+							}
+						: {})
+				},
 				confidence: 1
 			};
 		}

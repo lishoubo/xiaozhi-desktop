@@ -1,5 +1,12 @@
 import { ChatOpenAI } from '@langchain/openai';
+import { Effect } from 'effect';
 import type { AgentEnvironment } from '../agent-config';
+import {
+	agentPromise,
+	AgentConfigurationError,
+	AgentProtocolError,
+	runAgentEffect
+} from '../agent-effect';
 import {
 	routeClassifierOutputSchema,
 	type RouteClassifier,
@@ -18,8 +25,10 @@ slots 只放用户原文中明确出现的候选值；日期原词保留，不�
 
 export class LangChainRouteClassifier implements RouteClassifier {
 	private readonly model: ChatOpenAI;
+	private readonly configured: boolean;
 
 	constructor(environment: AgentEnvironment) {
+		this.configured = Boolean(environment.apiKey);
 		this.model = new ChatOpenAI({
 			model: environment.model,
 			apiKey: environment.apiKey,
@@ -31,33 +40,62 @@ export class LangChainRouteClassifier implements RouteClassifier {
 	}
 
 	async classify(input: Readonly<{ text: string }>): Promise<RouteClassifierOutput> {
+		if (!this.configured) throw new AgentConfigurationError({ setting: 'AI_KIMI_API_KEY' });
 		const structured = this.model.withStructuredOutput(routeClassifierOutputSchema, {
-			name: 'route_hotel_request'
+			name: 'route_hotel_request',
+			includeRaw: true
 		});
-		for (let attempt = 0; attempt < 2; attempt += 1) {
-			try {
-				return routeClassifierOutputSchema.parse(
-					await structured.invoke([
-						{ role: 'system', content: SYSTEM_PROMPT },
-						{
-							role: 'user',
-							content:
-								attempt === 0
-									? input.text
-									: `${input.text}\n\n上次输出未通过 schema，请只返回符合定义的结构。`
-						}
-					])
-				);
-			} catch {
-				// One bounded schema retry is allowed before falling back to a safe unclear route.
-			}
-		}
-		return {
-			category: 'unclear',
-			intentCandidate: null,
-			requestedEffect: 'unclear',
-			confidence: 0,
-			slots: {}
-		};
+		let attempt = 0;
+		const classify = Effect.gen(function* () {
+			const response = yield* agentPromise({
+				service: 'model',
+				operation: 'classify_route',
+				timeoutMs: 35_000,
+				try: (signal) =>
+					structured.invoke(
+						[
+							{ role: 'system', content: SYSTEM_PROMPT },
+							{
+								role: 'user',
+								content:
+									attempt === 0
+										? input.text
+										: `${input.text}\n\n上次输出未通过 schema，请只返回符合定义的结构。`
+							}
+						],
+						{ signal }
+					)
+			});
+			return yield* Effect.try({
+				try: () => routeClassifierOutputSchema.parse(response.parsed),
+				catch: (cause) =>
+					new AgentProtocolError({
+						operation: 'classify_route',
+						reason: 'Model output did not match the route schema',
+						cause
+					})
+			});
+		}).pipe(
+			Effect.retry({
+				times: 1,
+				while: (error) => {
+					if (!(error instanceof AgentProtocolError)) return false;
+					attempt += 1;
+					return true;
+				}
+			}),
+			Effect.catchIf(
+				(error) => error instanceof AgentProtocolError,
+				() =>
+					Effect.succeed<RouteClassifierOutput>({
+						category: 'unclear',
+						intentCandidate: null,
+						requestedEffect: 'unclear',
+						confidence: 0,
+						slots: {}
+					})
+			)
+		);
+		return runAgentEffect(classify);
 	}
 }

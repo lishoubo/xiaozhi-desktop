@@ -1,7 +1,9 @@
 import { MultiServerMCPClient } from '@langchain/mcp-adapters';
 import type { DynamicStructuredTool } from '@langchain/core/tools';
+import { Effect } from 'effect';
 import { HOTEL_DATA_MCP_SERVER_NAME } from './agent-config';
 import type { McpCapability, McpServerConfig } from './agent-config';
+import { agentPromise, AgentProtocolError, runAgentEffect } from './agent-effect';
 import {
 	compactHotelDataToolResult,
 	constrainHotelDataGenerateSqlArgs,
@@ -34,7 +36,19 @@ export function loadMcpServerToolsInOrder<T>(
 	serverNames: readonly string[],
 	load: (serverName: string) => Promise<readonly T[]>
 ): Promise<readonly (readonly T[])[]> {
-	return Promise.all(serverNames.map((serverName) => load(serverName)));
+	return runAgentEffect(
+		Effect.forEach(
+			serverNames,
+			(serverName) =>
+				agentPromise({
+					service: 'mcp',
+					operation: `load_tool_catalog:${serverName}`,
+					timeoutMs: 50_000,
+					try: () => load(serverName)
+				}),
+			{ concurrency: 'unbounded' }
+		)
+	);
 }
 
 function configureHotelDataTool(tool: DynamicStructuredTool): DynamicStructuredTool {
@@ -155,12 +169,28 @@ export class McpToolProvider {
 			const searchDatabase = hotelDataTools.find(
 				(tool) => tool.name === DMS_SEARCH_DATABASE_TOOL_NAME
 			);
-			if (!searchDatabase) throw new Error('DMS searchDatabase tool is unavailable');
-			const result = await searchDatabase.invoke({
-				search_key: this.dmsDatabaseName,
-				page_number: 1,
-				page_size: 50
-			});
+			if (!searchDatabase) {
+				throw new AgentProtocolError({
+					operation: 'discover_dms_database',
+					reason: 'DMS searchDatabase tool is unavailable'
+				});
+			}
+			const result = await runAgentEffect(
+				agentPromise({
+					service: 'mcp',
+					operation: 'discover_dms_database',
+					timeoutMs: 50_000,
+					try: (signal) =>
+						searchDatabase.invoke(
+							{
+								search_key: this.dmsDatabaseName ?? '',
+								page_number: 1,
+								page_size: 50
+							},
+							{ signal }
+						)
+				})
+			);
 			resolvedDmsDatabaseId = selectDmsDatabaseId(result, this.dmsDatabaseName, this.dmsDatabaseId);
 			resolvedDmsDatabaseName = this.dmsDatabaseName;
 		}
@@ -188,8 +218,21 @@ export class McpToolProvider {
 	}
 
 	async close(): Promise<void> {
-		await this.client?.close();
-		this.client = null;
-		this.toolsPromise = null;
+		const client = this.client;
+		try {
+			if (client) {
+				await runAgentEffect(
+					agentPromise({
+						service: 'mcp',
+						operation: 'close_connections',
+						timeoutMs: 10_000,
+						try: () => client.close()
+					})
+				);
+			}
+		} finally {
+			this.client = null;
+			this.toolsPromise = null;
+		}
 	}
 }

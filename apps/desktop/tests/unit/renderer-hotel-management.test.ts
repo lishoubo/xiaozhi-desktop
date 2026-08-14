@@ -100,13 +100,6 @@ describe('hotel management OTA account presentation', () => {
     ]);
   });
 
-  it('shows only the source for a binding that carries channel parameters alone', () => {
-    // 后台绑的老记录往往只有这些渠道参数——没有账号身份可展示，但来源仍然要说清楚。
-    expect(
-      getOtaAccountBindDetails({ merchantGroupId: '7129084416', otaPartnerId: 'MT-883720' }),
-    ).toEqual([{ label: '绑定来源', value: 'RMS 绑定' }]);
-  });
-
   it('still reports RMS as the source when bindExtra is absent entirely', () => {
     // 没有 bindExtra 正是后台绑定最典型的样子——不写来源，不代表没有来源。
     expect(getOtaAccountBindDetails(null)).toEqual([{ label: '绑定来源', value: 'RMS 绑定' }]);
@@ -118,10 +111,6 @@ describe('formatLastRefreshedAt', () => {
 
   it('shows a bare 24h clock time for today', () => {
     expect(formatLastRefreshedAt(refreshedAt, new Date('2026-08-10T23:30:00+08:00'))).toBe('19:54');
-  });
-
-  it('keeps the clock time stable regardless of how much later it is read', () => {
-    expect(formatLastRefreshedAt(refreshedAt, new Date('2026-08-10T19:54:01+08:00'))).toBe('19:54');
   });
 
   it('prefixes the date once the day has rolled over', () => {

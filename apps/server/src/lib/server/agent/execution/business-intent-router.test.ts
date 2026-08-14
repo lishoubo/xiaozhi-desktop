@@ -17,6 +17,37 @@ describe('BusinessIntentRouter', () => {
 		expect(classifier.classify).not.toHaveBeenCalled();
 	});
 
+	it('pre-fills bounded dates and metrics for common operating shortcuts', async () => {
+		const classifier = { classify: vi.fn() };
+		const router = new BusinessIntentRouter(classifier);
+
+		await expect(
+			router.route({ kind: 'quick_action', quickActionId: 'last_7_days_operating_trend' })
+		).resolves.toMatchObject({
+			intent: 'hotel_operating_summary',
+			slots: {
+				dateRange: { status: 'candidate', raw: '最近7天' },
+				metrics: { status: 'resolved', value: '按日经营趋势' }
+			}
+		});
+		await expect(
+			router.route({ kind: 'quick_action', quickActionId: 'month_to_date_operating_progress' })
+		).resolves.toMatchObject({
+			intent: 'hotel_operating_summary',
+			slots: { dateRange: { status: 'candidate', raw: '本月至今' } }
+		});
+		await expect(
+			router.route({ kind: 'quick_action', quickActionId: 'channel_operating_comparison' })
+		).resolves.toMatchObject({
+			intent: 'generic_hotel_data_query',
+			slots: {
+				dateRange: { status: 'candidate', raw: '最近7天' },
+				metrics: { status: 'resolved', value: '按渠道比较经营指标' }
+			}
+		});
+		expect(classifier.classify).not.toHaveBeenCalled();
+	});
+
 	it('seeds yesterday for the daily operating review shortcut', async () => {
 		const classifier = { classify: vi.fn() };
 		const router = new BusinessIntentRouter(classifier);

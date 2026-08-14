@@ -12,16 +12,43 @@ const definitions = [
 	{
 		id: 'yesterday_operating_review',
 		label: '昨日经营复盘',
-		description: '按酒店 ID 查看昨日成交、预约、核销、退款和间夜表现',
+		description: '按酒店查看昨日成交、预约、核销、退款和间夜表现',
 		category: 'operations',
 		requiredCapability: 'hotel_data',
 		prompt:
 			'复盘指定酒店昨天的经营表现。如果当前会话尚未明确酒店，先请用户补充；日期由系统固定为昨天。必须使用 DMS 酒店经营数据 MCP 查询真实数据，汇总实际可用的成交、预约、核销、退款金额及券数、间夜量和核销单价，说明数据口径；有多渠道对比时可生成简洁图表。'
 	},
 	{
+		id: 'last_7_days_operating_trend',
+		label: '近 7 日经营趋势',
+		description: '查看最近 7 个完整自然日的核心指标变化',
+		category: 'operations',
+		requiredCapability: 'hotel_data',
+		prompt:
+			'分析指定酒店最近 7 个完整自然日的经营趋势。如果当前会话尚未明确酒店，先请用户补充；日期由系统固定。必须使用 DMS 酒店经营数据 MCP 查询真实数据，按日比较成交、预约、核销、退款、间夜量和核销单价等实际可用指标，指出趋势、峰谷和异常，并在数据适合时生成简洁趋势图。'
+	},
+	{
+		id: 'month_to_date_operating_progress',
+		label: '本月经营进度',
+		description: '汇总本月截至当前可用日期的经营进度和阶段表现',
+		category: 'operations',
+		requiredCapability: 'hotel_data',
+		prompt:
+			'查看指定酒店本月截至当前可用日期的经营进度。如果当前会话尚未明确酒店，先请用户补充；日期由系统固定。必须使用 DMS 酒店经营数据 MCP 查询真实数据，汇总成交、预约、核销、退款、间夜量和核销单价等实际可用指标，说明阶段变化和数据口径；没有目标值时不要虚构完成率。'
+	},
+	{
+		id: 'channel_operating_comparison',
+		label: '渠道经营对比',
+		description: '比较最近 7 个完整自然日各渠道的贡献与差异',
+		category: 'revenue',
+		requiredCapability: 'hotel_data',
+		prompt:
+			'比较指定酒店最近 7 个完整自然日各渠道的经营表现。如果当前会话尚未明确酒店，先请用户补充；日期和指标由系统固定。必须使用 DMS 酒店经营数据 MCP 查询真实数据，按实际存在的渠道比较成交、预约、核销、退款、间夜量和核销单价，指出主要贡献渠道与异常差异；适合时生成渠道对比图。'
+	},
+	{
 		id: 'hotel_operating_data',
 		label: '查看酒店经营概览',
-		description: '按酒店 ID 和日期查询核心经营指标',
+		description: '按酒店和日期查询核心经营指标',
 		category: 'operations',
 		requiredCapability: 'hotel_data',
 		prompt:

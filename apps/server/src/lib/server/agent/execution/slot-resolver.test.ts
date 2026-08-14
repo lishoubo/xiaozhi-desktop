@@ -36,6 +36,14 @@ describe('slot resolution', () => {
 			end: '2026-08-09',
 			timezone: 'Asia/Shanghai'
 		});
+		expect(resolveRelativeDateRange('最近7天', now)).toMatchObject({
+			start: '2026-08-06',
+			end: '2026-08-12'
+		});
+		expect(resolveRelativeDateRange('本月至今', now)).toMatchObject({
+			start: '2026-08-01',
+			end: '2026-08-13'
+		});
 	});
 
 	it('turns several hotel candidates and missing dates into deterministic fields', async () => {
@@ -109,6 +117,32 @@ describe('slot resolution', () => {
 					guests: 2,
 					currency: 'CNY'
 				}
+			}
+		});
+	});
+
+	it('explains when the MCP hotel-name projection has no match', async () => {
+		const resolver = new BusinessSlotResolver(
+			{ resolve: vi.fn().mockResolvedValue([]) },
+			() => now
+		);
+
+		const result = await resolver.resolve({
+			definition: getIntentDefinition('hotel_operating_summary'),
+			intent: 'hotel_operating_summary',
+			orgId: '42',
+			slots: {
+				hotelReference: { status: 'candidate', raw: '未同步的酒店' },
+				dateRange: { status: 'candidate', raw: '昨天' }
+			},
+			anchorMessageId: '22222222-2222-4222-8222-222222222222',
+			version: 1
+		});
+
+		expect(result).toMatchObject({
+			status: 'needs_clarification',
+			clarification: {
+				prompt: '未从酒店数据中匹配到该名称，请输入 OTA 后台显示的完整酒店名称。'
 			}
 		});
 	});

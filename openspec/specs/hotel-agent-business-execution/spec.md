@@ -62,6 +62,19 @@ SHALL resume only from a valid owned response to the current interaction version
 - **WHEN** a conversation containing an unexpired waiting execution is reopened
 - **THEN** the same pending clarification is reconstructed from PostgreSQL
 
+### Requirement: MCP-backed hotel reference resolution
+
+Until a server-owned hotel directory is available, the server SHALL resolve hotel names from a
+bounded, read-only MCP name-to-ID projection. Internal workflow inputs MAY use `hotel_id`, but any
+clarification choice SHALL present a recognizable hotel name rather than a bare ID.
+
+#### Scenario: Resolve or clarify an MCP hotel name
+- **WHEN** the user supplies a hotel name for a hotel-data request
+- **THEN** the server compares it with the bounded MCP hotel-name projection in application code
+- **AND** proceeds automatically when one internal hotel ID matches
+- **AND** presents named choices when more than one internal hotel ID matches
+- **AND** does not offer unrelated bare IDs when no name matches
+
 ### Requirement: Registered read workflow boundary
 
 Every business read SHALL execute through a server-registered workflow with an MCP capability,
@@ -164,9 +177,30 @@ product-owned components separate from model-generated result UI.
 - **THEN** the desktop renders fixed choice, date, range, number or text controls
 - **AND** routes composer text to that interaction until it is resolved or cancelled
 
+#### Scenario: Continue a multi-round clarification
+- **WHEN** the employee submits one clarification and slot resolution asks for another
+- **THEN** the submitted card immediately becomes non-interactive and its persisted user answer remains visible
+- **AND** exactly one new card is rendered under the latest assistant clarification message
+
+#### Scenario: Cancel a pending clarification
+- **WHEN** the employee cancels an owned waiting execution
+- **THEN** the execution and a user cancellation message plus assistant acknowledgement are persisted atomically
+- **AND** reopening the conversation explains why the task stopped without restoring an interactive card
+
 #### Scenario: Generated UI attempts to resume a task
 - **WHEN** a model-generated UI spec contains presentation components
 - **THEN** it cannot submit clarification or change business execution state
+
+### Requirement: Server-owned operating shortcuts
+
+The server SHALL expose only shortcuts backed by configured read-only capabilities and SHALL own
+their prompts, intent mapping, fixed date windows and metric markers.
+
+#### Scenario: Run a common operating shortcut
+- **WHEN** an employee selects yesterday review, seven-day trend, month-to-date progress, channel
+  comparison or operating overview
+- **THEN** the server maps it to the registered hotel-data workflow without model routing
+- **AND** still requires hotel resolution, constrained MCP evidence and evidence-gated answering
 
 ### Requirement: Checkpointed manual retry
 

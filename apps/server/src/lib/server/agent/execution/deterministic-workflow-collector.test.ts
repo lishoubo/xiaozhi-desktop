@@ -5,6 +5,7 @@ import {
 	DeterministicWorkflowCollector,
 	type WorkflowCollectionRequest
 } from './deterministic-workflow-collector';
+import { AgentProtocolError, AgentUpstreamError } from '../agent-effect';
 
 const principal = { employeeId: '1001', orgId: '42' } as const;
 
@@ -145,6 +146,43 @@ describe('deterministic workflow collector', () => {
 		);
 	});
 
+	it('uses a code-owned daily query for the seven-day trend shortcut', async () => {
+		const invoke = vi.fn().mockResolvedValue({ content: [{ type: 'text', text: '[]' }] });
+		const collector = new DeterministicWorkflowCollector({
+			getTools: vi.fn().mockResolvedValue([
+				{
+					name: 'query_hotel_operating_data_sql',
+					schema: {
+						safeParse: () => ({ success: true })
+					},
+					invoke
+				}
+			])
+		});
+
+		await collector.collect({
+			principal: { employeeId: '1001', orgId: '42' },
+			request: {
+				routeKind: 'business_read',
+				intent: 'hotel_operating_summary',
+				slots: {
+					hotelReference: '123',
+					dateRange: { start: '2026-08-06', end: '2026-08-12' },
+					metrics: '按日经营趋势'
+				}
+			},
+			signal: new AbortController().signal,
+			emit: vi.fn().mockResolvedValue(undefined)
+		});
+
+		expect(invoke).toHaveBeenCalledWith(
+			expect.objectContaining({
+				script: expect.stringMatching(/GROUP BY hotel_id, data_date ORDER BY data_date ASC/)
+			}),
+			expect.any(Object)
+		);
+	});
+
 	it('fails closed instead of entering Agent schema discovery when operating SQL is unavailable', async () => {
 		const collector = new DeterministicWorkflowCollector({
 			getTools: vi.fn().mockResolvedValue([])
@@ -157,7 +195,10 @@ describe('deterministic workflow collector', () => {
 					dateRange: { start: '2026-08-12', end: '2026-08-12' }
 				})
 			)
-		).rejects.toThrow('Pinned hotel operating SQL tool');
+		).rejects.toMatchObject({
+			_tag: 'AgentProtocolError',
+			operation: 'select_hotel_operating_tool'
+		} satisfies Partial<AgentProtocolError>);
 	});
 
 	it('leaves generic discovery to the constrained Agent and propagates invoked-tool failures', async () => {
@@ -180,7 +221,12 @@ describe('deterministic workflow collector', () => {
 		).resolves.toEqual({ status: 'fallback', reason: 'agent_required' });
 		await expect(
 			collector.collect(request('weather_operations_advice', { location: '上海', date: 'today' }))
-		).rejects.toThrow('weather unavailable');
+		).rejects.toMatchObject({
+			_tag: 'AgentUpstreamError',
+			service: 'mcp',
+			operation: 'get_weather_summary',
+			kind: 'unavailable'
+		} satisfies Partial<AgentUpstreamError>);
 	});
 
 	it('does not accept an MCP error result as business evidence', async () => {
@@ -195,6 +241,11 @@ describe('deterministic workflow collector', () => {
 
 		await expect(
 			collector.collect(request('weather_operations_advice', { location: '上海', date: 'today' }))
-		).rejects.toThrow('get_weather_summary MCP tool returned an error');
+		).rejects.toMatchObject({
+			_tag: 'AgentUpstreamError',
+			service: 'mcp',
+			operation: 'get_weather_summary',
+			kind: 'invalid_response'
+		} satisfies Partial<AgentUpstreamError>);
 	});
 });

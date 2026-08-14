@@ -2,7 +2,12 @@ import type { AgentRunEvent } from '@hotel-butler/api';
 import { describe, expect, it, vi } from 'vitest';
 import type { McpCapability } from './agent-config';
 import { AgentAccessDeniedError } from './agent-repository';
-import { describeAgentRunFailure, HotelAgentGateway } from './agent-gateway';
+import {
+	describeAgentRunFailure,
+	formatClarificationAnswer,
+	HotelAgentGateway
+} from './agent-gateway';
+import { AgentUpstreamError } from './agent-effect';
 
 const event: AgentRunEvent = {
 	id: '22222222-2222-4222-8222-222222222222',
@@ -13,6 +18,29 @@ const event: AgentRunEvent = {
 	message: 'test terminal',
 	retryable: true
 };
+
+describe('formatClarificationAnswer', () => {
+	it('formats structured card values as readable conversation text', () => {
+		expect(
+			formatClarificationAnswer(
+				{
+					slot: 'hotelReference',
+					label: '酒店',
+					kind: 'single_choice',
+					required: true,
+					choices: [{ label: '西湖店', value: 'hotel-1' }]
+				},
+				'hotel-1'
+			)
+		).toBe('西湖店');
+		expect(
+			formatClarificationAnswer(
+				{ slot: 'dateRange', label: '日期范围', kind: 'date_range', required: true },
+				{ start: '2026-08-01', end: '2026-08-13' }
+			)
+		).toBe('2026-08-01 至 2026-08-13');
+	});
+});
 
 type ListEvents = (
 	principal: Readonly<{ employeeId: string; orgId: string }>,
@@ -32,6 +60,7 @@ function createGatewayHarness(
 		clearConversations: vi.fn(),
 		startRun: vi.fn(),
 		resumeBusinessExecution: vi.fn(),
+		cancelBusinessExecution: vi.fn(),
 		retryBusinessExecution: vi.fn(),
 		getBusinessExecution: vi.fn(),
 		transitionBusinessExecution: vi.fn(),
@@ -114,7 +143,7 @@ describe('HotelAgentGateway hotel quick actions', () => {
 		expect(actions.every((action) => !('prompt' in action))).toBe(true);
 	});
 
-	it('replaces the weather shortcut with two DMS-backed operating actions', async () => {
+	it('exposes five DMS-backed operating actions without the weather shortcut', async () => {
 		const { gateway } = createGatewayHarness(
 			vi.fn(async () => []),
 			['weather', 'hotel_data']
@@ -124,15 +153,49 @@ describe('HotelAgentGateway hotel quick actions', () => {
 
 		expect(actions.map((action) => action.id)).toEqual([
 			'yesterday_operating_review',
+			'last_7_days_operating_trend',
+			'month_to_date_operating_progress',
+			'channel_operating_comparison',
 			'hotel_operating_data'
 		]);
-		expect(actions[1]).toMatchObject({
+		expect(actions.at(-1)).toMatchObject({
 			label: '查看酒店经营概览',
 			category: 'operations',
 			requiresMcp: true,
 			available: true
 		});
 		expect(actions.some((action) => action.id === 'yesterday_operating_review')).toBe(true);
+	});
+
+	it('persists a visible cancellation transcript for an awaiting clarification', async () => {
+		const { gateway, repository } = createGatewayHarness(vi.fn(async () => []));
+		const principal = { employeeId: '1001', orgId: '42' } as const;
+		const businessExecutionId = '88888888-8888-4888-8888-888888888888';
+		repository.getBusinessExecution.mockResolvedValue({
+			summary: {
+				id: businessExecutionId,
+				conversationId: '44444444-4444-4444-8444-444444444444',
+				status: 'awaiting_clarification'
+			},
+			state: { status: 'awaiting_clarification' }
+		});
+		repository.cancelBusinessExecution.mockResolvedValue({
+			businessExecutionId,
+			status: 'cancelled',
+			userMessage: { content: '取消本次任务' },
+			assistantMessage: { content: '好的，本次任务已取消。' }
+		});
+
+		await expect(gateway.cancelBusinessExecution(principal, businessExecutionId, 3)).resolves.toMatchObject({
+			status: 'cancelled',
+			userMessage: { content: '取消本次任务' },
+			assistantMessage: { content: '好的，本次任务已取消。' }
+		});
+		expect(repository.cancelBusinessExecution).toHaveBeenCalledWith(
+			principal,
+			businessExecutionId,
+			3
+		);
 	});
 
 	it('rejects a live-data action before persistence when no hotel MCP is configured', async () => {
@@ -604,7 +667,12 @@ describe('HotelAgentGateway observability', () => {
 describe('describeAgentRunFailure', () => {
 	it('returns a friendly data-service message without exposing transport details', () => {
 		const failure = describeAgentRunFailure(
-			new Error('MCP askDatabase ETIMEDOUT at secret.internal.example')
+			new AgentUpstreamError({
+				service: 'mcp',
+				operation: 'query_hotel_data',
+				kind: 'timeout',
+				cause: new Error('secret.internal.example')
+			})
 		);
 
 		expect(failure).toEqual({

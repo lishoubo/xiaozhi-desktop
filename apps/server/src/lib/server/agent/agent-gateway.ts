@@ -2,6 +2,7 @@ import { agentQuickActionIdSchema, agentRunEventSchema } from '@hotel-butler/api
 import type {
 	AgentConversation,
 	AgentConversationSummary,
+	AgentClarificationField,
 	AgentGateway,
 	AgentMessage,
 	AgentPrincipal,
@@ -38,6 +39,14 @@ import { getIntentDefinition } from './execution/intent-registry';
 import { assessEvidence, normalizeEvidence } from './execution/evidence';
 import type { JsonValue } from './execution/business-execution-state';
 import type { DeterministicWorkflowCollector } from './execution/deterministic-workflow-collector';
+import {
+	agentErrorType,
+	agentErrorRetryable,
+	agentFailureKind,
+	AgentConfigurationError,
+	AgentProtocolError,
+	AgentUpstreamError
+} from './agent-effect';
 
 type AgentRepositoryPort = Pick<
 	AgentRepository,
@@ -48,6 +57,7 @@ type AgentRepositoryPort = Pick<
 	| 'clearConversations'
 	| 'startRun'
 	| 'resumeBusinessExecution'
+	| 'cancelBusinessExecution'
 	| 'retryBusinessExecution'
 	| 'getBusinessExecution'
 	| 'transitionBusinessExecution'
@@ -71,6 +81,21 @@ const terminal = (event: AgentRunEvent): boolean =>
 export function describeAgentRunFailure(
 	error: unknown
 ): Readonly<{ message: string; retryable: boolean }> {
+	if (error instanceof AgentConfigurationError) {
+		return { message: 'Agent 模型服务尚未配置，请联系管理员。', retryable: false };
+	}
+	if (error instanceof AgentProtocolError) {
+		return { message: '本次请求未通过执行协议校验，请调整查询条件后重试。', retryable: false };
+	}
+	if (error instanceof AgentUpstreamError) {
+		return {
+			message:
+				error.service === 'mcp'
+					? '酒店经营数据服务暂时没有响应。请确认酒店和日期范围后重试，或稍后再试。'
+					: '小智暂时无法完成这次请求，请稍后重试。',
+			retryable: agentErrorRetryable(error)
+		};
+	}
 	const detail = error instanceof Error ? `${error.name} ${error.message}` : String(error);
 	if (/AI_KIMI_API_KEY|not configured/i.test(detail)) {
 		return { message: 'Agent 模型服务尚未配置，请联系管理员。', retryable: false };
@@ -100,25 +125,42 @@ function describeEvidenceRejection(reasonCode: string): Readonly<{
 	};
 }
 
+export function formatClarificationAnswer(
+	field: AgentClarificationField,
+	value: JsonValue | undefined
+): string {
+	if (value === undefined || value === null) return '';
+	if (field.kind === 'single_choice' && typeof value === 'string') {
+		return field.choices.find((choice) => choice.value === value)?.label ?? value;
+	}
+	if (field.kind === 'date_range' && typeof value === 'object' && !Array.isArray(value)) {
+		const start = Reflect.get(value, 'start');
+		const end = Reflect.get(value, 'end');
+		if (typeof start === 'string' && typeof end === 'string') return `${start} 至 ${end}`;
+	}
+	return typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean'
+		? String(value)
+		: JSON.stringify(value);
+}
+
 function agentFailureLogFields(error: unknown): Readonly<{
 	errorType: string;
 	failureKind: string;
+	upstreamService?: string;
+	upstreamOperation?: string;
+	upstreamFailureKind?: string;
 }> {
-	const errorType =
-		error instanceof Error && /^[A-Za-z][A-Za-z0-9]{0,63}$/.test(error.name)
-			? error.name
-			: 'UnknownError';
-	const detail = error instanceof Error ? `${error.name} ${error.message}` : String(error);
-	const failureKind = /AI_KIMI_API_KEY|not configured/i.test(detail)
-		? 'model_not_configured'
-		: /abort/i.test(detail)
-			? 'cancelled'
-			: /timeout|timed out|ETIMEDOUT/i.test(detail)
-				? 'upstream_timeout'
-				: /MCP|askDatabase|executeScript|dms-mcpr/i.test(detail)
-					? 'tool_or_data_source'
-					: 'upstream_failure';
-	return { errorType, failureKind };
+	return {
+		errorType: agentErrorType(error),
+		failureKind: agentFailureKind(error),
+		...(error instanceof AgentUpstreamError
+			? {
+					upstreamService: error.service,
+					upstreamOperation: error.operation,
+					upstreamFailureKind: error.kind
+				}
+			: {})
+	};
 }
 
 export class HotelAgentGateway implements AgentGateway {
@@ -304,7 +346,7 @@ export class HotelAgentGateway implements AgentGateway {
 				'responseText' in input
 					? input.responseText
 					: execution.state.clarification.fields
-							.map((field) => `${field.label}：${JSON.stringify(answers[field.slot])}`)
+							.map((field) => `${field.label}：${formatClarificationAnswer(field, answers[field.slot])}`)
 							.join('；');
 			const result = await this.repository.resumeBusinessExecution(principal, {
 				businessExecutionId: input.businessExecutionId,
@@ -366,13 +408,20 @@ export class HotelAgentGateway implements AgentGateway {
 			if (current.state.status !== 'awaiting_clarification') {
 				throw new TRPCError({ code: 'CONFLICT', message: '只有等待补充信息的任务可以取消。' });
 			}
-			await this.repository.transitionBusinessExecution(
+			const result = await this.repository.cancelBusinessExecution(
 				principal,
 				businessExecutionId,
-				expectedVersion,
-				{ type: 'execution_cancelled' }
+				expectedVersion
 			);
-			return { businessExecutionId, status: 'cancelled' };
+			this.logger.info(
+				{
+					event: 'agent.business_execution.cancelled',
+					businessExecutionId,
+					conversationId: current.summary.conversationId
+				},
+				'Agent business execution cancelled by user'
+			);
+			return result;
 		} catch (error) {
 			throw this.toTrpcError(error);
 		}

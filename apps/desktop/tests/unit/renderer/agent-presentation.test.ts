@@ -3,10 +3,22 @@ import type { AgentExecutionTrace, AgentMessage } from '@hotel-butler/api';
 import {
   compactTrendAxisLabel,
   executionForDisplayedMessage,
+  isPendingBusinessExecutionConflict,
   messageOwnsPendingClarification,
   shouldDisplayExecutionTrace,
   trendAxisTickSpacing,
 } from '../../../src/renderer/agent-presentation';
+
+describe('isPendingBusinessExecutionConflict', () => {
+  it('distinguishes an unfinished clarification from an MCP startup failure', () => {
+    expect(
+      isPendingBusinessExecutionConflict(
+        new Error('当前会话还有等待补充的任务，请先回答或取消该任务。'),
+      ),
+    ).toBe(true);
+    expect(isPendingBusinessExecutionConflict(new Error('MCP server unavailable'))).toBe(false);
+  });
+});
 
 const cancelled: AgentExecutionTrace = {
   runId: '10000000-0000-4000-8000-000000000001',
@@ -72,8 +84,47 @@ describe('Agent result presentation', () => {
       businessExecutionId,
     };
 
-    expect(messageOwnsPendingClarification(execution, userMessage)).toBe(false);
-    expect(messageOwnsPendingClarification(execution, assistantMessage)).toBe(true);
+    expect(messageOwnsPendingClarification(execution, userMessage, [userMessage, assistantMessage])).toBe(
+      false,
+    );
+    expect(
+      messageOwnsPendingClarification(execution, assistantMessage, [userMessage, assistantMessage]),
+    ).toBe(true);
+
+    const submittedAnswer = {
+      ...message('80000000-0000-4000-8000-000000000001', 'user'),
+      businessExecutionId,
+      content: '酒店：123',
+    };
+    expect(
+      messageOwnsPendingClarification(execution, assistantMessage, [
+        userMessage,
+        assistantMessage,
+        submittedAnswer,
+      ]),
+    ).toBe(false);
+
+    const followUp = {
+      ...message('90000000-0000-4000-8000-000000000001', 'assistant'),
+      businessExecutionId,
+      content: '请补充日期范围。',
+    };
+    expect(
+      messageOwnsPendingClarification(execution, assistantMessage, [
+        userMessage,
+        assistantMessage,
+        submittedAnswer,
+        followUp,
+      ]),
+    ).toBe(false);
+    expect(
+      messageOwnsPendingClarification(execution, followUp, [
+        userMessage,
+        assistantMessage,
+        submittedAnswer,
+        followUp,
+      ]),
+    ).toBe(true);
   });
 
   it('keeps a cancelled trace with its originating user message', () => {

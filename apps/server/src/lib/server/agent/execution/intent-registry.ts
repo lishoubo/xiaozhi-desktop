@@ -78,6 +78,9 @@ const byIntent = new Map<AgentBusinessIntent, IntentDefinition>(
 
 export const quickActionIntent = {
 	yesterday_operating_review: 'hotel_operating_summary',
+	last_7_days_operating_trend: 'hotel_operating_summary',
+	month_to_date_operating_progress: 'hotel_operating_summary',
+	channel_operating_comparison: 'generic_hotel_data_query',
 	hotel_operating_data: 'hotel_operating_summary',
 	public_hotel_rates: 'public_hotel_rates'
 } as const;

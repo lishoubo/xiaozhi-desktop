@@ -59,6 +59,24 @@ export function resolveRelativeDateRange(
 		const yesterday = shiftIsoDate(today, -1);
 		return { start: yesterday, end: yesterday, timezone, original: raw };
 	}
+	if (/^最近7天$/.test(raw)) {
+		const yesterday = shiftIsoDate(today, -1);
+		return {
+			start: shiftIsoDate(yesterday, -6),
+			end: yesterday,
+			timezone,
+			original: raw
+		};
+	}
+	if (/^本月至今$/.test(raw)) {
+		const [year, month] = today.split('-');
+		return {
+			start: `${year}-${month}-01`,
+			end: today,
+			timezone,
+			original: raw
+		};
+	}
 	if (/^明天$/.test(raw)) {
 		const tomorrow = shiftIsoDate(today, 1);
 		return { start: tomorrow, end: tomorrow, timezone, original: raw };
@@ -184,11 +202,14 @@ function buildClarification(
 			maxLength: 200
 		};
 	});
+	const unmatchedHotel = slots.hotelReference?.status === 'invalid';
 	return {
 		interactionId: randomUUID(),
 		anchorMessageId,
 		version,
-		prompt: `请补充${fields.map((field) => field.label).join('、')}。`,
+		prompt: unmatchedHotel
+			? '未从酒店数据中匹配到该名称，请输入 OTA 后台显示的完整酒店名称。'
+			: `请补充${fields.map((field) => field.label).join('、')}。`,
 		fields,
 		expiresAt: new Date(now.getTime() + 24 * 60 * 60 * 1_000).toISOString()
 	};

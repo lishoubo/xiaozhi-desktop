@@ -234,6 +234,24 @@ describe('appRouter', () => {
     const cancelBusinessExecution = vi.fn().mockResolvedValue({
       businessExecutionId,
       status: 'cancelled',
+      userMessage: {
+        id: '77777777-7777-4777-8777-777777777777',
+        conversationId: '11111111-1111-4111-8111-111111111111',
+        businessExecutionId,
+        role: 'user',
+        content: '取消本次任务',
+        ui: null,
+        createdAt: '2026-08-13T00:00:01.000Z',
+      },
+      assistantMessage: {
+        id: '88888888-8888-4888-8888-888888888888',
+        conversationId: '11111111-1111-4111-8111-111111111111',
+        businessExecutionId,
+        role: 'assistant',
+        content: '好的，本次任务已取消。',
+        ui: null,
+        createdAt: '2026-08-13T00:00:01.001Z',
+      },
     });
     const caller = createCaller({
       agent: {

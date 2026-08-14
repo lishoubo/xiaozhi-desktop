@@ -108,10 +108,24 @@ describe('createDesktopApi', () => {
       ui: null,
       createdAt: '2026-08-13T03:00:00.000Z',
     };
+    const assistantMessage = {
+      id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      conversationId,
+      businessExecutionId,
+      role: 'assistant' as const,
+      content: '好的，本次任务已取消。',
+      ui: null,
+      createdAt: '2026-08-13T03:00:00.001Z',
+    };
     const invoke = vi.fn(async (channel: string) =>
       channel === IPC_CHANNELS.agent.submitClarification
         ? { runId, businessExecutionId, userMessage }
-        : { businessExecutionId, status: 'cancelled' },
+        : {
+            businessExecutionId,
+            status: 'cancelled',
+            userMessage: { ...userMessage, content: '取消本次任务' },
+            assistantMessage,
+          },
     );
     const api = createDesktopApi({ chrome: '1', electron: '2', node: '3' }, invoke);
     const submission = {
@@ -126,6 +140,8 @@ describe('createDesktopApi', () => {
     await expect(api.agent.cancelBusinessExecution(businessExecutionId, 3)).resolves.toEqual({
       businessExecutionId,
       status: 'cancelled',
+      userMessage: { ...userMessage, content: '取消本次任务' },
+      assistantMessage,
     });
     expect(invoke.mock.calls).toEqual([
       [IPC_CHANNELS.agent.submitClarification, submission],

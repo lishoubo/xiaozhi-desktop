@@ -5,6 +5,7 @@ import type {
 	AgentMessage,
 	AgentPrincipal,
 	AgentRunEvent,
+	CancelAgentBusinessExecutionResult,
 	GenerativeUiSpec,
 	StartAgentRunResponse
 } from '@hotel-butler/api';
@@ -706,6 +707,107 @@ export class AgentRepository {
 					userMessage: toMessage(message)
 				},
 				created: true
+			};
+		});
+	}
+
+	async cancelBusinessExecution(
+		principal: AgentPrincipal,
+		businessExecutionId: string,
+		expectedVersion: number
+	): Promise<CancelAgentBusinessExecutionResult> {
+		return this.database.transaction(async (transaction) => {
+			const rows = await transaction
+				.select()
+				.from(agentBusinessExecution)
+				.where(
+					and(
+						eq(agentBusinessExecution.id, businessExecutionId),
+						eq(agentBusinessExecution.ownerEmployeeId, principal.employeeId)
+					)
+				)
+				.limit(1);
+			const current = rows[0];
+			if (!current) throw new AgentAccessDeniedError('Agent business execution was not found');
+			if (current.version !== expectedVersion) {
+				throw new StaleBusinessExecutionVersionError(expectedVersion, current.version);
+			}
+			const currentState = businessExecutionStateSchema.parse(current.state);
+			if (currentState.status !== 'awaiting_clarification') {
+				throw new Error('Agent business execution is not awaiting clarification');
+			}
+
+			const nextState = transitionBusinessExecution(currentState, {
+				type: 'execution_cancelled'
+			});
+			const nextVersion = expectedVersion + 1;
+			const now = this.now();
+			const updated = await transaction
+				.update(agentBusinessExecution)
+				.set({
+					status: nextState.status,
+					state: nextState,
+					version: nextVersion,
+					expiresAt: null,
+					updatedAt: now,
+					completedAt: now
+				})
+				.where(
+					and(
+						eq(agentBusinessExecution.id, businessExecutionId),
+						eq(agentBusinessExecution.ownerEmployeeId, principal.employeeId),
+						eq(agentBusinessExecution.version, expectedVersion)
+					)
+				)
+				.returning({ id: agentBusinessExecution.id });
+			if (!updated[0]) {
+				throw new StaleBusinessExecutionVersionError(expectedVersion, nextVersion);
+			}
+			await transaction.insert(agentBusinessExecutionEvent).values({
+				id: this.generateId(),
+				businessExecutionId,
+				conversationId: current.conversationId,
+				ownerEmployeeId: principal.employeeId,
+				type: 'execution_cancelled',
+				payload: {
+					type: 'execution_cancelled',
+					previousStatus: currentState.status,
+					nextStatus: nextState.status,
+					version: nextVersion
+				},
+				createdAt: now
+			});
+
+			const assistantCreatedAt = new Date(now.getTime() + 1);
+			const userMessage: typeof agentMessage.$inferInsert = {
+				id: this.generateId(),
+				conversationId: current.conversationId,
+				businessExecutionId,
+				role: 'user',
+				content: '取消本次任务',
+				ui: null,
+				createdAt: now
+			};
+			const assistantMessage: typeof agentMessage.$inferInsert = {
+				id: this.generateId(),
+				conversationId: current.conversationId,
+				businessExecutionId,
+				role: 'assistant',
+				content: '好的，本次任务已取消。',
+				ui: null,
+				createdAt: assistantCreatedAt
+			};
+			await transaction.insert(agentMessage).values([userMessage, assistantMessage]);
+			await transaction
+				.update(agentConversation)
+				.set({ updatedAt: assistantCreatedAt })
+				.where(eq(agentConversation.id, current.conversationId));
+
+			return {
+				businessExecutionId,
+				status: 'cancelled',
+				userMessage: toMessage(userMessage),
+				assistantMessage: toMessage(assistantMessage)
 			};
 		});
 	}

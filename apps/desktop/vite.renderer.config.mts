@@ -26,6 +26,9 @@ export default defineConfig({
     },
   },
   resolve: {
+    // Workspace packages and renderer libraries must share the renderer's initialized Svelte
+    // runtime. A second runtime can fail while Vite replaces a component during development HMR.
+    dedupe: ['svelte'],
     alias: {
       $lib: path.resolve('./src/renderer'),
     },
