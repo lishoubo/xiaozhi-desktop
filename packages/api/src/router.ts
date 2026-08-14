@@ -195,6 +195,7 @@ export interface ApiContext {
   desktopSession: DesktopSessionGateway;
   employeeDirectory: EmployeeIdentityDirectory;
   phoneOtp: PhoneOtpGateway;
+  phoneIdentitySourceConfigured: boolean;
   logger: ApiLogger;
   requestId: string;
 }
@@ -261,6 +262,11 @@ const agentProcedure = publicProcedure.use(async ({ ctx, next }) => {
 
 const healthResponseSchema = z.object({
   status: z.literal('ok'),
+  authentication: z.object({
+    staff: z.literal(true),
+    phone: z.literal(true),
+    phoneIdentitySourceConfigured: z.boolean(),
+  }),
 });
 
 const invalidPhoneCodeError = (): TRPCError =>
@@ -363,7 +369,11 @@ export const appRouter = t.router({
         try {
           employee = await ctx.employeeDirectory.findActiveByPhone(input.phone);
         } catch (cause) {
-          throw serviceUnavailableError('登录服务暂时不可用，请稍后重试', cause);
+          throw new TRPCError({
+            code: 'SERVICE_UNAVAILABLE',
+            message: '手机号身份数据源暂时不可用，请稍后重试或联系管理员',
+            cause,
+          });
         }
         if (!employee) throw invalidPhoneCodeError();
         try {
@@ -392,7 +402,14 @@ export const appRouter = t.router({
     }),
   }),
   system: t.router({
-    health: publicProcedure.output(healthResponseSchema).query(() => ({ status: 'ok' })),
+    health: publicProcedure.output(healthResponseSchema).query(({ ctx }) => ({
+      status: 'ok',
+      authentication: {
+        staff: true,
+        phone: true,
+        phoneIdentitySourceConfigured: ctx.phoneIdentitySourceConfigured,
+      },
+    })),
   }),
 });
 

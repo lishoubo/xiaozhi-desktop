@@ -10,7 +10,9 @@ describe('local RMS schema bootstrap', () => {
 
 		expect(localCompose).toContain("'${POSTGRES_HOST_PORT:?Set POSTGRES_HOST_PORT}:5432'");
 		expect(localCompose).toContain('POSTGRES_USER: ${POSTGRES_USER:?Set POSTGRES_USER}');
-		expect(localCompose).toContain('POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}');
+		expect(localCompose).toContain(
+			'POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}'
+		);
 		expect(localCompose).toContain('POSTGRES_DB: ${POSTGRES_DB:?Set POSTGRES_DB}');
 		expect(localCompose).toContain("'${RMS_HOST_PORT:?Set RMS_HOST_PORT}:3306'");
 		expect(localCompose).toContain('MYSQL_DATABASE: ${MYSQL_DATABASE:?Set MYSQL_DATABASE}');
@@ -19,9 +21,7 @@ describe('local RMS schema bootstrap', () => {
 		expect(localCompose).toContain(
 			'DATABASE_URL: ${COMPOSE_DATABASE_URL:?Set COMPOSE_DATABASE_URL}'
 		);
-		expect(localCompose).toContain(
-			'RMS_DATABASE_URL: ${COMPOSE_RMS_DATABASE_URL:?Set COMPOSE_RMS_DATABASE_URL}'
-		);
+		expect(localCompose).toContain('RMS_DATABASE_URL: ${COMPOSE_RMS_DATABASE_URL:-}');
 		expect(localCompose).not.toContain('postgres://root:mysecretpassword');
 		expect(localCompose).not.toContain('mysql://hotel_butler:mysecretpassword');
 	});

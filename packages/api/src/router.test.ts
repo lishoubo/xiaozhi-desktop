@@ -42,6 +42,7 @@ describe('appRouter', () => {
       events: vi.fn(),
     } as AgentGateway,
     agentPrincipal = vi.fn().mockResolvedValue(null),
+    phoneIdentitySourceConfigured = true,
   } = {}) {
     return appRouter.createCaller({
       agent,
@@ -49,6 +50,7 @@ describe('appRouter', () => {
       employeeDirectory: { findActiveById: vi.fn().mockResolvedValue(null), findActiveByPhone },
       desktopSession: { currentEmployee, issue, revoke },
       phoneOtp: { requestCode, verifyCode },
+      phoneIdentitySourceConfigured,
       logger,
       requestId: 'request-123',
     });
@@ -72,6 +74,7 @@ describe('appRouter', () => {
         requestCode: vi.fn().mockResolvedValue({ expiresInSeconds: 300 }),
         verifyCode: vi.fn().mockResolvedValue(true),
       },
+      phoneIdentitySourceConfigured: true,
       logger: {
         debug,
         info: vi.fn(),
@@ -81,7 +84,14 @@ describe('appRouter', () => {
       requestId: 'request-123',
     });
 
-    await expect(caller.system.health()).resolves.toEqual({ status: 'ok' });
+    await expect(caller.system.health()).resolves.toEqual({
+      status: 'ok',
+      authentication: {
+        staff: true,
+        phone: true,
+        phoneIdentitySourceConfigured: true,
+      },
+    });
     expect(debug).toHaveBeenCalledWith(
       expect.objectContaining({
         event: 'trpc.procedure.completed',
@@ -92,6 +102,31 @@ describe('appRouter', () => {
       'tRPC procedure completed',
     );
     expect(JSON.stringify(debug.mock.calls)).not.toContain('input');
+  });
+
+  it('keeps phone routes registered and reports an unavailable identity source', async () => {
+    const requestCode = vi.fn().mockResolvedValue({ expiresInSeconds: 300 });
+    const findActiveByPhone = vi
+      .fn()
+      .mockRejectedValue(new Error('RMS employee identity source is not configured'));
+    const caller = createCaller({
+      phoneIdentitySourceConfigured: false,
+      requestCode,
+      findActiveByPhone,
+    });
+
+    await expect(caller.auth.requestPhoneCode({ phone: '13800138000' })).resolves.toEqual({
+      accepted: true,
+      expiresInSeconds: 300,
+    });
+    await expect(
+      caller.auth.loginWithPhoneCode({ phone: '13800138000', code: '654321' }),
+    ).rejects.toMatchObject({
+      code: 'SERVICE_UNAVAILABLE',
+      message: '手机号身份数据源暂时不可用，请稍后重试或联系管理员',
+    });
+    expect(requestCode).toHaveBeenCalledOnce();
+    expect(findActiveByPhone).toHaveBeenCalledOnce();
   });
 
   it('derives Agent ownership from the authenticated session and never from client input', async () => {
@@ -552,8 +587,8 @@ describe('appRouter', () => {
     await expect(
       loginCaller.auth.loginWithPhoneCode({ phone: '13900139000', code: '654321' }),
     ).rejects.toMatchObject({
-      code: 'INTERNAL_SERVER_ERROR',
-      message: '登录服务暂时不可用，请稍后重试',
+      code: 'SERVICE_UNAVAILABLE',
+      message: '手机号身份数据源暂时不可用，请稍后重试或联系管理员',
       cause: directoryFailure,
     });
   });

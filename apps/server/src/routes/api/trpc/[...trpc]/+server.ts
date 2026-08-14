@@ -3,13 +3,11 @@ import { fetchRequestHandler } from '@trpc/server/adapters/fetch';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { env } from '$env/dynamic/private';
 import { db } from '$lib/server/db';
-import { rmsClient } from '$lib/server/db/rms';
 import { createDesktopSessionGateway } from '$lib/server/desktop-session';
 import { DrizzleDesktopSessionRepository } from '$lib/server/desktop-session-repository';
-import { createEmployeeIdentityDirectory } from '$lib/server/employee-identity-directory';
+import { createServerAuthResources } from '$lib/server/server-auth-resources';
 import { logTrpcFailure } from '$lib/server/logging/trpc-logging';
 import { serverLogger } from '$lib/server/logging/logger';
-import { createTemporaryPhoneOtpGateway } from '$lib/server/temporary-phone-otp-gateway';
 import { AgentRepository } from '$lib/server/agent/agent-repository';
 import { readAgentEnvironment } from '$lib/server/agent/agent-config';
 import { EmptySkillProvider } from '$lib/server/agent/skill-provider';
@@ -30,10 +28,10 @@ import { resolveStaffAgentPrincipal } from '$lib/server/agent/staff-agent-princi
 import type { RequestHandler } from './$types';
 
 const endpoint = '/api/trpc';
-const employeeDirectory = createEmployeeIdentityDirectory({
-	execute: (sql, values) => rmsClient.execute(sql, values)
+const { employeeDirectory, phoneIdentitySourceConfigured, phoneOtp } = createServerAuthResources({
+	environment: env,
+	logger: serverLogger
 });
-const phoneOtp = createTemporaryPhoneOtpGateway(serverLogger);
 const desktopSessionRepository = new DrizzleDesktopSessionRepository(db);
 const agentEnvironment = readAgentEnvironment(env);
 const agentRepository = new AgentRepository(db);
@@ -95,6 +93,7 @@ const handleTrpcRequest: RequestHandler = ({ locals, request }) =>
 				desktopSession,
 				employeeDirectory,
 				phoneOtp,
+				phoneIdentitySourceConfigured,
 				logger: locals.logger,
 				requestId: locals.requestId
 			};

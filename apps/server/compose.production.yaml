@@ -46,7 +46,7 @@ services:
     environment:
       NODE_ENV: production
       DATABASE_URL: ${DATABASE_URL:?Set DATABASE_URL}
-      RMS_DATABASE_URL: ${RMS_DATABASE_URL:?Set RMS_DATABASE_URL to the external read-only RMS database}
+      RMS_DATABASE_URL: ${RMS_DATABASE_URL:-}
       ORIGIN: ${ORIGIN:?Set ORIGIN to the Electron-facing HTTPS origin}
       BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?Set BETTER_AUTH_SECRET}
       AI_KIMI_API_KEY: ${AI_KIMI_API_KEY:?Set AI_KIMI_API_KEY}

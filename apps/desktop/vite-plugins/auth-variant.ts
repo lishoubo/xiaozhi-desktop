@@ -24,7 +24,7 @@ export function resolveAuthVariant(environment: NodeJS.ProcessEnv = process.env)
   const raw = environment.XIAOZHI_AUTH_VARIANT;
   if (raw === undefined || raw === '') return DEFAULT_VARIANT;
   if (!isAuthVariant(raw)) {
-    // 不做默认回退：静默回退会打出一个"看起来正常、却装错登录"的包，比构建失败危险得多。
+    // 不做默认回退：静默回退会打出一个“看起来正常、却装错登录”的包，比构建失败危险得多。
     throw new Error(`XIAOZHI_AUTH_VARIANT 取值非法: ${raw}（可选 ${VARIANTS.join(' | ')}）`);
   }
   return raw;

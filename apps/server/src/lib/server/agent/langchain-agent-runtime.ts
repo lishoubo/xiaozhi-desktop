@@ -214,7 +214,7 @@ export class LangChainAgentRuntime implements AgentRuntime {
 			answerOnly && options.workflowRequest
 				? `\n\n当前是证据校验后的回答阶段。不可变请求：${JSON.stringify(options.workflowRequest)}。已验证证据：${JSON.stringify(options.validatedEvidence)}。不得调用数据工具，不得补造证据中没有的事实；必须写明范围、来源和重要限制。可按需要调用一次 render_hotel_ui。`
 				: options.workflowRequest
-					? `\n\n当前是受限业务取证阶段。意图：${options.workflowRequest.intent}。已解析参数：${JSON.stringify(options.workflowRequest.slots)}。只能使用已提供的只读工具，不得调用、建议或模拟任何写操作。只完成数据获取，最终文字不会直接展示给用户。`
+					? `\n\n当前是受限业务取证阶段。意图：${options.workflowRequest.intent}。已解析参数：${JSON.stringify(options.workflowRequest.slots)}。只能使用已提供的只读工具，不得调用、建议或模拟任何写操作。只完成数据获取，最终文字不会直接展示给用户。仅检查回答所必需的表结构，避免重复描述同一张表；generate_hotel_operating_data_sql 只生成 SQL、不是数据证据，调用后必须继续调用 query_hotel_operating_data_sql 执行。`
 					: '';
 		const agent = createAgent({
 			model: this.model,

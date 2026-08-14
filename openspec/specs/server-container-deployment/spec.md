@@ -51,3 +51,10 @@ remain in checked-in Compose or application configuration.
 - **WHEN** an operator copies `.env.production.example`
 - **THEN** only environment-specific values require replacement
 - **AND** the real `.env.production` remains ignored by Git
+
+#### Scenario: Deploy without the optional RMS phone identity source
+- **WHEN** the production Compose stack starts
+- **THEN** it requires the RMS HTTPS API endpoint used for staff Bearer identity validation
+- **AND** it does not require `RMS_DATABASE_URL`
+- **AND** it passes `RMS_DATABASE_URL` through when an operator explicitly adds it later
+- **AND** the same server image supports both desktop authentication interfaces

@@ -16,7 +16,6 @@ COPY apps/server apps/server
 COPY packages/api packages/api
 
 RUN DATABASE_URL=postgres://build:build@localhost/build \
-    RMS_DATABASE_URL=mysql://build:build@localhost/build \
     ORIGIN=https://localhost:4173 \
     BETTER_AUTH_SECRET=build-only-placeholder-not-a-secret \
     npm run build --workspace @hotel-butler/server

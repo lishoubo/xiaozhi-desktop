@@ -19,7 +19,7 @@
   import TriangleAlert from '@lucide/svelte/icons/triangle-alert';
   import Trash2 from '@lucide/svelte/icons/trash-2';
   import { autoAnimate } from '@formkit/auto-animate';
-  import { onMount } from 'svelte';
+  import { onMount, tick } from 'svelte';
   import { SvelteMap } from 'svelte/reactivity';
   import AgentAvatar from '../components/agent/AgentAvatar.svelte';
   import AgentClarificationCard from '../components/agent/AgentClarificationCard.svelte';
@@ -41,6 +41,7 @@
     messageOwnsPendingClarification,
     shouldDisplayExecutionTrace,
   } from '../agent-presentation';
+  import { isAgentViewportNearBottom } from '../agent-scroll';
   import { LAYOUT_ANIMATION_OPTIONS, PAGE_ENTER_OPTIONS, enter } from '../motion';
   import { Button } from '$lib/components/ui/button';
   import * as AlertDialog from '$lib/components/ui/alert-dialog';
@@ -84,6 +85,10 @@
   let clearHistoryOpen = $state(false);
   let deleting = $state(false);
   let composer = $state<HTMLTextAreaElement | null>(null);
+  let conversationViewport = $state<HTMLElement | null>(null);
+  let conversationContent = $state<HTMLElement | null>(null);
+  let conversationBottomAnchor = $state<HTMLElement | null>(null);
+  let followLatestContent = true;
   const pendingRunEvents = new SvelteMap<string, AgentRunEvent[]>();
 
   const activeView = $derived(
@@ -119,6 +124,44 @@
       unsubscribe();
     };
   });
+
+  $effect(() => {
+    const content = conversationContent;
+    if (!content) return;
+    let pendingFrame: number | null = null;
+    const observer = new ResizeObserver(() => {
+      if (!followLatestContent || pendingFrame !== null) return;
+      pendingFrame = requestAnimationFrame(() => {
+        pendingFrame = null;
+        if (followLatestContent) scrollConversationToBottom();
+      });
+    });
+    observer.observe(content);
+    return () => {
+      observer.disconnect();
+      if (pendingFrame !== null) cancelAnimationFrame(pendingFrame);
+    };
+  });
+
+  function scrollConversationToBottom(): void {
+    const viewport = conversationViewport;
+    const anchor = conversationBottomAnchor;
+    if (!viewport || !anchor) return;
+    anchor.scrollIntoView({ block: 'end' });
+    viewport.scrollTop = viewport.scrollHeight;
+  }
+
+  function handleConversationScroll(): void {
+    const viewport = conversationViewport;
+    if (viewport) followLatestContent = isAgentViewportNearBottom(viewport);
+  }
+
+  async function activateConversation(conversationId: string): Promise<void> {
+    followLatestContent = true;
+    activeConversationId = conversationId;
+    await tick();
+    if (activeConversationId === conversationId) scrollConversationToBottom();
+  }
 
   async function initialize(): Promise<void> {
     loading = true;
@@ -200,14 +243,14 @@
     const cached = conversationViews.get(conversationId);
     if (cached) {
       pendingConversationId = null;
-      activeConversationId = conversationId;
+      await activateConversation(conversationId);
       if (cached.activeRunId && cached.errorMessage) void loadConversationState(conversationId);
       return;
     }
     pendingConversationId = conversationId;
     try {
       await loadConversationState(conversationId);
-      if (pendingConversationId === conversationId) activeConversationId = conversationId;
+      if (pendingConversationId === conversationId) await activateConversation(conversationId);
     } catch {
       if (pendingConversationId === conversationId) {
         pageErrorMessage = '无法读取该会话，或它不属于当前登录用户。';
@@ -312,6 +355,7 @@
     const clarification = pendingClarification;
     if (!conversationId || !execution || !clarification || clarificationSubmitting) return;
     clarificationSubmitting = true;
+    followLatestContent = true;
     pageErrorMessage = '';
     try {
       const currentView = conversationViews.get(conversationId);
@@ -348,6 +392,7 @@
     const clarification = pendingClarification;
     if (!conversationId || !execution || !clarification || clarificationSubmitting) return;
     clarificationSubmitting = true;
+    followLatestContent = true;
     pageErrorMessage = '';
     try {
       const cancelled = await window.hotelButler.agent.cancelBusinessExecution(
@@ -358,11 +403,7 @@
       if (currentView) {
         conversationViews.set(conversationId, {
           ...currentView,
-          messages: [
-            ...currentView.messages,
-            cancelled.userMessage,
-            cancelled.assistantMessage,
-          ],
+          messages: [...currentView.messages, cancelled.userMessage, cancelled.assistantMessage],
           activeBusinessExecution: null,
         });
       }
@@ -389,13 +430,14 @@
   ): Promise<void> {
     pageErrorMessage = '';
     starting = true;
+    followLatestContent = true;
 
     try {
       let conversationId = activeConversationId;
       if (!conversationId) {
         const conversation = await window.hotelButler.agent.createConversation();
         conversations = [conversation, ...conversations];
-        activeConversationId = conversation.id;
+        await activateConversation(conversation.id);
         conversationId = conversation.id;
         conversationViews.set(conversationId, createEmptyConversationView(conversationId));
       }
@@ -612,11 +654,13 @@
     </header>
 
     <section
+      bind:this={conversationViewport}
       class="min-h-0 flex-1 overflow-y-auto bg-muted/20"
       aria-label="对话内容"
       aria-live="polite"
+      onscroll={handleConversationScroll}
     >
-      <div class="mx-auto w-full max-w-3xl px-7 py-8">
+      <div bind:this={conversationContent} class="mx-auto w-full max-w-3xl px-7 py-8">
         {#if loading}
           <div class="flex items-center justify-center gap-2 py-20 text-sm text-muted-foreground">
             <LoaderCircle class="animate-spin" size={18} />正在读取会话
@@ -739,6 +783,7 @@
             {/if}
           </div>
         {/if}
+        <div bind:this={conversationBottomAnchor} class="h-px" aria-hidden="true"></div>
       </div>
     </section>
 

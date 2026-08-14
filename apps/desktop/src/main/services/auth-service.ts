@@ -12,7 +12,7 @@ import type { AppLogger } from '../../shared/logging';
 
 export const DESKTOP_SESSION_COOKIE_NAME = '__Host-xiaozhi_desktop_session';
 
-export type AuthClient = Pick<TRPCClient<AppRouter>, 'auth'>;
+export type AuthClient = Pick<TRPCClient<AppRouter>, 'auth' | 'system'>;
 
 export type AuthServiceDependencies = Readonly<{
   apiSession: Readonly<{ cookies: Pick<Cookies, 'remove'> }>;
@@ -30,13 +30,15 @@ export class AuthService {
     );
   }
 
-  requestPhoneCode(phone: string): Promise<{ accepted: true; expiresInSeconds: number }> {
+  async requestPhoneCode(phone: string): Promise<{ accepted: true; expiresInSeconds: number }> {
+    await this.ensurePhoneIdentitySource();
     return this.safeCall('request-code', '验证码发送失败，请重试', () =>
       this.deps.client.auth.requestPhoneCode.mutate({ phone }),
     );
   }
 
-  loginWithPhoneCode(phone: string, code: string): Promise<EmployeeIdentity> {
+  async loginWithPhoneCode(phone: string, code: string): Promise<EmployeeIdentity> {
+    await this.ensurePhoneIdentitySource();
     return this.safeCall('login', '登录失败，请检查手机号和验证码', () =>
       this.deps.client.auth.loginWithPhoneCode.mutate({ phone, code }),
     );
@@ -56,6 +58,17 @@ export class AuthService {
         this.deps.serverOrigin,
         DESKTOP_SESSION_COOKIE_NAME,
       );
+    }
+  }
+
+  private async ensurePhoneIdentitySource(): Promise<void> {
+    const health = await this.safeCall(
+      'phone-capabilities',
+      '无法确认手机号登录服务状态，请重试',
+      () => this.deps.client.system.health.query(),
+    );
+    if (health.authentication?.phoneIdentitySourceConfigured !== true) {
+      throw new Error('当前服务器未配置手机号身份数据源，请联系管理员');
     }
   }
 

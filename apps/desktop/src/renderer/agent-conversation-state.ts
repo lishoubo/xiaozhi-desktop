@@ -157,6 +157,7 @@ export function applyRunEvent(
   if (event.type === 'run_failed') {
     return {
       ...clearActiveRun(state),
+      activeBusinessExecution: null,
       errorMessage: event.message,
       executions: updateExecution(state.executions, event.runId, (execution) => ({
         ...execution,
@@ -169,6 +170,7 @@ export function applyRunEvent(
   if (event.type === 'run_cancelled') {
     return {
       ...clearActiveRun(state),
+      activeBusinessExecution: null,
       executions: updateExecution(state.executions, event.runId, (execution) => ({
         ...execution,
         status: 'cancelled',

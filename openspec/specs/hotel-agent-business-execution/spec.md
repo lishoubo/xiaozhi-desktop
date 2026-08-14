@@ -202,6 +202,11 @@ their prompts, intent mapping, fixed date windows and metric markers.
 - **THEN** the server maps it to the registered hotel-data workflow without model routing
 - **AND** still requires hotel resolution, constrained MCP evidence and evidence-gated answering
 
+#### Scenario: Complete a channel comparison tool chain
+- **WHEN** a resolved channel comparison needs table discovery and schema inspection
+- **THEN** its bounded tool budget permits the minimum required schema reads, SQL generation and SQL execution
+- **AND** generated SQL is never treated as evidence before the constrained query tool executes it
+
 ### Requirement: Checkpointed manual retry
 
 A retryable business execution failure SHALL persist a bounded server-owned checkpoint. An owned

@@ -10,17 +10,22 @@ import { VitePlugin } from '@electron-forge/plugin-vite';
 import { AutoUnpackNativesPlugin } from '@electron-forge/plugin-auto-unpack-natives';
 import { FusesPlugin } from '@electron-forge/plugin-fuses';
 import { FuseV1Options, FuseVersion } from '@electron/fuses';
+import { resolveAuthVariant } from './vite-plugins/auth-variant';
 
 const nativeRuntimeDependencies = ['better-sqlite3', 'node-addon-api'] as const;
 const require = createRequire(import.meta.url);
+const authVariant = resolveAuthVariant();
 const privateCaPath = process.env.HOTEL_BUTLER_PRIVATE_CA_PATH?.trim();
 if (privateCaPath && path.basename(privateCaPath) !== 'private-ca.pem') {
   throw new Error('HOTEL_BUTLER_PRIVATE_CA_PATH must point to a file named private-ca.pem');
 }
 
 const config: ForgeConfig = {
+  buildIdentifier: authVariant,
   packagerConfig: {
     asar: true,
+    appBundleId: authVariant === 'phone' ? 'com.hotelbutler.desktop.phone' : undefined,
+    executableName: authVariant === 'phone' ? 'hotel-butler-phone' : undefined,
     extraResource: privateCaPath ?? undefined,
   },
   hooks: {

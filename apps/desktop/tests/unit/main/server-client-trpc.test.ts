@@ -30,14 +30,33 @@ describe('serverTrpcEndpoint', () => {
 
   it('uses the Electron network stack by default', async () => {
     vi.mocked(net.fetch).mockResolvedValue(
-      new Response(JSON.stringify({ result: { data: { status: 'ok' } } }), {
-        headers: { 'content-type': 'application/json' },
-      }),
+      new Response(
+        JSON.stringify({
+          result: {
+            data: {
+              status: 'ok',
+              authentication: {
+                staff: true,
+                phone: true,
+                phoneIdentitySourceConfigured: false,
+              },
+            },
+          },
+        }),
+        { headers: { 'content-type': 'application/json' } },
+      ),
     );
 
     const client = createServerTrpcClient({ baseUrl: 'https://localhost:4173' });
 
-    await expect(client.system.health.query()).resolves.toEqual({ status: 'ok' });
+    await expect(client.system.health.query()).resolves.toEqual({
+      status: 'ok',
+      authentication: {
+        staff: true,
+        phone: true,
+        phoneIdentitySourceConfigured: false,
+      },
+    });
     expect(net.fetch).toHaveBeenCalledWith(
       expect.stringMatching(/^https:\/\/localhost:4173\/api\/trpc\/system\.health/),
       expect.objectContaining({ method: 'GET' }),

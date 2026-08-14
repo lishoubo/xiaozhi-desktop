@@ -66,7 +66,7 @@ const definitions = [
 			{ name: 'dateRange', required: true },
 			{ name: 'metrics', required: true }
 		],
-		maxToolCalls: 4,
+		maxToolCalls: 6,
 		allowSchemaDiscovery: true,
 		allowEvidenceFollowUp: true
 	}

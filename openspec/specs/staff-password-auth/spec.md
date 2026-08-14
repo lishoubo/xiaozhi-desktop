@@ -1,7 +1,28 @@
 # 员工用户名/密码登录（staffAuth）
 
+## Purpose
+
 桌面端**直连 rms-server** 的登录体系，与手机验证码登录（经 `apps/server`）并列，
 由构建变体决定单个安装包里装哪一套。
+
+## Requirements
+
+### Requirement: Server authentication interfaces are capability-based
+
+The server SHALL register staff Bearer and phone authentication interfaces concurrently, SHALL
+create an RMS MySQL connection pool only when `RMS_DATABASE_URL` is configured, and SHALL NOT fail
+startup when it is absent.
+
+#### Scenario: Start without an RMS database URL
+- **WHEN** the server starts without `RMS_DATABASE_URL`
+- **THEN** it creates no RMS MySQL connection pool
+- **AND** both route families remain registered
+- **AND** a phone identity lookup returns an actionable service-unavailable response
+
+#### Scenario: Start with an RMS database URL
+- **WHEN** the server starts with `RMS_DATABASE_URL`
+- **THEN** it creates one RMS employee identity pool
+- **AND** staff and phone clients can use the same server instance
 
 ## 边界
 
@@ -94,7 +115,12 @@ access 过期判断预留 30s 余量。仅当 RMS 返回 11004/11005 才刷新�
 XIAOZHI_AUTH_VARIANT = 'staff' | 'phone'      缺省 staff
 ```
 
-- 唯一事实来源：`apps/desktop/vite-plugins/auth-variant.ts`
+- 人工和 CI 入口使用 `dev:desktop:<profile>`、`package:desktop:<profile>`、
+  `make:desktop:<profile>`；跨平台 Node runner 负责设置底层变量
+- Forge 用 profile 作为 `buildIdentifier` 隔离 `out/staff` 与 `out/phone`，phone 包另设
+  bundle ID 和 executable name，避免与 staff 产物混淆
+- desktop 构建期解析收口在 `apps/desktop/vite-plugins/auth-variant.ts`；该插件必须保持
+  本地可加载，不能依赖仅支持 ESM 的 workspace 运行时代码
 - 三处构建（main / preload / renderer）各挂一次 `authVariantDefine()` 插件
   —— 它们是三次独立的 Rollup 构建，`define` 无法跨构建共享
 - 注入编译期常量 `__AUTH_VARIANT__`，经 `src/shared/auth-variant.ts` 收口为
@@ -108,6 +134,20 @@ Rollup 才能把未选中那套连同 import 一起摇掉。已验证两个变�
 `preload` **不做变体分流**：它是 IPC 白名单，`auth` 与 `staffAuth` 两个 namespace
 长期共存；挂上不代表对端注册了 handler。真正的隔离在 `composition/window-scope.ts`
 ——只注册命中变体的那套，未命中的连 session 都不创建。
+
+### 服务端资源能力
+
+服务端不读取 desktop 构建变体，始终注册两套接口：
+
+- Staff Agent 身份继续通过 `XIAOZHI_RMS_SERVER_URL` 指向的 RMS HTTPS API 校验 Bearer
+  token。
+- Phone OTP gateway 始终存在；`RMS_DATABASE_URL` 仅决定是否创建 employee directory
+  连接池。未配置时服务正常启动，身份查询返回 `SERVICE_UNAVAILABLE`。
+- `system.health.authentication` 报告两套接口均受支持，并用
+  `phoneIdentitySourceConfigured` 表示手机号身份查询当前能否完成。
+
+生产环境模板当前不列出 `RMS_DATABASE_URL`，但 Compose 会透传将来显式提供的值，无需
+重新构建服务端镜像。
 
 ## 分层归属
 

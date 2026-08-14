@@ -441,3 +441,25 @@ submit or cancel the current clarification without accepting client-supplied own
 - **WHEN** a Run transitions to waiting for clarification
 - **THEN** the update is persisted and emitted over the existing tracked SSE transport
 - **AND** a fresh owned conversation query remains authoritative after reconnect
+
+#### Scenario: Receive a terminal Run failure
+- **WHEN** a Run fails while its business execution is non-terminal
+- **THEN** the server persists that business execution as failed
+- **AND** the desktop clears its active-execution projection when it receives `run_failed`
+- **AND** a later shortcut is not blocked by the stale execution
+
+### Requirement: Conversation viewport follows current work
+
+The desktop SHALL open a historical Agent conversation at its latest visible content. While the
+employee remains near the bottom, message, stream, tool-timeline and clarification growth SHALL keep
+the viewport at the latest content. Manual upward scrolling SHALL pause that behavior until the
+employee returns near the bottom or starts another interaction.
+
+#### Scenario: Open a historical conversation
+- **WHEN** an employee selects a historical Agent conversation
+- **THEN** the desktop waits for its messages to render and positions the viewport at the bottom
+
+#### Scenario: Read earlier messages during an active conversation
+- **WHEN** the employee scrolls upward beyond the bottom threshold
+- **THEN** subsequent rendered content does not force the viewport away from the reading position
+- **AND** following resumes after the employee returns near the bottom or initiates a new interaction

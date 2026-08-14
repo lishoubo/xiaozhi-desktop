@@ -528,6 +528,51 @@ test('shows only executable public MCP quick actions', async () => {
   ).toHaveCount(0);
 });
 
+test('keeps the Agent conversation at the latest content without interrupting history reading', async () => {
+  await login();
+  await page.getByRole('link', { name: '小智AI 管家' }).click();
+
+  for (let index = 0; index < 4; index += 1) {
+    await page.getByRole('button', { name: '昨日经营复盘', exact: true }).click();
+    await expect(page.getByRole('form', { name: '补充任务信息' })).toBeVisible();
+    await page.getByRole('button', { name: '取消', exact: true }).click();
+    await expect(page.getByRole('form', { name: '补充任务信息' })).toHaveCount(0);
+  }
+
+  const viewport = page.getByRole('region', { name: '对话内容' });
+  await expect
+    .poll(() =>
+      viewport.evaluate(
+        (element) => element.scrollHeight - element.scrollTop - element.clientHeight,
+      ),
+    )
+    .toBeLessThanOrEqual(2);
+
+  await viewport.evaluate((element) => {
+    element.scrollTop = 0;
+    element.dispatchEvent(new Event('scroll'));
+    const filler = document.createElement('div');
+    filler.dataset.scrollTestFiller = 'true';
+    filler.style.height = '200px';
+    element.firstElementChild?.append(filler);
+  });
+  await page.waitForTimeout(100);
+  expect(await viewport.evaluate((element) => element.scrollTop)).toBe(0);
+  await viewport.evaluate((element) => {
+    element.querySelector('[data-scroll-test-filler]')?.remove();
+  });
+
+  await page.getByRole('button', { name: '开始新会话' }).click();
+  await page.locator('aside button[aria-pressed="false"]').first().click();
+  await expect
+    .poll(() =>
+      viewport.evaluate(
+        (element) => element.scrollHeight - element.scrollTop - element.clientHeight,
+      ),
+    )
+    .toBeLessThanOrEqual(2);
+});
+
 test('navigates between the browser workspace and settings', async () => {
   await login();
   await page.getByRole('link', { name: '设置' }).click();

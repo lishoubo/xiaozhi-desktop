@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { BusinessIntentRouter } from './business-intent-router';
+import { getIntentDefinition } from './intent-registry';
 
 describe('BusinessIntentRouter', () => {
 	it('maps a server-owned quick action without invoking the classifier', async () => {
@@ -46,6 +47,7 @@ describe('BusinessIntentRouter', () => {
 			}
 		});
 		expect(classifier.classify).not.toHaveBeenCalled();
+		expect(getIntentDefinition('generic_hotel_data_query').maxToolCalls).toBe(6);
 	});
 
 	it('seeds yesterday for the daily operating review shortcut', async () => {

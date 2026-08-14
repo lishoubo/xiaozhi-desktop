@@ -53,6 +53,18 @@ function setup() {
   const sender = {};
   const remove = vi.fn().mockResolvedValue(undefined);
   const client = {
+    system: {
+      health: {
+        query: vi.fn().mockResolvedValue({
+          status: 'ok',
+          authentication: {
+            staff: true,
+            phone: true,
+            phoneIdentitySourceConfigured: true,
+          },
+        }),
+      },
+    },
     auth: {
       currentSession: { query: vi.fn().mockResolvedValue(employee) },
       loginWithPhoneCode: { mutate: vi.fn().mockResolvedValue(employee) },
@@ -115,5 +127,22 @@ describe('auth IPC handlers', () => {
 
     await expect(invoke(IPC_CHANNELS.auth.logout, sender)).rejects.toThrow('退出登录失败，请重试');
     expect(remove).toHaveBeenCalledOnce();
+  });
+
+  it('explains an unconfigured phone identity source before requesting a code', async () => {
+    const { client, sender } = setup();
+    client.system.health.query.mockResolvedValue({
+      status: 'ok',
+      authentication: {
+        staff: true,
+        phone: true,
+        phoneIdentitySourceConfigured: false,
+      },
+    });
+
+    await expect(invoke(IPC_CHANNELS.auth.requestPhoneCode, sender, '13800138000')).rejects.toThrow(
+      '当前服务器未配置手机号身份数据源，请联系管理员',
+    );
+    expect(client.auth.requestPhoneCode.mutate).not.toHaveBeenCalled();
   });
 });

@@ -134,14 +134,29 @@ describe('Agent conversation view state', () => {
       },
       '2026-08-12T03:00:00.000Z',
     );
-    const running = applyRunEvent(started, {
-      id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaab',
-      runId,
+    const pendingExecution = {
+      id: '88888888-8888-4888-8888-888888888888',
       conversationId,
-      type: 'text_delta',
-      delta: '正在组织回答',
-      createdAt: '2026-08-12T03:00:00.500Z',
-    });
+      triggerUserMessageId: userMessageId,
+      routeKind: 'business_read' as const,
+      intent: 'generic_hotel_data_query' as const,
+      status: 'executing' as const,
+      pendingClarification: null,
+      createdAt: '2026-08-12T03:00:00.000Z',
+      updatedAt: '2026-08-12T03:00:00.500Z',
+      completedAt: null,
+    };
+    const running = applyRunEvent(
+      { ...started, activeBusinessExecution: pendingExecution },
+      {
+        id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaab',
+        runId,
+        conversationId,
+        type: 'text_delta',
+        delta: '正在组织回答',
+        createdAt: '2026-08-12T03:00:00.500Z',
+      },
+    );
 
     const failed = applyRunEvent(running, {
       id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
@@ -159,6 +174,7 @@ describe('Agent conversation view state', () => {
     });
     expect(failed).toMatchObject({
       activeRunId: null,
+      activeBusinessExecution: null,
       draftContent: '',
       draftUi: null,
       preparingUi: false,
