@@ -25,6 +25,15 @@ export const hotelBindingWaiting = createNavigationIntent<{
    * 提交必被拒。带上它是为了在确认前就说清楚，而不是让用户走完全程再失败。
    */
   replacingOtaHotelId?: string | null;
+  /**
+   * 非空表示这是一次**修复**：这条远端绑定没有 `otaHotelId`，用户重新选定门店后走
+   * `confirmBackfillHotel`（`PUT /ota-accounts/{id}`）把门店补上，而不是
+   * `confirmBinding` 新建一条 —— 后者会被「已存在活跃绑定」拒，挡住的正是要修的这条。
+   *
+   * 前半段（开标签页、登录、探测、选门店）与新增绑定完全一致，所以复用同一条意图
+   * 与同一个弹窗，只在收尾时分流。
+   */
+  backfillOtaAccountId?: number;
 }>();
 
 /**
@@ -40,4 +49,29 @@ export const otaReauthWaiting = createNavigationIntent<{
   expectedChannelAccountId: string;
   otaAccountId: number;
   channelName: string;
+}>();
+
+/**
+ * 「按门店重认」的跨路由意图 —— RMS 后台绑定的老记录专用。
+ *
+ * 那些记录的 `bindExtra` 里没有渠道账号标识，认不出该登录哪个账号，`otaReauthWaiting`
+ * 要求的 `expectedChannelAccountId` 根本拿不到。改用门店当锚点：登录成功后探测该账号
+ * 能管哪些门店，`expectedOtaHotelId` 在里面才算通过。
+ *
+ * ⚠️ **不要走 `hotelBindingWaiting`**：那条路会让用户重选门店并写一条新绑定，而这里
+ * 要的是门店关系原封不动，只换登录态。两者形似而语义相反。
+ *
+ * 与另外两条意图一样二选一起点：`credentialId` 是「用已有账号试试」，`newLoginChannel`
+ * 是「新登录一个账号」。核对逻辑相同，都由 `reauth-by-hotel` intent 在主进程完成。
+ */
+export const otaReauthByHotelWaiting = createNavigationIntent<{
+  requestId: string;
+  credentialId?: string;
+  newLoginChannel?: { channelId: string; url: string };
+  otaAccountId: number;
+  expectedOtaHotelId: string;
+  /** 渠道 id —— 抖音要据此换一条开 tab 的路，见 `ReauthDialog` 的说明。 */
+  channelId: string;
+  channelName: string;
+  rmsHotelName: string;
 }>();

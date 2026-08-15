@@ -19,9 +19,16 @@ function credentialLabel(credential: OtaCredentialDto): string {
       : credential.channel === 'meituan'
         ? (nonEmptyText(extra?.login) ?? nonEmptyText(extra?.maskedPhone))
         : credential.channel === 'ctrip'
-          ? // 账号名优先于酒店名：一个携程账号可以管多家门店，用门店名认账号会串。
-            // `hotelName` 兜的是没有 `userName` 的老记录。
-            (nonEmptyText(extra?.userName) ?? nonEmptyText(extra?.hotelName))
+          ? // 酒店名优先于账号名 —— **仅限这里**，与弹窗里的选择列表相反
+            // （`credential-presentation.ts` 仍以账号名为 title）。
+            //
+            // 两处问的问题不同：弹窗要在几个账号之间**做选择**，用门店名会串
+            // （一个携程账号管多家门店）；右上角是「我现在在哪」的指示器，不用于
+            // 选择，此时「当前这家店」比账号名更贴合用户心智。
+            //
+            // 顶栏宽度写死在 clamp(136px,15vw,196px)，放不下两者并列；账号名退到
+            // 悬停的 `title` 里（本元素已有）。
+            (nonEmptyText(extra?.hotelName) ?? nonEmptyText(extra?.userName))
           : undefined;
   return preferred ?? credential.channelAccountId ?? '未识别账号';
 }

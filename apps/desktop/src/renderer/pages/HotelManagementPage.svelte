@@ -186,17 +186,25 @@
   }
 
   /**
-   * 唯一的自助入口。初始化失败、酒店不匹配这类状态刷 cookie 解决不了，
-   * `getOtaAccountPresentation` 已经把它们归到「联系管理员」且不产出 action，
-   * 所以这里不必再分支。
+   * 自助入口，两种：`login` 是登录态坏了；`backfill-hotel` 是绑定没有关联门店
+   * ——后者刷 cookie 解决不了，要重新选一次门店补写。
+   *
+   * 初始化失败、酒店不匹配这类状态两者都解决不了，`getOtaAccountPresentation`
+   * 已经把它们归到「联系管理员」且不产出 action，所以这里不必再分支。
    */
-  function showAccountAction(_action: OtaAccountAction, account: RmsOtaAccountDto): void {
+  function showAccountAction(action: OtaAccountAction, account: RmsOtaAccountDto): void {
     const hotel = hotels.find((item) => item.id === account.hotelId);
+    if (action === 'backfill-hotel') {
+      backfillTarget = { account, rmsHotelName: hotel?.name ?? '' };
+      return;
+    }
     reauthTarget = { account, rmsHotelName: hotel?.name ?? '' };
   }
 
   let addBindingTarget = $state<RmsHotelDto | null>(null);
   let reauthTarget = $state<{ account: RmsOtaAccountDto; rmsHotelName: string } | null>(null);
+  /** 「未绑定成功」的修复流程：同一个弹窗，只是选完账号后走补写门店。 */
+  let backfillTarget = $state<{ account: RmsOtaAccountDto; rmsHotelName: string } | null>(null);
 </script>
 
 <main
@@ -383,6 +391,11 @@
   onClose={() => (addBindingTarget = null)}
 />
 <ReauthOtaAccountDialog target={reauthTarget} onClose={() => (reauthTarget = null)} />
+<ReauthOtaAccountDialog
+  target={backfillTarget}
+  mode="backfill-hotel"
+  onClose={() => (backfillTarget = null)}
+/>
 
 <Dialog.Root bind:open={createOpen}>
   <Dialog.Content class="sm:max-w-md">

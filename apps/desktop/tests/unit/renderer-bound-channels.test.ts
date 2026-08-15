@@ -42,6 +42,17 @@ describe('boundChannelsOfHotel', () => {
     );
   });
 
+  /**
+   * 连**没有门店**的脏记录也照样占位——远端判据只看「酒店+渠道」，不看门店也不看
+   * status（`AppOtaBindAppService.findActiveBinding`）。本地放行只会让用户走到提交
+   * 那步才被拒。真机 2026-08-15 复现过（携程与抖音各一条）。
+   */
+  it.each([null, ''])('没有 otaHotelId 的账号仍然占绑定位 (%p)', (otaHotelId) => {
+    expect(boundChannelsOfHotel([account({ status: 'LOGIN_EXPIRED', otaHotelId })])).toEqual(
+      new Set(['douyin']),
+    );
+  });
+
   it('已解绑的账号释放绑定位', () => {
     expect(boundChannelsOfHotel([account({ status: 'UNBOUND' })])).toEqual(new Set());
   });

@@ -8,6 +8,7 @@ import type { RmsOtaAccount } from '../../shared/types/rms-ota-account';
 import type { OtaHotelRepository } from '../database/ota-hotel-repository';
 import type { OtaCredentialRepository } from '../database/ota-credential-repository';
 import type {
+  ConfirmBackfillHotelInput,
   ConfirmBindingInput,
   ConfirmReauthInput,
   FindCredentialForAccountInput,
@@ -147,6 +148,10 @@ export class HotelManagementService {
       operationId: this.deps.generateRequestId(),
       otaAccountId: input.otaAccountId,
       cookies,
+      // 只补账号级身份。门店级参数（抖音 merchantGroupId / 美团 otaPartnerId）
+      // 不在这条路上写：这个调用不确认门店，而同一账号下每家门店取值可能不同。
+      // 类型上也传不进去，见 `gateway/rms/types.ts` 的 `RmsChannelHotelFields`。
+      // 远端按键合并（`DeskBindExtra.applyFromDesktop`），未传的键保留原值。
       bindExtra: withChannelAccount(null, credential),
     });
   }
@@ -190,6 +195,52 @@ export class HotelManagementService {
       });
     } catch (error) {
       this.deps.logger.warn('OTA hotel saved remotely but not locally', {
+        channel: credential.channel,
+        errorName: error instanceof Error ? error.name : 'UnknownError',
+      });
+    }
+
+    return otaAccount;
+  }
+
+  /**
+   * 修复「没有门店」的历史绑定：把用户重新选定的门店补上。
+   *
+   * 与 `confirmBinding` 的差别只在**提交给谁**：那条路 `bind()` 新建记录，会被
+   * 「已存在活跃绑定」拒（挡住的正是要修的这条）；这里 `backfillHotel()` 更新既有
+   * 记录，不撞那条规则。前半段（探测、选门店）两者完全一致，所以 `bindExtra`
+   * 同样两类字段都带 —— 门店是用户当场确认的。
+   *
+   * 本地 `ota_hotel` 缓存与 `confirmBinding` 同样处理：失败只记警告，不算修复失败
+   * （远端已经成功，让用户重试反而会撞上「只补不改」的 400）。
+   */
+  async confirmBackfillHotel(input: ConfirmBackfillHotelInput): Promise<RmsOtaAccount> {
+    const credential = this.deps.otaCredentialRepository.findById(
+      toOtaCredentialId(input.credentialId),
+    );
+    if (!credential) throw new Error('未找到该登录凭据');
+
+    const cookies = await this.deps.readCookieSnapshot(credential.partitionName);
+    const otaAccount = await this.deps.otaAccountGateway.backfillHotel({
+      operationId: this.deps.generateRequestId(),
+      otaAccountId: input.otaAccountId,
+      otaHotelId: input.hotel.otaHotelId,
+      // 远端要求两字段成对且非空白；候选没带名字时退回用 ID 占位。
+      otaHotelName: input.hotel.otaHotelName?.trim() || input.hotel.otaHotelId,
+      bindExtra: withChannelAccount(input.hotel.bindExtra, credential),
+      cookies,
+    });
+
+    try {
+      this.deps.otaHotelRepository.save({
+        credentialId: credential.id,
+        channel: credential.channel,
+        otaHotelId: toOtaHotelId(input.hotel.otaHotelId),
+        otaHotelName: input.hotel.otaHotelName,
+        bindExtra: input.hotel.bindExtra,
+      });
+    } catch (error) {
+      this.deps.logger.warn('OTA hotel backfilled remotely but not saved locally', {
         channel: credential.channel,
         errorName: error instanceof Error ? error.name : 'UnknownError',
       });

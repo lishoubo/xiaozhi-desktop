@@ -8,6 +8,7 @@ import {
 import {
   startBindingResultSchema,
   uiWaitingResultEnvelopeSchema,
+  type ConfirmBackfillHotelInput,
   type ConfirmBindingInput,
   type ConfirmReauthInput,
   type FindCredentialForAccountInput,
@@ -36,6 +37,9 @@ export function createHotelManagementApi(invoke: ValidatedInvoke, subscribe: Val
     /** 用户选定候选后收尾：先远端后本地，任一步失败都会 reject。 */
     confirmBinding: (input: ConfirmBindingInput) =>
       invoke(rmsOtaAccountSchema, IPC_CHANNELS.hotelManagement.confirmBinding, input),
+    /** 修复没有门店的历史绑定：用户重新选定门店后补写，不新建记录、不必解绑。 */
+    confirmBackfillHotel: (input: ConfirmBackfillHotelInput) =>
+      invoke(rmsOtaAccountSchema, IPC_CHANNELS.hotelManagement.confirmBackfillHotel, input),
     /** 发起重新登录：同 `startBinding`，只取号。 */
     startReauth: () => invoke(startBindingResultSchema, IPC_CHANNELS.hotelManagement.startReauth),
     /** 账号身份核对通过后收尾：只换凭证，不动门店关系。 */

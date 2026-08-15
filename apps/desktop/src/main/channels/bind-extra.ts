@@ -75,12 +75,13 @@ function nonBlank(value: unknown): string | null {
   return typeof value === 'string' && value.trim().length > 0 ? value : null;
 }
 
-/** 读回上面写入的账号标识；老记录没有这个字段，返回 null。 */
-export function channelAccountIdFromBindExtra(bindExtra: JsonObject | null): string | null {
-  if (bindExtra === null) return null;
-  const value = bindExtra.channelAccountId;
-  return typeof value === 'string' && value.length > 0 ? value : null;
-}
+/**
+ * 读回上面写入的账号标识；老记录没有这个字段，返回 null。
+ *
+ * 实现在 `shared/`：渲染进程也要用同一个判据决定重新登录走哪条核对路径，两端不能
+ * 各写一份。这里只做转出，保持主进程侧的既有 import 路径不变。
+ */
+export { channelAccountIdFromBindExtra } from '../../shared/bind-extra-fields';
 
 export function merchantGroupIdFromBindExtra(bindExtra: JsonObject | null): string | null {
   if (bindExtra === null) return null;

@@ -29,6 +29,7 @@ import { CookieImportService } from '../services/cookie-import-service';
 import { AmountChangeWatcher } from '../channels/amount-change-watcher';
 import { HotelProbeDispatcher } from '../channels/hotel-probe-dispatcher';
 import { OtaReauthDispatcher } from '../channels/ota-reauth-dispatcher';
+import { ReauthByHotelDispatcher } from '../channels/reauth-by-hotel-dispatcher';
 import { HttpRmsAmountChangeGateway } from '../gateway/rms/rms-amount-change-gateway-http';
 import { AmountChangeReportService } from '../services/amount-change-report-service';
 import type { UiWaitingResultEnvelope } from '../../shared/types/ui-waiting-result-types';
@@ -98,8 +99,14 @@ export function createWindowScope(scope: AppScope): WindowScope {
     notify: notifyUiWaitingResult,
   });
   new OtaReauthDispatcher({ tabEventBus, logger, notify: notifyUiWaitingResult });
+  new ReauthByHotelDispatcher({
+    tabEventBus,
+    probes: hotelProbes(scope.channelRegistry),
+    logger,
+    notify: notifyUiWaitingResult,
+  });
 
-  // 价量态改动监听。与上面两个 dispatcher 不同，它订阅的是 browserManager 的原始导航
+  // 价量态改动监听。与上面几个 dispatcher 不同，它订阅的是 browserManager 的原始导航
   // 事件（要的是「URL 变了」，不是「登录判定完了」），所以不接 tabEventBus。
   const amountChangeReportService = new AmountChangeReportService({
     gateway: new HttpRmsAmountChangeGateway({

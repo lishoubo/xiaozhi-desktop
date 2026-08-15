@@ -51,6 +51,7 @@ export const IPC_CHANNELS = {
     unbindOtaAccount: 'hotel-management:unbind-ota-account',
     startBinding: 'hotel-management:start-binding',
     confirmBinding: 'hotel-management:confirm-binding',
+    confirmBackfillHotel: 'hotel-management:confirm-backfill-hotel',
     startReauth: 'hotel-management:start-reauth',
     confirmReauth: 'hotel-management:confirm-reauth',
     findCredentialForAccount: 'hotel-management:find-credential-for-account',

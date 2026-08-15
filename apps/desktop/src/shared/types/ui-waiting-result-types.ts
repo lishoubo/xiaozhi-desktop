@@ -21,12 +21,21 @@ export type ProbedHotelDto = Readonly<{
 }>;
 
 /**
- * 重新登录的核对结果。`ok: false` 不是「出错了」而是「登录的不是所选账号」——
- * 用户可能在页面上登了另一个账号，这时必须拦住，不能把 cookie 写到这条绑定上。
+ * 重新登录的核对结果。`ok: false` 不是「出错了」而是「核对没通过」——用户可能在
+ * 页面上登了另一个账号，这时必须拦住，不能把 cookie 写到这条绑定上。
+ *
+ * 两条重登路径共用这一种结果：产出相同（只换凭证、门店关系不动），只是核对的锚点
+ * 不同。`hotel-mismatch` 属于按门店重认那条路——账号本身没问题，只是它管不了这
+ * 家门店。
  */
 export type ReauthOutcomeDto =
   | Readonly<{ ok: true; credentialId: string }>
-  | Readonly<{ ok: false; reason: 'account-mismatch' | 'identity-unavailable' }>;
+  | Readonly<{
+      ok: false;
+      reason: 'account-mismatch' | 'identity-unavailable' | 'hotel-mismatch';
+      /** `hotel-mismatch` 时带上该账号实际管的门店，让提示能说清差在哪。 */
+      actualHotels?: readonly ProbedHotelDto[];
+    }>;
 
 /** kind → payload 的唯一事实来源。 */
 export type UiWaitingResultPayloads = {

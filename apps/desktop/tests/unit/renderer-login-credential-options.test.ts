@@ -37,7 +37,11 @@ describe('buildLoginCredentialOptions', () => {
    * 携程标签取账号名而非酒店名：一个账号可以管多家门店，用门店名认账号在多店
    * 场景下会串。老记录没有 `userName`，才退回 `hotelName`。
    */
-  it('携程标签优先账号名，老记录退回酒店名', () => {
+  /**
+   * 顶栏是「我现在在哪」的指示器，不用于在账号间做选择，所以取酒店名——与弹窗里的
+   * 选择列表相反（那边取账号名，用门店名会串）。没有酒店名的记录退回账号名。
+   */
+  it('携程顶栏标签优先酒店名，缺失时退回账号名', () => {
     const ctrip = (id: string, extra: OtaCredentialDto['credentialExtra']): OtaCredentialDto => ({
       id,
       channel: 'ctrip',
@@ -56,7 +60,9 @@ describe('buildLoginCredentialOptions', () => {
           hotelName: '银际酒店(包头市青山王府井文化路店)',
         }),
         ctrip('old', { hotelId: 'ct-1', hotelName: '平江府' }),
+        // 只有账号名、没有酒店名时不能显示成空白。
+        ctrip('no-hotel', { userName: '运营商赵经理' }),
       ]).map((option) => option.label),
-    ).toEqual(['银际青山店', '平江府']);
+    ).toEqual(['银际酒店(包头市青山王府井文化路店)', '平江府', '运营商赵经理']);
   });
 });

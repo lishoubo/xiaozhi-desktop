@@ -24,11 +24,17 @@
   } = $props();
 
   let open = $state(false);
-  const presentation = $derived(getOtaAccountPresentation(account.status));
+  const presentation = $derived(getOtaAccountPresentation(account.status, account.otaHotelId));
   const bindDetails = $derived(getOtaAccountBindDetails(account.bindExtra));
   const channel = $derived(OTA_CHANNELS.find((candidate) => candidate.id === account.source));
   const channelName = $derived(channel?.name ?? account.source);
-  const actionLabel = $derived(presentation.action === 'login' ? '去登录' : '');
+  const actionLabel = $derived(
+    presentation.action === 'login'
+      ? '去登录'
+      : presentation.action === 'backfill-hotel'
+        ? '重新选择门店'
+        : '',
+  );
 
   function dotClass(tone: OtaAccountTone): string {
     if (tone === 'healthy') return 'bg-[#2d9d50]';

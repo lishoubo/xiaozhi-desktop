@@ -14,6 +14,8 @@
   import { boundChannelsOfHotel } from '../../hotel-management/model';
   import { credentialPresentation } from '../../hotel-management/credential-presentation';
   import { hotelBindingWaiting } from '../../hotel-management/cross-route-intents';
+  import { createPagination } from '../../hotel-management/paginate.svelte';
+  import CredentialPager from './CredentialPager.svelte';
   import { dismissAppNotification, showAppNotification } from '../../notifications';
   import { Button } from '$lib/components/ui/button';
   import { Spinner } from '$lib/components/ui/spinner';
@@ -41,6 +43,7 @@
   const selectableCredentials = $derived(
     credentials.filter((credential) => !boundChannels.has(credential.channel)),
   );
+  const pagination = createPagination(() => selectableCredentials);
   /** 还能绑的渠道：支持绑定 且 尚未占位。 */
   const bindableChannels = $derived(
     OTA_CHANNELS.filter(
@@ -58,6 +61,7 @@
     loading = true;
     selectedCredentialId = undefined;
     choosingNewLoginChannel = false;
+    pagination.reset();
     try {
       const perChannel = await Promise.all(
         OTA_CHANNELS.map((channel) =>
@@ -182,8 +186,8 @@
         </Button>
       </div>
     {:else}
-      <ul class="max-h-72 space-y-1 overflow-y-auto py-1">
-        {#each selectableCredentials as credential (credential.id)}
+      <ul class="space-y-1 py-1">
+        {#each pagination.items as credential (credential.id)}
           {@const presentation = credentialPresentation(credential)}
           <li>
             <label
@@ -218,6 +222,7 @@
           </li>
         {/each}
       </ul>
+      <CredentialPager {pagination} disabled={submitting} />
       <button
         type="button"
         class="mt-1 self-start text-xs text-muted-foreground underline-offset-2 hover:underline disabled:opacity-50"

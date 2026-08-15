@@ -31,6 +31,8 @@
   let rmsHotelName = $state('');
   /** 非 null 表示这次是「替换已有绑定」，值是原绑定的 OTA 门店。 */
   let replacingOtaHotelId = $state<string | null>(null);
+  /** 非 null 表示这是一次「补写门店」的修复，收尾走 confirmBackfillHotel。 */
+  let backfillOtaAccountId = $state<number | null>(null);
   let cancelWaiting: (() => void) | undefined;
 
   /**
@@ -43,9 +45,13 @@
 
   const waiting = createWaitingUiResult(
     (listener) => window.hotelButler.hotelManagement.onWaitingResult(listener),
+    // 结果是**广播**的：每个 dialog 各有一份等待表，却都收到全部信封。收到别人的
+    // 那份很正常（`kind` 不是 bind-hotel 时几乎必然如此），所以这条日志里 `kind`
+    // 必须打出来 —— 否则「候选没人接收」会被误读成探测白跑了一趟。
     (envelope, waitingCount) => {
-      log.warn('Binding candidates arrived but nobody claimed them', {
+      log.warn('Waiting result arrived but nobody claimed it', {
         requestId: envelope.requestId,
+        kind: envelope.kind,
         waitingCount,
       });
     },
@@ -58,6 +64,7 @@
     rmsHotelId = pending.rmsHotelId;
     rmsHotelName = pending.rmsHotelName;
     replacingOtaHotelId = pending.replacingOtaHotelId ?? null;
+    backfillOtaAccountId = pending.backfillOtaAccountId ?? null;
 
     log.info('Binding waiting registered', { requestId: pending.requestId });
     // 先登记等待再开标签页：探测发生在导航之后，但先登记不会错过任何结果。
@@ -125,6 +132,23 @@
     dismissAppNotification(NOTIFICATION_ID);
     submitting = true;
     try {
+      // 修复流程：远端已有这条记录（只是没门店），要 PUT 补写而不是 POST 新建
+      // ——后者会被「已存在活跃绑定」拒，挡住的正是要修的这条。
+      if (backfillOtaAccountId !== null) {
+        await window.hotelButler.hotelManagement.confirmBackfillHotel({
+          credentialId,
+          otaAccountId: backfillOtaAccountId,
+          hotel: toPlainJson(hotel),
+        });
+        closeDialog();
+        showAppNotification({
+          id: 'bind-hotel-done',
+          title: '已修复绑定',
+          message: `已将「${hotel.otaHotelName ?? hotel.otaHotelId}」补写到「${rmsHotelName}」的绑定上。`,
+          tone: 'default',
+        });
+        return;
+      }
       await window.hotelButler.hotelManagement.confirmBinding({
         credentialId,
         rmsHotelId,
@@ -174,6 +198,7 @@
     candidates = [];
     selectedOtaHotelId = undefined;
     replacingOtaHotelId = null;
+    backfillOtaAccountId = null;
   }}
 >
   <Dialog.Content

@@ -21,6 +21,14 @@ const REAUTH_INTENT = {
   expectedChannelAccountId: 'account-1',
 } as const;
 
+/** RMS 后台绑的老记录：认不出账号，改用门店当核对锚点。 */
+const REAUTH_BY_HOTEL_INTENT = {
+  kind: 'reauth-by-hotel',
+  requestId: 'req-3',
+  expectedOtaHotelId: 'hotel-1',
+  otaAccountId: 42,
+} as const;
+
 const LOGIN_INPUT = {
   channelId: 'douyin',
   environment: 'prod',
@@ -64,9 +72,44 @@ describe('openExisting 的 intent 边界', () => {
   });
 });
 
+describe('按门店重认的 intent 边界', () => {
+  it('两个起点都能带它：选已有账号走 openExisting', () => {
+    expect(existingTuple.parse(['credential-1', REAUTH_BY_HOTEL_INTENT])[1]).toEqual(
+      REAUTH_BY_HOTEL_INTENT,
+    );
+  });
+
+  /** 老记录很可能本机没有对应凭证，「新登录账号」是这条路的必要出口。 */
+  it('两个起点都能带它：新登录账号走 openForNewLogin', () => {
+    expect(newLoginTuple.parse([LOGIN_INPUT, REAUTH_BY_HOTEL_INTENT])[1]).toEqual(
+      REAUTH_BY_HOTEL_INTENT,
+    );
+  });
+});
+
 describe('非法 intent 被拒', () => {
   it('未知 kind', () => {
     expect(() => newLoginTuple.parse([LOGIN_INPUT, { kind: 'evil', requestId: 'r' }])).toThrow();
+  });
+
+  /** 门店是这条路唯一的核对锚点，缺了它等于不核对就放行。 */
+  it('reauth-by-hotel 缺 expectedOtaHotelId', () => {
+    expect(() =>
+      existingTuple.parse([
+        'credential-1',
+        { kind: 'reauth-by-hotel', requestId: 'r', otaAccountId: 42 },
+      ]),
+    ).toThrow();
+  });
+
+  /** 两个锚点不能混用：账号锚点的字段配到门店 kind 上应当被拒。 */
+  it('reauth-by-hotel 混入 expectedChannelAccountId', () => {
+    expect(() =>
+      existingTuple.parse([
+        'credential-1',
+        { ...REAUTH_BY_HOTEL_INTENT, expectedChannelAccountId: 'account-1' },
+      ]),
+    ).toThrow();
   });
 
   /** 少了它主进程就没法核对身份，等于把核对这道防线绕过去。 */

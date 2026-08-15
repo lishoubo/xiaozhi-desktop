@@ -28,6 +28,7 @@ function setup(
     bind?: ReturnType<typeof vi.fn>;
     save?: ReturnType<typeof vi.fn>;
     reauthenticate?: ReturnType<typeof vi.fn>;
+    backfillHotel?: ReturnType<typeof vi.fn>;
     findById?: ReturnType<typeof vi.fn>;
     findByChannelAndHotelId?: ReturnType<typeof vi.fn>;
     findByChannelAndAccountId?: ReturnType<typeof vi.fn>;
@@ -44,6 +45,7 @@ function setup(
     bind: overrides.bind ?? vi.fn().mockResolvedValue({ id: 7 }),
     unbind: vi.fn(),
     reauthenticate: overrides.reauthenticate ?? vi.fn().mockResolvedValue({ id: 7 }),
+    backfillHotel: overrides.backfillHotel ?? vi.fn().mockResolvedValue({ id: 7 }),
   };
   const service = new HotelManagementService({
     hotelGateway: { listHotels: vi.fn(), createHotel: vi.fn(), deleteHotel: vi.fn() },
@@ -148,6 +150,7 @@ describe('HotelManagementService 绑定流程', () => {
       listOtaAccounts: vi.fn(),
       bind: vi.fn(),
       unbind: vi.fn(),
+      backfillHotel: vi.fn(),
       reauthenticate: vi.fn(),
     };
     const service = new HotelManagementService({
@@ -206,6 +209,26 @@ describe('HotelManagementService 重新登录', () => {
     );
     // 服务端按键合并后这次查询就是多余的往返。
     expect(otaAccountGateway.listOtaAccounts).not.toHaveBeenCalled();
+  });
+
+  /**
+   * 门店级参数（抖音 merchantGroupId / 美团 otaPartnerId）**永远不从这条路写**：
+   * 重新登录不确认门店，而同一账号下每家门店的取值可能不同，写错会让 RPA 拿错参数。
+   * 类型上已经挡住（`RmsChannelHotelFields` 不在 reauth 入参里），这里再锁一道行为。
+   */
+  it('confirmReauth 只提交账号级身份，不含任何门店级参数', async () => {
+    const { service, otaAccountGateway } = setup({
+      findById: vi.fn(() =>
+        credential({ credentialExtra: { name: '云朵酒店', merchantGroupId: 'group-9' } }),
+      ),
+    });
+
+    await service.confirmReauth({ otaAccountId: 30102, credentialId: 'credential-1' });
+
+    const sent = otaAccountGateway.reauthenticate.mock.calls[0]?.[0].bindExtra;
+    expect(sent).toEqual({ channelAccountId: 'account-1', channelAccountName: '云朵酒店' });
+    expect(sent).not.toHaveProperty('merchantGroupId');
+    expect(sent).not.toHaveProperty('otaPartnerId');
   });
 
   /** 凭证没有账号身份——整个省略，让远端保持原值。 */

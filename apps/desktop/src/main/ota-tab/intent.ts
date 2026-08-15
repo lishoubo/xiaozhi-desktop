@@ -27,4 +27,32 @@ export type ReauthOtaIntent = Readonly<{
   expectedChannelAccountId: string;
 }>;
 
-export type OtaTabIntent = BindHotelIntent | ReauthOtaIntent;
+/**
+ * 按门店重认 —— 与 `ReauthOtaIntent` 是同一件事的两种打开方式，分界在**手上有什么**。
+ *
+ * ```
+ * 桌面端绑的   bindExtra.channelAccountId 有 → ReauthOtaIntent    锚点=账号，不探测
+ * RMS 后台绑的 bindExtra.channelAccountId 无 → ReauthByHotelIntent 锚点=门店，必探测
+ * ```
+ *
+ * 老记录认不出该登录哪个账号，只能反过来问「这个账号管不管得了这家门店」——所以
+ * 必须探测门店。**但探测结果不给用户挑**（门店是已知的，`expectedOtaHotelId` 就是
+ * 它），只用于比对，这是它与 `BindHotelIntent` 的根本差别：那条路探测是为了让用户
+ * 选一家并**改写**门店关系，这条路探测是为了确认门店关系**没变**。
+ *
+ * 为什么不给 `ReauthOtaIntent` 加个可选字段而要独立一种：两者的订阅方不同
+ * （探测与否是两套逻辑），合并会让「探不探」的判断散进同一个 dispatcher。
+ *
+ * 核对通过后 `otaAccountId` 用于定位要补写 `bindExtra` 的那条远端记录 —— 补上
+ * 账号标识与渠道上下文，这条老记录此后就能按账号识别，不必再走这条路。
+ */
+export type ReauthByHotelIntent = Readonly<{
+  kind: 'reauth-by-hotel';
+  requestId: string;
+  /** 这条绑定当前绑的门店，探测完拿它比对。 */
+  expectedOtaHotelId: string;
+  /** 核对通过后补写 `bindExtra` 的目标远端记录。 */
+  otaAccountId: number;
+}>;
+
+export type OtaTabIntent = BindHotelIntent | ReauthOtaIntent | ReauthByHotelIntent;
