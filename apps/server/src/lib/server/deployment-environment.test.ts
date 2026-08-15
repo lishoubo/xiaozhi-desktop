@@ -112,8 +112,11 @@ describe('deployment environment boundaries', () => {
 		expect(packager).not.toContain('HOTEL_BUTLER_TARGET_PLATFORM');
 		expect(packager).toContain('docker buildx build');
 		expect(packager).toContain('--target production');
+		expect(packager).toContain('--include-database-image');
+		expect(packager).toContain('include_database_image=false');
 		expect(packager).toContain('pgvector/pgvector:0.8.5-pg18');
 		expect(packager).toContain('docker image save');
+		expect(packager).toContain('current-image-release');
 		expect(packager).toContain('compose.production.yaml');
 		expect(packager).toContain('.env.production');
 		expect(packager).toContain('deploy-production-images.sh');
@@ -127,12 +130,14 @@ describe('deployment environment boundaries', () => {
 		expect(deployer).toContain('Alibaba Cloud Linux 4');
 		expect(deployer).toContain('pg_dump');
 		expect(deployer).toContain('docker image load');
+		expect(deployer).toContain('Database image is unavailable on this ECS host');
 		expect(deployer).toContain('--no-build');
 		expect(deployer).toContain('--pull never');
 		expect(deployer).toContain('docker compose');
 		expect(uploader).toContain('sha256sum -c');
 		expect(uploader).toContain('apps/server/rms-agent-key.pem');
 		expect(uploader).toContain('platform_name="linux-amd64"');
+		expect(uploader).toContain('current-image-release');
 		expect(uploader).not.toContain('HOTEL_BUTLER_TARGET_PLATFORM');
 		expect(uploader).not.toContain('StrictHostKeyChecking=no');
 		expect(uploader).not.toContain('docker compose');

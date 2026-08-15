@@ -122,13 +122,20 @@ bash "${server_directory}/scripts/prepare-production-host.sh"
 
 echo "Loading offline Docker images."
 gzip -dc "${image_archive}" | docker image load
-for image_name in "${server_image}" "${pgvector_image}"; do
-  actual_platform="$(docker image inspect --format '{{.Os}}/{{.Architecture}}' "${image_name}")"
-  if [[ "${actual_platform}" != "${target_platform}" ]]; then
-    echo "Loaded image ${image_name} has platform ${actual_platform}; expected ${target_platform}." >&2
-    exit 1
-  fi
-done
+server_platform="$(docker image inspect --format '{{.Os}}/{{.Architecture}}' "${server_image}")"
+if [[ "${server_platform}" != "${target_platform}" ]]; then
+  echo "Loaded image ${server_image} has platform ${server_platform}; expected ${target_platform}." >&2
+  exit 1
+fi
+if ! database_platform="$(docker image inspect --format '{{.Os}}/{{.Architecture}}' "${pgvector_image}" 2>/dev/null)"; then
+  echo "Database image is unavailable on this ECS host: ${pgvector_image}" >&2
+  echo "Create and upload a full release with --include-database-image." >&2
+  exit 1
+fi
+if [[ "${database_platform}" != "${target_platform}" ]]; then
+  echo "Database image ${pgvector_image} has platform ${database_platform}; expected ${target_platform}." >&2
+  exit 1
+fi
 
 compose=(--env-file "${environment_path}" -f "${compose_path}")
 docker compose "${compose[@]}" config --quiet

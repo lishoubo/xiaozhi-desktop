@@ -27,7 +27,16 @@ script_directory="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 repository_root="$(cd -- "${script_directory}/../../.." && pwd)"
 ssh_key="${repository_root}/apps/server/rms-agent-key.pem"
 revision="$(git -C "${repository_root}" rev-parse --short=12 HEAD)"
-artifact_name="hotel-butler-server-images-${revision}-${platform_name}.tar"
+release_pointer="${repository_root}/output/deploy/current-image-release"
+if [[ ! -f "${release_pointer}" || -L "${release_pointer}" ]]; then
+  echo "Missing release pointer; run npm run package:server:production first." >&2
+  exit 1
+fi
+artifact_name="$(<"${release_pointer}")"
+if [[ ! "${artifact_name}" =~ ^hotel-butler-server-(full-)?images-${revision}-${platform_name}\.tar$ ]]; then
+  echo "Release pointer does not reference the current Git revision and platform: ${artifact_name}" >&2
+  exit 1
+fi
 checksum_name="${artifact_name}.sha256"
 artifact_path="${repository_root}/output/deploy/${artifact_name}"
 checksum_path="${repository_root}/output/deploy/${checksum_name}"

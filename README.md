@@ -195,21 +195,39 @@ chmod 600 apps/server/.env.production
 
 ```bash
 git status --short
+```
+
+首次部署、更换 ECS、升级 pgvector，或者 ECS 上的数据库镜像已被清理时，生成包含 server 和
+pgvector 的全量包：
+
+```bash
+npm run package:server:production -- --include-database-image
+```
+
+后续只修改应用代码时，默认只打包新的 server 镜像：
+
+```bash
 npm run package:server:production
 ```
 
-该命令会完成以下工作：
+打包命令会完成以下工作：
 
 1. 校验 `.env.production`、生产证书和私钥权限。
 2. 使用 Docker Buildx 构建 `linux/amd64` 的 `hotel-butler-server:<commit>`。
-3. 拉取同架构的 `pgvector/pgvector:0.8.5-pg18`。
-4. 打包两个镜像以及最小运行文件；不包含应用源码。
+3. 仅在全量模式下拉取并加入同架构的 `pgvector/pgvector:0.8.5-pg18`。
+4. 打包镜像和最小运行文件；不包含 ECS 运行所需之外的仓库源码。
+5. 更新 `output/deploy/current-image-release`，供上传脚本选择刚生成的包。
 
 产物位于 `output/deploy/`：
 
 ```text
+# 默认的后续更新包
 hotel-butler-server-images-<12位commit>-linux-amd64.tar
 hotel-butler-server-images-<12位commit>-linux-amd64.tar.sha256
+
+# 包含 pgvector 的首次部署/数据库镜像更新包
+hotel-butler-server-full-images-<12位commit>-linux-amd64.tar
+hotel-butler-server-full-images-<12位commit>-linux-amd64.tar.sha256
 ```
 
 ### 4. 上传到 ECS
@@ -223,7 +241,8 @@ npm run upload:server:production -- <ssh-user>
 
 上传脚本固定连接生产主机，分别在本地和远端校验 SHA-256，并在成功后更新远端
 `~/hotel-butler-image-upload/current-image-release`。首次连接前应通过阿里云控制台核对 SSH
-主机指纹。上传脚本不会解压部署包、运行 migration 或修改线上容器。
+主机指纹。上传脚本根据本地 `output/deploy/current-image-release` 上传最近一次生成的全量包或
+server 更新包，不会解压部署包、运行 migration 或修改线上容器。
 
 ### 5. 在 ECS 导入、迁移并启动
 
@@ -234,7 +253,8 @@ npm run upload:server:production -- <ssh-user>
 cd "$HOME/hotel-butler-image-upload"
 IMAGE_ARCHIVE="$(cat current-image-release)"
 case "$IMAGE_ARCHIVE" in
-  hotel-butler-server-images-????????????-linux-amd64.tar) ;;
+  hotel-butler-server-images-????????????-linux-amd64.tar | \
+  hotel-butler-server-full-images-????????????-linux-amd64.tar) ;;
   *) echo "current-image-release 内容非法" >&2; exit 1 ;;
 esac
 sha256sum -c "${IMAGE_ARCHIVE}.sha256"
@@ -247,9 +267,17 @@ sudo bash hotel-butler-release/runtime/deploy-production-images.sh
 1. 校验 Alibaba Cloud Linux 4、CPU 架构、部署包和必要命令。
 2. 如果旧 PostgreSQL 容器正在运行，在 `/opt/hotel-butler/backups/postgresql/` 创建
    migration 前的 custom-format `pg_dump`。
-3. 安装 Compose、环境文件和 TLS 文件，然后通过 `docker load` 导入两个离线镜像。
+3. 安装 Compose、环境文件和 TLS 文件，然后通过 `docker load` 导入包内镜像。
 4. 启动或复用 PostgreSQL，停止 server，单独运行 `database-init`。
 5. migration 和幂等管理员初始化成功后，才使用新镜像启动 server；失败时 server 保持停止。
+
+默认更新包只导入 server 镜像，并复用 ECS 已有的
+`pgvector/pgvector:0.8.5-pg18`。部署脚本会在启动数据库和执行 migration 前检查该镜像及其
+平台；若镜像不存在，会停止部署并提示重新生成、上传全量包。重新导入 pgvector 镜像不会
+覆盖 PostgreSQL 数据，数据始终保存在 `POSTGRES_DATA_DIR` 对应的宿主机目录。
+
+当前生产 ECS 已完成 `pgvector/pgvector:0.8.5-pg18` 的首次导入；只要没有执行镜像清理或
+升级该版本，后续代码发布直接使用默认的 server 更新包即可。
 
 如果已存在部署但数据库容器没有运行，脚本会拒绝在无备份情况下迁移。只有已经通过其他方式
 完成备份时，才可显式跳过自动备份：

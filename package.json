@@ -54,7 +54,7 @@
     "package:server:source": "node --experimental-strip-types apps/server/scripts/package-production-source.ts",
     "package:server:production:source": "node --experimental-strip-types apps/server/scripts/package-production-source.ts --include-runtime",
     "package:server:images": "bash apps/server/scripts/package-production-images.sh",
-    "package:server:production": "npm run package:server:images",
+    "package:server:production": "bash apps/server/scripts/package-production-images.sh",
     "upload:server:images": "bash apps/server/scripts/upload-production-images.sh",
     "upload:server:production": "npm run upload:server:images --",
     "prepare:server:production-host": "bash apps/server/scripts/prepare-production-host.sh",
