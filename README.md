@@ -121,8 +121,11 @@ server。
 - 未配置时，server 不创建 RMS MySQL 连接池；手机号身份查询会返回明确的服务不可用提示。
 - 已配置时，server 创建 RMS MySQL 连接池，为 staff 与 phone 两种客户端提供身份能力。
 
-server 还会通过 `XIAOZHI_RMS_SERVER_URL` 访问 RMS HTTPS API。该地址与 RMS MySQL 连接
-用途不同，不应混用。
+server 还会通过 `XIAOZHI_RMS_SERVER_URL` 访问 RMS API。该地址与 RMS MySQL 连接
+用途不同，不应混用。生产 desktop 的 staff 登录也会在构建期读取
+`apps/server/.env.production` 中的同一个地址，避免 server 与 desktop 指向不同 RMS。生产门禁
+默认要求 HTTPS 且不得携带 URL 凭证；当前 RMS 只能提供 HTTP 时，必须为每次生产构建显式设置
+`XIAOZHI_ALLOW_INSECURE_RMS=1`，不得把该开关写入环境文件长期放宽门禁。
 
 ## HTTPS 证书
 
@@ -187,7 +190,9 @@ chmod 600 apps/server/.env.production
 
 补全 `apps/server/.env.production` 中的 RMS、AI 和初始管理员配置。生产证书位于
 `output/production-tls/121.199.29.74/`。生产环境文件、server 私钥和最终离线部署包都包含
-敏感材料，必须保持为 `0600`，不得提交或转发。
+敏感材料，必须保持为 `0600`，不得提交或转发。`XIAOZHI_RMS_SERVER_URL` 必须是生产 server
+和 staff desktop 均可访问的 origin，且不得在 URL 中携带用户名或密码。HTTPS 是默认要求；若
+当前 RMS 只能使用 HTTP，按下述命令逐次显式确认风险。
 
 ### 3. 在 Mac 构建离线镜像包
 
@@ -201,14 +206,20 @@ git status --short
 pgvector 的全量包：
 
 ```bash
-npm run package:server:production -- --include-database-image
+XIAOZHI_ALLOW_INSECURE_RMS=1 npm run package:server:production -- --include-database-image
 ```
 
 后续只修改应用代码时，默认只打包新的 server 镜像：
 
 ```bash
-npm run package:server:production
+XIAOZHI_ALLOW_INSECURE_RMS=1 npm run package:server:production
 ```
+
+上面的显式开关仅因当前 RMS 接口为 HTTP 而需要。它不会关闭 desktop 到 Hotel Butler server
+的私有 HTTPS，也不会关闭 server 证书检查；但 staff JWT/Bearer 凭证在 RMS HTTP 链路上没有
+传输加密，经过不可信网络时存在窃听、篡改和重放风险。建议让 ECS、使用 staff 包的终端与 RMS
+处于同一可信私网或 VPN，配合 IP 白名单并缩短令牌有效期；后续为 RMS 增加 HTTPS 入口后立即
+去掉该开关。
 
 打包命令会完成以下工作：
 
@@ -304,7 +315,17 @@ cd /opt/hotel-butler/app
 docker compose --env-file apps/server/.env.production \
   -f apps/server/compose.production.yaml ps
 curl --cacert /opt/hotel-butler/tls/server/ca.pem \
+  --resolve 121.199.29.74:35443:127.0.0.1 \
   https://121.199.29.74:35443/api/trpc/system.health
+```
+
+`docker compose ps` 中 `db` 和 `server` 都应为 `healthy`。还可以直接执行镜像内同一份 server
+健康检查，命令必须快速返回 `exit=0`：
+
+```bash
+docker exec hotel-butler-production-server-1 \
+  node apps/server/tests/compose/server-healthcheck.mjs
+echo "exit=$?"
 ```
 
 常用命令：
@@ -318,5 +339,80 @@ docker compose --env-file apps/server/.env.production \
 
 `npm run compose:prod:up` 现在同样使用 `--no-build --pull never`，只允许启动已经导入本机的
 镜像，不会回退到 Docker Hub。
+
+## 生产 desktop：构建与交付
+
+生产 desktop 固定构建 staff 认证版本，并从同一套生产事实来源注入：
+
+| 构建输入 | 生产值来源 |
+|---|---|
+| Backend API | 固定为 `https://121.199.29.74:35443` |
+| RMS API | `apps/server/.env.production` 的 `XIAOZHI_RMS_SERVER_URL` |
+| Backend 私有 CA | `output/production-tls/121.199.29.74/desktop/private-ca.pem` |
+| 认证 Profile | 固定为 `staff` |
+
+生产脚本会默认确认 RMS 使用 HTTPS；当前 HTTP RMS 需要显式不安全开关。脚本还会确认生产
+证书对 `121.199.29.74` 有效、server 证书与私钥匹配、desktop CA 与 server CA 完全一致，
+而且 desktop 资源中不包含 CA 私钥。
+
+### 1. 生产输入预检
+
+先确保生产 server 已部署并通过健康检查，再在 Mac 执行：
+
+```bash
+XIAOZHI_ALLOW_INSECURE_RMS=1 npm run check:desktop:production
+```
+
+该命令只校验并显示 backend、RMS 和 CA 路径，不构建应用。任何 placeholder、未显式允许的
+HTTP RMS、证书过期、证书不匹配或环境文件权限过宽都会直接失败；允许 HTTP 时会打印醒目的
+凭证明文传输警告。
+
+### 2. 生成可运行应用目录
+
+用于本机安装前检查，不是最终分发安装包：
+
+```bash
+XIAOZHI_ALLOW_INSECURE_RMS=1 npm run package:desktop:production
+```
+
+产物位于 `apps/desktop/out/` 下对应平台和架构的应用目录。
+
+### 3. 生成分发产物
+
+使用当前 Mac 架构生成 Electron Forge 分发产物：
+
+```bash
+XIAOZHI_ALLOW_INSECURE_RMS=1 npm run make:desktop:production
+```
+
+如需明确构建 macOS 架构：
+
+```bash
+XIAOZHI_ALLOW_INSECURE_RMS=1 npm run make:desktop:production -- --platform=darwin --arch=arm64
+XIAOZHI_ALLOW_INSECURE_RMS=1 npm run make:desktop:production -- --platform=darwin --arch=x64
+```
+
+分发产物位于 `apps/desktop/out/make/`。当前 Forge 配置没有 Apple Developer ID 签名、Apple
+notarization 或 Windows 代码签名，因此产物属于未签名内部交付包；若面向普通终端用户公开
+分发，签名与 notarization 是独立的上线门禁。
+
+普通的 `package:desktop:staff`、`package:desktop:phone`、`make:desktop:staff` 和
+`make:desktop:phone` 默认注入本地 backend/RMS，仅用于开发或显式定制构建，不得作为生产
+包发布。兼容入口 `scripts/desktop-make-prod.sh` 现在也统一转发到
+`make:desktop:production`。
+
+## 最终上线顺序
+
+1. 确认 Git worktree 干净且所有上线代码已提交。
+2. 确认 `apps/server/.env.production` 权限为 `0600` 且所有 placeholder 已替换；RMS 优先使用
+   HTTPS，当前 HTTP 例外需在 server 与 desktop 构建命令前显式设置不安全开关。
+3. 默认生成并上传 server-only 镜像包；仅首次部署或 pgvector 缺失时使用全量包。
+4. 在 ECS 执行部署脚本，确认备份、migration、管理员初始化及 server 健康检查全部成功。
+5. 从 ECS 使用私有 CA 请求健康接口，确认 HTTP `200`，并确认两个 Compose 服务均为
+   `healthy`。
+6. 使用与 server 构建相同的 RMS 安全开关执行 `check:desktop:production`，再执行
+   `make:desktop:production`。
+7. 在目标 Mac 上启动最终产物，验证 staff 登录、Agent 对话、7 日经营快捷入口和退出重启。
+8. 若面向外部用户分发，在交付前完成对应平台的代码签名与 notarization。
 
 生产部署和发布不得由 Agent 自动执行，必须在说明目标环境和影响范围后获得用户明确确认。

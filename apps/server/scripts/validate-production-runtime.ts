@@ -22,6 +22,13 @@ if ((lstatSync(environmentPath).mode & 0o077) !== 0) {
 	throw new Error('.env.production permissions must not allow group or other access');
 }
 
-validateProductionEnvironmentText(readFileSync(environmentPath, 'utf8'));
+validateProductionEnvironmentText(readFileSync(environmentPath, 'utf8'), {
+	allowInsecureRms: process.env.XIAOZHI_ALLOW_INSECURE_RMS === '1'
+});
 validateServerTlsMaterial(tlsDirectory);
+if (process.env.XIAOZHI_ALLOW_INSECURE_RMS === '1') {
+	console.warn(
+		'WARNING: Insecure RMS override is enabled; HTTP staff credentials are not transport-encrypted.'
+	);
+}
 console.info('Production environment and TLS material are valid.');

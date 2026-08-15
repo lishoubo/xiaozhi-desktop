@@ -91,6 +91,17 @@ describe('production source archive policy', () => {
 		expect(() =>
 			validateProductionEnvironmentText(complete.replace(/^AI_DMS_DATABASE_ID=.*$/m, ''))
 		).toThrow('AI_DMS_DATABASE_ID');
+		expect(() =>
+			validateProductionEnvironmentText(
+				complete.replace('https://rms.example.invalid', 'http://rms.example.invalid')
+			)
+		).toThrow('XIAOZHI_RMS_SERVER_URL must use HTTPS');
+		expect(() =>
+			validateProductionEnvironmentText(
+				complete.replace('https://rms.example.invalid', 'http://rms.example.invalid'),
+				{ allowInsecureRms: true }
+			)
+		).not.toThrow();
 	});
 
 	it('distinguishes real PEM private keys from scanner source text', () => {

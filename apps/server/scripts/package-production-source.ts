@@ -125,7 +125,10 @@ export function validateDeploymentArchiveEntries(entries: readonly string[]): vo
 	}
 }
 
-export function validateProductionEnvironmentText(environment: string): void {
+export function validateProductionEnvironmentText(
+	environment: string,
+	options: Readonly<{ allowInsecureRms?: boolean }> = {}
+): void {
 	if (/replace[-_]with|example\.com|replace-with-rms-api-domain/i.test(environment)) {
 		throw new Error('Production environment still contains placeholder values');
 	}
@@ -141,6 +144,20 @@ export function validateProductionEnvironmentText(environment: string): void {
 		if (!new RegExp(`^${requiredKey}=.+$`, 'm').test(environment)) {
 			throw new Error(`Production environment is missing ${requiredKey}`);
 		}
+	}
+	const rmsMatch = environment.match(/^XIAOZHI_RMS_SERVER_URL="?([^"\r\n]+)"?$/m);
+	if (!rmsMatch) throw new Error('Production environment has an invalid XIAOZHI_RMS_SERVER_URL');
+	const rmsUrl = new URL(rmsMatch[1]);
+	if (
+		rmsUrl.protocol !== 'https:' &&
+		!(options.allowInsecureRms === true && rmsUrl.protocol === 'http:')
+	) {
+		throw new Error(
+			'Production XIAOZHI_RMS_SERVER_URL must use HTTPS; set XIAOZHI_ALLOW_INSECURE_RMS=1 to explicitly allow HTTP'
+		);
+	}
+	if (rmsUrl.username || rmsUrl.password) {
+		throw new Error('Production XIAOZHI_RMS_SERVER_URL must not contain credentials');
 	}
 }
 
@@ -269,7 +286,9 @@ export function packageProductionSource(): Readonly<{
 			if ((lstatSync(environmentPath).mode & 0o077) !== 0) {
 				throw new Error('.env.production permissions must not allow group or other access');
 			}
-			validateProductionEnvironmentText(readFileSync(environmentPath, 'utf8'));
+			validateProductionEnvironmentText(readFileSync(environmentPath, 'utf8'), {
+				allowInsecureRms: process.env.XIAOZHI_ALLOW_INSECURE_RMS === '1'
+			});
 
 			const tlsSource = path.join(repositoryRoot, 'output/production-tls', productionIp, 'server');
 			validateServerTlsMaterial(tlsSource);

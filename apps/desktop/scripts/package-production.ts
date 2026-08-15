@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process';
 import { createPublicKey, X509Certificate } from 'node:crypto';
-import { existsSync, readFileSync, readdirSync } from 'node:fs';
+import { existsSync, lstatSync, readFileSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
@@ -8,6 +8,52 @@ export const PRODUCTION_SERVER_ORIGIN = 'https://121.199.29.74:35443';
 const PRODUCTION_IP = new URL(PRODUCTION_SERVER_ORIGIN).hostname;
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
 const tlsDirectory = path.join(repositoryRoot, 'output', 'production-tls', PRODUCTION_IP);
+const productionEnvironmentPath = path.join(repositoryRoot, 'apps', 'server', '.env.production');
+const productionActions = ['check', 'package', 'make'] as const;
+
+export type ProductionDesktopAction = (typeof productionActions)[number];
+
+export function parseProductionDesktopCommand(argv: readonly string[]): Readonly<{
+  action: ProductionDesktopAction;
+  forwardedArguments: readonly string[];
+}> {
+  const action = productionActions.find((candidate) => candidate === argv[0]);
+  if (!action) {
+    throw new Error(
+      `production desktop action 取值非法: ${argv[0] ?? '<missing>'}（可选 ${productionActions.join(' | ')}）`,
+    );
+  }
+  const forwardedArguments = argv.slice(1);
+  if (action === 'check' && forwardedArguments.length > 0) {
+    throw new Error('production desktop check does not accept Forge arguments');
+  }
+  return { action, forwardedArguments };
+}
+
+export function resolveProductionRmsOrigin(
+  environmentText: string,
+  allowInsecureRms = false,
+): string {
+  const matches = [...environmentText.matchAll(/^XIAOZHI_RMS_SERVER_URL="([^"\r\n]+)"\s*$/gm)];
+  if (matches.length !== 1) {
+    throw new Error(
+      'Production environment must contain exactly one quoted XIAOZHI_RMS_SERVER_URL',
+    );
+  }
+  const raw = matches[0]?.[1] ?? '';
+  if (/replace[-_]with/i.test(raw)) {
+    throw new Error('Production RMS URL still contains a placeholder');
+  }
+  const url = new URL(raw);
+  if (url.protocol !== 'https:' && !(allowInsecureRms && url.protocol === 'http:')) {
+    throw new Error(
+      'Production RMS URL must use HTTPS; set XIAOZHI_ALLOW_INSECURE_RMS=1 to explicitly allow HTTP',
+    );
+  }
+  if (url.username || url.password)
+    throw new Error('Production RMS URL must not contain credentials');
+  return url.origin;
+}
 
 function assertCurrent(certificate: X509Certificate, label: string, now = new Date()): void {
   const timestamp = now.getTime();
@@ -66,18 +112,59 @@ export function validateProductionTlsMaterial(directory = tlsDirectory): Readonl
   return { privateCaPath };
 }
 
-export async function packageProductionDesktop(): Promise<number> {
+export function validateProductionDesktopInputs(): Readonly<{
+  privateCaPath: string;
+  rmsOrigin: string;
+  insecureRms: boolean;
+}> {
+  if (!existsSync(productionEnvironmentPath)) {
+    throw new Error(`Missing production environment: ${productionEnvironmentPath}`);
+  }
+  const environmentStat = lstatSync(productionEnvironmentPath);
+  if (!environmentStat.isFile() || environmentStat.isSymbolicLink()) {
+    throw new Error('apps/server/.env.production must be a regular file, not a symbolic link');
+  }
+  if ((environmentStat.mode & 0o077) !== 0) {
+    throw new Error('.env.production permissions must not allow group or other access');
+  }
   const { privateCaPath } = validateProductionTlsMaterial();
+  const allowInsecureRms = process.env.XIAOZHI_ALLOW_INSECURE_RMS === '1';
+  const rmsOrigin = resolveProductionRmsOrigin(
+    readFileSync(productionEnvironmentPath, 'utf8'),
+    allowInsecureRms,
+  );
+  return { privateCaPath, rmsOrigin, insecureRms: rmsOrigin.startsWith('http:') };
+}
+
+export async function packageProductionDesktop(
+  action: Exclude<ProductionDesktopAction, 'check'>,
+  forwardedArguments: readonly string[] = [],
+): Promise<number> {
+  const { privateCaPath, rmsOrigin, insecureRms } = validateProductionDesktopInputs();
+  if (insecureRms) {
+    console.warn(
+      'WARNING: Production RMS uses HTTP; staff JWT credentials will travel unencrypted.',
+    );
+  }
   const executable = process.platform === 'win32' ? 'npm.cmd' : 'npm';
-  const child = spawn(executable, ['run', 'package:desktop:staff'], {
-    cwd: repositoryRoot,
-    env: {
-      ...process.env,
-      HOTEL_BUTLER_SERVER_URL: PRODUCTION_SERVER_ORIGIN,
-      HOTEL_BUTLER_PRIVATE_CA_PATH: privateCaPath,
+  const child = spawn(
+    executable,
+    [
+      'run',
+      `${action}:desktop:staff`,
+      ...(forwardedArguments.length > 0 ? ['--', ...forwardedArguments] : []),
+    ],
+    {
+      cwd: repositoryRoot,
+      env: {
+        ...process.env,
+        HOTEL_BUTLER_SERVER_URL: PRODUCTION_SERVER_ORIGIN,
+        HOTEL_BUTLER_PRIVATE_CA_PATH: privateCaPath,
+        XIAOZHI_RMS_SERVER_URL: rmsOrigin,
+      },
+      stdio: 'inherit',
     },
-    stdio: 'inherit',
-  });
+  );
   return new Promise((resolve, reject) => {
     child.once('error', reject);
     child.once('exit', (code, signal) => {
@@ -89,7 +176,23 @@ export async function packageProductionDesktop(): Promise<number> {
 
 const entryPath = process.argv[1];
 if (entryPath && import.meta.url === pathToFileURL(entryPath).href) {
-  packageProductionDesktop()
+  const command = parseProductionDesktopCommand(process.argv.slice(2));
+  const operation =
+    command.action === 'check'
+      ? Promise.resolve().then(() => {
+          const inputs = validateProductionDesktopInputs();
+          console.info(`Production backend: ${PRODUCTION_SERVER_ORIGIN}`);
+          console.info(`Production RMS: ${inputs.rmsOrigin}`);
+          console.info(`Packaged private CA: ${inputs.privateCaPath}`);
+          if (inputs.insecureRms) {
+            console.warn(
+              'WARNING: Production RMS uses HTTP; staff JWT credentials will travel unencrypted.',
+            );
+          }
+          return 0;
+        })
+      : packageProductionDesktop(command.action, command.forwardedArguments);
+  operation
     .then((exitCode) => {
       process.exitCode = exitCode;
     })
