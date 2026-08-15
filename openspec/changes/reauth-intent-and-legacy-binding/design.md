@@ -206,6 +206,24 @@ DeskBindExtra.of(account.getBindExtra())   // 先读库里现值
 rms-server 的 `app-ota-binding-backfill-hotel/api.md` §7 也明确确认了这一点。
 所以 desktop 只发变化的键是安全的，未传的键保留原值。
 
+**真机实证（2026-08-15，广昊假日酒店·美团，走 reauth）**：
+
+```
+desktop 送出   { channelAccountId, channelAccountName }          ← 只有账号级两个键
+远端结果       { bindSource:"DESKTOP", otaPartnerId:"4947602",
+                 channelAccountId:"292462264", channelAccountName:"guanghaojiariAI" }
+```
+
+一次验证了两条断言：
+
+- ✅ **desktop 只补账号级**：没有新写任何门店级字段
+- ✅ **服务端确实按键合并**：库里原有的 `otaPartnerId` 完好保留 —— 若真是整体替换，
+  这次只送两个键，它必然消失
+
+`bindSource` 是旁证：该字段服务端**明确不接受客户端传**（`AppBindExtraRequest`
+注释：「由服务端盖章，客户端传了也不采纳」），它能出现在结果里，只可能来自库里
+现值 —— 同一次合并里的 `otaPartnerId` 同理。
+
 ⚠️ 仍需留意：reauthenticate 会「把同一登录凭据（`channelAccountId` 相同）下**其余
 酒店**的 cookie 一并更新」。这是服务端有意设计（同账号本就共享登录态），但意味着
 一次重登的影响面不止当前这条记录 —— 真机验证时值得确认符合预期。

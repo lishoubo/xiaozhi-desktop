@@ -151,9 +151,11 @@ backfillHotel()   两类都要       + otaHotelId/otaHotelName 必填（成对�
 - [ ] 6.3 真机：场景 2 携程 —— 核对通过 → 检查远端只补 `channelAccountId`
       （**不应**出现 `merchantGroupId` / `otaPartnerId`）
 - [ ] 6.5 真机：场景 2 美团
-- [ ] 6.7 远端 `bindExtra` 落库核查 —— 上述真机只验证了 UI 流程走通，
-      **没有实际查过远端记录**。需确认：账号级字段补上了、门店级字段没被写、
-      原有其他键没被冲掉（服务端确认是按键合并，见 design §7.1）
+- [x] 6.7 **远端 `bindExtra` 落库核查通过**（2026-08-15，广昊假日酒店·美团，reauth）：
+      远端结果 `{bindSource, otaPartnerId:"4947602", channelAccountId:"292462264",
+      channelAccountName:"guanghaojiariAI"}`。desktop 只送了账号级两个键，
+      **门店级 `otaPartnerId` 是库里原值且完好保留** —— 一次同时验证「只补账号级」
+      与「服务端按键合并」两条断言。详见 design §7.1
 - [ ] 6.7 🔴 联调确认服务端接受 desktop 补写 `bindExtra` 键（用户已确认支持，需实测）；
       若被拒，按 `design.md` §5 降级为只更新本地
 - [ ] 6.8 记录验证证据到 `verification.md`
