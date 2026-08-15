@@ -186,7 +186,9 @@ describe('HotelAgentGateway hotel quick actions', () => {
 			assistantMessage: { content: '好的，本次任务已取消。' }
 		});
 
-		await expect(gateway.cancelBusinessExecution(principal, businessExecutionId, 3)).resolves.toMatchObject({
+		await expect(
+			gateway.cancelBusinessExecution(principal, businessExecutionId, 3)
+		).resolves.toMatchObject({
 			status: 'cancelled',
 			userMessage: { content: '取消本次任务' },
 			assistantMessage: { content: '好的，本次任务已取消。' }
@@ -439,16 +441,37 @@ describe('HotelAgentGateway deterministic business collection', () => {
 			run: vi.fn().mockResolvedValue({ content: '昨日经营复盘', ui: null })
 		};
 		const workflowCollector = {
-			collect: vi.fn().mockResolvedValue({
-				status: 'collected',
-				strategy: 'deterministic',
-				toolEvidence: [
-					{
-						toolName: 'query_hotel_operating_data_sql',
-						toolArgs: { database_id: 'server-configured' },
-						result: { hotel_id: 1, gmv: 1000 }
+			collect: vi.fn().mockImplementation(async (input) => {
+				await input.emit({
+					type: 'mcp_call_started',
+					toolCallId: 'tool-call-1',
+					toolName: 'query_hotel_operating_data_sql'
+				});
+				await input.emit({
+					type: 'mcp_call_completed',
+					toolCallId: 'tool-call-1',
+					toolName: 'query_hotel_operating_data_sql',
+					durationMs: 321,
+					resultSummary: {
+						resultType: 'object',
+						protocolStatus: 'success',
+						contentBlockCount: 1,
+						resultCharacterCount: 48,
+						resultFingerprint: 'a'.repeat(64),
+						filtered: false
 					}
-				]
+				});
+				return {
+					status: 'collected',
+					strategy: 'deterministic',
+					toolEvidence: [
+						{
+							toolName: 'query_hotel_operating_data_sql',
+							toolArgs: { database_id: 'server-configured' },
+							result: { hotel_id: 1, gmv: 1000 }
+						}
+					]
+				};
 			})
 		};
 		const summary = {
@@ -622,6 +645,17 @@ describe('HotelAgentGateway deterministic business collection', () => {
 			}),
 			'Agent workflow collection completed'
 		);
+		expect(logger.info).toHaveBeenCalledWith(
+			expect.objectContaining({
+				event: 'agent.mcp.call.completed',
+				toolName: 'query_hotel_operating_data_sql',
+				durationMs: 321,
+				protocolStatus: 'success',
+				resultCharacterCount: 48
+			}),
+			'MCP call completed'
+		);
+		expect(JSON.stringify(logger.info.mock.calls)).not.toContain('gmv');
 	});
 });
 

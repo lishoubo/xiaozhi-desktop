@@ -1,5 +1,6 @@
 import type { AgentMessage, AgentPrincipal, GenerativeUiSpec } from '@hotel-butler/api';
 import type { EvidenceRecord, ResolvedBusinessRequest } from './execution/business-execution-state';
+import type { McpResultSummary } from './mcp-observability';
 
 export type PublishableRuntimeEvent =
 	| Readonly<{ type: 'text_delta'; delta: string }>
@@ -12,11 +13,33 @@ export type PublishableRuntimeEvent =
 	  }>
 	| Readonly<{ type: 'ui_spec'; spec: GenerativeUiSpec }>;
 
-export type RuntimeTelemetryEvent = Readonly<{
-	type: 'runtime_phase_completed';
-	phase: 'ui_spec_generated';
-	durationMs: number;
-}>;
+export type RuntimeTelemetryEvent =
+	| Readonly<{
+			type: 'runtime_phase_completed';
+			phase: 'ui_spec_generated';
+			durationMs: number;
+	  }>
+	| Readonly<{
+			type: 'mcp_call_started';
+			toolCallId: string;
+			toolName: string;
+	  }>
+	| Readonly<{
+			type: 'mcp_call_completed';
+			toolCallId: string;
+			toolName: string;
+			durationMs: number;
+			resultSummary: McpResultSummary;
+	  }>
+	| Readonly<{
+			type: 'mcp_call_failed';
+			toolCallId: string;
+			toolName: string;
+			durationMs: number;
+			errorType: string;
+			failureKind: string;
+			retryable: boolean;
+	  }>;
 
 export type RuntimeEvent = PublishableRuntimeEvent | RuntimeTelemetryEvent;
 

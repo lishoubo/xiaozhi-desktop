@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { isReadOnlyMcpToolName, loadMcpServerToolsInOrder } from './mcp-tool-provider';
+import { summarizeMcpResult } from './mcp-observability';
 import {
 	compactHotelDataResult,
 	constrainHotelDataGenerateSqlArgs,
@@ -45,6 +46,23 @@ describe('loadMcpServerToolsInOrder', () => {
 });
 
 describe('hotel data MCP guardrails', () => {
+	it('summarizes MCP responses without retaining business content', () => {
+		const summary = summarizeMcpResult({
+			content: [{ type: 'text', text: '酒店收入 123456，客人手机号 13800138000' }],
+			isError: false
+		});
+
+		expect(summary).toMatchObject({
+			resultType: 'object',
+			contentBlockCount: 1,
+			protocolStatus: 'success',
+			resultFingerprint: expect.stringMatching(/^[a-f0-9]{64}$/)
+		});
+		expect(summary.resultCharacterCount).toBeGreaterThan(0);
+		expect(JSON.stringify(summary)).not.toContain('123456');
+		expect(JSON.stringify(summary)).not.toContain('13800138000');
+	});
+
 	it('allows only read-oriented DMS data tools and blocks management tools', () => {
 		expect(isAllowedHotelDataMcpToolName('searchDatabase')).toBe(true);
 		expect(isAllowedHotelDataMcpToolName('askDatabase')).toBe(false);
@@ -70,9 +88,10 @@ describe('hotel data MCP guardrails', () => {
 	});
 
 	it('uses the configured database id when discovery is unavailable or returns no exact match', () => {
-		expect(
-			resolveDmsDatabaseId({ status: 'unavailable' }, 'rms_data', '81918192')
-		).toEqual({ databaseId: '81918192', source: 'configured_fallback' });
+		expect(resolveDmsDatabaseId({ status: 'unavailable' }, 'rms_data', '81918192')).toEqual({
+			databaseId: '81918192',
+			source: 'configured_fallback'
+		});
 		expect(
 			resolveDmsDatabaseId({ status: 'completed', result: [] }, 'rms_data', '81918192')
 		).toEqual({ databaseId: '81918192', source: 'configured_fallback' });

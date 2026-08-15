@@ -1,15 +1,18 @@
 import type { AgentPrincipal } from '@hotel-butler/api';
 import type { StructuredToolInterface } from '@langchain/core/tools';
-import { Effect } from 'effect';
 import { randomUUID } from 'node:crypto';
 import type { RuntimeEvent } from '../agent-runtime';
 import {
 	agentPromise,
+	agentErrorRetryable,
+	agentErrorType,
+	agentFailureKind,
 	AgentProtocolError,
 	AgentUpstreamError,
 	runAgentEffect
 } from '../agent-effect';
 import { HOTEL_DATA_SQL_TOOL_NAME } from '../hotel-data-mcp';
+import { summarizeMcpResult } from '../mcp-observability';
 import type { McpToolProvider } from '../mcp-tool-provider';
 import type { JsonValue, ResolvedBusinessRequest } from './business-execution-state';
 
@@ -196,57 +199,92 @@ export class DeterministicWorkflowCollector {
 	constructor(private readonly tools: ToolProviderPort) {}
 
 	async collect(input: WorkflowCollectionRequest): Promise<WorkflowCollectionResult> {
-		const toolProvider = this.tools;
-		const program: Effect.Effect<
-			WorkflowCollectionResult,
-			AgentProtocolError | AgentUpstreamError
-		> = Effect.gen(function* () {
-			if (input.request.intent === 'generic_hotel_data_query') {
-				return { status: 'fallback' as const, reason: 'agent_required' as const };
-			}
-			const tools = yield* agentPromise({
+		if (input.request.intent === 'generic_hotel_data_query') {
+			return { status: 'fallback', reason: 'agent_required' };
+		}
+		const tools = await runAgentEffect(
+			agentPromise({
 				service: 'mcp',
 				operation: 'load_tool_catalog',
 				timeoutMs: 55_000,
-				try: () => toolProvider.getTools()
-			});
-			const selected = selectTool(tools, input.request);
-			if (!selected) {
-				if (input.request.intent === 'hotel_operating_summary') {
-					return yield* new AgentProtocolError({
-						operation: 'select_hotel_operating_tool',
-						reason: 'Pinned hotel operating SQL tool is unavailable or incompatible'
-					});
-				}
-				return {
-					status: 'fallback' as const,
-					reason:
-						tools.length === 0
-							? ('tool_unavailable' as const)
-							: ('incompatible_tool_schema' as const)
-				};
+				try: () => this.tools.getTools()
+			}),
+			input.signal
+		);
+		const selected = selectTool(tools, input.request);
+		if (!selected) {
+			if (input.request.intent === 'hotel_operating_summary') {
+				throw new AgentProtocolError({
+					operation: 'select_hotel_operating_tool',
+					reason: 'Pinned hotel operating SQL tool is unavailable or incompatible'
+				});
 			}
-			const toolCallId = `${selected.tool.name}_${randomUUID()}`;
-			yield* agentPromise({
+			return {
+				status: 'fallback',
+				reason: tools.length === 0 ? 'tool_unavailable' : 'incompatible_tool_schema'
+			};
+		}
+		const toolCallId = `${selected.tool.name}_${randomUUID()}`;
+		await runAgentEffect(
+			agentPromise({
 				service: 'persistence',
 				operation: 'publish_tool_started',
 				timeoutMs: 10_000,
 				try: () => input.emit({ type: 'tool_started', toolCallId, toolName: selected.tool.name })
-			});
-			const result: unknown = yield* agentPromise({
-				service: 'mcp',
-				operation: selected.tool.name,
-				timeoutMs: 50_000,
-				try: (signal) => selected.tool.invoke(selected.args, { signal })
-			});
-			if (toolResultIsError(result)) {
-				return yield* new AgentUpstreamError({
+			}),
+			input.signal
+		);
+		await input.emit({ type: 'mcp_call_started', toolCallId, toolName: selected.tool.name });
+		const callStartedAt = performance.now();
+		let result: unknown;
+		try {
+			result = await runAgentEffect(
+				agentPromise({
 					service: 'mcp',
 					operation: selected.tool.name,
-					kind: 'invalid_response'
-				});
-			}
-			yield* agentPromise({
+					timeoutMs: 50_000,
+					try: (signal) => selected.tool.invoke(selected.args, { signal })
+				}),
+				input.signal
+			);
+		} catch (error) {
+			await input.emit({
+				type: 'mcp_call_failed',
+				toolCallId,
+				toolName: selected.tool.name,
+				durationMs: Math.max(0, Math.round(performance.now() - callStartedAt)),
+				errorType: agentErrorType(error),
+				failureKind: agentFailureKind(error),
+				retryable: agentErrorRetryable(error)
+			});
+			throw error;
+		}
+		if (toolResultIsError(result)) {
+			const error = new AgentUpstreamError({
+				service: 'mcp',
+				operation: selected.tool.name,
+				kind: 'invalid_response'
+			});
+			await input.emit({
+				type: 'mcp_call_failed',
+				toolCallId,
+				toolName: selected.tool.name,
+				durationMs: Math.max(0, Math.round(performance.now() - callStartedAt)),
+				errorType: agentErrorType(error),
+				failureKind: agentFailureKind(error),
+				retryable: agentErrorRetryable(error)
+			});
+			throw error;
+		}
+		await input.emit({
+			type: 'mcp_call_completed',
+			toolCallId,
+			toolName: selected.tool.name,
+			durationMs: Math.max(0, Math.round(performance.now() - callStartedAt)),
+			resultSummary: summarizeMcpResult(result)
+		});
+		await runAgentEffect(
+			agentPromise({
 				service: 'persistence',
 				operation: 'publish_tool_completed',
 				timeoutMs: 10_000,
@@ -257,13 +295,13 @@ export class DeterministicWorkflowCollector {
 						toolName: selected.tool.name,
 						summary: '工具调用已完成'
 					})
-			});
-			return {
-				status: 'collected' as const,
-				strategy: 'deterministic' as const,
-				toolEvidence: [{ toolName: selected.tool.name, toolArgs: selected.args, result }]
-			};
-		});
-		return runAgentEffect(program, input.signal);
+			}),
+			input.signal
+		);
+		return {
+			status: 'collected',
+			strategy: 'deterministic',
+			toolEvidence: [{ toolName: selected.tool.name, toolArgs: selected.args, result }]
+		};
 	}
 }

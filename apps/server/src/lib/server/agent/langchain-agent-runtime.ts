@@ -12,12 +12,16 @@ import type { AgentEnvironment } from './agent-config';
 import type { AgentRuntime, AgentRuntimeRunOptions } from './agent-runtime';
 import type { McpToolProvider } from './mcp-tool-provider';
 import { isHotelDataToolName } from './hotel-data-mcp';
+import { summarizeMcpResult } from './mcp-observability';
 import { buildHotelAgentSystemPrompt } from './hotel-agent-prompt';
 import { HotelAgentToolHandlers } from './hotel-agent-tool-handlers';
 import type { SkillProvider } from './skill-provider';
 import { getIntentDefinition } from './execution/intent-registry';
 import {
 	agentPromise,
+	agentErrorRetryable,
+	agentErrorType,
+	agentFailureKind,
 	AgentConfigurationError,
 	AgentProtocolError,
 	AgentUpstreamError,
@@ -204,6 +208,7 @@ export class LangChainAgentRuntime implements AgentRuntime {
 					)
 				: loadedMcpTools;
 		const tools: StructuredToolInterface[] = [...localTools, ...workflowMcpTools];
+		const mcpToolNames = new Set(workflowMcpTools.map((tool) => tool.name));
 		const workflowToolCallBudget = options.workflowRequest
 			? getIntentDefinition(options.workflowRequest.intent).maxToolCalls
 			: Number.POSITIVE_INFINITY;
@@ -243,6 +248,8 @@ export class LangChainAgentRuntime implements AgentRuntime {
 		let startedWorkflowToolCount = 0;
 		const completedTools = new Set<string>();
 		const toolArgs = new Map<string, unknown>();
+		const toolNamesByCall = new Map<string, string>();
+		const mcpCallStartedAt = new Map<string, number>();
 		const toolEvidence: Array<{ toolName: string; toolArgs: unknown; result: unknown }> = [];
 		try {
 			const stream = await agent.stream(
@@ -286,6 +293,15 @@ export class LangChainAgentRuntime implements AgentRuntime {
 							toolCallId: call.id,
 							toolName: call.name
 						});
+						toolNamesByCall.set(call.id, call.name);
+						if (mcpToolNames.has(call.name)) {
+							mcpCallStartedAt.set(call.id, performance.now());
+							await options.emit({
+								type: 'mcp_call_started',
+								toolCallId: call.id,
+								toolName: call.name
+							});
+						}
 					}
 					for (const call of message.tool_calls ?? []) {
 						if (!call.id) continue;
@@ -314,6 +330,15 @@ export class LangChainAgentRuntime implements AgentRuntime {
 							toolCallId: call.id,
 							toolName: call.name
 						});
+						toolNamesByCall.set(call.id, call.name);
+						if (mcpToolNames.has(call.name)) {
+							mcpCallStartedAt.set(call.id, performance.now());
+							await options.emit({
+								type: 'mcp_call_started',
+								toolCallId: call.id,
+								toolName: call.name
+							});
+						}
 					}
 					continue;
 				}
@@ -322,9 +347,35 @@ export class LangChainAgentRuntime implements AgentRuntime {
 					if (suppressedTools.has(callId)) continue;
 					if (completedTools.has(callId)) continue;
 					completedTools.add(callId);
+					const toolName = message.name ?? toolNamesByCall.get(callId) ?? 'tool';
+					if (mcpCallStartedAt.has(callId)) {
+						const durationMs = Math.max(
+							0,
+							Math.round(performance.now() - (mcpCallStartedAt.get(callId) ?? performance.now()))
+						);
+						if (message.status === 'error') {
+							await options.emit({
+								type: 'mcp_call_failed',
+								toolCallId: callId,
+								toolName,
+								durationMs,
+								errorType: 'McpToolErrorResult',
+								failureKind: 'tool_or_data_source',
+								retryable: true
+							});
+						} else {
+							await options.emit({
+								type: 'mcp_call_completed',
+								toolCallId: callId,
+								toolName,
+								durationMs,
+								resultSummary: summarizeMcpResult(message.content)
+							});
+						}
+					}
 					if (shouldCaptureToolEvidence(message.status)) {
 						toolEvidence.push({
-							toolName: message.name ?? 'tool',
+							toolName,
 							toolArgs: toolArgs.get(callId) ?? null,
 							result: message.content
 						});
@@ -332,8 +383,8 @@ export class LangChainAgentRuntime implements AgentRuntime {
 					await options.emit({
 						type: 'tool_completed',
 						toolCallId: callId,
-						toolName: message.name ?? 'tool',
-						summary: isHotelDataToolName(message.name ?? '')
+						toolName,
+						summary: isHotelDataToolName(toolName)
 							? message.status === 'error'
 								? '经营数据查询未成功，正在调整查询条件'
 								: '酒店经营数据查询完成'
@@ -342,6 +393,18 @@ export class LangChainAgentRuntime implements AgentRuntime {
 				}
 			}
 		} catch (error) {
+			for (const [toolCallId, startedAt] of mcpCallStartedAt) {
+				if (completedTools.has(toolCallId)) continue;
+				await options.emit({
+					type: 'mcp_call_failed',
+					toolCallId,
+					toolName: toolNamesByCall.get(toolCallId) ?? 'mcp_tool',
+					durationMs: Math.max(0, Math.round(performance.now() - startedAt)),
+					errorType: agentErrorType(error),
+					failureKind: agentFailureKind(error),
+					retryable: agentErrorRetryable(error)
+				});
+			}
 			const recovered = recoverCompletedUiAfterRenderLimit(error, content, generatedUi);
 			if (!recovered) {
 				if (isAgentExecutionError(error)) throw error;

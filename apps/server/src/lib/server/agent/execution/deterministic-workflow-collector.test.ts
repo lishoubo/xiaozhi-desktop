@@ -148,6 +148,7 @@ describe('deterministic workflow collector', () => {
 
 	it('uses a code-owned daily query for the seven-day trend shortcut', async () => {
 		const invoke = vi.fn().mockResolvedValue({ content: [{ type: 'text', text: '[]' }] });
+		const emit = vi.fn().mockResolvedValue(undefined);
 		const collector = new DeterministicWorkflowCollector({
 			getTools: vi.fn().mockResolvedValue([
 				{
@@ -172,7 +173,7 @@ describe('deterministic workflow collector', () => {
 				}
 			},
 			signal: new AbortController().signal,
-			emit: vi.fn().mockResolvedValue(undefined)
+			emit
 		});
 
 		expect(invoke).toHaveBeenCalledWith(
@@ -180,6 +181,13 @@ describe('deterministic workflow collector', () => {
 				script: expect.stringMatching(/GROUP BY hotel_id, data_date ORDER BY data_date ASC/)
 			}),
 			expect.any(Object)
+		);
+		expect(emit).toHaveBeenCalledWith(
+			expect.objectContaining({
+				type: 'mcp_call_completed',
+				toolName: 'query_hotel_operating_data_sql',
+				resultSummary: expect.objectContaining({ protocolStatus: 'success' })
+			})
 		);
 	});
 
@@ -227,6 +235,44 @@ describe('deterministic workflow collector', () => {
 			operation: 'get_weather_summary',
 			kind: 'unavailable'
 		} satisfies Partial<AgentUpstreamError>);
+	});
+
+	it('emits a safe MCP failure event when deterministic invocation fails', async () => {
+		const emit = vi.fn().mockResolvedValue(undefined);
+		const collector = new DeterministicWorkflowCollector({
+			getTools: vi.fn().mockResolvedValue([
+				{
+					name: 'query_hotel_operating_data_sql',
+					schema: { safeParse: () => ({ success: true }) },
+					invoke: vi.fn().mockRejectedValue(new Error('SQL and private payload must not be logged'))
+				}
+			])
+		});
+
+		await expect(
+			collector.collect({
+				principal: { employeeId: '1001', orgId: '42' },
+				request: {
+					routeKind: 'business_read',
+					intent: 'hotel_operating_summary',
+					slots: {
+						hotelReference: '123',
+						dateRange: { start: '2026-08-08', end: '2026-08-14' },
+						metrics: '按日经营趋势'
+					}
+				},
+				signal: new AbortController().signal,
+				emit
+			})
+		).rejects.toMatchObject({ _tag: 'AgentUpstreamError', service: 'mcp' });
+		expect(emit).toHaveBeenCalledWith(
+			expect.objectContaining({
+				type: 'mcp_call_failed',
+				toolName: 'query_hotel_operating_data_sql',
+				errorType: 'AgentUpstreamError'
+			})
+		);
+		expect(JSON.stringify(emit.mock.calls)).not.toContain('private payload');
 	});
 
 	it('does not accept an MCP error result as business evidence', async () => {

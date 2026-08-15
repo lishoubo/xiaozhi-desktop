@@ -30,7 +30,9 @@ const WRITE_TOOL_NAME =
 	/(^|[_.:-])(create|update|delete|remove|set|write|mutate|execute|submit|confirm|cancel|refund|charge|pay|publish|send|sync|open|close)([_.:-]|$)/i;
 
 type McpToolProviderLogger = Readonly<{
+	info?(fields: Readonly<Record<string, unknown>>, message: string): void;
 	warn(fields: Readonly<Record<string, unknown>>, message: string): void;
+	error?(fields: Readonly<Record<string, unknown>>, message: string): void;
 }>;
 
 export function isReadOnlyMcpToolName(name: string): boolean {
@@ -96,10 +98,37 @@ export class McpToolProvider {
 
 	getTools(): Promise<readonly DynamicStructuredTool[]> {
 		if (!this.toolsPromise) {
-			this.toolsPromise = this.loadTools().catch((error: unknown) => {
-				this.toolsPromise = null;
-				throw error;
-			});
+			const startedAt = performance.now();
+			this.logger?.info?.(
+				{ event: 'agent.mcp.catalog.load.started', serverCount: this.serverCount() },
+				'MCP tool catalog load started'
+			);
+			this.toolsPromise = this.loadTools()
+				.then((tools) => {
+					this.logger?.info?.(
+						{
+							event: 'agent.mcp.catalog.load.completed',
+							serverCount: this.serverCount(),
+							toolCount: tools.length,
+							durationMs: Math.max(0, Math.round(performance.now() - startedAt))
+						},
+						'MCP tool catalog load completed'
+					);
+					return tools;
+				})
+				.catch((error: unknown) => {
+					this.logger?.error?.(
+						{
+							event: 'agent.mcp.catalog.load.failed',
+							serverCount: this.serverCount(),
+							durationMs: Math.max(0, Math.round(performance.now() - startedAt)),
+							errorType: error instanceof Error ? error.name : 'UnknownError'
+						},
+						'MCP tool catalog load failed'
+					);
+					this.toolsPromise = null;
+					throw error;
+				});
 		}
 		return this.toolsPromise;
 	}
@@ -172,10 +201,20 @@ export class McpToolProvider {
 		const hotelDataIndex = serverNames.indexOf(HOTEL_DATA_MCP_SERVER_NAME);
 		const hotelDataTools = hotelDataIndex < 0 ? [] : (loadedByServer[hotelDataIndex] ?? []);
 		if (this.dmsDatabaseName) {
+			const discoveryStartedAt = performance.now();
 			const searchDatabase = hotelDataTools.find(
 				(tool) => tool.name === DMS_SEARCH_DATABASE_TOOL_NAME
 			);
 			if (!searchDatabase && !this.dmsDatabaseId) {
+				this.logger?.error?.(
+					{
+						event: 'agent.mcp.database_discovery.failed',
+						reason: 'tool_unavailable',
+						durationMs: Math.max(0, Math.round(performance.now() - discoveryStartedAt)),
+						errorType: 'AgentProtocolError'
+					},
+					'DMS database discovery failed'
+				);
 				throw new AgentProtocolError({
 					operation: 'discover_dms_database',
 					reason: 'DMS searchDatabase tool is unavailable'
@@ -203,17 +242,42 @@ export class McpToolProvider {
 						})
 					);
 				} catch (error) {
-					if (!this.dmsDatabaseId) throw error;
+					if (!this.dmsDatabaseId) {
+						this.logger?.error?.(
+							{
+								event: 'agent.mcp.database_discovery.failed',
+								reason: 'search_failed',
+								durationMs: Math.max(0, Math.round(performance.now() - discoveryStartedAt)),
+								errorType: error instanceof Error ? error.name : 'UnknownError'
+							},
+							'DMS database discovery failed'
+						);
+						throw error;
+					}
 					fallbackErrorType = error instanceof Error ? error.name : 'UnknownError';
 				}
 			}
-			const resolution = resolveDmsDatabaseId(
-				discoveryResult === undefined
-					? { status: 'unavailable' }
-					: { status: 'completed', result: discoveryResult },
-				this.dmsDatabaseName,
-				this.dmsDatabaseId
-			);
+			let resolution;
+			try {
+				resolution = resolveDmsDatabaseId(
+					discoveryResult === undefined
+						? { status: 'unavailable' }
+						: { status: 'completed', result: discoveryResult },
+					this.dmsDatabaseName,
+					this.dmsDatabaseId
+				);
+			} catch (error) {
+				this.logger?.error?.(
+					{
+						event: 'agent.mcp.database_discovery.failed',
+						reason: 'identity_validation_failed',
+						durationMs: Math.max(0, Math.round(performance.now() - discoveryStartedAt)),
+						errorType: error instanceof Error ? error.name : 'UnknownError'
+					},
+					'DMS database discovery failed'
+				);
+				throw error;
+			}
 			resolvedDmsDatabaseId = resolution.databaseId;
 			if (resolution.source === 'configured_fallback') {
 				if (discoveryResult !== undefined) fallbackReason = 'no_exact_match';
@@ -221,9 +285,19 @@ export class McpToolProvider {
 					{
 						event: 'agent.mcp.database_discovery_fallback',
 						reason: fallbackReason,
+						durationMs: Math.max(0, Math.round(performance.now() - discoveryStartedAt)),
 						...(fallbackErrorType ? { errorType: fallbackErrorType } : {})
 					},
 					'DMS database discovery fell back to the configured database ID'
+				);
+			} else {
+				this.logger?.info?.(
+					{
+						event: 'agent.mcp.database_discovery.completed',
+						resolutionSource: resolution.source,
+						durationMs: Math.max(0, Math.round(performance.now() - discoveryStartedAt))
+					},
+					'DMS database discovery completed'
 				);
 			}
 			resolvedDmsDatabaseName = this.dmsDatabaseName;

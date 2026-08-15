@@ -824,6 +824,10 @@ export class HotelAgentGateway implements AgentGateway {
 							businessExecutionId: context.run.businessExecutionId,
 							assessment: assessment.status,
 							evidenceCount: envelopes.length,
+							evidenceSources: [...new Set(envelopes.map((item) => item.source))],
+							toolNames: [...new Set(envelopes.map((item) => item.toolName))],
+							parseQualities: [...new Set(envelopes.map((item) => item.parseQuality))],
+							filteredEvidenceCount: envelopes.filter((item) => item.filtered).length,
 							durationMs: Math.max(0, Math.round(performance.now() - evidenceAssessmentStartedAt))
 						},
 						'Agent workflow evidence assessed'
@@ -1080,6 +1084,54 @@ export class HotelAgentGateway implements AgentGateway {
 					durationMs: event.durationMs
 				},
 				'Agent runtime phase completed'
+			);
+			return Promise.resolve();
+		}
+		if (event.type === 'mcp_call_started') {
+			this.logger.info(
+				{
+					event: 'agent.mcp.call.started',
+					runId,
+					conversationId,
+					businessExecutionId,
+					toolCallId: event.toolCallId,
+					toolName: event.toolName
+				},
+				'MCP call started'
+			);
+			return Promise.resolve();
+		}
+		if (event.type === 'mcp_call_completed') {
+			this.logger.info(
+				{
+					event: 'agent.mcp.call.completed',
+					runId,
+					conversationId,
+					businessExecutionId,
+					toolCallId: event.toolCallId,
+					toolName: event.toolName,
+					durationMs: event.durationMs,
+					...event.resultSummary
+				},
+				'MCP call completed'
+			);
+			return Promise.resolve();
+		}
+		if (event.type === 'mcp_call_failed') {
+			this.logger.warn(
+				{
+					event: 'agent.mcp.call.failed',
+					runId,
+					conversationId,
+					businessExecutionId,
+					toolCallId: event.toolCallId,
+					toolName: event.toolName,
+					durationMs: event.durationMs,
+					errorType: event.errorType,
+					failureKind: event.failureKind,
+					retryable: event.retryable
+				},
+				'MCP call failed'
 			);
 			return Promise.resolve();
 		}

@@ -428,6 +428,9 @@ memories and MCP results SHALL be treated as untrusted data and SHALL NOT overri
 - **WHEN** a run is accepted, prepares context, invokes a tool, completes or fails
 - **THEN** client/server structured logs identify safe lifecycle facts, duration and failure class
 - **AND** omit prompts, answers, memories, tool arguments/results and credentials
+- **AND** MCP completion logs include only allow-listed non-content response metadata such as protocol
+  status, content-block count, character count, filtering state and a one-way fingerprint
+- **AND** MCP failure logs identify the safe tool name, duration, failure class and retryability
 
 ### Requirement: Business execution projection and API
 
