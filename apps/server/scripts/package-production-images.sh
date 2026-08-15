@@ -143,7 +143,8 @@ docker image save "${images_to_save[@]}" | gzip -9 >"${release_directory}/images
 chmod 0600 "${release_directory}/images.tar.gz"
 
 staged_artifact="${staging_directory}/${artifact_name}"
-tar -cf "${staged_artifact}" -C "${staging_directory}" hotel-butler-release
+COPYFILE_DISABLE=1 tar --no-xattrs -cf "${staged_artifact}" \
+  -C "${staging_directory}" hotel-butler-release
 chmod 0600 "${staged_artifact}"
 mv "${staged_artifact}" "${artifact_path}"
 

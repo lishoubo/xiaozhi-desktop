@@ -266,7 +266,8 @@ sudo bash hotel-butler-release/runtime/deploy-production-images.sh
 
 1. 校验 Alibaba Cloud Linux 4、CPU 架构、部署包和必要命令。
 2. 如果旧 PostgreSQL 容器正在运行，在 `/opt/hotel-butler/backups/postgresql/` 创建
-   migration 前的 custom-format `pg_dump`。
+   migration 前的 custom-format `pg_dump`；备份命令使用 `.env.production` 配置的
+   `POSTGRES_PORT`，当前为 `35432`。
 3. 安装 Compose、环境文件和 TLS 文件，然后通过 `docker load` 导入包内镜像。
 4. 启动或复用 PostgreSQL，停止 server，单独运行 `database-init`。
 5. migration 和幂等管理员初始化成功后，才使用新镜像启动 server；失败时 server 保持停止。

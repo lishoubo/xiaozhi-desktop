@@ -117,6 +117,7 @@ describe('deployment environment boundaries', () => {
 		expect(packager).toContain('pgvector/pgvector:0.8.5-pg18');
 		expect(packager).toContain('docker image save');
 		expect(packager).toContain('current-image-release');
+		expect(packager).toContain('COPYFILE_DISABLE=1 tar --no-xattrs');
 		expect(packager).toContain('compose.production.yaml');
 		expect(packager).toContain('.env.production');
 		expect(packager).toContain('deploy-production-images.sh');
@@ -129,6 +130,7 @@ describe('deployment environment boundaries', () => {
 
 		expect(deployer).toContain('Alibaba Cloud Linux 4');
 		expect(deployer).toContain('pg_dump');
+		expect(deployer).toContain('--port "${POSTGRES_PORT:-35432}"');
 		expect(deployer).toContain('docker image load');
 		expect(deployer).toContain('Database image is unavailable on this ECS host');
 		expect(deployer).toContain('--no-build');

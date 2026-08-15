@@ -89,7 +89,7 @@ if [[ -f "${compose_path}" && -f "${environment_path}" ]]; then
     temporary_backup="${backup_path}.tmp"
     echo "Creating pre-migration PostgreSQL backup: ${backup_path}"
     if ! docker compose "${existing_compose[@]}" exec -T db \
-      sh -eu -c 'exec pg_dump --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" --format=custom' \
+      sh -eu -c 'exec pg_dump --host 127.0.0.1 --port "${POSTGRES_PORT:-35432}" --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" --format=custom' \
       >"${temporary_backup}"; then
       rm -f -- "${temporary_backup}"
       echo "PostgreSQL backup failed; deployment stopped before migration." >&2
