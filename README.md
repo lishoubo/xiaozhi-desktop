@@ -147,9 +147,11 @@ npm run verify             # 完整验证入口
 
 开发过程中应优先运行改动直接命中的定向测试；准备交付时再运行对应范围的完整验证。
 
-## 生产 server
+## 生产 server：离线镜像部署
 
-当前生产 server 使用：
+生产 ECS 使用 Alibaba Cloud Linux 4 LTS。应用在 Mac 上构建为 Linux 镜像，随后通过 SSH
+上传离线镜像包；ECS 不构建应用，也不访问 Docker Hub，并且不需要保存应用源码或
+`node_modules`。
 
 | 用途 | 地址 |
 |---|---|
@@ -158,7 +160,22 @@ npm run verify             # 完整验证入口
 
 生产 PostgreSQL 端口只应对可信源 IP 开放，不应暴露给公网。
 
-### 1. 准备生产配置与证书
+### 1. 已确认的 ECS 运行环境
+
+生产部署脚本固定面向以下已经核验的环境：
+
+| 项目 | 生产值 |
+|---|---|
+| 系统 | Alibaba Cloud Linux 4 LTS（`ID=alinux`、`VERSION_ID=4`） |
+| ECS CPU | `x86_64` |
+| 容器平台 | `linux/amd64` |
+| Docker Engine | `28.3.3` |
+| Docker Compose | `2.26.1` |
+
+本地打包脚本固定生成 `linux/amd64` 镜像，不接受平台覆盖参数。远端脚本会在修改服务前再次
+校验系统主版本、CPU 架构和部署包平台。
+
+### 2. 准备生产配置与证书
 
 以下命令只在目标文件不存在时创建内容，不会覆盖已有私有配置：
 
@@ -168,30 +185,34 @@ npm run https:setup:production
 chmod 600 apps/server/.env.production
 ```
 
-随后补全 `apps/server/.env.production` 中的 RMS、AI 和初始管理员配置。生产证书输出在
-`output/production-tls/121.199.29.74/`。`ca-key.pem`、server 私钥和生产环境文件均为
-敏感材料，不得提交或外传。
+补全 `apps/server/.env.production` 中的 RMS、AI 和初始管理员配置。生产证书位于
+`output/production-tls/121.199.29.74/`。生产环境文件、server 私钥和最终离线部署包都包含
+敏感材料，必须保持为 `0600`，不得提交或转发。
 
-### 2. 生成部署包
+### 3. 在 Mac 构建离线镜像包
 
-生产部署包只允许从已提交且干净的 Git `HEAD` 生成：
+生产包只允许从已提交且干净的 Git `HEAD` 生成：
 
 ```bash
 git status --short
 npm run package:server:production
 ```
 
+该命令会完成以下工作：
+
+1. 校验 `.env.production`、生产证书和私钥权限。
+2. 使用 Docker Buildx 构建 `linux/amd64` 的 `hotel-butler-server:<commit>`。
+3. 拉取同架构的 `pgvector/pgvector:0.8.5-pg18`。
+4. 打包两个镜像以及最小运行文件；不包含应用源码。
+
 产物位于 `output/deploy/`：
 
 ```text
-hotel-butler-server-deployment-<12位commit>.tar.gz
-hotel-butler-server-deployment-<12位commit>.tar.gz.sha256
+hotel-butler-server-images-<12位commit>-linux-amd64.tar
+hotel-butler-server-images-<12位commit>-linux-amd64.tar.sha256
 ```
 
-部署包包含运行所需的私有配置与 TLS 文件，权限应保持为 `0600`。如果只需要不含运行时
-凭证的源码包，使用 `npm run package:server:source`。
-
-### 3. 上传部署包
+### 4. 上传到 ECS
 
 准备权限为 `0600` 的 SSH 私钥后执行：
 
@@ -200,52 +221,64 @@ chmod 600 apps/server/rms-agent-key.pem
 npm run upload:server:production -- <ssh-user>
 ```
 
-上传脚本固定连接生产主机，校验本地与远端 SHA-256，并在校验成功后更新远端
-`~/hotel-butler-upload/current-release`。首次连接前应通过云平台控制台核对 SSH 主机指纹。
-该脚本不会自动解压、启动 Docker 或修改线上服务。
+上传脚本固定连接生产主机，分别在本地和远端校验 SHA-256，并在成功后更新远端
+`~/hotel-butler-image-upload/current-image-release`。首次连接前应通过阿里云控制台核对 SSH
+主机指纹。上传脚本不会解压部署包、运行 migration 或修改线上容器。
 
-### 4. 准备生产主机
+### 5. 在 ECS 导入、迁移并启动
 
-登录服务器后，根据 `current-release` 校验并解压部署包：
+下面的远端命令会修改生产容器并可能产生短暂停机。执行前确认目标主机、Git commit 和维护
+窗口：
 
 ```bash
-cd "$HOME/hotel-butler-upload"
-DEPLOY_ARCHIVE="$(cat current-release)"
-case "$DEPLOY_ARCHIVE" in
-  hotel-butler-server-deployment-????????????.tar.gz) ;;
-  *) echo "current-release 内容非法" >&2; exit 1 ;;
+cd "$HOME/hotel-butler-image-upload"
+IMAGE_ARCHIVE="$(cat current-image-release)"
+case "$IMAGE_ARCHIVE" in
+  hotel-butler-server-images-????????????-linux-amd64.tar) ;;
+  *) echo "current-image-release 内容非法" >&2; exit 1 ;;
 esac
-sha256sum -c "${DEPLOY_ARCHIVE}.sha256"
-sudo install -d -o "$USER" -g "$(id -gn)" -m 0750 /opt/hotel-butler
-tar -xzf "$DEPLOY_ARCHIVE" -C /opt
-sudo bash /opt/hotel-butler/app/apps/server/scripts/prepare-production-host.sh
+sha256sum -c "${IMAGE_ARCHIVE}.sha256"
+tar -xf "$IMAGE_ARCHIVE"
+sudo bash hotel-butler-release/runtime/deploy-production-images.sh
 ```
 
-主机准备脚本负责创建或验证部署文件所有者，并准备 PostgreSQL、TLS 和日志挂载目录；不会
-启动服务。默认部署用户为禁止交互登录的 `hotelbutler`，且不会加入 `docker` 组。
+远端脚本按以下顺序工作：
 
-### 5. 校验并启动
+1. 校验 Alibaba Cloud Linux 4、CPU 架构、部署包和必要命令。
+2. 如果旧 PostgreSQL 容器正在运行，在 `/opt/hotel-butler/backups/postgresql/` 创建
+   migration 前的 custom-format `pg_dump`。
+3. 安装 Compose、环境文件和 TLS 文件，然后通过 `docker load` 导入两个离线镜像。
+4. 启动或复用 PostgreSQL，停止 server，单独运行 `database-init`。
+5. migration 和幂等管理员初始化成功后，才使用新镜像启动 server；失败时 server 保持停止。
 
-远端启动或更新生产服务属于高风险操作，执行前应确认目标环境、变更内容和影响范围：
+如果已存在部署但数据库容器没有运行，脚本会拒绝在无备份情况下迁移。只有已经通过其他方式
+完成备份时，才可显式跳过自动备份：
+
+```bash
+sudo HOTEL_BUTLER_ALLOW_MIGRATION_WITHOUT_BACKUP=1 \
+  bash hotel-butler-release/runtime/deploy-production-images.sh
+```
+
+### 6. 数据库 migration 与后续更新
+
+Drizzle migration 文件和 `initialize-database.ts` 已复制进生产镜像。每次发布新镜像时，远端
+脚本都会先备份现有数据库，再运行新镜像中的 migration，因此后续不需要上传应用源码。
+新增 migration 后只需提交代码、重新生成镜像包、上传并执行同一远端部署命令。
+
+应用镜像回退不等于数据库回退。数据库 migration 应优先保持向后兼容；如果确实需要恢复
+旧 schema，应停止写入并使用部署前的 dump 制定单独恢复方案，不要自动执行破坏性降级。
+
+### 7. 验证与运维
 
 ```bash
 cd /opt/hotel-butler/app
-docker compose --env-file apps/server/.env.production \
-  -f apps/server/compose.production.yaml config --quiet
-docker compose --env-file apps/server/.env.production \
-  -f apps/server/compose.production.yaml up --build --detach --wait
-```
-
-启动后检查服务状态：
-
-```bash
 docker compose --env-file apps/server/.env.production \
   -f apps/server/compose.production.yaml ps
 curl --cacert /opt/hotel-butler/tls/server/ca.pem \
   https://121.199.29.74:35443/api/trpc/system.health
 ```
 
-常用运维命令：
+常用命令：
 
 ```bash
 docker compose --env-file apps/server/.env.production \
@@ -253,5 +286,8 @@ docker compose --env-file apps/server/.env.production \
 docker compose --env-file apps/server/.env.production \
   -f apps/server/compose.production.yaml down --remove-orphans
 ```
+
+`npm run compose:prod:up` 现在同样使用 `--no-build --pull never`，只允许启动已经导入本机的
+镜像，不会回退到 Docker Hub。
 
 生产部署和发布不得由 Agent 自动执行，必须在说明目标环境和影响范围后获得用户明确确认。

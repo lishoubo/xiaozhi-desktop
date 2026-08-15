@@ -100,4 +100,41 @@ describe('deployment environment boundaries', () => {
 		expect(uploader).not.toContain('StrictHostKeyChecking=no');
 		expect(uploader).not.toContain('docker compose');
 	});
+
+	it('packages an amd64 image release without requiring source code on the host', () => {
+		const packager = readFileSync(
+			`${serverDirectory}/scripts/package-production-images.sh`,
+			'utf8'
+		);
+		const productionCompose = readFileSync(`${serverDirectory}/compose.production.yaml`, 'utf8');
+
+		expect(packager).toContain('target_platform="linux/amd64"');
+		expect(packager).not.toContain('HOTEL_BUTLER_TARGET_PLATFORM');
+		expect(packager).toContain('docker buildx build');
+		expect(packager).toContain('--target production');
+		expect(packager).toContain('pgvector/pgvector:0.8.5-pg18');
+		expect(packager).toContain('docker image save');
+		expect(packager).toContain('compose.production.yaml');
+		expect(packager).toContain('.env.production');
+		expect(packager).toContain('deploy-production-images.sh');
+		expect(productionCompose).not.toContain('build:');
+	});
+
+	it('deploys offline images with a pre-migration database backup', () => {
+		const deployer = readFileSync(`${serverDirectory}/scripts/deploy-production-images.sh`, 'utf8');
+		const uploader = readFileSync(`${serverDirectory}/scripts/upload-production-images.sh`, 'utf8');
+
+		expect(deployer).toContain('Alibaba Cloud Linux 4');
+		expect(deployer).toContain('pg_dump');
+		expect(deployer).toContain('docker image load');
+		expect(deployer).toContain('--no-build');
+		expect(deployer).toContain('--pull never');
+		expect(deployer).toContain('docker compose');
+		expect(uploader).toContain('sha256sum -c');
+		expect(uploader).toContain('apps/server/rms-agent-key.pem');
+		expect(uploader).toContain('platform_name="linux-amd64"');
+		expect(uploader).not.toContain('HOTEL_BUTLER_TARGET_PLATFORM');
+		expect(uploader).not.toContain('StrictHostKeyChecking=no');
+		expect(uploader).not.toContain('docker compose');
+	});
 });

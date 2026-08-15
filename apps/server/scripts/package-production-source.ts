@@ -172,7 +172,7 @@ function publicKeyDer(key: ReturnType<typeof createPublicKey>): string {
 	return key.export({ type: 'spki', format: 'der' }).toString('base64');
 }
 
-function validateServerTlsMaterial(directory: string): void {
+export function validateServerTlsMaterial(directory: string): void {
 	const caPath = path.join(directory, 'ca.pem');
 	const certificatePath = path.join(directory, 'cert.pem');
 	const keyPath = path.join(directory, 'key.pem');

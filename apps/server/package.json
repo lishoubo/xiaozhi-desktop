@@ -30,7 +30,7 @@
 		"precompose:local:test": "npm run https:setup",
 		"compose:local:test": "docker compose -f compose.local.yaml --profile test run --build --rm connectivity-test",
 		"compose:production:config": "docker compose --env-file .env.production -f compose.production.yaml config --quiet",
-		"compose:production:up": "docker compose --env-file .env.production -f compose.production.yaml up --build --detach --wait",
+		"compose:production:up": "docker compose --env-file .env.production -f compose.production.yaml up --detach --wait --no-build --pull never",
 		"compose:production:logs": "docker compose --env-file .env.production -f compose.production.yaml logs --follow server",
 		"compose:production:down": "docker compose --env-file .env.production -f compose.production.yaml down --remove-orphans",
 		"db:initialize": "node --env-file-if-exists=.env --experimental-strip-types scripts/initialize-database.ts",

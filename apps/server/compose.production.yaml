@@ -27,10 +27,6 @@ services:
 
   database-init:
     image: hotel-butler-server:${SERVER_IMAGE_TAG:-production}
-    build:
-      context: ../..
-      dockerfile: apps/server/Dockerfile
-      target: production
     restart: 'no'
     environment:
       NODE_ENV: production
@@ -45,10 +41,6 @@ services:
 
   server:
     image: hotel-butler-server:${SERVER_IMAGE_TAG:-production}
-    build:
-      context: ../..
-      dockerfile: apps/server/Dockerfile
-      target: production
     restart: unless-stopped
     environment:
       NODE_ENV: production
