@@ -135,6 +135,9 @@ describe('deployment environment boundaries', () => {
 		expect(deployer).toContain('Database image is unavailable on this ECS host');
 		expect(deployer).toContain('--no-build');
 		expect(deployer).toContain('--pull never');
+		expect(deployer).toContain('--wait-timeout 360');
+		expect(deployer).toContain('Server did not become healthy within the deployment wait window');
+		expect(deployer).toContain('logs --no-color --tail 120 server');
 		expect(deployer).toContain('docker compose');
 		expect(uploader).toContain('sha256sum -c');
 		expect(uploader).toContain('apps/server/rms-agent-key.pem');
@@ -153,7 +156,10 @@ describe('deployment environment boundaries', () => {
 
 		expect(healthcheck).toContain('agent: false');
 		expect(healthcheck).toContain("connection: 'close'");
-		expect(healthcheck).toContain('request.setTimeout(4_000');
-		expect(healthcheck).toContain("console.error('Server healthcheck failed:'");
+		expect(healthcheck).toContain('queueMicrotask');
+		expect(healthcheck).toContain('request.setTimeout(3_500');
+		expect(healthcheck).toContain("response.once('end'");
+		expect(healthcheck).toContain('process.exit(exitCode)');
+		expect(healthcheck).toContain('hard deadline exceeded after 4000ms');
 	});
 });

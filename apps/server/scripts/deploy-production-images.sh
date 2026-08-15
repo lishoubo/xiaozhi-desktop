@@ -139,7 +139,8 @@ fi
 
 compose=(--env-file "${environment_path}" -f "${compose_path}")
 docker compose "${compose[@]}" config --quiet
-docker compose "${compose[@]}" up --detach --wait --no-build --pull never db
+docker compose "${compose[@]}" up \
+  --detach --wait --wait-timeout 360 --no-build --pull never db
 
 echo "Stopping the application before database migration."
 docker compose "${compose[@]}" stop server >/dev/null 2>&1 || true
@@ -148,8 +149,13 @@ echo "Running database migrations and idempotent administrator initialization."
 docker compose "${compose[@]}" run --rm --no-deps database-init
 
 echo "Starting the server from the loaded image."
-docker compose "${compose[@]}" up \
-  --detach --wait --no-build --pull never --force-recreate --no-deps server
+if ! docker compose "${compose[@]}" up \
+  --detach --wait --wait-timeout 360 --no-build --pull never --force-recreate --no-deps server; then
+  echo "Server did not become healthy within the deployment wait window." >&2
+  docker compose "${compose[@]}" ps --all >&2 || true
+  docker compose "${compose[@]}" logs --no-color --tail 120 server >&2 || true
+  exit 1
+fi
 docker compose "${compose[@]}" ps
 
 echo "Offline image deployment completed."

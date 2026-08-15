@@ -283,6 +283,10 @@ sudo bash hotel-butler-release/runtime/deploy-production-images.sh
 4. 启动或复用 PostgreSQL，停止 server，单独运行 `database-init`。
 5. migration 和幂等管理员初始化成功后，才使用新镜像启动 server；失败时 server 保持停止。
 
+数据库和 server 的 Compose 健康等待均有 360 秒总超时。server 未能按时进入 `healthy` 时，
+部署脚本会自动打印 Compose 状态及最后 120 行 server 日志并以非零状态退出，不会无限停在
+`Recreated`。
+
 默认更新包只导入 server 镜像，并复用 ECS 已有的
 `pgvector/pgvector:0.8.5-pg18`。部署脚本会在启动数据库和执行 migration 前检查该镜像及其
 平台；若镜像不存在，会停止部署并提示重新生成、上传全量包。重新导入 pgvector 镜像不会

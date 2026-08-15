@@ -11,6 +11,17 @@ const client = healthUrl.protocol === 'https:' ? https : http;
 const connectAddress = process.env.SERVER_HEALTH_CONNECT_ADDRESS;
 const connectPort = process.env.SERVER_HEALTH_CONNECT_PORT;
 const caFile = process.env.SERVER_HEALTH_CA_FILE;
+let completed = false;
+let hardDeadline;
+
+function finish(exitCode, message) {
+	if (completed) return;
+	completed = true;
+	if (hardDeadline) clearTimeout(hardDeadline);
+	if (message) console.error(message);
+	process.exit(exitCode);
+}
+
 const requestOptions = {
 	agent: false,
 	ca: caFile ? readFileSync(caFile) : undefined,
@@ -23,26 +34,33 @@ if (connectAddress) {
 	const family = isIP(connectAddress);
 	if (!family) throw new Error('SERVER_HEALTH_CONNECT_ADDRESS must be an IP address');
 	requestOptions.lookup = (_hostname, options, callback) => {
-		if (options?.all) {
-			callback(null, [{ address: connectAddress, family }]);
-			return;
-		}
-		callback(null, connectAddress, family);
+		queueMicrotask(() => {
+			if (options?.all) {
+				callback(null, [{ address: connectAddress, family }]);
+				return;
+			}
+			callback(null, connectAddress, family);
+		});
 	};
 }
 
 const request = client.get(requestOptions, (response) => {
+	const statusCode = response.statusCode;
+	response.once('end', () => {
+		finish(
+			statusCode === 200 ? 0 : 1,
+			statusCode === 200 ? undefined : `Server healthcheck failed: HTTP ${statusCode ?? 'unknown'}`
+		);
+	});
 	response.resume();
-	if (response.statusCode !== 200) {
-		console.error(`Server healthcheck failed: HTTP ${response.statusCode ?? 'unknown'}`);
-		process.exitCode = 1;
-	}
 });
 
-request.setTimeout(4_000, () => {
-	request.destroy(new Error('request timed out after 4000ms'));
+request.setTimeout(3_500, () => {
+	request.destroy(new Error('request timed out after 3500ms'));
 });
 request.on('error', (error) => {
-	console.error('Server healthcheck failed:', error.message);
-	process.exitCode = 1;
+	finish(1, `Server healthcheck failed: ${error.message}`);
 });
+hardDeadline = setTimeout(() => {
+	finish(1, 'Server healthcheck failed: hard deadline exceeded after 4000ms');
+}, 4_000);
