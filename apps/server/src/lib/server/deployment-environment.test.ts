@@ -144,4 +144,16 @@ describe('deployment environment boundaries', () => {
 		expect(uploader).not.toContain('StrictHostKeyChecking=no');
 		expect(uploader).not.toContain('docker compose');
 	});
+
+	it('makes the container healthcheck terminate before the Docker timeout', () => {
+		const healthcheck = readFileSync(
+			`${serverDirectory}/tests/compose/server-healthcheck.mjs`,
+			'utf8'
+		);
+
+		expect(healthcheck).toContain('agent: false');
+		expect(healthcheck).toContain("connection: 'close'");
+		expect(healthcheck).toContain('request.setTimeout(4_000');
+		expect(healthcheck).toContain("console.error('Server healthcheck failed:'");
+	});
 });
