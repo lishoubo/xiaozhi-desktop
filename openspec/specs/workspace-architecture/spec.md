@@ -49,6 +49,12 @@ Local desktop and server development endpoints SHALL use the host-trusted mkcert
 - **AND** Electron loads the renderer from `https://localhost:5174`
 - **AND** the desktop main process connects to the local server at `https://localhost:5173` by default
 
+#### Scenario: Start the local server
+
+- **WHEN** a developer starts the server through either the host development command or local Docker Compose
+- **THEN** the server is available to the desktop at `https://localhost:5173` by default
+- **AND** local Docker Compose may override the host port through `SERVER_HTTPS_PORT`
+
 ### Requirement: Local data remains explicit
 
 Desktop-local browser sessions, cookies, automation state and local SQLite data SHALL NOT be implicitly synchronized to the server.

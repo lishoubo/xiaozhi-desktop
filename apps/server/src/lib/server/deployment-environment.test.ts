@@ -34,6 +34,13 @@ describe('deployment environment boundaries', () => {
 		expect(localCompose).toContain('RMS_DATABASE_URL: ${COMPOSE_RMS_DATABASE_URL:-}');
 	});
 
+	it('exposes the local Compose server on the same port as host development', () => {
+		const localCompose = readFileSync(`${serverDirectory}/compose.local.yaml`, 'utf8');
+
+		expect(localCompose).toContain('ORIGIN: https://localhost:${SERVER_HTTPS_PORT:-5173}');
+		expect(localCompose).toContain("'${SERVER_HTTPS_PORT:-5173}:4173'");
+	});
+
 	it('does not keep production example settings that Compose never reads', () => {
 		const example = readFileSync(`${serverDirectory}/.env.production.example`, 'utf8');
 		const productionCompose = readFileSync(`${serverDirectory}/compose.production.yaml`, 'utf8');
