@@ -1,10 +1,23 @@
 import type { JsonValue } from '../../../shared/types/json';
 import type { OtaCredentialDto } from '../../../shared/browser';
+import {
+  credentialPresentation,
+  type CredentialPresentation,
+} from '../../hotel-management/credential-presentation';
 
 export type LoginCredentialOption = Readonly<{
   credential: OtaCredentialDto;
   partitionName: string;
+  /**
+   * 顶栏「我现在在哪」指示器用的单行标签。携程取酒店名，口径与 `presentation.title`
+   * 刻意不同，理由见 `credentialLabel`。
+   */
   label: string;
+  /**
+   * 切换弹窗列表行用的主标题 + 佐证信息。与「新增绑定」「重新登录」两个弹窗共用同
+   * 一套口径——三处都在回答「这一行到底是哪个账号」，不该给出三种答案。
+   */
+  presentation: CredentialPresentation;
 }>;
 
 function nonEmptyText(value: JsonValue | undefined): string | undefined {
@@ -52,6 +65,7 @@ export function buildLoginCredentialOptions(
     credential,
     partitionName: credential.partitionName,
     label: credentialLabel(credential),
+    presentation: credentialPresentation(credential),
   }));
 }
 

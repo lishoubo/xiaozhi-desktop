@@ -7,6 +7,8 @@
   import { Button } from '$lib/components/ui/button';
   import * as Dialog from '$lib/components/ui/dialog';
   import { Spinner } from '$lib/components/ui/spinner';
+  import { createPagination } from '../../hotel-management/paginate.svelte';
+  import CredentialPager from '../hotel/CredentialPager.svelte';
   import type { LoginCredentialOption } from './login-credential-options';
   import CookieImportDialog from './CookieImportDialog.svelte';
 
@@ -35,10 +37,24 @@
   let startingLogin = $state(false);
   let tabToRestore: string | undefined;
 
+  /**
+   * 每页 6 条：弹窗比「新增绑定」宽且高（4xl / 760px），但每行是主+副两行的高卡片，
+   * 6 条刚好一屏放得下，不必沿用那边为窄弹窗定的 5。
+   */
+  const ACCOUNT_PAGE_SIZE = 6;
+  const pagination = createPagination(() => credentials, ACCOUNT_PAGE_SIZE);
+
+  // 换渠道时列表整体换掉，停在旧页码没有意义。
+  $effect(() => {
+    void channel.id;
+    pagination.reset();
+  });
+
   async function handleOpenChange(next: boolean, restorePreviousTab = true): Promise<void> {
     if (next) {
       dismissAppNotification('account-switcher-error');
       tabToRestore = activeTabId;
+      pagination.reset();
       open = true;
       try {
         await window.hotelButler.browser.hide();
@@ -158,12 +174,13 @@
       </div>
     {:else}
       <div class="grid gap-3" aria-label={`${channel.name} 已登录账号`}>
-        {#each credentials as credential (credential.partitionName)}
+        {#each pagination.items as credential (credential.partitionName)}
           {@const isActive = credential.partitionName === activeCredential?.partitionName}
+          {@const presentation = credential.presentation}
           <button
             type="button"
             class={[
-              'group flex min-h-24 w-full items-center justify-between gap-5 rounded-xl border px-6 py-5 text-left transition-[border-color,background-color,box-shadow] duration-150 ease-out outline-none motion-reduce:transition-none',
+              'group flex w-full items-center gap-5 rounded-xl border px-6 py-4 text-left transition-[border-color,background-color,box-shadow] duration-150 ease-out outline-none motion-reduce:transition-none',
               isActive
                 ? 'border-primary/35 bg-primary/[0.035] shadow-sm'
                 : 'border-[#e5e8ed] bg-[#f7f8fa] hover:border-[#cfd4dc] hover:bg-[#f2f4f7]',
@@ -172,22 +189,27 @@
             aria-pressed={isActive}
             onclick={() => void selectCredential(credential)}
           >
-            <span class="min-w-0">
-              <span class="mb-3 flex items-center gap-2.5">
-                <span
-                  class={[
-                    'inline-flex h-7 shrink-0 items-center gap-1.5 rounded-full px-3 text-sm font-medium',
-                    isActive ? 'bg-[#58aa16] text-white' : 'bg-[#777d8d] text-white',
-                  ]}
-                >
-                  {#if isActive}<Check size={15} strokeWidth={2.2} />{/if}
-                  {isActive ? '已打开' : '未打开'}
+            <span
+              class={[
+                'inline-flex h-7 w-[68px] shrink-0 items-center justify-center gap-1 rounded-full text-sm font-medium',
+                isActive ? 'bg-[#58aa16] text-white' : 'bg-[#777d8d] text-white',
+              ]}
+            >
+              {#if isActive}<Check size={15} strokeWidth={2.2} />{/if}
+              {isActive ? '已打开' : '未打开'}
+            </span>
+
+            <span class="min-w-0 flex-1">
+              <span class="block truncate text-base font-semibold text-[#292e3a]">
+                {presentation.title}
+              </span>
+              {#if presentation.details.length > 0}
+                <span class="mt-1 flex flex-wrap gap-x-4 gap-y-0.5 text-xs text-[#747b89]">
+                  {#each presentation.details as detail (detail.label)}
+                    <span class="truncate">{detail.label} {detail.value}</span>
+                  {/each}
                 </span>
-                <span class="text-base font-semibold text-[#292e3a]">{channel.shortName}</span>
-              </span>
-              <span class="block truncate text-sm text-[#747b89]">
-                {isActive ? '当前使用账号' : '登录账号'}：{credential.label}
-              </span>
+              {/if}
             </span>
 
             {#if busyPartition === credential.partitionName}
@@ -196,6 +218,7 @@
           </button>
         {/each}
       </div>
+      <CredentialPager {pagination} disabled={startingLogin || busyPartition !== null} />
     {/if}
   </Dialog.Content>
 </Dialog.Root>
