@@ -156,13 +156,13 @@ backfillHotel()   两类都要       + otaHotelId/otaHotelName 必填（成对�
       channelAccountName:"guanghaojiariAI"}`。desktop 只送了账号级两个键，
       **门店级 `otaPartnerId` 是库里原值且完好保留** —— 一次同时验证「只补账号级」
       与「服务端按键合并」两条断言。详见 design §7.1
-- [ ] 6.7 🔴 联调确认服务端接受 desktop 补写 `bindExtra` 键（用户已确认支持，需实测）；
-      若被拒，按 `design.md` §5 降级为只更新本地
+- [x] ~~6.7(旧) 联调确认服务端接受 desktop 补写 `bindExtra` 键~~ —— 与上条重复，
+      已由同一次实证覆盖：服务端接受补写且按键合并
 - [ ] 6.8 记录验证证据到 `verification.md`
 
 ## 7. 规范同步
 
 - [ ] 7.1 本次改动跨模块接口（新 IPC intent kind），触发完成门禁 ——
       验收后把 `specs/` 两份 delta 合并进 `openspec/specs/`
-- [ ] 7.2 `ota-tab-entry-and-partition-lifecycle/design.md` §3.4 与 §9 最后一条
-      标注「已由本 change 承接」，避免两处并列的未决问题
+- [x] 7.2 `ota-tab-entry-and-partition-lifecycle/design.md` §3.4 与 §9 最后一条
+      已标注「已由本 change 承接」，原始记录折叠存档，不再是并列的未决问题

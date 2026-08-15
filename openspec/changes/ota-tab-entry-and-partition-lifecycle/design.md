@@ -140,7 +140,22 @@ ReauthOtaAccountDialog
 **结论**：需要改的只有 ①（新建+搬 cookie → 复用+删 PoiSwitch 键）。
 ② 和 ④ 是「新登录」，本来就该开干净 partition，不动；③ 不动；⑤ 是错误分支。
 
-### 3.4 🔜 下一轮：intent 梳理的起点（2026-08-15 记，明天接着做）
+### 3.4 ✅ 已由 `reauth-intent-and-legacy-binding` 承接（2026-08-15 完成）
+
+> 本节是当时留下的起点，**结论已在那个 change 里落地**，此处保留只为记录来龙去脉。
+>
+> | 当时的问题 | 最终结论 |
+> |---|---|
+> | 第 8 条路是绑定还是特殊重登？ | **绑定** —— 它以 `confirmBinding` 收尾、产出一条新绑定；重登的产出是 `ReauthOutcomeDto`，两者根本不是一个东西 |
+> | 选 A（加 origin）还是 B（独立 kind）？ | 实际做成了**按已知信息分三条路**，比原来设想的更彻底：新增 `reauth-by-hotel` intent 与独立 dispatcher（判据是**订阅方是否相同** —— 探测与否不同，就该是两个 kind） |
+> | `replacingOtaHotelId` 要不要进 intent？ | **不进**，主进程零消费方，进了只是契约膨胀 |
+> | 8 条路里有没有漏带 intent 的？ | **没有**，逐条核实过 |
+>
+> ⚠️ 那一轮还踩到本节没预见的坑：新流程若照抄第 7 条路用 `openExisting`，抖音会
+> 直落上次那家门店导致核对失败。教训见该 change `tasks.md` 的「中途推翻的三处」C。
+
+<details>
+<summary>当时的原始记录（已过时，仅存档）</summary>
 
 #### 已核实的事实
 
@@ -190,6 +205,8 @@ BindHotelDialog.svelte        读出来做 requiresUnbindBeforeBinding 判断
 
 4. 顺带看一眼：8 条路里**该带 intent 而没带**的有没有？
    （`createFromCookie` 曾经就是漏带 intent 的那个，见 `e977c06` 的「顺带两处」）
+
+</details>
 
 ---
 
@@ -553,5 +570,6 @@ partition 目录的 API**（`session-factory.ts:87-91` 注释已承认）。所�
 - [ ] 第 5 条路改完后 `openExistingInFreshPartition` 是否还有调用方？无则整个方法可删
 - [x] ~~重命名是否本次一起做、是否碰 IPC 契约~~ → **一起改，IPC 契约也改**，
       四层（channel 字符串 / preload / service / renderer store）命名对齐
-- [ ] 🔜 **留给 intent 轮次**：第 8 条路（重新登录·换账号）借用绑定意图，
+- [x] ✅ **已由 `reauth-intent-and-legacy-binding` 承接**（§3.4）：第 8 条路
+      （重新登录·换账号）借用绑定意图，
       缺少可区分的来源标记，日志上与「新增绑定」无法分辨（§3.3 问题 2）
