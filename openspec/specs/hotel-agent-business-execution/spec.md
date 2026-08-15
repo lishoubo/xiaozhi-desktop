@@ -104,6 +104,11 @@ exact numeric DatabaseId. The discovery tool SHALL not be exposed to the model.
 - **THEN** every downstream hotel-data intent continues with the pinned ID
 - **AND** the server records a structured fallback warning
 
+#### Scenario: Package the production server
+- **WHEN** a production deployment bundle is validated
+- **THEN** the private production environment includes the reviewed pinned DMS database ID
+- **AND** packaging fails before upload when that ID is absent
+
 #### Scenario: Database identity conflicts
 - **WHEN** discovery returns exact-schema IDs that do not include the pinned ID
 - **THEN** hotel-data tools fail closed before any business query is executed

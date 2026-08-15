@@ -76,6 +76,7 @@ describe('production source archive policy', () => {
 			'XIAOZHI_RMS_SERVER_URL="https://rms.example.invalid"',
 			'BETTER_AUTH_SECRET="generated"',
 			'AI_KIMI_API_KEY="generated"',
+			'AI_DMS_DATABASE_ID="81918192"',
 			'INITIAL_ADMIN_PASSWORD="generated"'
 		].join('\n');
 		expect(() => validateProductionEnvironmentText(complete)).not.toThrow();
@@ -87,6 +88,9 @@ describe('production source archive policy', () => {
 		expect(() =>
 			validateProductionEnvironmentText(complete.replace(/^AI_KIMI_API_KEY=.*$/m, ''))
 		).toThrow('AI_KIMI_API_KEY');
+		expect(() =>
+			validateProductionEnvironmentText(complete.replace(/^AI_DMS_DATABASE_ID=.*$/m, ''))
+		).toThrow('AI_DMS_DATABASE_ID');
 	});
 
 	it('distinguishes real PEM private keys from scanner source text', () => {

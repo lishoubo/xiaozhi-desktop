@@ -135,6 +135,7 @@ export function validateProductionEnvironmentText(environment: string): void {
 		'XIAOZHI_RMS_SERVER_URL',
 		'BETTER_AUTH_SECRET',
 		'AI_KIMI_API_KEY',
+		'AI_DMS_DATABASE_ID',
 		'INITIAL_ADMIN_PASSWORD'
 	]) {
 		if (!new RegExp(`^${requiredKey}=.+$`, 'm').test(environment)) {

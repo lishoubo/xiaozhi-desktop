@@ -21,6 +21,7 @@ describe('deployment environment boundaries', () => {
 		expect(example).not.toContain('XIAOZHI_AUTH_VARIANT=');
 		expect(example).not.toContain('RMS_DATABASE_URL=');
 		expect(example).not.toContain('AI_DMS_MCP_URL=');
+		expect(example).toContain('AI_DMS_DATABASE_ID="81918192"');
 		expect(productionCompose).toContain('RMS_DATABASE_URL: ${RMS_DATABASE_URL:-}');
 	});
 
