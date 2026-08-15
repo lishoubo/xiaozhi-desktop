@@ -39,7 +39,8 @@ const skillProvider = new EmptySkillProvider();
 const mcpToolProvider = new McpToolProvider(
 	agentEnvironment.mcpServers,
 	agentEnvironment.dmsDatabaseId,
-	agentEnvironment.dmsDatabaseName
+	agentEnvironment.dmsDatabaseName,
+	serverLogger
 );
 const agentRuntime = new LangChainAgentRuntime(
 	agentEnvironment,

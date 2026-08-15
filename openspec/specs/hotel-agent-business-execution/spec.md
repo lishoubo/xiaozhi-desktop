@@ -85,21 +85,32 @@ allowed tools, normalized input, call budget, timeout and evidence requirements.
 - **THEN** the workflow may perform bounded schema discovery and a read query
 - **AND** cannot request an unfiltered data dump or a write
 
-### Requirement: Program-controlled DMS database discovery
+### Requirement: Program-controlled DMS database scope
 
-The server SHALL resolve the DMS database before exposing downstream hotel-data tools. It SHALL call
-`searchDatabase` with the configured exact schema name, require one unique numeric DatabaseId, and
-optionally compare it with a separately configured pinned ID. The discovery tool SHALL not be exposed
-to the model.
+The server SHALL resolve the DMS database before exposing downstream hotel-data tools. When a pinned
+numeric ID is configured, it SHALL be the fallback query boundary and `searchDatabase` SHALL provide
+an additional identity check when available. Without a pinned ID, discovery SHALL return one unique
+exact numeric DatabaseId. The discovery tool SHALL not be exposed to the model.
 
-#### Scenario: Discover the configured database
+#### Scenario: Validate the configured database
 - **WHEN** the DMS tool catalog is initialized with schema name `rms_data`
-- **THEN** the server calls `searchDatabase` and resolves one exact `rms_data` result
+- **THEN** the server attempts `searchDatabase` and validates an exact `rms_data` result when returned
 - **AND** overwrites database IDs for table listing, SQL generation and SQL execution with that ID
 - **AND** restricts table-detail GUIDs to the same schema
 
-#### Scenario: Discovery is ambiguous or mismatched
-- **WHEN** discovery has zero or multiple distinct exact IDs, or differs from the optional pinned ID
+#### Scenario: Discovery is unavailable
+- **WHEN** `searchDatabase` is unavailable, fails, or returns no exact schema match
+- **AND** a pinned numeric database ID is configured
+- **THEN** every downstream hotel-data intent continues with the pinned ID
+- **AND** the server records a structured fallback warning
+
+#### Scenario: Database identity conflicts
+- **WHEN** discovery returns exact-schema IDs that do not include the pinned ID
+- **THEN** hotel-data tools fail closed before any business query is executed
+
+#### Scenario: No pinned database is configured
+- **WHEN** discovery is unavailable or does not return one unique exact numeric ID
+- **AND** no pinned database ID is configured
 - **THEN** hotel-data tools fail closed before any business query is executed
 
 ### Requirement: Evidence-gated answering

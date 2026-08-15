@@ -7,6 +7,7 @@ import {
 	constrainHotelDataTableDetailArgs,
 	constrainHotelDataTableListArgs,
 	isAllowedHotelDataMcpToolName,
+	resolveDmsDatabaseId,
 	selectDmsDatabaseId
 } from './hotel-data-mcp';
 
@@ -66,6 +67,31 @@ describe('hotel data MCP guardrails', () => {
 		expect(selectDmsDatabaseId(result, 'rms_data', '81918192')).toBe('81918192');
 		expect(() => selectDmsDatabaseId(result, 'rms', '81918192')).toThrow('does not match');
 		expect(() => selectDmsDatabaseId(result, 'missing', null)).toThrow('unique exact match');
+	});
+
+	it('uses the configured database id when discovery is unavailable or returns no exact match', () => {
+		expect(
+			resolveDmsDatabaseId({ status: 'unavailable' }, 'rms_data', '81918192')
+		).toEqual({ databaseId: '81918192', source: 'configured_fallback' });
+		expect(
+			resolveDmsDatabaseId({ status: 'completed', result: [] }, 'rms_data', '81918192')
+		).toEqual({ databaseId: '81918192', source: 'configured_fallback' });
+		expect(() => resolveDmsDatabaseId({ status: 'unavailable' }, 'rms_data', null)).toThrow(
+			'AI_DMS_DATABASE_ID is not configured'
+		);
+	});
+
+	it('does not fall back when discovery identifies a conflicting database id', () => {
+		expect(() =>
+			resolveDmsDatabaseId(
+				{
+					status: 'completed',
+					result: [{ DatabaseId: 25280000, SchemaName: 'rms_data' }]
+				},
+				'rms_data',
+				'81918192'
+			)
+		).toThrow('does not match');
 	});
 
 	it('pins generated SQL and execution to the configured DMS database', () => {

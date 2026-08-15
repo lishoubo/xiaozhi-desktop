@@ -312,8 +312,10 @@ MCP tools SHALL load only from server-side configuration, and business Skills SH
 - **WHEN** the Agent uses the configured DMS MCP
 - **THEN** the provider exposes only approved read tools, constrains arguments before the call and
   compacts oversized results afterward
-- **AND** calls `searchDatabase` for one exact configured schema-name match before exposing tools
-- **AND** pins table discovery, SQL generation and SQL execution to the discovered numeric DMS ID
+- **AND** pins table discovery, SQL generation and SQL execution to the server-resolved numeric DMS ID
+- **AND** attempts `searchDatabase` to validate the configured schema and pinned ID when available
+- **AND** falls back to the pinned ID only when discovery is unavailable or has no exact match
+- **AND** rejects an explicit discovered ID conflict before exposing downstream tools
 - **AND** a resolved operating-summary request uses one code-owned aggregate SELECT against
   `fact_business_daily`, while generic reads may use bounded schema discovery and SQL generation
 - **AND** instance management, data-change orders and approval tools are never exposed

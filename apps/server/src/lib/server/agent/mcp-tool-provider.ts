@@ -21,13 +21,17 @@ import {
 	HOTEL_DATA_RESULT_ROW_LIMIT,
 	HOTEL_DATA_SQL_TOOL_NAME,
 	isAllowedHotelDataMcpToolName,
-	selectDmsDatabaseId
+	resolveDmsDatabaseId
 } from './hotel-data-mcp';
 
 const READ_ONLY_TOOL_NAME =
 	/(^|[_.:-])(get|list|read|search|find|query|inspect|lookup|fetch|check|describe)([_.:-]|$)/i;
 const WRITE_TOOL_NAME =
 	/(^|[_.:-])(create|update|delete|remove|set|write|mutate|execute|submit|confirm|cancel|refund|charge|pay|publish|send|sync|open|close)([_.:-]|$)/i;
+
+type McpToolProviderLogger = Readonly<{
+	warn(fields: Readonly<Record<string, unknown>>, message: string): void;
+}>;
 
 export function isReadOnlyMcpToolName(name: string): boolean {
 	return READ_ONLY_TOOL_NAME.test(name) && !WRITE_TOOL_NAME.test(name);
@@ -78,7 +82,8 @@ export class McpToolProvider {
 	constructor(
 		private readonly servers: Readonly<Record<string, McpServerConfig>>,
 		private readonly dmsDatabaseId: string | null = null,
-		private readonly dmsDatabaseName: string | null = null
+		private readonly dmsDatabaseName: string | null = null,
+		private readonly logger?: McpToolProviderLogger
 	) {}
 
 	serverCount(): number {
@@ -170,29 +175,57 @@ export class McpToolProvider {
 			const searchDatabase = hotelDataTools.find(
 				(tool) => tool.name === DMS_SEARCH_DATABASE_TOOL_NAME
 			);
-			if (!searchDatabase) {
+			if (!searchDatabase && !this.dmsDatabaseId) {
 				throw new AgentProtocolError({
 					operation: 'discover_dms_database',
 					reason: 'DMS searchDatabase tool is unavailable'
 				});
 			}
-			const result = await runAgentEffect(
-				agentPromise({
-					service: 'mcp',
-					operation: 'discover_dms_database',
-					timeoutMs: 50_000,
-					try: (signal) =>
-						searchDatabase.invoke(
-							{
-								search_key: this.dmsDatabaseName ?? '',
-								page_number: 1,
-								page_size: 50
-							},
-							{ signal }
-						)
-				})
+			let discoveryResult: unknown;
+			let fallbackReason = searchDatabase ? 'search_failed' : 'tool_unavailable';
+			let fallbackErrorType: string | undefined;
+			if (searchDatabase) {
+				try {
+					discoveryResult = await runAgentEffect(
+						agentPromise({
+							service: 'mcp',
+							operation: 'discover_dms_database',
+							timeoutMs: 50_000,
+							try: (signal) =>
+								searchDatabase.invoke(
+									{
+										search_key: this.dmsDatabaseName ?? '',
+										page_number: 1,
+										page_size: 50
+									},
+									{ signal }
+								)
+						})
+					);
+				} catch (error) {
+					if (!this.dmsDatabaseId) throw error;
+					fallbackErrorType = error instanceof Error ? error.name : 'UnknownError';
+				}
+			}
+			const resolution = resolveDmsDatabaseId(
+				discoveryResult === undefined
+					? { status: 'unavailable' }
+					: { status: 'completed', result: discoveryResult },
+				this.dmsDatabaseName,
+				this.dmsDatabaseId
 			);
-			resolvedDmsDatabaseId = selectDmsDatabaseId(result, this.dmsDatabaseName, this.dmsDatabaseId);
+			resolvedDmsDatabaseId = resolution.databaseId;
+			if (resolution.source === 'configured_fallback') {
+				if (discoveryResult !== undefined) fallbackReason = 'no_exact_match';
+				this.logger?.warn(
+					{
+						event: 'agent.mcp.database_discovery_fallback',
+						reason: fallbackReason,
+						...(fallbackErrorType ? { errorType: fallbackErrorType } : {})
+					},
+					'DMS database discovery fell back to the configured database ID'
+				);
+			}
 			resolvedDmsDatabaseName = this.dmsDatabaseName;
 		}
 		if (hotelDataTools.length > 0 && !resolvedDmsDatabaseId) {

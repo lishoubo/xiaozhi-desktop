@@ -22,6 +22,15 @@ type CompactionStats = {
 	truncatedValues: number;
 };
 
+export type DmsDatabaseDiscovery =
+	| Readonly<{ status: 'unavailable' }>
+	| Readonly<{ status: 'completed'; result: unknown }>;
+
+export type DmsDatabaseResolution = Readonly<{
+	databaseId: string;
+	source: 'discovered' | 'configured_fallback';
+}>;
+
 export function isHotelDataToolName(name: string): boolean {
 	return [
 		HOTEL_DATA_GENERATE_SQL_TOOL_NAME,
@@ -60,13 +69,19 @@ function collectDatabaseCandidates(value: unknown, candidates: Record<string, un
 	for (const item of Object.values(record)) collectDatabaseCandidates(item, candidates);
 }
 
-export function selectDmsDatabaseId(
-	result: unknown,
+export function resolveDmsDatabaseId(
+	discovery: DmsDatabaseDiscovery,
 	databaseName: string,
 	pinnedDatabaseId: string | null
-): string {
+): DmsDatabaseResolution {
+	if (discovery.status === 'unavailable') {
+		if (pinnedDatabaseId) {
+			return { databaseId: pinnedDatabaseId, source: 'configured_fallback' };
+		}
+		throw new Error('DMS database discovery is unavailable and AI_DMS_DATABASE_ID is not configured');
+	}
 	const candidates: Record<string, unknown>[] = [];
-	collectDatabaseCandidates(result, candidates);
+	collectDatabaseCandidates(discovery.result, candidates);
 	const exact = candidates.filter(
 		(candidate) => typeof candidate.SchemaName === 'string' && candidate.SchemaName === databaseName
 	);
@@ -78,6 +93,15 @@ export function selectDmsDatabaseId(
 			return [];
 		})
 	);
+	if (pinnedDatabaseId) {
+		if (exactIds.size === 0) {
+			return { databaseId: pinnedDatabaseId, source: 'configured_fallback' };
+		}
+		if (!exactIds.has(pinnedDatabaseId)) {
+			throw new Error('Discovered DMS DatabaseId does not match AI_DMS_DATABASE_ID');
+		}
+		return { databaseId: pinnedDatabaseId, source: 'discovered' };
+	}
 	if (exactIds.size !== 1) {
 		throw new Error(
 			`DMS database discovery did not return a unique exact match for ${databaseName}`
@@ -85,10 +109,19 @@ export function selectDmsDatabaseId(
 	}
 	const databaseId = [...exactIds][0];
 	if (!databaseId) throw new Error('DMS database discovery returned an invalid DatabaseId');
-	if (pinnedDatabaseId && pinnedDatabaseId !== databaseId) {
-		throw new Error('Discovered DMS DatabaseId does not match AI_DMS_DATABASE_ID');
-	}
-	return databaseId;
+	return { databaseId, source: 'discovered' };
+}
+
+export function selectDmsDatabaseId(
+	result: unknown,
+	databaseName: string,
+	pinnedDatabaseId: string | null
+): string {
+	return resolveDmsDatabaseId(
+		{ status: 'completed', result },
+		databaseName,
+		pinnedDatabaseId
+	).databaseId;
 }
 
 export function constrainHotelDataGenerateSqlArgs(args: unknown, databaseId: string): unknown {
