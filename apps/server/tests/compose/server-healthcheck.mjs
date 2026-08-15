@@ -2,6 +2,7 @@ import http from 'node:http';
 import https from 'node:https';
 import { readFileSync } from 'node:fs';
 import { isIP } from 'node:net';
+import { checkServerIdentity } from 'node:tls';
 
 const healthUrl = new URL(
 	process.env.SERVER_HEALTH_URL ?? 'https://localhost:4173/api/trpc/system.health'
@@ -11,6 +12,10 @@ const client = healthUrl.protocol === 'https:' ? https : http;
 const connectAddress = process.env.SERVER_HEALTH_CONNECT_ADDRESS;
 const connectPort = process.env.SERVER_HEALTH_CONNECT_PORT;
 const caFile = process.env.SERVER_HEALTH_CA_FILE;
+if (connectAddress && !isIP(connectAddress)) {
+	throw new Error('SERVER_HEALTH_CONNECT_ADDRESS must be an IP address');
+}
+
 let completed = false;
 let hardDeadline;
 
@@ -25,24 +30,21 @@ function finish(exitCode, message) {
 const requestOptions = {
 	agent: false,
 	ca: caFile ? readFileSync(caFile) : undefined,
-	headers: { connection: 'close' },
-	hostname: healthUrl.hostname,
+	checkServerIdentity:
+		healthUrl.protocol === 'https:'
+			? (_hostname, certificate) => checkServerIdentity(healthUrl.hostname, certificate)
+			: undefined,
+	headers: { connection: 'close', host: healthUrl.host },
+	hostname: connectAddress ?? healthUrl.hostname,
 	path: `${healthUrl.pathname}${healthUrl.search}`,
-	port: connectPort || healthUrl.port
+	port: connectPort || healthUrl.port,
+	servername:
+		healthUrl.protocol === 'https:' && !isIP(healthUrl.hostname) ? healthUrl.hostname : undefined
 };
-if (connectAddress) {
-	const family = isIP(connectAddress);
-	if (!family) throw new Error('SERVER_HEALTH_CONNECT_ADDRESS must be an IP address');
-	requestOptions.lookup = (_hostname, options, callback) => {
-		queueMicrotask(() => {
-			if (options?.all) {
-				callback(null, [{ address: connectAddress, family }]);
-				return;
-			}
-			callback(null, connectAddress, family);
-		});
-	};
-}
+
+hardDeadline = setTimeout(() => {
+	finish(1, 'Server healthcheck failed: hard deadline exceeded after 4000ms');
+}, 4_000);
 
 const request = client.get(requestOptions, (response) => {
 	const statusCode = response.statusCode;
@@ -61,6 +63,3 @@ request.setTimeout(3_500, () => {
 request.on('error', (error) => {
 	finish(1, `Server healthcheck failed: ${error.message}`);
 });
-hardDeadline = setTimeout(() => {
-	finish(1, 'Server healthcheck failed: hard deadline exceeded after 4000ms');
-}, 4_000);

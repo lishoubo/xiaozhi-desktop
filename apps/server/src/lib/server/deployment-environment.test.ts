@@ -156,7 +156,9 @@ describe('deployment environment boundaries', () => {
 
 		expect(healthcheck).toContain('agent: false');
 		expect(healthcheck).toContain("connection: 'close'");
-		expect(healthcheck).toContain('queueMicrotask');
+		expect(healthcheck).toContain('checkServerIdentity(healthUrl.hostname, certificate)');
+		expect(healthcheck).toContain('hostname: connectAddress ?? healthUrl.hostname');
+		expect(healthcheck).not.toContain('requestOptions.lookup');
 		expect(healthcheck).toContain('request.setTimeout(3_500');
 		expect(healthcheck).toContain("response.once('end'");
 		expect(healthcheck).toContain('process.exit(exitCode)');
