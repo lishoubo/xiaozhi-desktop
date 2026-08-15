@@ -185,6 +185,10 @@ cookie、完整手机号或其他未选定字段写入普通日志或本地 cred
 - **AND** 将该账号改为引用新的 credential
 - **AND** 不自动删除旧 credential 或其 partition
 
+> 本条约束的是 **account 改指新 credential** 的场景。**同一 credential 的 partition
+> 指针被绑定流程替换**是另一回事，那时旧 partition 会退休并清空 —— 见
+> `browser-partition-lifecycle` 的「绑定成功后账号登录态迁移到新 partition」。
+
 ### Requirement: 现有账号使用效果保持一致
 
 系统 SHALL 在拆分 credential 后保持现有账号列表、账号导航和打开账号的用户效果。
@@ -224,6 +228,9 @@ cookie、完整手机号或其他未选定字段写入普通日志或本地 cred
 ### Requirement: partition 保持单一权威
 
 系统 SHALL 仅以本地 credential 保存的 partition 指针定位 OTA 登录态，不 SHALL 复制 cookie 到 account 数据或通过 account 标识重新推导 partition 名称。
+
+该指针**可变**：绑定流程会把它改写到新建的 partition。指针的变更规则与旧 partition 的
+归宿见 `browser-partition-lifecycle`。
 
 #### Scenario: 复用登录态
 
