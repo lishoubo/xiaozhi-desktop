@@ -344,16 +344,73 @@ docker compose --env-file apps/server/.env.production \
 `npm run compose:prod:up` 现在同样使用 `--no-build --pull never`，只允许启动已经导入本机的
 镜像，不会回退到 Docker Hub。
 
+### 8. 生产日志目录
+
+#### Server
+
+Server 同时把结构化日志写到标准输出和 JSON Lines 文件。宿主机文件位置为：
+
+```text
+${SERVER_LOG_DIR}/server.jsonl
+```
+
+生产环境默认配置对应：
+
+```text
+/var/log/hotel-butler/server/server.jsonl
+```
+
+Compose 将 `SERVER_LOG_DIR` 挂载到容器内 `/var/log/hotel-butler`，因此容器内文件是
+`/var/log/hotel-butler/server.jsonl`。在 ECS 上可以使用：
+
+```bash
+sudo tail -f /var/log/hotel-butler/server/server.jsonl
+cd /opt/hotel-butler/app
+docker compose --env-file apps/server/.env.production \
+  -f apps/server/compose.production.yaml logs --follow server
+```
+
+`prepare-production-host.sh` 会在宿主机安装了 logrotate 时配置日志按天或达到 50 MB 轮转，
+保留 14 份并压缩；未安装 logrotate 时会打印警告，需要另行配置轮转。
+
+#### Desktop
+
+Desktop 主进程日志按认证 Profile 隔离，文件结构为：
+
+```text
+<Electron 系统日志目录>/<staff|phone>/main.log
+```
+
+常见平台路径：
+
+| 平台 | 生产日志路径 |
+|---|---|
+| macOS | `~/Library/Logs/小智酒店管家/<staff\|phone>/main.log` |
+| Windows | `%APPDATA%/小智酒店管家/logs/<staff\|phone>/main.log` |
+| Linux | `~/.config/小智酒店管家/logs/<staff\|phone>/main.log` |
+
+Linux 设置了 `XDG_CONFIG_HOME` 时，以该目录替代默认的 `~/.config`。
+
+macOS 上可直接查找当前安装包实际使用的路径：
+
+```bash
+find "$HOME/Library/Logs" -type f \( -path "*/staff/main.log" -o -path "*/phone/main.log" \)
+```
+
+生产包的文件日志级别为 `info`，单文件上限为 10 MB，并在写盘前执行敏感信息脱敏。启动日志
+中的 `Application logging initialized` 事件也会记录最终解析出的 `logFilePath`。
+
 ## 生产 desktop：构建与交付
 
-生产 desktop 固定构建 staff 认证版本，并从同一套生产事实来源注入：
+生产 desktop 默认构建 staff 认证版本，也支持显式构建 phone 版本；两者都从同一套生产事实
+来源注入：
 
 | 构建输入 | 生产值来源 |
 |---|---|
 | Backend API | 固定为 `https://121.199.29.74:35443` |
 | RMS API | `apps/server/.env.production` 的 `XIAOZHI_RMS_SERVER_URL` |
 | Backend 私有 CA | `output/production-tls/121.199.29.74/desktop/private-ca.pem` |
-| 认证 Profile | 固定为 `staff` |
+| 认证 Profile | 默认 `staff`，phone 快捷命令显式选择 `phone` |
 
 生产脚本会默认确认 RMS 使用 HTTPS；当前 HTTP RMS 需要显式不安全开关。脚本还会确认生产
 证书对 `121.199.29.74` 有效、server 证书与私钥匹配、desktop CA 与 server CA 完全一致，
@@ -406,26 +463,26 @@ Phone 生产入口复用上述生产地址、私有 CA、环境文件权限和 R
 `HOTEL_BUTLER_SERVER_URL` 等构建变量。先执行只读预检：
 
 ```bash
-npm run check:desktop:production:phone
+XIAOZHI_ALLOW_INSECURE_RMS=1 npm run check:desktop:production:phone
 ```
 
 生成本机可运行应用目录：
 
 ```bash
-npm run package:desktop:production:phone
+XIAOZHI_ALLOW_INSECURE_RMS=1 npm run package:desktop:production:phone
 ```
 
 生成当前 Mac 架构的分发产物：
 
 ```bash
-npm run make:desktop:production:phone
+XIAOZHI_ALLOW_INSECURE_RMS=1 npm run make:desktop:production:phone
 ```
 
 如需指定 macOS 架构：
 
 ```bash
-npm run make:desktop:production:phone -- --platform=darwin --arch=arm64
-npm run make:desktop:production:phone -- --platform=darwin --arch=x64
+XIAOZHI_ALLOW_INSECURE_RMS=1 npm run make:desktop:production:phone -- --platform=darwin --arch=arm64
+XIAOZHI_ALLOW_INSECURE_RMS=1 npm run make:desktop:production:phone -- --platform=darwin --arch=x64
 ```
 
 产物仍位于 `apps/desktop/out/make/`，Forge 使用 phone build identifier、独立 bundle ID 和
