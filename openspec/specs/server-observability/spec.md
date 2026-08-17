@@ -14,3 +14,8 @@
 - RMS boundary logs SHALL NOT contain Bearer credentials, response bodies or returned identity data.
 - Production Pino logs SHALL remain on stdout and SHALL additionally persist as newline-delimited
   JSON in the configured host bind mount.
+- A configured RMS MySQL identity pool SHALL be verified during server initialization. Successful
+  verification SHALL emit `rms.connection.verified`; failure SHALL emit `rms.connection.failed`
+  with duration, safe error type and an allow-listed driver error code.
+- RMS connection verification logs SHALL NOT include the database URL, hostname, username, password,
+  raw driver message, SQL result or stack.

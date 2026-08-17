@@ -5,14 +5,32 @@
  * 且清理必须在 `finally` 里做（远端失败也要清，否则会留下"已登出但仍带凭证"
  * 的状态）。这段逻辑原先写在 IPC handler 里，无法单独测试。
  */
-import type { AppRouter, EmployeeIdentity } from '@hotel-butler/api';
-import type { TRPCClient } from '@trpc/client';
+import type { EmployeeIdentity } from '@hotel-butler/api';
 import type { Cookies } from 'electron';
-import type { AppLogger } from '../../shared/logging';
+import { safeLogErrorDetails, type AppLogger } from '../../shared/logging';
 
 export const DESKTOP_SESSION_COOKIE_NAME = '__Host-xiaozhi_desktop_session';
 
-export type AuthClient = Pick<TRPCClient<AppRouter>, 'auth' | 'system'>;
+export type AuthClient = Readonly<{
+  auth: Readonly<{
+    currentSession: Readonly<{ query(): Promise<EmployeeIdentity | null> }>;
+    loginWithPhoneCode: Readonly<{
+      mutate(input: { phone: string; code: string }): Promise<EmployeeIdentity>;
+    }>;
+    logout: Readonly<{ mutate(): Promise<{ success: true }> }>;
+    requestPhoneCode: Readonly<{
+      mutate(input: { phone: string }): Promise<{ accepted: true; expiresInSeconds: number }>;
+    }>;
+  }>;
+  system: Readonly<{
+    health: Readonly<{
+      query(): Promise<{
+        status: 'ok';
+        authentication?: { phoneIdentitySourceConfigured: boolean };
+      }>;
+    }>;
+  }>;
+}>;
 
 export type AuthServiceDependencies = Readonly<{
   apiSession: Readonly<{ cookies: Pick<Cookies, 'remove'> }>;
@@ -68,7 +86,9 @@ export class AuthService {
       () => this.deps.client.system.health.query(),
     );
     if (health.authentication?.phoneIdentitySourceConfigured !== true) {
-      throw new Error('当前服务器未配置手机号身份数据源，请联系管理员');
+      const error = new Error('当前服务器未配置手机号身份数据源，请联系管理员');
+      this.logFailure('phone-capabilities', error);
+      throw error;
     }
   }
 
@@ -81,11 +101,15 @@ export class AuthService {
     try {
       return await call();
     } catch (error) {
-      this.deps.logger.warn('Desktop authentication operation failed', {
-        operation,
-        errorName: error instanceof Error ? error.name : 'UnknownError',
-      });
+      this.logFailure(operation, error);
       throw new Error(message);
     }
+  }
+
+  private logFailure(operation: string, error: unknown): void {
+    this.deps.logger.warn('Desktop authentication operation failed', {
+      operation,
+      error: safeLogErrorDetails(error),
+    });
   }
 }

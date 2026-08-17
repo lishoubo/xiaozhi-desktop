@@ -99,6 +99,13 @@ on a new host without starting services or modifying firewall rules.
 - **AND** placeholder settings, permissive private-file modes, invalid IP TLS material, the CA signing
   key, desktop source and unrelated private keys are rejected before publication
 
+#### Scenario: Enable phone identity from a production bundle
+
+- **WHEN** the selected verified bundle contains a non-empty `RMS_DATABASE_URL`
+- **THEN** deployment installs that environment file and force-recreates the server container
+- **AND** the recreated container receives the variable
+- **AND** startup logs report its verification result from the ECS network
+
 ### Requirement: Guarded production bundle upload
 
 The repository SHALL provide an upload command fixed to production host `121.199.29.74` that uses

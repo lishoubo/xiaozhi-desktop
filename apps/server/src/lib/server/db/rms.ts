@@ -7,6 +7,7 @@ export function createRmsClient(databaseUrl: string) {
 		connectionLimit: 10,
 		maxIdle: 10,
 		idleTimeout: 60_000,
+		connectTimeout: 10_000,
 		queueLimit: 0,
 		enableKeepAlive: true,
 		supportBigNumbers: true,

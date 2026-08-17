@@ -4,8 +4,25 @@ import {
   configureDesktopLogDirectory,
   configureMainLogging,
 } from '../../../src/main/logging/configure-main-logging';
+import { safeLogErrorDetails } from '../../../src/shared/logging';
 
 describe('desktop production logging', () => {
+  it('keeps error stacks and causes while redacting authentication secrets', () => {
+    const cause = new Error(
+      'phone=13800138000 password=private mysql://readonly:private@example.invalid/rms',
+    );
+    const error = new Error('request failed', { cause });
+
+    const details = safeLogErrorDetails(error);
+    const serialized = JSON.stringify(details);
+
+    expect(details.stack).toContain('request failed');
+    expect(details.cause?.stack).toContain('[REDACTED]');
+    expect(serialized).not.toContain('13800138000');
+    expect(serialized).not.toContain('private');
+    expect(serialized).not.toContain('readonly:');
+  });
+
   it('uses Electron native logs with a profile-specific directory', () => {
     const setAppLogsPath = vi.fn();
     const getPath = vi

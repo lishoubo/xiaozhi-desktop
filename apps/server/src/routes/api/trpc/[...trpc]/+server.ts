@@ -5,7 +5,7 @@ import { env } from '$env/dynamic/private';
 import { db } from '$lib/server/db';
 import { createDesktopSessionGateway } from '$lib/server/desktop-session';
 import { DrizzleDesktopSessionRepository } from '$lib/server/desktop-session-repository';
-import { createServerAuthResources } from '$lib/server/server-auth-resources';
+import { initializeServerAuthResources } from '$lib/server/server-auth-resources-runtime';
 import { logTrpcFailure } from '$lib/server/logging/trpc-logging';
 import { serverLogger } from '$lib/server/logging/logger';
 import { AgentRepository } from '$lib/server/agent/agent-repository';
@@ -28,10 +28,6 @@ import { resolveStaffAgentPrincipal } from '$lib/server/agent/staff-agent-princi
 import type { RequestHandler } from './$types';
 
 const endpoint = '/api/trpc';
-const { employeeDirectory, phoneIdentitySourceConfigured, phoneOtp } = createServerAuthResources({
-	environment: env,
-	logger: serverLogger
-});
 const desktopSessionRepository = new DrizzleDesktopSessionRepository(db);
 const agentEnvironment = readAgentEnvironment(env);
 const agentRepository = new AgentRepository(db);
@@ -71,7 +67,9 @@ const handleTrpcRequest: RequestHandler = ({ locals, request }) =>
 		endpoint,
 		req: request,
 		router: appRouter,
-		createContext: ({ req, resHeaders }): ApiContext => {
+		createContext: async ({ req, resHeaders }): Promise<ApiContext> => {
+			const { employeeDirectory, phoneIdentitySourceConfigured, phoneOtp } =
+				await initializeServerAuthResources();
 			const desktopSession = createDesktopSessionGateway({
 				employeeDirectory,
 				generateId: randomUUID,

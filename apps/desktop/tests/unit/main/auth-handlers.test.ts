@@ -85,7 +85,7 @@ function setup() {
     logger,
     window: { webContents: sender },
   });
-  return { client, remove, sender };
+  return { client, logger, remove, sender };
 }
 
 beforeEach(() => electron.handlers.clear());
@@ -130,7 +130,7 @@ describe('auth IPC handlers', () => {
   });
 
   it('explains an unconfigured phone identity source before requesting a code', async () => {
-    const { client, sender } = setup();
+    const { client, logger, sender } = setup();
     client.system.health.query.mockResolvedValue({
       status: 'ok',
       authentication: {
@@ -144,5 +144,38 @@ describe('auth IPC handlers', () => {
       '当前服务器未配置手机号身份数据源，请联系管理员',
     );
     expect(client.auth.requestPhoneCode.mutate).not.toHaveBeenCalled();
+    expect(logger.warn).toHaveBeenCalledWith(
+      'Desktop authentication operation failed',
+      expect.objectContaining({
+        operation: 'phone-capabilities',
+        error: expect.objectContaining({
+          name: 'Error',
+          message: '当前服务器未配置手机号身份数据源，请联系管理员',
+          stack: expect.stringContaining('当前服务器未配置手机号身份数据源，请联系管理员'),
+        }),
+      }),
+    );
+    expect(JSON.stringify(logger.warn.mock.calls)).not.toContain('13800138000');
+  });
+
+  it('records the original remote error stack while returning the friendly request-code error', async () => {
+    const { client, logger, sender } = setup();
+    client.auth.requestPhoneCode.mutate.mockRejectedValue(new Error('socket disconnected'));
+
+    await expect(invoke(IPC_CHANNELS.auth.requestPhoneCode, sender, '13800138000')).rejects.toThrow(
+      '验证码发送失败，请重试',
+    );
+    expect(logger.warn).toHaveBeenCalledWith(
+      'Desktop authentication operation failed',
+      expect.objectContaining({
+        operation: 'request-code',
+        error: expect.objectContaining({
+          name: 'Error',
+          message: 'socket disconnected',
+          stack: expect.stringContaining('socket disconnected'),
+        }),
+      }),
+    );
+    expect(JSON.stringify(logger.warn.mock.calls)).not.toContain('13800138000');
   });
 });
