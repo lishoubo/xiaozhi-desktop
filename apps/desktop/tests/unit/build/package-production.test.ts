@@ -42,15 +42,32 @@ describe('production desktop packaging', () => {
   it('accepts only check, package, and make while forwarding Forge arguments', () => {
     expect(parseProductionDesktopCommand(['check'])).toEqual({
       action: 'check',
+      authVariant: 'staff',
       forwardedArguments: [],
     });
     expect(
-      parseProductionDesktopCommand(['make', '--platform=darwin', '--arch=arm64']),
+      parseProductionDesktopCommand([
+        'make',
+        '--auth-variant=phone',
+        '--platform=darwin',
+        '--arch=arm64',
+      ]),
     ).toEqual({
       action: 'make',
+      authVariant: 'phone',
       forwardedArguments: ['--platform=darwin', '--arch=arm64'],
     });
     expect(() => parseProductionDesktopCommand(['publish'])).toThrow('production desktop action');
+    expect(() => parseProductionDesktopCommand(['make', '--auth-variant=tablet'])).toThrow(
+      'auth variant',
+    );
+    expect(() =>
+      parseProductionDesktopCommand([
+        'make',
+        '--auth-variant=staff',
+        '--auth-variant=phone',
+      ]),
+    ).toThrow('at most once');
     expect(() => parseProductionDesktopCommand(['check', '--arch=arm64'])).toThrow(
       'does not accept',
     );

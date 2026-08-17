@@ -400,6 +400,40 @@ XIAOZHI_ALLOW_INSECURE_RMS=1 npm run make:desktop:production -- --platform=darwi
 notarization 或 Windows 代码签名，因此产物属于未签名内部交付包；若面向普通终端用户公开
 分发，签名与 notarization 是独立的上线门禁。
 
+### 4. 生成 phone 登录的生产桌面包
+
+Phone 生产入口复用上述生产地址、私有 CA、环境文件权限和 RMS 安全检查，不需要手工拼接
+`HOTEL_BUTLER_SERVER_URL` 等构建变量。先执行只读预检：
+
+```bash
+npm run check:desktop:production:phone
+```
+
+生成本机可运行应用目录：
+
+```bash
+npm run package:desktop:production:phone
+```
+
+生成当前 Mac 架构的分发产物：
+
+```bash
+npm run make:desktop:production:phone
+```
+
+如需指定 macOS 架构：
+
+```bash
+npm run make:desktop:production:phone -- --platform=darwin --arch=arm64
+npm run make:desktop:production:phone -- --platform=darwin --arch=x64
+```
+
+产物仍位于 `apps/desktop/out/make/`，Forge 使用 phone build identifier、独立 bundle ID 和
+executable name 与 staff 产物隔离。生产 server 的 `RMS_DATABASE_URL` 必须有效，否则 phone
+登录页可以启动，但服务端无法查询手机号对应的 RMS 员工身份。该入口只构建本地产物，不会
+上传、发布或部署。若生产 RMS 仍为 HTTP，上述 phone 命令与 staff 命令一样必须在命令前
+显式添加 `XIAOZHI_ALLOW_INSECURE_RMS=1`，并接受构建时输出的明文传输警告。
+
 普通的 `package:desktop:staff`、`package:desktop:phone`、`make:desktop:staff` 和
 `make:desktop:phone` 默认注入本地 backend/RMS，仅用于开发或显式定制构建，不得作为生产
 包发布。兼容入口 `scripts/desktop-make-prod.sh` 现在也统一转发到

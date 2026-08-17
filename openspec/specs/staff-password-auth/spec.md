@@ -117,6 +117,9 @@ XIAOZHI_AUTH_VARIANT = 'staff' | 'phone'      缺省 staff
 
 - 人工和 CI 入口使用 `dev:desktop:<profile>`、`package:desktop:<profile>`、
   `make:desktop:<profile>`；跨平台 Node runner 负责设置底层变量
+- 生产入口默认构建 staff；需要手机号登录包时使用
+  `check:desktop:production:phone`、`package:desktop:production:phone`、
+  `make:desktop:production:phone`。两种生产变体共用同一套 backend、RMS、私有 CA 与安全校验
 - Forge 用 profile 作为 `buildIdentifier` 隔离 `out/staff` 与 `out/phone`，phone 包另设
   bundle ID 和 executable name，避免与 staff 产物混淆
 - desktop 构建期解析收口在 `apps/desktop/vite-plugins/auth-variant.ts`；该插件必须保持
