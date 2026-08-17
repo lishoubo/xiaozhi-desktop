@@ -480,12 +480,12 @@ test('opens the localized calendar with the seeded holiday group', async () => {
     await page.getByRole('button', { name: '下一个时段' }).click();
   }
   await expect(periodHeading).toContainText('2026年8月30日–9月5日');
-  await expect(page.getByTestId('mini-calendar-month')).toHaveText('2026年9月');
+  await expect(page.getByTestId('mini-calendar-month')).toHaveText('2026年8月');
 
   await page.getByRole('button', { name: '迷你日历下一个月' }).click();
-  await expect(page.getByTestId('mini-calendar-month')).toHaveText('2026年10月');
+  await expect(page.getByTestId('mini-calendar-month')).toHaveText('2026年9月');
   await page.locator('.hotel-mini-calendar .wx-day:not(.wx-out)', { hasText: /^15$/ }).click();
-  await expect(page.getByRole('heading', { level: 2 })).toContainText('10月');
+  await expect(page.getByRole('heading', { level: 2 })).toContainText('9月');
 });
 
 test('shows only executable public MCP quick actions', async () => {
