@@ -36,6 +36,7 @@ import { CookieImportService } from '../services/cookie-import-service';
 import { AmountChangeWatcher } from '../channels/amount-change-watcher';
 import { HotelProbeDispatcher } from '../channels/hotel-probe-dispatcher';
 import { OtaReauthDispatcher } from '../channels/ota-reauth-dispatcher';
+import { ReauthByHotelDispatcher } from '../channels/reauth-by-hotel-dispatcher';
 import { HttpRmsAmountChangeGateway } from '../gateway/rms/rms-amount-change-gateway-http';
 import { AmountChangeReportService } from '../services/amount-change-report-service';
 import type { UiWaitingResultEnvelope } from '../../shared/types/ui-waiting-result-types';
@@ -61,7 +62,13 @@ export function createWindowScope(scope: AppScope): WindowScope {
   logger.info('Main window created');
 
   const tabEventBus = new TabEventBus();
-  const browserManager = new BrowserManager(window, logger, scope.sessionFactory);
+  const browserManager = new BrowserManager(window, logger, scope.sessionFactory, {
+    // 退休清理的第二道守卫：这份 partition 还是不是某个账号当前的登录态。
+    // 缺了它，清理只看「有没有标签页开着」，会把已认领的登录态一并清空
+    // （真机事故：连续绑定多个美团账号后 5 个账号掉登录）。
+    isPartitionClaimed: (partitionName) =>
+      scope.otaCredentialRepository.findByPartitionName(partitionName) !== null,
+  });
   onDispose(() => browserManager.destroy());
 
   // 回填 app scope 需要的窗口级能力，窗口销毁时撤回。
@@ -100,8 +107,14 @@ export function createWindowScope(scope: AppScope): WindowScope {
     notify: notifyUiWaitingResult,
   });
   new OtaReauthDispatcher({ tabEventBus, logger, notify: notifyUiWaitingResult });
+  new ReauthByHotelDispatcher({
+    tabEventBus,
+    probes: hotelProbes(scope.channelRegistry),
+    logger,
+    notify: notifyUiWaitingResult,
+  });
 
-  // 价量态改动监听。与上面两个 dispatcher 不同，它订阅的是 browserManager 的原始导航
+  // 价量态改动监听。与上面几个 dispatcher 不同，它订阅的是 browserManager 的原始导航
   // 事件（要的是「URL 变了」，不是「登录判定完了」），所以不接 tabEventBus。
   const amountChangeReportService = new AmountChangeReportService({
     gateway: new HttpRmsAmountChangeGateway({
@@ -164,6 +177,7 @@ export function createWindowScope(scope: AppScope): WindowScope {
     otaCredentialRepository: scope.otaCredentialRepository,
     readInjectableCookies: (partitionName) =>
       scope.sessionFactory.readInjectableCookies(partitionName),
+    logger,
   });
 
   onDispose(registerBrowserHandlers({ window, manager: browserManager, logger }));

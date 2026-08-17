@@ -5,9 +5,11 @@ import {
   rmsOtaAccountIdSchema,
 } from '../../shared/hotel-management';
 import {
+  confirmBackfillHotelInputSchema,
   confirmBindingInputSchema,
   confirmReauthInputSchema,
   findCredentialForAccountInputSchema,
+  type ConfirmBackfillHotelInput,
   type ConfirmBindingInput,
   type ConfirmReauthInput,
   type FindCredentialForAccountInput,
@@ -26,6 +28,7 @@ export interface HotelManagementOrchestrator {
   unbindOtaAccount(otaAccountId: number): Promise<void>;
   startBinding(): Readonly<{ requestId: string }>;
   confirmBinding(input: ConfirmBindingInput): Promise<RmsOtaAccount>;
+  confirmBackfillHotel(input: ConfirmBackfillHotelInput): Promise<RmsOtaAccount>;
   startReauth(): Readonly<{ requestId: string }>;
   confirmReauth(input: ConfirmReauthInput): Promise<RmsOtaAccount>;
   findCredentialForAccount(input: FindCredentialForAccountInput): string | null;
@@ -90,6 +93,15 @@ export function registerHotelManagementHandlers({
     '绑定参数无效',
     (input) =>
       logFailure(IPC_CHANNELS.hotelManagement.confirmBinding, () => feature.confirmBinding(input)),
+  );
+  registry.handle(
+    IPC_CHANNELS.hotelManagement.confirmBackfillHotel,
+    z.tuple([confirmBackfillHotelInputSchema]),
+    '补写门店参数无效',
+    (input) =>
+      logFailure(IPC_CHANNELS.hotelManagement.confirmBackfillHotel, () =>
+        feature.confirmBackfillHotel(input),
+      ),
   );
 
   registry.handle(IPC_CHANNELS.hotelManagement.startReauth, z.tuple([]), '重新登录参数无效', () =>

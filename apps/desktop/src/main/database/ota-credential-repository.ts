@@ -24,6 +24,23 @@ export interface OtaCredentialRepository {
     id: OtaCredentialId,
     update: OtaCredentialPartitionUpdate,
   ): OtaCredential;
+  /**
+   * 删除一条 credential，连同它名下的 `ota_hotel` 行。
+   *
+   * 用在「同一个 partition 里换了账号」：新账号接管了这份登录态，被顶替的旧账号
+   * 就**没有任何可用的登录态了**（`partition_name` 有 UNIQUE 约束，一份 partition
+   * 只能属于一条 credential）。留着它不是「暂时闲置」——`listByChannel` 会把它继续
+   * 摆进账号切换、新增绑定、重新登录三个列表，用户点中就拿着一个不属于自己的
+   * partition 去开标签页，开出来是**新账号**的页面。这是持续的错误选项，不是临时状态。
+   *
+   * 为什么 `ota_hotel` 跟着删：那张表**不记绑定关系**（绑定关系由远端 RMS 持有，
+   * 本地不表达，见 `shared/types/ota-hotel.ts`），存的是门店信息 + 渠道上下文，
+   * 唯一读取处是 `HotelManagementService` 里「远端这条绑定是哪个 credential 建的」
+   * 反查，且该反查优先走远端 `bindExtra`、查不到只是少一个展示标注、不阻断流程。
+   * credential 都没了，指向它的门店行也失去意义。何况 `ota_hotel.credential_id`
+   * 是 `ON DELETE RESTRICT`，不先删它就根本删不掉 credential。
+   */
+  deleteById(id: OtaCredentialId): void;
 }
 
 type OtaCredentialRow = Readonly<{
@@ -152,6 +169,15 @@ export class SqliteOtaCredentialRepository implements OtaCredentialRepository {
       throw new Error(`更新 OtaCredential 身份失败：credential 不存在 (${id})`);
     }
     return updated;
+  }
+
+  deleteById(id: OtaCredentialId): void {
+    // 一个事务：酒店缓存必须先走，否则 ON DELETE RESTRICT 会挡下 credential 的删除，
+    // 留下「缓存没了、credential 还在」的半截状态。
+    this.database.transaction(() => {
+      this.database.prepare('DELETE FROM ota_hotel WHERE credential_id = ?').run(id);
+      this.database.prepare('DELETE FROM ota_credential WHERE id = ?').run(id);
+    })();
   }
 
   updatePartitionAndIdentity(

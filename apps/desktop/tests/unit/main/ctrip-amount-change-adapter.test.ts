@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { createCtripAmountChangeAdapter } from '../../../src/main/channels/ctrip/amount-change-adapter';
 import type { AmountParseResult } from '../../../src/main/channels/types';
 import type { AmountSaveObserved } from '../../../src/shared/types/amount-change';
+import type { JsonObject } from '../../../src/shared/types/json';
 
 /** 取出 `{ kind: 'report' }` 里的上报体；不是上报（上下文/丢弃）时给 undefined。 */
 function reportOf(result: AmountParseResult | null) {
@@ -141,6 +142,52 @@ const NEW_MODULE_SUCCESS_RESPONSE = JSON.stringify({
   },
 });
 
+/**
+ * 房态「关房」的真实请求体（踩点 `docs/踩点/携程/房量01.md`）。开房那份只差
+ * `roomStatus: 'G'`，整个请求体其余部分逐字节相同 —— 所以不拆两个 endpointId。
+ */
+const REAL_CLOSE_ROOM_BODY = {
+  hotelRoomInfoDtoList: [
+    {
+      hotelID: 115348672,
+      roomTypeID: 1587157431,
+      roomName: '&#24742;&#20139;&#22823;&#24202;&#25151;&lt;&#21333;&#26089;&gt;',
+    },
+  ],
+  dateItemInfoDtoList: [
+    {
+      startDate: '2026-08-31',
+      endDate: '2026-08-31',
+      holidyInfo: [
+        { name: '中秋节', startDate: '2026-09-24', endDate: '2026-09-27', activeFlag: false, published: true },
+        { name: '国庆节', startDate: '2026-09-30', endDate: '2026-10-07', activeFlag: false, published: true },
+      ],
+    },
+  ],
+  weekDayIndex: '1111111',
+  pageType: 'F',
+  processType: 3,
+  roomStatus: 'N',
+  originalRoomProductIds: [1587157431],
+} as const;
+
+/**
+ * 房态端点的真实成功响应（同一份踩点，开房/关房共用）。
+ *
+ * ⚠️ **`data` 是 `null`** —— 这个端点没有内层结果明细。对比改价老模块的
+ * `REAL_SUCCESS_RESPONSE`（`data.roomPriceSetResults[]` 才是判据），两者形状不同，
+ * 这正是 `isSuccessful` 必须收 `endpointId` 的原因。
+ */
+const ROOM_STATUS_SUCCESS_RESPONSE = JSON.stringify({
+  code: 200,
+  message: '房态设置成功。',
+  totalCount: 0,
+  returnCode: '200',
+  data: null,
+  otherData: '房态设置成功。',
+  extendData: [],
+});
+
 function createLogger() {
   return { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
 }
@@ -196,7 +243,7 @@ describe('ctrip amount change adapter', () => {
   describe('isSuccessful', () => {
     it('外层 code 200 且每条 resultCode 为 0 判为成功', () => {
       const adapter = createCtripAmountChangeAdapter(createLogger());
-      expect(adapter.isSuccessful(REAL_SUCCESS_RESPONSE)).toBe(true);
+      expect(adapter.isSuccessful(REAL_SUCCESS_RESPONSE, 'batchsetroomprice')).toBe(true);
     });
 
     /**
@@ -214,18 +261,18 @@ describe('ctrip amount change adapter', () => {
           ],
         },
       });
-      expect(adapter.isSuccessful(partial)).toBe(false);
+      expect(adapter.isSuccessful(partial, 'batchsetroomprice')).toBe(false);
     });
 
     it('响应体不是合法 JSON 时判为失败', () => {
       const adapter = createCtripAmountChangeAdapter(createLogger());
-      expect(adapter.isSuccessful('<html>502 Bad Gateway</html>')).toBe(false);
+      expect(adapter.isSuccessful('<html>502 Bad Gateway</html>', 'batchsetroomprice')).toBe(false);
     });
 
     /** 新模块是完全不同的信封：resStatus.rcode + ResponseStatus.Ack。 */
     it('新模块 rcode 200 且 Ack Success 判为成功', () => {
       const adapter = createCtripAmountChangeAdapter(createLogger());
-      expect(adapter.isSuccessful(NEW_MODULE_SUCCESS_RESPONSE)).toBe(true);
+      expect(adapter.isSuccessful(NEW_MODULE_SUCCESS_RESPONSE, 'setRCRoomPrice')).toBe(true);
     });
 
     it('新模块 rcode 非 200 判为失败', () => {
@@ -234,7 +281,7 @@ describe('ctrip amount change adapter', () => {
         resStatus: { rcode: 500, rmsg: '价格低于限价' },
         ResponseStatus: { Ack: 'Failure', Errors: [{ Message: '价格低于限价' }] },
       });
-      expect(adapter.isSuccessful(rejected)).toBe(false);
+      expect(adapter.isSuccessful(rejected, 'setRCRoomPrice')).toBe(false);
     });
 
     it('新模块 rcode 200 但框架层报错时判为失败', () => {
@@ -243,7 +290,7 @@ describe('ctrip amount change adapter', () => {
         resStatus: { rcode: 200, rmsg: '' },
         ResponseStatus: { Ack: 'Failure', Errors: [{ Message: 'internal error' }] },
       });
-      expect(adapter.isSuccessful(partial)).toBe(false);
+      expect(adapter.isSuccessful(partial, 'setRCRoomPrice')).toBe(false);
     });
   });
 
@@ -254,6 +301,7 @@ describe('ctrip amount change adapter', () => {
         kind: 'report',
         report: {
           source: 'ctrip',
+          changeType: 'price',
           endpointId: 'batchsetroomprice',
           endpointUrl:
             'https://ebooking.ctrip.com/restapi/soa2/23783/setRCRoomPrice?_fxpcqlniredt=09031162210038262124',
@@ -375,6 +423,41 @@ describe('ctrip amount change adapter', () => {
       expect([...adapter.watchedEndpoints.values()]).toEqual([
         '/ebkovsroom/api/inventory/batchsetroomprice',
         '/setRCRoomPrice',
+        '/ebkovsroom/api/inventory/setbatchroombookablestatus',
+      ]);
+    });
+
+    /**
+     * 机制层 `matchEndpoint` 是 `url.includes(fragment)` **首个命中即返回**，所以片段之间
+     * 不能有包含关系。`batchsetroomprice` 与 `setbatchroombookablestatus` 只是**看着像**
+     * （都含 batch、room），真串了会把房态当改价解析 —— 而两者请求体没有一个字段同名，
+     * 结果是每次房态都被当成「没有房型标识」丢弃，且失效方式是静默的。
+     */
+    it('房态端点与两个改价端点互不为子串，分发不会串味', () => {
+      const adapter = createCtripAmountChangeAdapter(createLogger());
+      const fragments = [...adapter.watchedEndpoints.values()];
+
+      for (const a of fragments) {
+        for (const b of fragments) {
+          if (a === b) continue;
+          expect(a.includes(b)).toBe(false);
+        }
+      }
+    });
+
+    it('三个端点各自只命中自己的 URL', () => {
+      const adapter = createCtripAmountChangeAdapter(createLogger());
+      const match = (url: string) =>
+        [...adapter.watchedEndpoints.entries()].filter(([, fragment]) => url.includes(fragment));
+
+      expect(
+        match('https://ebooking.ctrip.com/ebkovsroom/api/inventory/setbatchroombookablestatus'),
+      ).toEqual([['setbatchroombookablestatus', '/ebkovsroom/api/inventory/setbatchroombookablestatus']]);
+      expect(
+        match('https://ebooking.ctrip.com/ebkovsroom/api/inventory/batchsetroomprice'),
+      ).toEqual([['batchsetroomprice', '/ebkovsroom/api/inventory/batchsetroomprice']]);
+      expect(match('https://ebooking.ctrip.com/restapi/soa2/23783/setRCRoomPrice')).toEqual([
+        ['setRCRoomPrice', '/setRCRoomPrice'],
       ]);
     });
 
@@ -397,6 +480,163 @@ describe('ctrip amount change adapter', () => {
       expect('https://ebooking.ctrip.com/restapi/soa2/99999/setRCRoomPrice').toContain(
         fragment as string,
       );
+    });
+  });
+
+  /**
+   * 房态（开房/关房）—— 踩点 `docs/踩点/携程/房量01.md`。
+   *
+   * 与改价共用同一张日历页与同一套机制，差异全在适配器内部：端点不同、请求体没有一个
+   * 字段同名、响应形状也不同。
+   */
+  describe('房态', () => {
+    const roomStatusObserved = (requestBody: JsonObject, responseBody = ROOM_STATUS_SUCCESS_RESPONSE) =>
+      observed({
+        endpointId: 'setbatchroombookablestatus',
+        endpointUrl:
+          'https://ebooking.ctrip.com/ebkovsroom/api/inventory/setbatchroombookablestatus',
+        requestBody,
+        responseBody,
+      });
+
+    describe('isSuccessful', () => {
+      /**
+       * ⚠️ **回归护栏**：这个端点的响应 `data` 是 `null`，没有内层明细。若有人日后把房态
+       * 并回改价老模块那条查 `data.roomPriceSetResults[].resultCode` 的路径，这条会立刻
+       * 失败 —— 否则失效方式是**静默漏报**：改了房态但不上报，日志上与「用户没改」一样。
+       */
+      it('data 为 null 的真实成功响应判为成功', () => {
+        const adapter = createCtripAmountChangeAdapter(createLogger());
+        expect(adapter.isSuccessful(ROOM_STATUS_SUCCESS_RESPONSE, 'setbatchroombookablestatus')).toBe(
+          true,
+        );
+      });
+
+      /** 同一份响应若按改价老模块判，会因为取不到 roomPriceSetResults 而判失败。 */
+      it('同一份响应按改价端点判时判为失败 —— 证明分支确实生效', () => {
+        const adapter = createCtripAmountChangeAdapter(createLogger());
+        expect(adapter.isSuccessful(ROOM_STATUS_SUCCESS_RESPONSE, 'batchsetroomprice')).toBe(false);
+      });
+
+      it('外层 code 非 200 判为失败', () => {
+        const adapter = createCtripAmountChangeAdapter(createLogger());
+        const rejected = JSON.stringify({ code: 500, message: '操作失败', returnCode: '500', data: null });
+        expect(adapter.isSuccessful(rejected, 'setbatchroombookablestatus')).toBe(false);
+      });
+
+      /** returnCode 明确给出且不是 200 —— 否决。 */
+      it('returnCode 明确不是 200 时判为失败', () => {
+        const adapter = createCtripAmountChangeAdapter(createLogger());
+        const odd = JSON.stringify({ code: 200, returnCode: '500', data: null });
+        expect(adapter.isSuccessful(odd, 'setbatchroombookablestatus')).toBe(false);
+      });
+
+      /**
+       * ⚠️ **回归护栏**：`returnCode` 的类型在携程各端点间**并不稳定** —— 改价老模块的
+       * 成功响应里它是 `null`（见上方 `REAL_SUCCESS_RESPONSE`）。房态目前只有一个样本
+       * 给的是字符串 `"200"`，若据此写死严格相等，携程哪天改成数字或某个变体不给这个
+       * 字段，就会**每次成功都判失败**且静默漏报 —— 与 2026-08-13 美团关房全丢同类。
+       *
+       * 所以判据是：`code === 200` 为主，`returnCode` 只在明确不是 200 时否决。
+       */
+      it('returnCode 是数字 200 时同样判为成功', () => {
+        const adapter = createCtripAmountChangeAdapter(createLogger());
+        const numeric = JSON.stringify({ code: 200, returnCode: 200, data: null });
+        expect(adapter.isSuccessful(numeric, 'setbatchroombookablestatus')).toBe(true);
+      });
+
+      it('returnCode 缺失或为 null 时不阻断（携程在别的端点上确实会给 null）', () => {
+        const adapter = createCtripAmountChangeAdapter(createLogger());
+        expect(
+          adapter.isSuccessful(JSON.stringify({ code: 200, data: null }), 'setbatchroombookablestatus'),
+        ).toBe(true);
+        expect(
+          adapter.isSuccessful(
+            JSON.stringify({ code: 200, returnCode: null, data: null }),
+            'setbatchroombookablestatus',
+          ),
+        ).toBe(true);
+      });
+
+      it('响应体不是合法 JSON 时判为失败', () => {
+        const adapter = createCtripAmountChangeAdapter(createLogger());
+        expect(adapter.isSuccessful('<html>502</html>', 'setbatchroombookablestatus')).toBe(false);
+      });
+    });
+
+    describe('parse', () => {
+      it('关房：取门店与房型，changeType 为 roomStatus，roomStatus 原样留在 changeRaw', () => {
+        const adapter = createCtripAmountChangeAdapter(createLogger());
+        const report = reportOf(adapter.parse(roomStatusObserved(REAL_CLOSE_ROOM_BODY), null));
+
+        expect(report?.changeType).toBe('roomStatus');
+        expect(report?.endpointId).toBe('setbatchroombookablestatus');
+        expect(report?.otaHotelId).toBe('115348672');
+        // 开关方向由 RMS 从 changeRaw 读 —— desktop 不解读渠道语义。
+        expect(report?.changeRaw).toMatchObject({ roomStatus: 'N' });
+      });
+
+      it('开房：与关房同一个 endpointId，只有 roomStatus 不同', () => {
+        const adapter = createCtripAmountChangeAdapter(createLogger());
+        const report = reportOf(
+          adapter.parse(roomStatusObserved({ ...REAL_CLOSE_ROOM_BODY, roomStatus: 'G' }), null),
+        );
+
+        expect(report?.changeType).toBe('roomStatus');
+        expect(report?.endpointId).toBe('setbatchroombookablestatus');
+        expect(report?.changeRaw).toMatchObject({ roomStatus: 'G' });
+      });
+
+      it('剔除 holidyInfo 节假日字典', () => {
+        const adapter = createCtripAmountChangeAdapter(createLogger());
+        const report = reportOf(adapter.parse(roomStatusObserved(REAL_CLOSE_ROOM_BODY), null));
+
+        expect(report?.changeRaw.dateItemInfoDtoList).toEqual([
+          { startDate: '2026-08-31', endDate: '2026-08-31' },
+        ]);
+      });
+
+      it('请求体没有任何房型标识时返回 null 并记 warn', () => {
+        const logger = createLogger();
+        const adapter = createCtripAmountChangeAdapter(logger);
+
+        expect(adapter.parse(roomStatusObserved({ pageType: 'F', roomStatus: 'N' }), null)).toBeNull();
+        expect(logger.warn).toHaveBeenCalled();
+      });
+
+      /** 只有顶层 originalRoomProductIds 也算合法 —— 两处房型来源任一有值即可。 */
+      it('只有 originalRoomProductIds 时照常上报', () => {
+        const adapter = createCtripAmountChangeAdapter(createLogger());
+        const report = reportOf(
+          adapter.parse(
+            roomStatusObserved({ roomStatus: 'N', originalRoomProductIds: [1587157431] }),
+            null,
+          ),
+        );
+
+        expect(report?.changeType).toBe('roomStatus');
+      });
+
+      /** 与改价老模块同样的单值契约代价：一次可能改多家门店，取第一家并记 info。 */
+      it('跨多家门店时 otaHotelId 取第一家并记 info', () => {
+        const logger = createLogger();
+        const adapter = createCtripAmountChangeAdapter(logger);
+        const report = reportOf(
+          adapter.parse(
+            roomStatusObserved({
+              roomStatus: 'N',
+              hotelRoomInfoDtoList: [
+                { hotelID: 115348672, roomTypeID: 1587157431 },
+                { hotelID: 115582769, roomTypeID: 1600000001 },
+              ],
+            }),
+            null,
+          ),
+        );
+
+        expect(report?.otaHotelId).toBe('115348672');
+        expect(logger.info).toHaveBeenCalled();
+      });
     });
   });
 });

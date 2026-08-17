@@ -59,12 +59,32 @@ describe('SessionFactory', () => {
     expect(electron.session.fromPartition).toHaveBeenCalledWith(first.partitionName);
   });
 
-  it('相同 partition 名字复用同一个 session（缓存命中）', () => {
+  it('相同 partition 名字拿到同一个 session', () => {
     const factory = new SessionFactory(createLogger());
     const a = factory.sessionForAccount('persist:xiaozhi:prod:douyin:abcd1234');
     const b = factory.sessionForAccount('persist:xiaozhi:prod:douyin:abcd1234');
     expect(a).toBe(b);
-    expect(electron.session.fromPartition).toHaveBeenCalledOnce();
+  });
+
+  /**
+   * 安全 handler 是**覆盖式** setter，装第二遍会把第一遍换掉。虽然两次装的是同一个
+   * 「全部拒绝」、重复装无害，但这就是 `configuredPartitions` 存在的全部理由 ——
+   * 它是「已配置过」的标记表，不是对象池（Session 对象由 Electron 全局持有）。
+   */
+  it('同一个 partition 的安全 handler 只装一次', () => {
+    const factory = new SessionFactory(createLogger());
+    const partitionName = 'persist:xiaozhi:prod:douyin:abcd1234';
+
+    factory.sessionForAccount(partitionName);
+    factory.sessionForAccount(partitionName);
+    factory.sessionForAccount(partitionName);
+
+    const accountSession = electron.sessions.get(partitionName) as {
+      setPermissionCheckHandler: ReturnType<typeof vi.fn>;
+      setPermissionRequestHandler: ReturnType<typeof vi.fn>;
+    };
+    expect(accountSession.setPermissionCheckHandler).toHaveBeenCalledOnce();
+    expect(accountSession.setPermissionRequestHandler).toHaveBeenCalledOnce();
   });
 
   it('uses one dedicated persistent partition for the server API cookie jar', () => {
@@ -73,12 +93,13 @@ describe('SessionFactory', () => {
     const first = factory.sessionForServerApi();
     const second = factory.sessionForServerApi();
 
+    // 断言的是「拿到同一个 jar」这个契约，不是「fromPartition 只被调一次」——
+    // 后者是实现细节，且 Electron 本身就保证同名同对象。
     expect(first).toBe(second);
-    expect(electron.session.fromPartition).toHaveBeenCalledOnce();
     expect(electron.session.fromPartition).toHaveBeenCalledWith('persist:xiaozhi:server-api');
   });
 
-  it('通过 Electron Session API 清空退休 partition 并移出缓存', async () => {
+  it('通过 Electron Session API 清空退休 partition 的存储', async () => {
     const factory = new SessionFactory(createLogger());
     const partitionName = 'persist:xiaozhi:prod:douyin:retired';
     factory.sessionForAccount(partitionName);
@@ -89,11 +110,27 @@ describe('SessionFactory', () => {
     };
 
     await factory.clearAccountSession(partitionName);
-    factory.sessionForAccount(partitionName);
 
     expect(accountSession.closeAllConnections).toHaveBeenCalledOnce();
     expect(accountSession.clearStorageData).toHaveBeenCalledOnce();
     expect(accountSession.clearCache).toHaveBeenCalledOnce();
-    expect(electron.session.fromPartition).toHaveBeenCalledTimes(2);
+  });
+
+  /**
+   * 清空存储**不销毁 Session 对象**（Electron 没有销毁 API），handler 仍然挂着。
+   * 所以「已配置过」这个事实依旧成立，不该撤销标记 —— 撤了只会让下次重复装一遍。
+   */
+  it('清空存储后不重装安全 handler', async () => {
+    const factory = new SessionFactory(createLogger());
+    const partitionName = 'persist:xiaozhi:prod:douyin:retired';
+    factory.sessionForAccount(partitionName);
+    const accountSession = electron.sessions.get(partitionName) as {
+      setPermissionCheckHandler: ReturnType<typeof vi.fn>;
+    };
+
+    await factory.clearAccountSession(partitionName);
+    factory.sessionForAccount(partitionName);
+
+    expect(accountSession.setPermissionCheckHandler).toHaveBeenCalledOnce();
   });
 });

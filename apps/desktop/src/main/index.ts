@@ -36,6 +36,8 @@ function initializeApplication(): void {
   appScope = createAppScope(log);
   openMainWindow();
   log.info('Application initialization completed');
+  // 卫生工作，不挡启动路径：此刻还没有标签页占用任何 partition，是最安全的清理时机。
+  void appScope.cleanupPartitionsOnStartup();
 }
 
 // Handle creating/removing shortcuts on Windows when installing/uninstalling.

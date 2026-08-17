@@ -151,6 +151,56 @@ describe('SqliteOtaCredentialRepository', () => {
     expect(repository.findByPartitionName(created.partitionName)).toBeNull();
   });
 
+  it('删除 credential 时一并清掉它名下的 ota_hotel 行', () => {
+    const created = repository.create(input());
+    database
+      .prepare(
+        `INSERT INTO ota_hotel (id, credential_id, channel, ota_hotel_id, ota_hotel_name, bind_extra)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+      )
+      .run('hotel-1', created.id, 'douyin', '99887766', '测试酒店', null);
+
+    repository.deleteById(created.id);
+
+    expect(repository.findById(created.id)).toBeNull();
+    expect(
+      database
+        .prepare<[string], { count: number }>(
+          'SELECT COUNT(*) AS count FROM ota_hotel WHERE credential_id = ?',
+        )
+        .get(created.id)?.count,
+    ).toBe(0);
+  });
+
+  /**
+   * `ota_hotel.credential_id` 是 `ON DELETE RESTRICT`：不先清门店行就根本删不掉
+   * credential。这条锁住「顺序不能反」——反了会抛外键错，留下半截状态。
+   */
+  it('顺序正确：先门店后 credential，不被 RESTRICT 外键挡下', () => {
+    const created = repository.create(input());
+    database
+      .prepare(
+        `INSERT INTO ota_hotel (id, credential_id, channel, ota_hotel_id, ota_hotel_name, bind_extra)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+      )
+      .run('hotel-1', created.id, 'douyin', '99887766', '测试酒店', null);
+
+    expect(() => repository.deleteById(created.id)).not.toThrow();
+  });
+
+  it('删除后该 partition 可以被另一条 credential 重新占用', () => {
+    const first = repository.create(input());
+    repository.deleteById(first.id);
+
+    // UNIQUE 约束下这一步在删除前会失败；删干净了才腾得出位置。
+    const second = repository.create(
+      input({ id: toOtaCredentialId('credential-2'), channelAccountId: 'account-2' }),
+    );
+
+    expect(second.partitionName).toBe(first.partitionName);
+    expect(repository.findByPartitionName(first.partitionName)?.id).toBe(second.id);
+  });
+
   it('拒绝写入空白渠道账号 ID，并保留原记录', () => {
     const created = repository.create(input());
 

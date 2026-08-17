@@ -106,7 +106,7 @@ describe('HttpRmsOtaAccountGateway', () => {
       operationId: 'op-2',
       otaAccountId: 20,
       cookies: [{ domain: '.douyin.com', name: 'sid', value: 'v2' }],
-      bindExtra: { merchantGroupId: 'group-1', channelAccountId: 'acc-1' },
+      bindExtra: { channelAccountId: 'acc-1', channelAccountName: '云朵酒店' },
     });
 
     const [url, init] = fetch.mock.calls[0] ?? [];
@@ -116,9 +116,39 @@ describe('HttpRmsOtaAccountGateway', () => {
     const body = JSON.parse(String(init?.body));
     expect(body).not.toHaveProperty('hotelId');
     expect(body).not.toHaveProperty('otaHotelId');
-    // 远端整体替换 bindExtra，所以调用方合并好的整份要原样送达——少一个键，远端就
-    // 少一个键（正是 merchantGroupId 丢失的成因）。
-    expect(body.bindExtra).toEqual({ merchantGroupId: 'group-1', channelAccountId: 'acc-1' });
+    // 只发账号级字段。门店级的（merchantGroupId / otaPartnerId）在类型上就传不进来：
+    // 同一账号下每家门店取值可能不同，这个调用没确认门店，写进去会让 RPA 拿错参数。
+    expect(body.bindExtra).toEqual({ channelAccountId: 'acc-1', channelAccountName: '云朵酒店' });
+  });
+
+  /**
+   * 修复没有门店的绑定：同一个 PUT 端点，多送 otaHotelId / otaHotelName。
+   * 不能走 POST——远端按「酒店+渠道」占位，这条记录本身就占着位，一定被拒。
+   */
+  it('backfills the hotel through the same PUT endpoint', async () => {
+    const { gateway, fetch } = setup({
+      code: 0,
+      data: { id: 20, hotelId: 2, status: 'BOUND', source: 'ctrip' },
+    });
+
+    await gateway.backfillHotel({
+      operationId: 'op-3',
+      otaAccountId: 20,
+      otaHotelId: '105500259',
+      otaHotelName: 'Alan·银际酒店(九原区政府店)',
+      cookies: [{ domain: '.ctrip.com', name: 'sid', value: 'v3' }],
+      bindExtra: { channelAccountId: 'acc-1', merchantGroupId: 'group-1' },
+    });
+
+    const [url, init] = fetch.mock.calls[0] ?? [];
+    expect(url).toBe(`${ORIGIN}/api/v1/app/ota-accounts/20`);
+    expect(init?.method).toBe('PUT');
+    const body = JSON.parse(String(init?.body));
+    // 两字段成对送达——远端只传其一会 400，这里类型上就是必填。
+    expect(body.otaHotelId).toBe('105500259');
+    expect(body.otaHotelName).toBe('Alan·银际酒店(九原区政府店)');
+    // 门店由用户当场确认，所以门店级字段在这条路上可信、要一并写。
+    expect(body.bindExtra).toEqual({ channelAccountId: 'acc-1', merchantGroupId: 'group-1' });
   });
 
   it('omits bindExtra when reauthenticating without any bind context', async () => {

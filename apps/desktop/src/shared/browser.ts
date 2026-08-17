@@ -152,9 +152,21 @@ export const reauthOtaIntentSchema = z.strictObject({
   expectedChannelAccountId: nonEmptyStringSchema,
 });
 
+/**
+ * 按门店重认：RMS 后台绑定的老记录没有渠道账号标识，认不出该登录哪个账号，
+ * 只能反过来用「这个账号管不管得了这家门店」来核对。
+ */
+export const reauthByHotelIntentSchema = z.strictObject({
+  kind: z.literal('reauth-by-hotel'),
+  requestId: nonEmptyStringSchema,
+  expectedOtaHotelId: nonEmptyStringSchema,
+  otaAccountId: z.number().int().positive(),
+});
+
 export const otaTabIntentSchema = z.discriminatedUnion('kind', [
   bindHotelIntentSchema,
   reauthOtaIntentSchema,
+  reauthByHotelIntentSchema,
 ]);
 
 export type OtaTabIntentDto = Readonly<z.infer<typeof otaTabIntentSchema>>;
@@ -176,7 +188,8 @@ export const uiWaitingResultEnvelopeSchema = z.discriminatedUnion('kind', [
       z.strictObject({ ok: z.literal(true), credentialId: nonEmptyStringSchema }),
       z.strictObject({
         ok: z.literal(false),
-        reason: z.enum(['account-mismatch', 'identity-unavailable']),
+        reason: z.enum(['account-mismatch', 'identity-unavailable', 'hotel-mismatch']),
+        actualHotels: z.array(probedHotelSchema).optional(),
       }),
     ]),
   }),
@@ -194,7 +207,27 @@ export const confirmBindingInputSchema = z.strictObject({
 
 export type ConfirmBindingInput = Readonly<z.infer<typeof confirmBindingInputSchema>>;
 
-/** 重新登录收尾：只需要「改哪条绑定」与「用哪个凭证的 cookie」。 */
+/**
+ * 修复「没有门店」的历史绑定：把用户重新选定的门店补上。
+ *
+ * 与 `confirmBindingInput` 的差别是 `rmsHotelId` 换成 `otaAccountId` —— 那条路新建
+ * 一条绑定（要说明绑到哪家酒店），这条路更新既有记录（要说明改哪一条）。
+ */
+export const confirmBackfillHotelInputSchema = z.strictObject({
+  credentialId: nonEmptyStringSchema,
+  otaAccountId: z.number().int().positive(),
+  hotel: probedHotelSchema,
+});
+
+export type ConfirmBackfillHotelInput = Readonly<z.infer<typeof confirmBackfillHotelInputSchema>>;
+
+/**
+ * 重新登录收尾：只需要「改哪条绑定」与「用哪个凭证的 cookie」。
+ *
+ * 没有 `bindExtra` 参数：要补写的账号级身份由 service 层自己从凭证取
+ * （`withChannelAccount`），门店级参数则**一律不在这条路上写**——见
+ * `gateway/rms/types.ts` 的 `RmsChannelHotelFields`。
+ */
 export const confirmReauthInputSchema = z.strictObject({
   otaAccountId: z.number().int().positive(),
   credentialId: nonEmptyStringSchema,

@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { AmountChangeWatcher } from '../../../src/main/channels/amount-change-watcher';
 import type { AmountChangeAdapter } from '../../../src/main/channels/types';
 import { toChannelId } from '../../../src/main/ids';
+import type { OtaAmountChangeObserved } from '../../../src/shared/types/amount-change';
 
 const WATCHED_URL = 'https://life.douyin.com/p/travel-ari/hotel/price?poi_id=777&groupid=1';
 const OTHER_URL = 'https://life.douyin.com/p/home?groupid=1';
@@ -226,8 +227,9 @@ describe('AmountChangeWatcher', () => {
       Promise.resolve({ body: '{"BaseResp":{"StatusCode":0}}', base64Encoded: false }),
     );
     const report = vi.fn();
-    const parsed = {
+    const parsed: OtaAmountChangeObserved = {
       source: toChannelId('douyin'),
+      changeType: 'price',
       endpointId: 'save_amount_calendar',
       endpointUrl: 'https://life.douyin.com/life/trip/hotel/save_amount_calendar',
       otaHotelId: '777',

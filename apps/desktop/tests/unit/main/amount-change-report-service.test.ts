@@ -13,6 +13,7 @@ function createLogger() {
 
 const OBSERVED: OtaAmountChangeObserved = {
   source: toChannelId('douyin'),
+  changeType: 'price',
   endpointId: 'save_amount_calendar',
   endpointUrl: 'https://life.douyin.com/life/trip/hotel/save_amount_calendar',
   otaHotelId: '7245504927202543672',

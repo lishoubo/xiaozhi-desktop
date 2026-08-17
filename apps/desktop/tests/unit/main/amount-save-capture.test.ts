@@ -80,6 +80,7 @@ function createAdapter(overrides: Partial<AmountChangeAdapter> = {}): AmountChan
 function reportOf(observed: AmountSaveObserved): OtaAmountChangeObserved {
   return {
     source: toChannelId('douyin'),
+    changeType: 'price',
     endpointId: observed.endpointId,
     endpointUrl: observed.endpointUrl,
     otaHotelId: '',

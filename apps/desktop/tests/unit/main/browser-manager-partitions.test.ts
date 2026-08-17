@@ -80,7 +80,8 @@ function createSessionFactoryStub() {
     sessions.set(partitionName, created);
     return { session: created, partitionName };
   });
-  return { sessionForAccount, sessionForLogin, sessions };
+  const clearAccountSession = vi.fn(async () => {});
+  return { sessionForAccount, sessionForLogin, sessions, clearAccountSession };
 }
 
 beforeEach(() => {
@@ -160,6 +161,104 @@ describe('BrowserManager — partition-aware tab creation', () => {
     expect(tabSession?.cookies.set).toHaveBeenCalledTimes(2);
     expect(tabSession?.cookies.set).toHaveBeenCalledWith(importedCookies[0]);
     expect(tabSession?.cookies.set).toHaveBeenCalledWith(importedCookies[1]);
+  });
+});
+
+/**
+ * 退休 = 「这份登录态已经被另一份替换掉了」。清空它的存储是不可逆的，因此下手前
+ * 必须确认没人还在用它 —— 真机上这里出过事故：连续绑定多个美团账号后，5 个
+ * credential 指向的 partition 被清空，用户点账号只能看到登录页。
+ */
+describe('BrowserManager — 退休 partition 的清理守卫', () => {
+  const CLAIMED = 'persist:xiaozhi:prod:meituan:claimed';
+  const ORPHAN = 'persist:xiaozhi:prod:meituan:orphan';
+
+  function createManager(claimed: readonly string[] = []) {
+    const sessionFactory = createSessionFactoryStub();
+    const logger = createLogger();
+    const manager = new BrowserManager(createWindow() as never, logger, sessionFactory as never, {
+      isPartitionClaimed: (name: string) => claimed.includes(name),
+    });
+    return { manager, sessionFactory, logger };
+  }
+
+  it('无人引用的退休 partition 正常清理', async () => {
+    const { manager, sessionFactory } = createManager();
+
+    await manager.retirePartition(ORPHAN);
+
+    expect(sessionFactory.clearAccountSession).toHaveBeenCalledWith(ORPHAN);
+  });
+
+  /**
+   * 🔴 事故本体：credential 已经指向这个 partition，说明它是某个账号**当前**的
+   * 登录态，退休标记本身就是错的。清了 = 用户掉登录。
+   */
+  it('仍被 credential 引用的 partition 绝不清理', async () => {
+    const { manager, sessionFactory, logger } = createManager([CLAIMED]);
+
+    await manager.retirePartition(CLAIMED);
+
+    expect(sessionFactory.clearAccountSession).not.toHaveBeenCalled();
+    expect(logger.warn).toHaveBeenCalledWith(
+      expect.stringContaining('claimed'),
+      expect.anything(),
+    );
+  });
+
+  /**
+   * 撤销标记而不是留着：留着的话它会被之后**每一次** close() 反复重扫，
+   * 一旦某刻 credential 短暂不指向它（例如归并中途），就会被清掉。
+   */
+  it('被认领而取消退休后，后续关闭标签页不会再尝试清理它', async () => {
+    const { manager, sessionFactory } = createManager([CLAIMED]);
+    await manager.retirePartition(CLAIMED);
+
+    const tab = manager.createWithAlreadyPartition(CLAIMED, 'meituan', 'https://a.example/');
+    manager.close(tab.id);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(sessionFactory.clearAccountSession).not.toHaveBeenCalled();
+  });
+
+  /** 有标签页正在用就先不清，等它关闭；此时退休标记要保留（与「被认领」不同）。 */
+  it('仍有标签页占用时延迟清理，标签页关闭后补清', async () => {
+    const { manager, sessionFactory } = createManager();
+    const tab = manager.createWithAlreadyPartition(ORPHAN, 'meituan', 'https://a.example/');
+
+    await manager.retirePartition(ORPHAN);
+    expect(sessionFactory.clearAccountSession).not.toHaveBeenCalled();
+
+    manager.close(tab.id);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(sessionFactory.clearAccountSession).toHaveBeenCalledWith(ORPHAN);
+  });
+
+  /**
+   * close() 只该重试**本次关闭的 tab 自己的** partition。原实现遍历整个退休集合，
+   * 于是「关掉 A 的标签页」会顺带清掉集合里毫不相干的 B —— 事故的放大器。
+   */
+  it('close 只重试本 tab 的 partition，不牵连集合里其他条目', async () => {
+    const { manager, sessionFactory } = createManager();
+    const other = 'persist:xiaozhi:prod:meituan:other';
+
+    // other 退休时有标签页占用 → 留在集合里
+    const otherTab = manager.createWithAlreadyPartition(other, 'meituan', 'https://o.example/');
+    await manager.retirePartition(other);
+    expect(sessionFactory.clearAccountSession).not.toHaveBeenCalled();
+
+    // 关掉与 other 无关的另一个 tab
+    const unrelated = manager.createWithAlreadyPartition(ORPHAN, 'meituan', 'https://u.example/');
+    manager.close(unrelated.id);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    // other 仍有标签页占用，不该被这次关闭波及
+    expect(sessionFactory.clearAccountSession).not.toHaveBeenCalledWith(other);
+    manager.close(otherTab.id);
   });
 });
 

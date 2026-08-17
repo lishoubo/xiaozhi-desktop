@@ -10,6 +10,7 @@ import type { JsonObject, JsonValue } from '../../../shared/types/json';
 import { createRmsOtaAccount, type RmsOtaAccount } from '../../../shared/types/rms-ota-account';
 import { createRmsApiCall, type RmsApiCall, type RmsApiCallerDependencies } from './rms-api-call';
 import type {
+  RmsOtaAccountBackfillHotelInput,
   RmsOtaAccountBindInput,
   RmsOtaAccountGateway,
   RmsOtaAccountReauthInput,
@@ -103,6 +104,28 @@ export class HttpRmsOtaAccountGateway implements RmsOtaAccountGateway {
       {
         operationId: input.operationId,
         cookies: input.cookies,
+        ...(input.bindExtra === null ? {} : { bindExtra: input.bindExtra }),
+      },
+    );
+    return toRmsOtaAccount(otaAccountSchema.parse(data));
+  }
+
+  /**
+   * 补写门店：与 `reauthenticate` 同一端点，多送 `otaHotelId` / `otaHotelName`。
+   *
+   * 服务端只补不改——库里已有门店且与传入值不同会 400；已有且相同则幂等通过。
+   * 两字段在类型上已是必填，不会出现服务端那条「只传其一」的 400。
+   */
+  async backfillHotel(input: RmsOtaAccountBackfillHotelInput): Promise<RmsOtaAccount> {
+    const data = await this.call(
+      'backfillHotel',
+      'PUT',
+      `/api/v1/app/ota-accounts/${input.otaAccountId}`,
+      {
+        operationId: input.operationId,
+        cookies: input.cookies,
+        otaHotelId: input.otaHotelId,
+        otaHotelName: input.otaHotelName,
         ...(input.bindExtra === null ? {} : { bindExtra: input.bindExtra }),
       },
     );

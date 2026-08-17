@@ -18,20 +18,21 @@ import { createHandlerRegistry, type TrustedWindow } from './create-handler-regi
 
 /** handler 声明自己需要什么，由 `OtaTabService` 满足；不 import 实现类。 */
 export interface OtaTabOrchestrator {
-  open(
+  openForNewLogin(
     environment: PendingPartition['environment'],
     channel: ChannelId,
     url: string,
     intent?: OtaTabIntent,
   ): Promise<BrowserTab>;
-  createFromCookie(
+  openWithImportedCookie(
     environment: PendingPartition['environment'],
     channel: ChannelId,
     url: string,
     intent?: OtaTabIntent,
   ): Promise<BrowserTab>;
   openExisting(credentialId: string, intent?: OtaTabIntent): BrowserTab;
-  openExistingInFreshPartition(
+  /** 开一份新 partition 并注入原账号 cookie（为什么必须新建见 `OtaTabService`）。 */
+  openExistingForBinding(
     environment: PendingPartition['environment'],
     credentialId: string,
     intent?: OtaTabIntent,
@@ -57,7 +58,7 @@ export function registerOtaTabHandlers({
     z.tuple([startLoginInputSchema, otaTabIntentSchema.nullish().default(null)]),
     '登录参数无效',
     ({ channelId, environment, url }, intent) =>
-      service.open(environment, toChannelId(channelId), url, intent ?? undefined),
+      service.openForNewLogin(environment, toChannelId(channelId), url, intent ?? undefined),
   );
   registry.handle(
     IPC_CHANNELS.otaTab.openWithImportedCookie,
@@ -65,7 +66,7 @@ export function registerOtaTabHandlers({
     z.tuple([startLoginInputSchema, otaTabIntentSchema.nullish().default(null)]),
     '登录参数无效',
     ({ channelId, environment, url }, intent) =>
-      service.createFromCookie(environment, toChannelId(channelId), url, intent ?? undefined),
+      service.openWithImportedCookie(environment, toChannelId(channelId), url, intent ?? undefined),
   );
   registry.handle(
     IPC_CHANNELS.otaTab.openExisting,
@@ -76,11 +77,11 @@ export function registerOtaTabHandlers({
     (credentialId, intent) => service.openExisting(credentialId, intent ?? undefined),
   );
   registry.handle(
-    IPC_CHANNELS.otaTab.openExistingInFreshPartition,
+    IPC_CHANNELS.otaTab.openExistingForBinding,
     z.tuple([otaCredentialIdSchema, otaTabIntentSchema.nullish().default(null)]),
     '登录凭据标识无效',
     (credentialId, intent) =>
-      service.openExistingInFreshPartition('prod', credentialId, intent ?? undefined),
+      service.openExistingForBinding('prod', credentialId, intent ?? undefined),
   );
 
   return () => registry.dispose();

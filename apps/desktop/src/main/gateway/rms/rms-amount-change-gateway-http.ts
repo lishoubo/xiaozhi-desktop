@@ -65,6 +65,7 @@ export class HttpRmsAmountChangeGateway implements RmsAmountChangeGateway {
       loginUserName: report.loginUserName,
       source: report.source,
       endpointUrl: report.endpointUrl,
+      changeType: report.changeType,
       endpointId: report.endpointId,
       otaHotelId: report.otaHotelId,
       channelAccountId: report.channelAccountId,
@@ -76,6 +77,7 @@ export class HttpRmsAmountChangeGateway implements RmsAmountChangeGateway {
     const data = await this.call('reportAmountChange', 'POST', '/api/v1/app/ota-changes', {
       operationId: report.operationId,
       source: report.source,
+      changeType: report.changeType,
       endpointId: report.endpointId,
       endpointUrl: report.endpointUrl,
       otaHotelId: report.otaHotelId,
@@ -91,6 +93,7 @@ export class HttpRmsAmountChangeGateway implements RmsAmountChangeGateway {
     this.deps.logger.info('Amount change reported to RMS', {
       operationId: report.operationId,
       source: report.source,
+      changeType: report.changeType,
       endpointId: report.endpointId,
       rmsChangeId: parsed.success ? (parsed.data.id ?? null) : null,
       rmsStatus: parsed.success ? (parsed.data.status ?? null) : null,

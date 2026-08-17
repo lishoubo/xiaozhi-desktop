@@ -40,6 +40,15 @@ export function paginate<T>(
   };
 }
 
+/**
+ * 占着「该酒店 + 该渠道」绑定位的渠道集合 —— 新增绑定时要把它们排除掉。
+ *
+ * ⚠️ **没有 `otaHotelId` 的脏记录照样占位**，别想着放行它。远端的判据只看
+ * 「酒店 + 渠道」，既不看门店也不看 status（`AppOtaBindAppService.findActiveBinding`），
+ * 本地放宽只会让用户一路走到提交那步才被远端拒 —— 比一开始就不给入口更糟。
+ * 这类记录的修复要等服务端支持在 PUT 上补写门店，见
+ * `openspec/changes/reauth-intent-and-legacy-binding/rms-server-需求-补全无门店绑定.md`。
+ */
 export function boundChannelsOfHotel(accounts: readonly RmsOtaAccountDto[]): ReadonlySet<string> {
   return new Set(
     accounts.filter((account) => isActiveBinding(account.status)).map((account) => account.source),
@@ -65,7 +74,7 @@ export function groupOtaAccountsByHotelId(
  * 用户能在客户端自己完成的动作。只有「重新登录」一种——初始化失败、酒店不匹配
  * 这类状态刷 cookie 解决不了，一律指向管理员而不给自助入口。
  */
-export type OtaAccountAction = 'login';
+export type OtaAccountAction = 'login' | 'backfill-hotel';
 export type OtaAccountTone = 'healthy' | 'warning' | 'progress' | 'error' | 'neutral';
 
 export type OtaAccountPresentation = Readonly<{
@@ -118,15 +127,49 @@ const BINDING_ERROR_PRESENTATION: OtaAccountPresentation = {
 };
 
 /**
- * 绑定状态 → 展示。按用户能做什么分三档，而不是逐个映射服务端的九个取值：
+ * 绑定不完整：远端记录在，却没有 OTA 门店。
  *
+ * 这时说什么「登录已失效」都是错的 —— 一条没有门店的绑定压根没建成，重新登录也
+ * 无从恢复（两个核对锚点都没有：既不知道账号，也不知道门店）。唯一的出路是重新
+ * 走一遍绑定，或者解绑掉这条脏记录。
+ */
+const INCOMPLETE_BINDING_PRESENTATION: OtaAccountPresentation = {
+  label: '未绑定成功',
+  // 修复走 `backfill-hotel`：前半段与绑定一致（登录、探测、用户选门店），后半段
+  // 调 `PUT /ota-accounts/{id}` 把门店补上，**不必解绑**。不能走新增绑定——远端按
+  // 「酒店+渠道」占位，这条记录本身就占着位，POST 一定被拒。
+  description: '这条绑定没有关联到门店，重新选择门店即可修复',
+  tone: 'error',
+  action: 'backfill-hotel',
+};
+
+/**
+ * 绑定状态 → 展示。按用户能做什么分档，而不是逐个映射服务端的九个取值：
+ *
+ * - 没有 `otaHotelId` —— 绑定不完整，给重新绑定入口（**优先于 status 判断**）
  * - `BOUND` —— 可用
  * - `LOGIN_FAILED` / `LOGIN_EXPIRED` / `UNBOUND` —— 给重新登录入口
  * - 其余（含 `PENDING_LOGIN`、初始化失败三兄弟、未知取值）—— 提示联系管理员
  *
+ * ⚠️ **门店判断必须排在 status 之前**：远端的 status 只描述登录态，不表达「这条
+ * 绑定完不完整」。一条 `LOGIN_EXPIRED` 却没有门店的记录，远端说的是「登录过期」，
+ * 但用户按登录去修永远修不好 —— 正确的答案是重新绑定。
+ *
  * 服务端取值清单见 `AppOtaAccountResponse` 的 `STATUS_*` 常量。
  */
-export function getOtaAccountPresentation(status: string): OtaAccountPresentation {
+export function getOtaAccountPresentation(
+  status: string,
+  /**
+   * 缺省 `undefined` = **调用方没提供门店信息**，按 status 正常判断；显式传 null
+   * 或空串才是「这条绑定没有门店」。两者必须分开：默认成「没有门店」会让所有只传
+   * status 的调用方（含既有测试）一律显示「未绑定成功」。
+   */
+  otaHotelId?: string | null,
+): OtaAccountPresentation {
+  // 正常绑定一定有 otaHotelId（已与用户确认）；显式为空即脏数据。
+  if (otaHotelId !== undefined && (otaHotelId === null || otaHotelId.trim() === '')) {
+    return INCOMPLETE_BINDING_PRESENTATION;
+  }
   if (status === 'BOUND') return BOUND_PRESENTATION;
 
   const recoverable = RECOVERABLE_BY_LOGIN[status];

@@ -172,8 +172,9 @@ describe('LoginDetector', () => {
     expect(checked).toEqual([expect.objectContaining({ outcome: { kind: 'not-yet-past-login' } })]);
   });
 
-  it('命中一次后再次导航不重复触发 discovery', async () => {
+  it('探测成功后再次导航不重复触发 discovery', async () => {
     const { detector, triggerDiscovery, navigate } = setup();
+    triggerDiscovery.mockResolvedValue({ id: 'cred-1' });
 
     detector.register('tab-1', CTRIP);
     navigate('https://ebooking.ctrip.com/home');
@@ -182,6 +183,65 @@ describe('LoginDetector', () => {
     await flush();
 
     expect(triggerDiscovery).toHaveBeenCalledOnce();
+  });
+
+  /**
+   * 回归：探测失败（返回 null）不能把这个 tab 判死。
+   *
+   * 原实现在**进入** triggerDiscovery 之前就 `triggered.add(tabId)` 且失败不移除，
+   * 于是一次失败之后该 tab 内的任何后续导航都直接走 not-applicable，用户刷新也没用，
+   * 必须关掉标签页重开。抖音探测有轮询超时、页面慢一点就返回 null，这条路很常走。
+   */
+  it('探测失败后同一 tab 再次导航会重新触发 discovery', async () => {
+    const { detector, triggerDiscovery, navigate } = setup();
+
+    detector.register('tab-1', CTRIP);
+    navigate('https://ebooking.ctrip.com/home');
+    await flush();
+    expect(triggerDiscovery).toHaveBeenCalledOnce();
+
+    navigate('https://ebooking.ctrip.com/home?again=1');
+    await flush();
+
+    expect(triggerDiscovery).toHaveBeenCalledTimes(2);
+  });
+
+  /**
+   * 失败可重试**不等于**可并发：同一 tab 上一次探测还没落定时又来一次导航，
+   * 不能叠第二次探测。这里锁的是 tab 维度的门；partition 维度的并发保护在
+   * `OtaCredentialService.inflight`，两者分工见 login-detector.ts 注释。
+   */
+  it('探测进行中再次导航不叠加第二次 discovery', async () => {
+    const browserManager = createBrowserManagerStub();
+    const tabEventBus = new TabEventBus();
+    let pendingCount = 0;
+    const triggerDiscovery = vi.fn(async () => {
+      pendingCount += 1;
+      await new Promise<void>((resolve) => setTimeout(resolve, 0));
+      return null;
+    });
+    const detector = new LoginDetector({
+      browserManager: browserManager as never,
+      tabEventBus,
+      loginUrlMatchers: new Map([[CTRIP, { channel: CTRIP, isPastLogin: () => true }]]),
+      triggerDiscovery,
+    });
+
+    detector.register('tab-1', CTRIP);
+    const navigate = (url: string) =>
+      browserManager.emit('tab:navigated', {
+        tabId: 'tab-1',
+        partitionName: 'p',
+        channelId: CTRIP,
+        url,
+        webContents: {} as never,
+      });
+
+    navigate('https://ebooking.ctrip.com/home');
+    navigate('https://ebooking.ctrip.com/home?again=1');
+    await flush();
+
+    expect(pendingCount).toBe(1);
   });
 
   it('渠道未注册 matcher 时不参与判定，广播 not-applicable', async () => {

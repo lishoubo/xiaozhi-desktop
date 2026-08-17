@@ -10,8 +10,12 @@ import { toOtaCredentialId, type ChannelId } from '../ids';
 import type { OtaCredentialRepository } from '../database/ota-credential-repository';
 import { otaChannelLandingUrl } from '../channels/landing-url';
 import type { BrowserTab } from '../../shared/browser';
+import type { AppLogger } from '../../shared/logging';
 import { readImportedCookies } from '../cookie-import/store';
-import { addPendingPartition, type PendingPartition } from '../file-store/pending-partitions-store';
+import {
+  recordPartitionCreated,
+  type PendingPartition,
+} from '../file-store/partition-ledger';
 import type { LoginDetector } from './login-detector';
 import type { OtaTabIntent } from './intent';
 
@@ -33,6 +37,7 @@ export type OtaTabServiceDependencies = Readonly<{
    * `SessionFactory.readInjectableCookies`——本层不得 import `browser/`。
    */
   readInjectableCookies: (partitionName: string) => Promise<readonly CookiesSetDetails[]>;
+  logger: AppLogger;
 }>;
 
 export class OtaTabService {
@@ -45,7 +50,7 @@ export class OtaTabService {
    * 「新登录账号」快捷方式带 `bind-hotel` 意图走这条路：新账号可操作的门店未知，
    * 登录成功后必须探测并让用户确认。
    */
-  async open(
+  async openForNewLogin(
     environment: PendingPartition['environment'],
     channel: ChannelId,
     url: string,
@@ -71,7 +76,7 @@ export class OtaTabService {
    * 登录判定，却永远不探测门店——绑定流程走这条路就会卡在「登录成功了但没有候选
    * 可选」。三个开口都收 intent，这一层才真正与渠道无关。
    */
-  async createFromCookie(
+  async openWithImportedCookie(
     environment: PendingPartition['environment'],
     channel: ChannelId,
     url: string,
@@ -92,33 +97,39 @@ export class OtaTabService {
   }
 
   /**
-   * 打开已有账号（流程B）。`intent` 说明"这次打开是为了做什么"：带上它，登录
-   * 判定完成后才会探测酒店并把候选通知到 UI；不带则只开 tab 并做判定，不探测。
-   * intent 由 `LoginDetector` 保管（挂在 tab 记录上，随 tab 关闭一起消失），
-   * 并随 `tab:credential-checked` 广播带给下游。
+   * 「用这个账号走一次绑定」——绑定流程专用。开**一份新的 partition**，把账号原有
+   * 的 cookie 注入进去。
+   *
+   * ## 为什么必须新建，而不是复用原 partition
+   *
+   * 绑定要求用户**这一次**重新选门店（一个抖音账号可管多家）。复用原 partition
+   * 打开 `/p/login` 会直接落到上次那家门店，用户没有选择机会。
+   *
+   * 2026-08-14 用 CDP 逐层排查过，**本地存储不是原因**，三条路全部实测无效：
+   *
+   * | 试过的做法 | 实测结果 |
+   * |---|---|
+   * | 删 localStorage 的 `core:PoiSwitch:*` 键 | ❌ 日志确认删掉了（`removedCount: 1`），页面照样跳。该键是页面落地后**抄下来的结果**，不是原因 |
+   * | 清 Service Worker（`clearStorageData` 与 `clearData` 两种 API 都试过） | ❌ 用 `Network.setBypassServiceWorker` 绕开 SW 后照样跳 —— SW 只是缓存了本来就会发生的跳转 |
+   * | 拦掉页面自身的跳转，停在 `/p/login` | ❌ 停住后该页无可见内容，它只是中转页，选公司页不在这个地址上 |
+   *
+   * 真正的原因在**服务端**：`/p/login` 的页面脚本先调 `/passport/account/info/v2/`，
+   * 从响应里拿到「这个会话上次用的 life_account_id」，然后自己跳过去（CDP 实测
+   * `reason=scriptInitiated`，全程 HTTP 200 无 302）。这份记忆绑在登录会话上，
+   * 清任何本地存储都动不了它。
+   *
+   * 新建 partition 之所以有效：注入的 cookie 与原会话并不完全等价
+   * （`readInjectableCookies` 搬不动 session cookie 等），抖音因此不认得「上次那家」，
+   * 只好重新问。**它是靠这个差异生效的**，不是我们主动控制的机制 —— 抖音若改了判定，
+   * 这条路会再次失效；届时请从上面的排查结论重新找入口，**不要再试一遍那三条**。
+   *
+   * ## 代价与它的归宿
+   *
+   * 每次绑定留下一份新 partition。`e977c06` 当年记的是「已知代价，partition 生命周期
+   * 治理另行处理」——那件事已经做完：这里创建的 partition 会登记进 `partitions.json`
+   * 账本（`pending`），认领后转 `claimed`，没被认领的由启动清理当孤儿回收。
    */
-  /**
-   * 打开已有账号，但**换一份干净的 partition**——绑定流程专用。
-   *
-   * 与 `openExisting` 的差别只有一处：那边复用账号原有的 partition，这边新开一份
-   * 并把原 partition 的 cookie 注入进去。原因在渠道行为而非我们的偏好：
-   *
-   * ```
-   * 复用 partition → localStorage 里留着「上次选的是哪个 group」
-   *                → 抖音直接跳过选公司页，落到上次那个门店的首页
-   *                → 用户没有机会选这次要绑的门店
-   *
-   * 全新 partition → 没有任何选择记录，抖音必须重新问一次
-   *                → 停在选公司页（与「导入 Cookie 首次登录」完全同一条路）
-   * ```
-   *
-   * 只带 cookie、不带 localStorage，正是要点：cookie 是登录态（要保住），
-   * localStorage 才是那条挡路的选择记录（要丢掉）。
-   *
-   * 代价是每次绑定都会留下一份新 partition。已知，暂时接受——partition 的生命周期
-   * 治理是另一件事。
-   */
-  async openExistingInFreshPartition(
+  async openExistingForBinding(
     environment: PendingPartition['environment'],
     credentialId: string,
     intent?: OtaTabIntent,
@@ -134,6 +145,7 @@ export class OtaTabService {
       { importedCookies: cookies },
     );
     this.deps.loginDetector.register(tab.id, credential.channel, intent);
+    // 登记进账本：这正是 e977c06 当年欠下、本轮补上的那一环。
     await this.rememberPendingPartition(partitionName, credential.channel, environment);
     return tab;
   }
@@ -151,12 +163,13 @@ export class OtaTabService {
     return tab;
   }
 
+  /** 登记进账本，状态 pending —— 探测成功后由 credential 侧改成 claimed。 */
   private rememberPendingPartition(
     partitionName: string,
     channel: ChannelId,
     environment: PendingPartition['environment'],
   ): Promise<void> {
-    return addPendingPartition(this.deps.userDataDir, {
+    return recordPartitionCreated(this.deps.userDataDir, {
       partitionName,
       channel,
       environment,

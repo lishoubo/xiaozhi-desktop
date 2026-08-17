@@ -31,7 +31,8 @@ export type DiscoverAndCreateDependencies = Readonly<{
   discoverMeituan: DiscoverMeituan;
   credentialRepository: OtaCredentialRepository;
   generateCredentialId: () => string;
-  removePendingPartition: (partitionName: string) => Promise<void>;
+  /** 探测成功后把 partition 在账本里标记为「已被这条 credential 认领」。 */
+  markPartitionClaimed: (partitionName: string, credentialId: string) => Promise<void>;
   onCredentialPartitionReplaced?: (
     previousPartitionName: string,
     nextPartitionName: string,
@@ -82,12 +83,6 @@ export class OtaCredentialService {
         const result = await this.deps.discoverCtrip(partitionName, landingUrl, webContents);
         this.deps.logger.info('Ctrip discovery outcome', { kind: result.kind });
         if (result.kind === 'none') return null;
-        if (result.kind === 'multiple') {
-          this.deps.logger.info('Ctrip discovery found multiple hotels, awaiting user selection', {
-            count: result.hotels.length,
-          });
-          return null;
-        }
         const credential = await this.persistIdentifiedResult(
           partitionName,
           channel,
@@ -158,8 +153,20 @@ export class OtaCredentialService {
       if (identified.channel !== channel) {
         throw new Error('渠道账号身份对应 credential 的渠道不一致');
       }
+      // 用户在渠道后台**直接切换了账号**（携程/美团都支持），partition 没变：
+      // `existing` 是这份登录态原来的主人，`identified` 是刚登进来的那个账号。
+      //
+      // 此前这里是一句 throw，被 `trigger` 的 catch 吞成一行 warn —— 用户看到
+      // 「切了账号但没反应」，整条归并链路静默失败。
+      //
+      // 现在让新账号接管：旧账号交出 partition 后就没有任何可用登录态了
+      // （UNIQUE 约束下一份 partition 只属于一条 credential），留着它只会在账号
+      // 列表里当一个「点了就打开别人页面」的错误选项，所以直接清理。
       if (existing) {
-        throw new Error('新 partition 已关联另一条 credential，无法替换渠道账号登录态');
+        this.deps.credentialRepository.deleteById(existing.id);
+        this.deps.logger.info('Displaced credential removed after in-place account switch', {
+          channel,
+        });
       }
       replacedPartitionName = identified.partitionName;
       credential = this.deps.credentialRepository.updatePartitionAndIdentity(identified.id, {
@@ -192,7 +199,7 @@ export class OtaCredentialService {
       });
     }
 
-    await this.deps.removePendingPartition(partitionName);
+    await this.deps.markPartitionClaimed(partitionName, credential.id);
     if (replacedPartitionName && replacedPartitionName !== partitionName) {
       try {
         await this.deps.onCredentialPartitionReplaced?.(replacedPartitionName, partitionName);

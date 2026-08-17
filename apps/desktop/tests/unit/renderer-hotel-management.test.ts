@@ -46,6 +46,38 @@ describe('hotel management OTA account presentation', () => {
     },
   );
 
+  /**
+   * 远端的 status 只描述登录态，不表达「这条绑定完不完整」。一条没有门店的记录哪怕
+   * 远端说 LOGIN_EXPIRED，按登录去修也永远修不好——两个核对锚点都没有。
+   */
+  it.each([null, '', '   '])(
+    'treats a binding without an OTA hotel as incomplete rather than a login problem (%p)',
+    (otaHotelId) => {
+      expect(getOtaAccountPresentation('LOGIN_EXPIRED', otaHotelId)).toMatchObject({
+        label: '未绑定成功',
+        // 修复走补写门店（PUT），不是新增绑定（POST 会被「已存在活跃绑定」拒），
+        // 也不必先解绑。
+        action: 'backfill-hotel',
+      });
+    },
+  );
+
+  /** 门店判断优先于 status：连 BOUND 都不能盖过「没有门店」。 */
+  it('lets the missing hotel win over a BOUND status', () => {
+    expect(getOtaAccountPresentation('BOUND', null).label).toBe('未绑定成功');
+  });
+
+  /** 有门店时一切照旧——门店判断不能反过来影响正常记录。 */
+  it('keeps the status-based presentation when the hotel is present', () => {
+    expect(getOtaAccountPresentation('LOGIN_EXPIRED', 'hotel-1').action).toBe('login');
+    expect(getOtaAccountPresentation('BOUND', 'hotel-1').action).toBeNull();
+  });
+
+  /** 不传门店 = 调用方没提供这项信息，不等于「没有门店」。 */
+  it('does not treat an omitted hotel argument as a missing hotel', () => {
+    expect(getOtaAccountPresentation('BOUND').label).toBe('绑定成功');
+  });
+
   it('treats a server-added status as a binding error rather than a silent unknown', () => {
     // 新状态多半也是异常，与其显示"状态待确认"让用户干等，不如指向管理员。
     expect(getOtaAccountPresentation('SERVER_ADDED_STATUS')).toMatchObject({

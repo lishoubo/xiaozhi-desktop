@@ -9,25 +9,44 @@ const SERVER_API_PARTITION = 'persist:xiaozhi:server-api';
 const RMS_API_PARTITION = 'persist:xiaozhi:rms-api';
 
 /**
- * 把 partition 名字兑换成 Electron 的 `Session`。
+ * 把 partition 名字兑换成 Electron 的 `Session`，并保证它的安全配置已就位。
  *
  * **这是全仓库唯一允许出现 partition 字符串的地方**（命名规则本身在
- * `browser/partition.ts`，那里可以裸测；这里只负责拿对象）。
+ * `browser/partition.ts`，那里可以裸测；这里负责拿对象 + 装安全 handler）。
  * 其他任何文件都不得调用 `session.fromPartition()` 或手工拼接 partition 名。
+ *
+ * ⚠️ 本类**不管理 Session 的生命周期**——Electron 全局持有 Session、且不提供销毁
+ * API，我们能做的只有 `clearAccountSession()` 清空其存储内容。partition 目录本身
+ * 永远留在磁盘上。
  */
 export class SessionFactory {
-  private readonly cache = new Map<string, Session>();
+  /**
+   * 已经装过安全 handler 的 partition。
+   *
+   * **不是对象池**：`session.fromPartition()` 对同名永远返回同一个 Session，
+   * 对象由 Electron 全局持有，缓存它没有意义（此前这里是 `Map<string, Session>`，
+   * 类型上像个池子，读代码的人会以为它管着 Session 的生命周期）。
+   *
+   * 它的唯一职责是幂等：`denyEmbeddedPagePermissions` 用的两个 setter 是**覆盖式**
+   * 的，同一个 Session 上装第二遍会替换掉第一遍。虽然两次装的是同一个「全部拒绝」、
+   * 重复无害，但「已配置过就别再配」本身是有意义的约束。
+   *
+   * **不需要淘汰**：一旦装过，这个事实在整个进程生命周期内都为真（Session 对象
+   * 不会被销毁，handler 一直挂着）。条目只增不减是正确行为，不是泄漏 —— 它只占
+   * 一个字符串，真正的 Session 对象无论如何都在 Electron 手里。
+   */
+  private readonly configuredPartitions = new Set<string>();
 
   constructor(private readonly logger: AppLogger) {}
 
   /** 已有 credential：直接用它的 `partitionName`，不重新拼接。 */
   sessionForAccount(partitionName: string): Session {
-    return this.fromPartitionCached(partitionName);
+    return this.configuredSession(partitionName);
   }
 
   /** Desktop backend API cookie jar, isolated from every OTA browsing session. */
   sessionForServerApi(): Session {
-    return this.fromPartitionCached(SERVER_API_PARTITION);
+    return this.configuredSession(SERVER_API_PARTITION);
   }
 
   /**
@@ -37,7 +56,7 @@ export class SessionFactory {
    * 单独给它一个 jar 存着，后续接酒店上下文时不用再改这里。
    */
   sessionForRmsApi(): Session {
-    return this.fromPartitionCached(RMS_API_PARTITION);
+    return this.configuredSession(RMS_API_PARTITION);
   }
 
   /**
@@ -52,7 +71,7 @@ export class SessionFactory {
     const shortId = randomUUID().slice(0, 8);
     const partitionName = toPartitionName(environment, channel, shortId);
     this.logger.info('Login session created', { channel, environment });
-    return { session: this.fromPartitionCached(partitionName), partitionName };
+    return { session: this.configuredSession(partitionName), partitionName };
   }
 
   /**
@@ -66,7 +85,7 @@ export class SessionFactory {
    * domain 通配写法，不属于主机名，拼 URL 前要去掉。
    */
   async readInjectableCookies(partitionName: string): Promise<readonly CookiesSetDetails[]> {
-    const accountSession = this.fromPartitionCached(partitionName);
+    const accountSession = this.configuredSession(partitionName);
     const cookies = await accountSession.cookies.get({});
     return cookies.map((cookie) => {
       const host = cookie.domain?.replace(/^\./, '') ?? '';
@@ -90,20 +109,27 @@ export class SessionFactory {
    * 只通过公开 Session API 清理登录数据和缓存。
    */
   async clearAccountSession(partitionName: string): Promise<void> {
-    const accountSession = this.fromPartitionCached(partitionName);
+    const accountSession = this.configuredSession(partitionName);
     await accountSession.closeAllConnections();
     await accountSession.clearStorageData();
     await accountSession.clearCache();
-    this.cache.delete(partitionName);
+    // 刻意**不**从 configuredPartitions 移除：清空存储不销毁 Session 对象
+    // （Electron 没有销毁 API），安全 handler 仍然挂着。撤销标记只会让下次访问
+    // 重复装一遍 handler。
   }
 
-  private fromPartitionCached(partition: string): Session {
-    const cached = this.cache.get(partition);
-    if (cached) return cached;
+  /**
+   * 拿到 Session，并保证它的安全 handler 已装好（只装一次）。
+   *
+   * 「拿对象」这件事本身不需要我们缓存 —— Electron 保证同名同对象。这里做的是
+   * 「首次见到这个 partition 时补上安全配置」。
+   */
+  private configuredSession(partition: string): Session {
+    const target = session.fromPartition(partition);
+    if (this.configuredPartitions.has(partition)) return target;
 
-    const created = session.fromPartition(partition);
-    denyEmbeddedPagePermissions(created);
-    this.cache.set(partition, created);
-    return created;
+    denyEmbeddedPagePermissions(target);
+    this.configuredPartitions.add(partition);
+    return target;
   }
 }

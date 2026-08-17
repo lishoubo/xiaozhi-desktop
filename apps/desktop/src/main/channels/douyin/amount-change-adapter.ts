@@ -130,6 +130,11 @@ function productIdsOf(requestBody: JsonObject): readonly string[] {
  * `103810209 限价规则：发布的【2026-05-28】商品的价格不能低于9元` —— 这种「用户点了保存
  * 但抖音拒绝了」的情况必须判为失败，否则会让 RMS 按一个不存在的价格去跟价。
  */
+/*
+ * 不收 `endpointId` 形参：抖音两个端点（改价、房态房量）的响应信封同构，都是
+ * `BaseResp.StatusCode`，无需按端点分支。函数少一个形参与接口结构兼容，不必为对齐签名
+ * 而加一个用不上的参数。（携程那边三个端点形状两两不同，才真的需要它。）
+ */
 function isDouyinSaveSuccessful(responseBody: string): boolean {
   let parsed: unknown;
   try {
@@ -183,6 +188,10 @@ export function createDouyinAmountChangeAdapter(logger: AppLogger): AmountChange
         kind: 'report',
         report: {
           source: DOUYIN_CHANNEL,
+          // 本渠道当前只实装了改价端点。二期加 `batch_save_stock_state_calendar` 时这里要
+          // 按 endpointId 分流成 'roomStatus' —— 那个端点一次请求里房态房量都有，正是
+          // `OtaChangeType` 不把量态拆细的原因。
+          changeType: 'price',
           endpointId: observed.endpointId,
           endpointUrl: observed.endpointUrl,
           otaHotelId,

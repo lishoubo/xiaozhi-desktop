@@ -72,12 +72,27 @@ class BrowserOtaTabsStore {
   }
 
   /**
-   * 开 tab 之后的三步收尾。所有开 tab 路径都必须经过这里，否则 tab 在主进程里
+   * 开 tab 之后的收尾。所有开 tab 路径都必须经过这里，否则 tab 在主进程里
    * 存在、界面上却看不见（或看得见但内容区停在别的渠道）。
+   *
+   * ⚠️ **必须显式 `browser.activate`**，只改这里的状态不够：`activeTabIds` 只管
+   * 标签栏高亮（渲染进程本地状态），内容区摆哪个 WebContentsView 由主进程决定。
+   * 少了这一步，renderer 与主进程各认各的，谁最后调 activate 谁说了算。
+   *
+   * 2026-08-15 的真实故障：在携程标签上再开一个携程标签，新标签高亮了、内容区
+   * 却停在旧的。因为工作区挂载时那条「默认激活」链（目标恰是默认渠道携程）也在
+   * 跑，它**真的**调了 activate，把内容区抢了回去。`#explicitlyActivated` 本该
+   * 挡住它，但离开工作区时 `releaseViewportSession()` 会复位它——而「酒店页
+   * → push('/')」正好走这条路，闸门失效。
+   *
+   * 只有「携程 tab 上再开携程 tab」会撞：换成抖音/美团时 `activeChannelId` 已经
+   * 切走，默认激活的动作落在看不见的那一栏，正好没冲突——所以这个 bug 长期只在
+   * 携程上出现。
    */
   async adopt(tab: BrowserTab): Promise<BrowserTab> {
     this.#explicitlyActivated = true;
     this.updateTab(tab);
+    await window.hotelButler.browser.activate(tab.id);
     this.activeTabIds[tab.channelId] = tab.id;
     this.activeChannelId = tab.channelId;
     await this.syncBounds();
@@ -129,11 +144,11 @@ class BrowserOtaTabsStore {
    * 绑定专用：同 `openExisting`，但换一份干净 partition。复用旧 partition 会带上
    * 「上次选的哪个门店」，渠道据此跳过选择页，用户就没机会选这次要绑的那家。
    */
-  async openExistingInFreshPartition(
+  async openExistingForBinding(
     credentialId: string,
     intent?: OtaTabIntentDto,
   ): Promise<BrowserTab> {
-    const tab = await window.hotelButler.otaTab.openExistingInFreshPartition(credentialId, intent);
+    const tab = await window.hotelButler.otaTab.openExistingForBinding(credentialId, intent);
     return this.adopt(tab);
   }
 

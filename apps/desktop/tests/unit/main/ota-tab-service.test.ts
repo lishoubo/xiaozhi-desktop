@@ -21,6 +21,7 @@ afterEach(() => {
 });
 
 const CTRIP = toChannelId('ctrip');
+const DOUYIN = toChannelId('douyin');
 
 function setup(credential?: unknown) {
   const userDataDir = tempUserDataDir();
@@ -31,21 +32,31 @@ function setup(credential?: unknown) {
   };
   const loginDetector = { register: vi.fn() };
   const readInjectableCookies = vi.fn().mockResolvedValue([]);
+  const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
   const service = new OtaTabService({
     userDataDir,
     browserManager: browserManager as never,
     loginDetector,
     otaCredentialRepository: { findById: vi.fn().mockReturnValue(credential ?? null) },
     readInjectableCookies,
+    logger,
   });
-  return { service, browserManager, loginDetector, userDataDir, tab, readInjectableCookies };
+  return {
+    service,
+    browserManager,
+    loginDetector,
+    userDataDir,
+    tab,
+    readInjectableCookies,
+    logger,
+  };
 }
 
 describe('OtaTabService', () => {
-  it('open() 新建 partition 并登记登录判定', async () => {
+  it('openForNewLogin() 新建 partition 并登记登录判定', async () => {
     const { service, browserManager, loginDetector } = setup();
 
-    await service.open('prod', CTRIP, 'https://ctrip.com');
+    await service.openForNewLogin('prod', CTRIP, 'https://ctrip.com');
 
     expect(browserManager.createAndNewPartition).toHaveBeenCalledWith(
       'prod',
@@ -57,31 +68,31 @@ describe('OtaTabService', () => {
   });
 
   /** 绑定入口的「新登录账号」走这条路：新账号可操作的门店未知，登录后要探测。 */
-  it('open() 带意图时透传给登录判定', async () => {
+  it('openForNewLogin() 带意图时透传给登录判定', async () => {
     const { service, loginDetector } = setup();
     const intent = { kind: 'bind-hotel', requestId: 'req-1' } as const;
 
-    await service.open('prod', CTRIP, 'https://ctrip.com', intent);
+    await service.openForNewLogin('prod', CTRIP, 'https://ctrip.com', intent);
 
     expect(loginDetector.register).toHaveBeenCalledWith('tab-1', CTRIP, intent);
   });
 
-  it('createFromCookie() 在该渠道没有已导入 cookie 时报错', async () => {
+  it('openWithImportedCookie() 在该渠道没有已导入 cookie 时报错', async () => {
     const { service } = setup();
 
-    await expect(service.createFromCookie('prod', CTRIP, 'https://ctrip.com')).rejects.toThrow(
+    await expect(service.openWithImportedCookie('prod', CTRIP, 'https://ctrip.com')).rejects.toThrow(
       '该渠道尚未导入 Cookie',
     );
   });
 
-  it('createFromCookie() 注入已导入 cookie，且不删除它（允许反复登录）', async () => {
+  it('openWithImportedCookie() 注入已导入 cookie，且不删除它（允许反复登录）', async () => {
     const { service, browserManager, userDataDir } = setup();
     await writeImportedCookies(userDataDir, CTRIP, [{ name: 'a', value: '1' } as never], {
       importedAt: '2026-08-05T00:00:00.000Z',
       sourceId: 'chrome',
     });
 
-    await service.createFromCookie('prod', CTRIP, 'https://ctrip.com');
+    await service.openWithImportedCookie('prod', CTRIP, 'https://ctrip.com');
 
     expect(browserManager.createAndNewPartition).toHaveBeenCalledWith(
       'prod',
@@ -132,18 +143,21 @@ describe('OtaTabService', () => {
   });
 
   /**
-   * 绑定专用：**新 partition** + 原账号 cookie。复用旧 partition 会带上「上次选的
-   * 门店」，渠道据此跳过选择页，用户就选不了这次要绑的那家。
+   * 绑定专用：开**新** partition 并注入原账号 cookie。
+   *
+   * 为什么不能复用原 partition：本地存储不是原因（删 localStorage 键、清 Service
+   * Worker、拦跳转三条路都实测无效），抖音把「上次选哪家公司」记在服务端会话上。
+   * 新建 partition 靠 cookie 注入的不完全等价性生效，详见 OtaTabService 的注释。
    */
-  it('openExistingInFreshPartition() 新开 partition 并注入原账号 cookie', async () => {
+  it('openExistingForBinding() 开新 partition 并注入原账号 cookie', async () => {
     const { service, browserManager, loginDetector, readInjectableCookies } = setup({
       id: toOtaCredentialId('credential-1'),
-      channel: CTRIP,
+      channel: DOUYIN,
       partitionName: 'persist:existing',
     });
     readInjectableCookies.mockResolvedValue([{ name: 'sid', value: 'v1' }]);
 
-    await service.openExistingInFreshPartition('prod', 'credential-1', {
+    await service.openExistingForBinding('prod', 'credential-1', {
       kind: 'bind-hotel',
       requestId: 'req-1',
     });
@@ -154,20 +168,41 @@ describe('OtaTabService', () => {
     expect(browserManager.createWithAlreadyPartition).not.toHaveBeenCalled();
     expect(browserManager.createAndNewPartition).toHaveBeenCalledWith(
       'prod',
-      CTRIP,
+      DOUYIN,
       expect.any(String),
       { importedCookies: [{ name: 'sid', value: 'v1' }] },
     );
-    expect(loginDetector.register).toHaveBeenCalledWith('tab-1', CTRIP, {
+    expect(loginDetector.register).toHaveBeenCalledWith('tab-1', DOUYIN, {
       kind: 'bind-hotel',
       requestId: 'req-1',
     });
   });
 
-  it('openExistingInFreshPartition() 找不到凭据时报错', async () => {
+  /**
+   * 新建的 partition 必须进账本 —— 这正是 e977c06 当年欠下的那一环：
+   * 没人记账，绑定留下的中间 partition 就成了无从追溯的孤儿。
+   */
+  it('openExistingForBinding() 把新 partition 登记进账本', async () => {
+    const { service, userDataDir } = setup({
+      id: toOtaCredentialId('credential-1'),
+      channel: DOUYIN,
+      partitionName: 'persist:existing',
+    });
+
+    await service.openExistingForBinding('prod', 'credential-1');
+
+    const ledger = JSON.parse(
+      fs.readFileSync(path.join(userDataDir, 'partitions.json'), 'utf8'),
+    ) as { partitionName: string; state: { kind: string } }[];
+    expect(ledger).toEqual([
+      expect.objectContaining({ state: { kind: 'pending' } }),
+    ]);
+  });
+
+  it('openExistingForBinding() 找不到凭据时报错', async () => {
     const { service } = setup();
 
-    await expect(service.openExistingInFreshPartition('prod', 'credential-1')).rejects.toThrow(
+    await expect(service.openExistingForBinding('prod', 'credential-1')).rejects.toThrow(
       '未找到该登录凭据',
     );
   });

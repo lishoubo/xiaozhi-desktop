@@ -51,7 +51,7 @@ export const IPC_CHANNELS = {
   },
   otaTab: {
     openExisting: 'ota-tab:open-existing',
-    openExistingInFreshPartition: 'ota-tab:open-existing-in-fresh-partition',
+    openExistingForBinding: 'ota-tab:open-existing-for-binding',
     openForNewLogin: 'ota-tab:open-for-new-login',
     openWithImportedCookie: 'ota-tab:open-with-imported-cookie',
   },
@@ -67,6 +67,7 @@ export const IPC_CHANNELS = {
     unbindOtaAccount: 'hotel-management:unbind-ota-account',
     startBinding: 'hotel-management:start-binding',
     confirmBinding: 'hotel-management:confirm-binding',
+    confirmBackfillHotel: 'hotel-management:confirm-backfill-hotel',
     startReauth: 'hotel-management:start-reauth',
     confirmReauth: 'hotel-management:confirm-reauth',
     findCredentialForAccount: 'hotel-management:find-credential-for-account',
