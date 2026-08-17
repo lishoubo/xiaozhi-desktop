@@ -453,9 +453,10 @@ XIAOZHI_ALLOW_INSECURE_RMS=1 npm run make:desktop:production -- --platform=darwi
 XIAOZHI_ALLOW_INSECURE_RMS=1 npm run make:desktop:production -- --platform=darwin --arch=x64
 ```
 
-分发产物位于 `apps/desktop/out/make/`。当前 Forge 配置没有 Apple Developer ID 签名、Apple
-notarization 或 Windows 代码签名，因此产物属于未签名内部交付包；若面向普通终端用户公开
-分发，签名与 notarization 是独立的上线门禁。
+分发产物位于 `apps/desktop/out/make/`。macOS 产物会在 Forge 打包后按正确的 bundle ID 自动
+执行 ad-hoc 重签名，以保证 Keychain、`safeStorage` 和登录态正常，无需手工运行 `codesign`。
+当前仍未配置 Apple Developer ID 签名、Apple notarization 或 Windows 代码签名，因此产物只
+适合内部测试和交付；若面向普通终端用户公开分发，正式签名与 notarization 是独立的上线门禁。
 
 ### 4. 生成 phone 登录的生产桌面包
 
