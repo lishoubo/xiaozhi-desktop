@@ -1,6 +1,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { createRequire } from 'node:module';
+import { execFileSync } from 'node:child_process';
 import type { ForgeConfig } from '@electron-forge/shared-types';
 import { MakerSquirrel } from '@electron-forge/maker-squirrel';
 import { MakerZIP } from '@electron-forge/maker-zip';
@@ -61,6 +62,47 @@ const config: ForgeConfig = {
           );
         }),
       );
+    },
+    /**
+     * macOS：按正确的 bundle id 重签一次。**不签的包会丢登录态。**
+     *
+     * Electron 预编译二进制自带一个 ad-hoc 签名，其 `Identifier` 是
+     * `com.github.Electron`。Forge 只改 `Info.plist` 里的 `CFBundleIdentifier`，
+     * 不会重签，于是两者对不上：
+     *
+     * ```
+     * Info.plist  CFBundleIdentifier = com.xiaozhi.hotel.pre
+     * 签名        Identifier         = com.github.Electron   ← 不一致
+     * ```
+     *
+     * macOS 的 Keychain 按签名身份授权，身份对不上就拿不到钥匙，表现为
+     * `safeStorage.isEncryptionAvailable()` 返回 false。后果有两层：
+     *
+     * - 员工登录凭证不落盘（token-store 拒绝明文降级，只留一条 warn）
+     * - **Chromium 无法加解密 cookie**（我们开了 `EnableCookieEncryption` fuse），
+     *   于是每个 partition 的 cookie 库都是空的 —— 用户看到的现象就是「选了上次
+     *   登录的账号，却还是跳登录页」
+     *
+     * 走 hook 而不是 `packagerConfig.osxSign`，是因为后者在本项目里不生效——配了
+     * `identity: '-'` 与 `identifier` 之后 Packager 仍然没有调用 osx-sign，产物签名
+     * 停留在 `Identifier=Electron`（实测 package 与 make 两条路都一样）。与其和它的
+     * 触发条件较劲，不如在这里显式做，行为可预期、失败也看得见。
+     *
+     * ⚠️ `--deep` 是必须的：Helper 等内嵌可执行文件也要一并重签，只签外层 .app 不够。
+     */
+    postPackage: async (_forgeConfig, { outputPaths }) => {
+      if (process.platform !== 'darwin') return;
+      const bundleId = isPhone ? `${profile.bundleId}.phone` : profile.bundleId;
+      for (const outputPath of outputPaths) {
+        const appName = isPhone ? `${profile.productName}(手机登录)` : profile.productName;
+        const appPath = path.join(outputPath, `${appName}.app`);
+        execFileSync(
+          'codesign',
+          ['--force', '--deep', '--sign', '-', '--identifier', bundleId, appPath],
+          { stdio: 'inherit' },
+        );
+        console.log(`已按 ${bundleId} 重签: ${appPath}`);
+      }
     },
   },
   rebuildConfig: {},
