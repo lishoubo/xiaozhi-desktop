@@ -42,6 +42,8 @@ const USAGE = `用法: node scripts/desktop-make.mjs --env=<dev|pre|online> [选
                            mono 与 wine-stable。配合 --package-only 可在 macOS
                            上仅验证产物内容。
   --package-only           只 package 不 make（不产出安装包，用于快速验证产物）
+  --keep-data              保留该环境的用户数据（业务库/登录态/账本），只清构建产物。
+                           开发期反复重打验证时用，免得每次都要重新登录所有渠道。
   -h, --help               显示帮助
 
 环境经 --env 指定（不用 npm script 前缀写 XIAOZHI_APP_ENV=，那种写法在 Windows 的
@@ -66,9 +68,13 @@ if (argv.includes('-h') || argv.includes('--help')) {
 const envFlag = argv.find((arg) => arg.startsWith('--env='));
 const targetFlag = argv.find((arg) => arg.startsWith('--target='));
 const packageOnly = argv.includes('--package-only');
+const keepData = argv.includes('--keep-data');
 const forwarded = argv.filter(
   (arg) =>
-    !arg.startsWith('--env=') && !arg.startsWith('--target=') && arg !== '--package-only',
+    !arg.startsWith('--env=') &&
+    !arg.startsWith('--target=') &&
+    arg !== '--package-only' &&
+    arg !== '--keep-data',
 );
 
 if (targetFlag !== undefined) {
@@ -136,7 +142,16 @@ function run(command, args) {
   if (result.status !== 0) process.exit(result.status ?? 1);
 }
 
-run(process.execPath, [path.join(repoRoot, 'scripts', 'desktop-clean.mjs')]);
+// 清理会连**该环境的用户数据**一起删（业务库、登录态、账本），这对出正式包是对的
+// ——发布物不该带着开发期残留。但开发期反复重打验证时，它意味着每次都要重新登录
+// 所有渠道，`--keep-data` 就是为这种场景留的。
+if (keepData) console.log('保留用户数据：只清构建缓存与打包产物');
+run(
+  process.execPath,
+  keepData
+    ? [path.join(repoRoot, 'scripts', 'desktop-clean.mjs'), '--build-only']
+    : [path.join(repoRoot, 'scripts', 'desktop-clean.mjs')],
+);
 // `package` 只出 .app/.exe 目录，`make` 还会打成 zip/Squirrel 安装包。
 const forgeCommand = packageOnly ? 'package' : 'make';
 run('npm', ['run', forgeCommand, '--workspace', '@hotel-butler/desktop', '--', ...forwarded]);

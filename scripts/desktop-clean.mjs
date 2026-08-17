@@ -91,16 +91,23 @@ function removeDirectory(target, allowed) {
   fs.rmSync(target, { recursive: true, force: true });
 }
 
+/**
+ * `--build-only`：只清构建缓存与打包产物，保留该环境的用户数据（业务库、登录态、
+ * 账本）。开发期反复重打验证时用——否则每次重打都要重新登录所有渠道。
+ */
+const buildOnly = process.argv.includes('--build-only');
+
 const productName = await resolveProductName();
 const { userData, logs } = platformDirectories(productName);
 
 // 去重：非 macOS 上 logs 是 userData 的子目录，已被前一步删掉。
-const targets = [
-  path.join(desktopDir, '.vite'),
-  path.join(desktopDir, 'out'),
-  userData,
-  ...(logs.startsWith(userData + path.sep) ? [] : [logs]),
-];
+const buildTargets = [path.join(desktopDir, '.vite'), path.join(desktopDir, 'out')];
+const targets = buildOnly
+  ? buildTargets
+  : [...buildTargets, userData, ...(logs.startsWith(userData + path.sep) ? [] : [logs])];
 
-console.log(`环境: ${process.env.XIAOZHI_APP_ENV ?? 'dev'}（应用名 ${productName}）`);
+console.log(
+  `环境: ${process.env.XIAOZHI_APP_ENV ?? 'dev'}（应用名 ${productName}）` +
+    (buildOnly ? ' —— 仅清构建产物，保留用户数据' : ''),
+);
 for (const target of targets) removeDirectory(target, targets);
