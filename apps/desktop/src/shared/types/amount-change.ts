@@ -159,6 +159,11 @@ export type OtaAmountChangeReport = Readonly<{
    * 渠道侧的门店 ID。**尽力而为，可能是空串** —— 渠道不一定暴露它（抖音走菜单进入时
    * URL 上没有 `poi_id`；携程新模块 `setRCRoomPrice` 的请求体里根本没有门店 ID）。
    * 为空时 RMS 靠 `channelExtra` 里的房型 ID 反查门店。
+   *
+   * ⚠️ **携程这一项被归一过**：同一家酒店的预付与现付是两个不同的 hotelID，报文里出现
+   * 的是本次操作那一侧，与 RMS 登记的对不上。上报前会用凭证里的 `masterHotelId` 覆盖
+   * （见 `services/amount-change-report-service.ts`），与绑定探测口径一致。拿不到时
+   * 保留报文原值。`changeRaw` 始终是原始报文，不受此影响。
    */
   otaHotelId: string;
 

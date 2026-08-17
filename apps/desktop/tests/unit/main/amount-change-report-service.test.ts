@@ -194,3 +194,81 @@ describe('AmountChangeReportService', () => {
     );
   });
 });
+
+/**
+ * 🔴 携程同一家酒店的预付与现付是**两个不同的 hotelID**，报文里出现的是本次操作那一侧。
+ * 真机实测：报文 115348672，而 RMS 登记的是 masterHotelId 85068938 —— 直接透传会让
+ * RMS 有一半的改动反查不到门店。
+ */
+describe('AmountChangeReportService —— 携程门店 ID 归一', () => {
+  const CTRIP_OBSERVED: OtaAmountChangeObserved = {
+    source: toChannelId('ctrip'),
+    changeType: 'roomStatus',
+    endpointId: 'setbatchroombookablestatus',
+    endpointUrl: 'https://ebooking.ctrip.com/ebkovsroom/api/inventory/setbatchroombookablestatus',
+    otaHotelId: '115348672',
+    changeRaw: { hotelRoomInfoDtoList: [{ hotelID: 115348672 }] },
+  };
+
+  function reportCtripWith(credentialExtra: JsonObject | null) {
+    const reportAmountChange = vi.fn((_report: OtaAmountChangeReport) => Promise.resolve());
+    const service = new AmountChangeReportService({
+      gateway: { reportAmountChange },
+      identity: createIdentity({
+        credentialByPartition: () =>
+          Promise.resolve({ channelAccountId: '12324831', credentialExtra }),
+      }),
+      logger: createLogger(),
+    });
+    return { reportAmountChange, run: () => service.report(CTRIP_OBSERVED, PARTITION) };
+  }
+
+  it('用凭证里的 masterHotelId 覆盖报文里的门店 ID', async () => {
+    const { reportAmountChange, run } = reportCtripWith({ masterHotelId: 85068938 });
+    await run();
+    expect(reportAmountChange.mock.calls[0]?.[0].otaHotelId).toBe('85068938');
+  });
+
+  it('masterHotelId 是字符串时同样生效', async () => {
+    const { reportAmountChange, run } = reportCtripWith({ masterHotelId: '85068938' });
+    await run();
+    expect(reportAmountChange.mock.calls[0]?.[0].otaHotelId).toBe('85068938');
+  });
+
+  it('changeRaw 原样保留 —— 多店操作的全量清单以它为准', async () => {
+    const { reportAmountChange, run } = reportCtripWith({ masterHotelId: 85068938 });
+    await run();
+    expect(reportAmountChange.mock.calls[0]?.[0].changeRaw).toEqual(CTRIP_OBSERVED.changeRaw);
+  });
+
+  it('拿不到 masterHotelId 时保留报文原值，而不是清空', async () => {
+    const { reportAmountChange, run } = reportCtripWith({ hotelName: '银际酒店' });
+    await run();
+    expect(reportAmountChange.mock.calls[0]?.[0].otaHotelId).toBe('115348672');
+  });
+
+  it('查不到凭证时保留报文原值', async () => {
+    const reportAmountChange = vi.fn((_report: OtaAmountChangeReport) => Promise.resolve());
+    const service = new AmountChangeReportService({
+      gateway: { reportAmountChange },
+      identity: createIdentity({ credentialByPartition: () => Promise.resolve(null) }),
+      logger: createLogger(),
+    });
+    await service.report(CTRIP_OBSERVED, PARTITION);
+    expect(reportAmountChange.mock.calls[0]?.[0].otaHotelId).toBe('115348672');
+  });
+
+  it('其他渠道不受影响 —— 抖音/美团没有一店两 ID 的形状', async () => {
+    const reportAmountChange = vi.fn((_report: OtaAmountChangeReport) => Promise.resolve());
+    const service = new AmountChangeReportService({
+      gateway: { reportAmountChange },
+      identity: createIdentity({
+        credentialByPartition: () =>
+          Promise.resolve({ channelAccountId: 'x', credentialExtra: { masterHotelId: 99999 } }),
+      }),
+      logger: createLogger(),
+    });
+    await service.report(OBSERVED, PARTITION);
+    expect(reportAmountChange.mock.calls[0]?.[0].otaHotelId).toBe(OBSERVED.otaHotelId);
+  });
+});

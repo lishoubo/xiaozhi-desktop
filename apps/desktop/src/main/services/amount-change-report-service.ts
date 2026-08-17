@@ -68,8 +68,11 @@ export class AmountChangeReportService {
       });
     }
 
+    const otaHotelId = this.resolveOtaHotelId(observed, credential?.credentialExtra ?? null);
+
     const report: OtaAmountChangeReport = {
       ...observed,
+      otaHotelId,
       operationId: randomUUID(),
       loginUserId: staff?.userId ?? null,
       loginUserName: staff?.fullName?.trim() || staff?.username || null,
@@ -98,5 +101,63 @@ export class AmountChangeReportService {
         );
       }
     }
+  }
+
+  /**
+   * 携程专用：用凭证里的 `masterHotelId` 覆盖报文里的门店 ID。
+   *
+   * ## 为什么必须覆盖
+   *
+   * 携程**同一家酒店的预付与现付是两个不同的 hotelID**，报文里出现的是本次操作那一侧的
+   * ID（真机实测：报文 `115348672`，而 RMS 登记的是 `85068938`）。直接透传的话，RMS
+   * 有一半的改动反查不到门店。`masterHotelId` 是账号维度的稳定标识，与预付/现付无关，
+   * 也正是绑定探测所用的那一个（见 `channels/ctrip/hotel-prob.ts`），两边口径这才对齐。
+   *
+   * ## 为什么只对携程做
+   *
+   * 抖音与美团没有这种一店两 ID 的形状，报文里的门店 ID 就是唯一的那个，覆盖只会引入
+   * 偏差。这也是**不把它做成通用规则**的原因。
+   *
+   * ## 拿不到时保留原值
+   *
+   * `masterHotelId` 来自登录后抓取的账号信息，理论上必有（`HEAppInfo` 与 `HEUbtBaseData`
+   * 两条来源都带），但 schema 里是可空的——账号未探测、老凭证、抓取时机不巧都可能缺。
+   * 缺失时**保留报文原值**而不是清空：一个可能对不上的 ID，仍然比没有 ID 更有反查价值。
+   *
+   * ⚠️ 只改顶层提示字段，`changeRaw` 原样保留 —— 一次操作可能涉及多家门店，全量清单
+   * 始终以 `changeRaw` 为准（见 `channels/ctrip/room-status-payload.ts`）。
+   */
+  private resolveOtaHotelId(
+    observed: OtaAmountChangeObserved,
+    credentialExtra: JsonObject | null,
+  ): string {
+    if (observed.source !== 'ctrip' || credentialExtra === null) return observed.otaHotelId;
+
+    const raw = credentialExtra.masterHotelId;
+    const masterHotelId =
+      typeof raw === 'number' && Number.isFinite(raw)
+        ? String(raw)
+        : typeof raw === 'string' && raw.trim().length > 0
+          ? raw.trim()
+          : null;
+    if (masterHotelId === null) {
+      this.deps.logger.warn('Ctrip credential has no masterHotelId; reporting payload hotel id', {
+        source: observed.source,
+        endpointId: observed.endpointId,
+        otaHotelId: observed.otaHotelId,
+      });
+      return observed.otaHotelId;
+    }
+
+    if (masterHotelId !== observed.otaHotelId) {
+      // 不是异常，是携程预付/现付双 ID 的常态。记一条便于日后对账。
+      this.deps.logger.info('Ctrip hotel id replaced with masterHotelId', {
+        source: observed.source,
+        endpointId: observed.endpointId,
+        payloadHotelId: observed.otaHotelId,
+        masterHotelId,
+      });
+    }
+    return masterHotelId;
   }
 }
