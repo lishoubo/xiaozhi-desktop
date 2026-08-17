@@ -72,8 +72,16 @@ if (started) {
     .whenReady()
     .then(initializeApplication)
     .catch((error: unknown) => {
+      // 启动失败是终局错误：应用马上就退出，用户只剩这一行日志可看。只记 errorName
+      // 等于什么都没说（真机上就出现过「errorName: 'Error'」这种毫无线索的记录），
+      // 所以这里连 message 与 stack 一并落盘。
+      //
+      // 与「日志脱敏」不冲突：脱敏 hook 处理的是结构化字段里的业务数据，而这里是
+      // 我们自己抛的初始化错误，不含渠道凭证。
       log.error('Application initialization failed', {
         errorName: error instanceof Error ? error.name : 'UnknownError',
+        errorMessage: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined,
       });
       app.quit();
     });

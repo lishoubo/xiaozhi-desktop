@@ -81,6 +81,27 @@ export function installPrivateCaTrust(
   });
 }
 
+/**
+ * 读取随包分发的私有 CA；没有就返回 `null`（调用方随之不安装私有信任）。
+ *
+ * ## 「显式指定」与「随包约定」的区别是有意的
+ *
+ * - `HOTEL_BUTLER_PRIVATE_CA_PATH` 是**显式要求**：指了却读不到，说明打包命令写错了，
+ *   MUST 抛错——静默忽略会打出一个「以为信任了、其实没有」的包。
+ * - 打包产物里的 `<resources>/private-ca.pem` 是**约定位置**：文件在就装信任，
+ *   不在就跳过。
+ *
+ * ## 为什么后者不能也抛错
+ *
+ * 原实现对任何打包产物都强制要求该文件存在，等价于「打包 == 生产打包」。这个假设在
+ * 只有生产一种打包方式时成立，但 dev / pre / online 三套环境落地后就不成立了：
+ * pre 包不连 hotel-butler server，却因为缺一份用不上的证书**启动即崩**
+ * （2026-08-17 真机实测，日志只留下 `errorName: 'Error'`）。
+ *
+ * 缺证书的真正后果是「连不上那台自签 HTTPS 服务器」，那应该在**发起请求时**暴露成
+ * 一个带上下文的网络错误，而不是让整个应用起不来——后者既拦住了与 server 无关的
+ * 全部功能，又把可诊断性降到最低。
+ */
 export function loadPackagedPrivateCa(
   packaged: boolean,
   resourcesPath: string,
@@ -89,7 +110,10 @@ export function loadPackagedPrivateCa(
   const configured = environment.HOTEL_BUTLER_PRIVATE_CA_PATH?.trim();
   const filePath = configured || (packaged ? path.join(resourcesPath, 'private-ca.pem') : '');
   if (!filePath) return null;
-  if (!existsSync(filePath)) throw new Error(`Private CA certificate was not found: ${filePath}`);
+  if (!existsSync(filePath)) {
+    if (configured) throw new Error(`Private CA certificate was not found: ${filePath}`);
+    return null;
+  }
   const pem = readFileSync(filePath, 'utf8');
   const certificate = new X509Certificate(pem);
   if (!certificate.ca)
