@@ -16,9 +16,8 @@ function isEnvelope(value: unknown): value is ApiEnvelope {
 
 function rmsOrigin(environment: NodeJS.ProcessEnv): string {
 	const url = new URL(environment.XIAOZHI_RMS_SERVER_URL ?? 'http://localhost:8080');
-	const loopback = url.hostname === 'localhost' || url.hostname === '127.0.0.1';
-	if (url.protocol !== 'https:' && !(url.protocol === 'http:' && loopback)) {
-		throw new Error('Remote RMS identity endpoint must use HTTPS');
+	if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+		throw new Error('RMS identity endpoint must use HTTP or HTTPS');
 	}
 	return url.origin;
 }

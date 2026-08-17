@@ -17,7 +17,7 @@ function capturedLogger(): Readonly<{
 }
 
 describe('resolveStaffAgentPrincipal', () => {
-	it('derives the principal from the RMS bearer session', async () => {
+	it('derives the principal from an RMS bearer session over remote HTTP', async () => {
 		const { logger, records } = capturedLogger();
 		const fetch = vi.fn().mockResolvedValue(
 			new Response(
@@ -39,14 +39,19 @@ describe('resolveStaffAgentPrincipal', () => {
 		);
 
 		await expect(
-			resolveStaffAgentPrincipal('Bearer staff-session-a', {}, fetch, {
-				logger,
-				now: vi.fn().mockReturnValueOnce(100).mockReturnValueOnce(126),
-				requestId: 'request-rms-success'
-			})
+			resolveStaffAgentPrincipal(
+				'Bearer staff-session-a',
+				{ XIAOZHI_RMS_SERVER_URL: 'http://rms.internal.example:8080' },
+				fetch,
+				{
+					logger,
+					now: vi.fn().mockReturnValueOnce(100).mockReturnValueOnce(126),
+					requestId: 'request-rms-success'
+				}
+			)
 		).resolves.toEqual({ employeeId: '1001', orgId: '42' });
 		expect(fetch).toHaveBeenCalledWith(
-			'http://localhost:8080/api/v1/me',
+			'http://rms.internal.example:8080/api/v1/me',
 			expect.objectContaining({
 				headers: expect.objectContaining({ authorization: 'Bearer staff-session-a' })
 			})
