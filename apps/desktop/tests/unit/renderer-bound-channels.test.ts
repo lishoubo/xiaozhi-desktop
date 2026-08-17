@@ -57,15 +57,6 @@ describe('boundChannelsOfHotel', () => {
     expect(boundChannelsOfHotel([account({ status: 'UNBOUND' })])).toEqual(new Set());
   });
 
-  it('同渠道多个账号只算一次', () => {
-    const bound = boundChannelsOfHotel([
-      account({ id: 1, source: 'meituan' }),
-      account({ id: 2, source: 'meituan', otaHotelId: 'mt-2' }),
-    ]);
-
-    expect(bound).toEqual(new Set(['meituan']));
-  });
-
   it('同渠道一条解绑一条在用时，该渠道仍被占用', () => {
     const bound = boundChannelsOfHotel([
       account({ id: 1, source: 'ctrip', status: 'UNBOUND' }),

@@ -1,0 +1,64 @@
+import type { AgentMessage, AgentPrincipal, GenerativeUiSpec } from '@hotel-butler/api';
+import type { EvidenceRecord, ResolvedBusinessRequest } from './execution/business-execution-state';
+import type { McpResultSummary } from './mcp-observability';
+
+export type PublishableRuntimeEvent =
+	| Readonly<{ type: 'text_delta'; delta: string }>
+	| Readonly<{ type: 'tool_started'; toolCallId: string; toolName: string }>
+	| Readonly<{
+			type: 'tool_completed';
+			toolCallId: string;
+			toolName: string;
+			summary: string;
+	  }>
+	| Readonly<{ type: 'ui_spec'; spec: GenerativeUiSpec }>;
+
+export type RuntimeTelemetryEvent =
+	| Readonly<{
+			type: 'runtime_phase_completed';
+			phase: 'ui_spec_generated';
+			durationMs: number;
+	  }>
+	| Readonly<{
+			type: 'mcp_call_started';
+			toolCallId: string;
+			toolName: string;
+	  }>
+	| Readonly<{
+			type: 'mcp_call_completed';
+			toolCallId: string;
+			toolName: string;
+			durationMs: number;
+			resultSummary: McpResultSummary;
+	  }>
+	| Readonly<{
+			type: 'mcp_call_failed';
+			toolCallId: string;
+			toolName: string;
+			durationMs: number;
+			errorType: string;
+			failureKind: string;
+			retryable: boolean;
+	  }>;
+
+export type RuntimeEvent = PublishableRuntimeEvent | RuntimeTelemetryEvent;
+
+export type AgentRuntimeRunOptions = Readonly<{
+	principal: AgentPrincipal;
+	conversationSummary: string | null;
+	history: readonly AgentMessage[];
+	signal: AbortSignal;
+	emit(event: RuntimeEvent): Promise<void>;
+	workflowRequest?: ResolvedBusinessRequest;
+	validatedEvidence?: readonly EvidenceRecord[];
+}>;
+
+export type AgentRuntimeResult = Readonly<{
+	content: string;
+	ui: GenerativeUiSpec | null;
+	toolEvidence?: readonly Readonly<{ toolName: string; toolArgs: unknown; result: unknown }>[];
+}>;
+
+export interface AgentRuntime {
+	run(options: AgentRuntimeRunOptions): Promise<AgentRuntimeResult>;
+}

@@ -7,7 +7,9 @@
 // eslint-disable-next-line import/no-unresolved -- ESLint's legacy resolver does not read this workspace package subpath export.
 import { staffIdentitySchema, type StaffIdentity } from '@hotel-butler/api/contracts';
 import type { AppLogger } from '../../shared/logging';
+import { randomUUID } from 'node:crypto';
 import { RmsAuthError } from './rms-auth-errors';
+import { executeLoggedRmsFetch } from './rms-http-logging';
 
 export type RmsTokenPair = Readonly<{
   accessToken: string;
@@ -27,6 +29,8 @@ export type RmsAuthClientDependencies = Readonly<{
   origin: string;
   fetch: typeof globalThis.fetch;
   logger: AppLogger;
+  now?: () => number;
+  requestIdFactory?: () => string;
 }>;
 
 /** 非业务码：网络/解析/契约层面的失败，RMS 那边没有对应枚举。 */
@@ -76,6 +80,8 @@ function isTokenPair(value: unknown): value is RmsTokenPair {
 
 export function createRmsAuthClient(deps: RmsAuthClientDependencies): RmsAuthClient {
   const { origin, fetch, logger } = deps;
+  const now = deps.now ?? (() => performance.now());
+  const requestIdFactory = deps.requestIdFactory ?? randomUUID;
 
   /**
    * 发一次请求并拆包。所有失败路径都收敛成 `RmsAuthError`，调用方只看 `code`，
@@ -93,10 +99,19 @@ export function createRmsAuthClient(deps: RmsAuthClientDependencies): RmsAuthCli
 
     let response: Response;
     try {
-      response = await fetch(`${origin}${spec.path}`, {
-        method: spec.method,
-        headers,
-        body: spec.body === undefined ? undefined : JSON.stringify(spec.body),
+      response = await executeLoggedRmsFetch({
+        attempt: 1,
+        fetch,
+        input: `${origin}${spec.path}`,
+        init: {
+          method: spec.method,
+          headers,
+          body: spec.body === undefined ? undefined : JSON.stringify(spec.body),
+        },
+        logger,
+        now,
+        operation: spec.operation,
+        requestId: requestIdFactory(),
       });
     } catch (cause) {
       // 连不上 / DNS / TLS——没有业务码可用。

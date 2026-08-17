@@ -1,7 +1,5 @@
-const DEFAULT_SERVER_ORIGIN = 'https://localhost:5173';
-
 export function resolveServerOrigin(environment: NodeJS.ProcessEnv): string {
-  const configuredUrl = environment.HOTEL_BUTLER_SERVER_URL ?? DEFAULT_SERVER_ORIGIN;
+  const configuredUrl = environment.HOTEL_BUTLER_SERVER_URL ?? __SERVER_ORIGIN__;
   const url = new URL(configuredUrl);
 
   if (url.protocol !== 'https:') {

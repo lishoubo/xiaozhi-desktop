@@ -1,7 +1,13 @@
 import { defineConfig } from '@playwright/test';
+import { fileURLToPath } from 'node:url';
 import { e2ePostgresHostPort, e2eRmsHostPort } from './tests/e2e/ports.ts';
 
 const baseURL = 'https://localhost:4173';
+try {
+	process.loadEnvFile(fileURLToPath(new URL('.env', import.meta.url)));
+} catch (error) {
+	if (!(error instanceof Error && 'code' in error && error.code === 'ENOENT')) throw error;
+}
 
 export default defineConfig({
 	globalSetup: './tests/e2e/global-setup.ts',

@@ -18,3 +18,5 @@ vite.config.ts.timestamp-*
 /.cert
 # Playwright
 test-results
+
+rms-agent-key.pem

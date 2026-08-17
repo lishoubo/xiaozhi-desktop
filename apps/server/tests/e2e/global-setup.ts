@@ -67,7 +67,7 @@ export default async function globalSetup(): Promise<() => Promise<void>> {
 				{ source: rmsSchemaPath, target: '/docker-entrypoint-initdb.d/001-rms-schema.sql' }
 			])
 			.withExposedPorts({ container: rmsPort, host: e2eRmsHostPort })
-			.withWaitStrategy(Wait.forLogMessage(/ready for connections.*port: 3306/i))
+			.withWaitStrategy(Wait.forLogMessage(/ready for connections.*port: 3306/i, 2))
 			.withStartupTimeout(120_000)
 			.start();
 		containers.push(rms);

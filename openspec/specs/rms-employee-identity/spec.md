@@ -49,6 +49,30 @@ The server SHALL resolve employee identity using a parameterized read query and 
 - **WHEN** the server looks up an employee phone
 - **THEN** the phone is bound as a SQL parameter and the query filters for active status
 
+### Requirement: Verify RMS identity availability before advertising it
+
+When `RMS_DATABASE_URL` is configured, the server SHALL execute a read-only connectivity query before
+advertising the phone identity source as available.
+
+#### Scenario: RMS verification succeeds
+
+- **WHEN** the server can connect and execute `SELECT 1`
+- **THEN** the verified pool backs employee identity lookup
+- **AND** system health reports the phone identity source as configured
+
+#### Scenario: RMS verification fails
+
+- **WHEN** URL parsing, network connection, authentication or the read-only verification query fails
+- **THEN** system health reports the phone identity source as unavailable
+- **AND** phone login cannot query an unverified pool
+- **AND** the remaining management server stays available
+
+#### Scenario: A transient startup failure recovers
+
+- **WHEN** a configured RMS source fails its startup check and later becomes reachable
+- **THEN** a later request retries verification after a bounded cooldown
+- **AND** the first successfully verified pool becomes the shared employee identity source
+
 ### Requirement: Phone OTP uses a replaceable gateway
 
 The shared API SHALL expose provider-neutral phone-code request and login mutations, and the server SHALL inject SMS delivery and verification through a gateway that does not expose provider SDK types in the shared contract.

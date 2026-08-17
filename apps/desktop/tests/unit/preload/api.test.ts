@@ -65,6 +65,90 @@ describe('createDesktopApi', () => {
     expect(api).not.toHaveProperty('settings');
   });
 
+  it('maps Agent conversation deletion to fixed validated IPC channels', async () => {
+    const invoke = vi.fn(async (channel: string) => {
+      if (channel === IPC_CHANNELS.agent.deleteConversation) return { deletedCount: 1 };
+      if (channel === IPC_CHANNELS.agent.clearConversations) return { deletedCount: 4 };
+      return undefined;
+    });
+    const api = createDesktopApi({ chrome: '1', electron: '2', node: '3' }, invoke);
+    const conversationId = '11111111-1111-4111-8111-111111111111';
+
+    await expect(api.agent.deleteConversation(conversationId)).resolves.toEqual({
+      deletedCount: 1,
+    });
+    await expect(api.agent.clearConversations()).resolves.toEqual({ deletedCount: 4 });
+    expect(invoke.mock.calls).toEqual([
+      [IPC_CHANNELS.agent.deleteConversation, conversationId],
+      [IPC_CHANNELS.agent.clearConversations],
+    ]);
+  });
+
+  it('maps Agent run cancellation to its validated IPC channel', async () => {
+    const runId = '33333333-3333-4333-8333-333333333333';
+    const invoke = vi.fn(async () => ({ runId, status: 'cancelled' }));
+    const api = createDesktopApi({ chrome: '1', electron: '2', node: '3' }, invoke);
+
+    await expect(api.agent.cancelRun(runId)).resolves.toEqual({ runId, status: 'cancelled' });
+    expect(invoke).toHaveBeenCalledWith(IPC_CHANNELS.agent.cancelRun, runId);
+  });
+
+  it('maps Agent clarification submission and execution cancellation to fixed IPC channels', async () => {
+    const businessExecutionId = '44444444-4444-4444-8444-444444444444';
+    const interactionId = '55555555-5555-4555-8555-555555555555';
+    const clientRequestId = '66666666-6666-4666-8666-666666666666';
+    const runId = '77777777-7777-4777-8777-777777777777';
+    const conversationId = '88888888-8888-4888-8888-888888888888';
+    const userMessage = {
+      id: '99999999-9999-4999-8999-999999999999',
+      conversationId,
+      businessExecutionId,
+      role: 'user' as const,
+      content: '酒店：hotel-a',
+      ui: null,
+      createdAt: '2026-08-13T03:00:00.000Z',
+    };
+    const assistantMessage = {
+      id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      conversationId,
+      businessExecutionId,
+      role: 'assistant' as const,
+      content: '好的，本次任务已取消。',
+      ui: null,
+      createdAt: '2026-08-13T03:00:00.001Z',
+    };
+    const invoke = vi.fn(async (channel: string) =>
+      channel === IPC_CHANNELS.agent.submitClarification
+        ? { runId, businessExecutionId, userMessage }
+        : {
+            businessExecutionId,
+            status: 'cancelled',
+            userMessage: { ...userMessage, content: '取消本次任务' },
+            assistantMessage,
+          },
+    );
+    const api = createDesktopApi({ chrome: '1', electron: '2', node: '3' }, invoke);
+    const submission = {
+      businessExecutionId,
+      interactionId,
+      expectedVersion: 3,
+      clientRequestId,
+      answers: { hotelReference: 'hotel-a' },
+    };
+
+    await expect(api.agent.submitClarification(submission)).resolves.toMatchObject({ runId });
+    await expect(api.agent.cancelBusinessExecution(businessExecutionId, 3)).resolves.toEqual({
+      businessExecutionId,
+      status: 'cancelled',
+      userMessage: { ...userMessage, content: '取消本次任务' },
+      assistantMessage,
+    });
+    expect(invoke.mock.calls).toEqual([
+      [IPC_CHANNELS.agent.submitClarification, submission],
+      [IPC_CHANNELS.agent.cancelBusinessExecution, businessExecutionId, 3],
+    ]);
+  });
+
   it('maps browser actions to fixed IPC channels', async () => {
     const tab = {
       id: 'tab-1',

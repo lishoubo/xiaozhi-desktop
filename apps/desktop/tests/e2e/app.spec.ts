@@ -224,13 +224,100 @@ test('uses credential-backed account switching and shared-session tabs', async (
 });
 
 test('opens the AI concierge from the icon sidebar', async () => {
+  const pageErrors: Error[] = [];
+  page.on('pageerror', (error) => pageErrors.push(error));
   await login();
+  await expect(page.getByRole('button', { name: '携程酒店 eBooking' })).toBeVisible();
+  await page.evaluate(() => window.hotelButler.agent.createConversation('历史经营复盘'));
+  await page.evaluate(() => window.hotelButler.agent.createConversation('待清空的历史会话'));
   await page.getByRole('link', { name: '小智AI 管家' }).click();
 
   await expect(page).toHaveURL(/#\/agent$/);
-  await expect(page.getByRole('heading', { name: '小智AI 管家' })).toBeVisible();
-  await expect(page.getByRole('heading', { name: '今天想先处理什么？' })).toBeVisible();
-  await expect(page.getByRole('textbox', { name: '给小智AI 管家发消息' })).toBeVisible();
+  await expect(page.getByText('小智 AI 管家', { exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '今天想处理什么？' })).toBeVisible();
+  const newConversation = page.getByRole('button', { name: '开始新会话' });
+  const historicalConversation = page.getByRole('button', {
+    name: '历史经营复盘',
+    exact: true,
+  });
+  await expect(newConversation).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByText('历史会话', { exact: true })).toBeVisible();
+  await expect(historicalConversation).toHaveAttribute('aria-pressed', 'false');
+
+  await historicalConversation.click();
+  await expect(historicalConversation).toHaveAttribute('aria-pressed', 'true');
+  await expect(newConversation).toHaveAttribute('aria-pressed', 'false');
+  await expect(page.getByText('历史经营复盘', { exact: true })).toHaveCount(2);
+
+  await newConversation.click();
+  await expect(newConversation).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByRole('heading', { name: '今天想处理什么？' })).toBeVisible();
+  expect(pageErrors).toEqual([]);
+
+  await historicalConversation.click();
+  await expect(historicalConversation).toHaveAttribute('aria-pressed', 'true');
+
+  await historicalConversation.hover();
+  await page.getByRole('button', { name: '删除会话：历史经营复盘' }).click();
+  await expect(page.getByRole('alertdialog')).toContainText('删除后无法恢复，长期记忆不受影响。');
+  await expect(page.getByRole('alertdialog')).not.toContainText('消息和执行记录');
+  await page.getByRole('button', { name: '删除', exact: true }).click();
+  await expect(page.getByRole('button', { name: '历史经营复盘', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('heading', { name: '新会话' })).toBeVisible();
+
+  await page.getByRole('button', { name: '清空', exact: true }).click();
+  await expect(page.getByRole('alertdialog')).toContainText('1 次会话');
+  await page.getByRole('button', { name: '全部清空' }).click();
+  await expect(page.getByText('暂无历史会话')).toBeVisible();
+  await expect(page.getByRole('button', { name: '待清空的历史会话', exact: true })).toHaveCount(0);
+
+  await newConversation.click();
+  await expect(newConversation).toHaveAttribute('aria-pressed', 'true');
+  const composer = page.getByRole('textbox');
+  await expect(composer).toBeVisible();
+
+  await composer.fill('分析今天的经营情况');
+  await page.getByRole('button', { name: '发送消息' }).click();
+  const stopRun = page.getByRole('button', { name: '停止执行' });
+  await expect(stopRun).toBeEnabled();
+  await newConversation.click();
+  await expect(composer).toBeEnabled();
+  await expect(stopRun).toHaveCount(0);
+  const runningConversation = page.getByRole('button', {
+    name: '分析今天的经营情况',
+    exact: true,
+  });
+  await expect(runningConversation.locator('..')).toContainText('运行中');
+  await runningConversation.click();
+  await expect(stopRun).toBeEnabled();
+  await stopRun.click();
+  await expect(page.getByText('已停止', { exact: true })).toBeVisible();
+  await expect(composer).toBeEnabled();
+  const firstPromptRow = page.locator('article[data-agent-message-role="user"]', {
+    hasText: '分析今天的经营情况',
+  });
+  const firstPromptId = await firstPromptRow.getAttribute('data-agent-message-id');
+  expect(firstPromptId).not.toBeNull();
+  const firstExecution = page.locator(
+    `article[data-agent-execution-for-message="${firstPromptId}"] [data-agent-execution-status="cancelled"]`,
+  );
+  await expect(firstExecution).toHaveCount(1);
+
+  await composer.fill('继续');
+  await page.getByRole('button', { name: '发送消息' }).click();
+  await expect(stopRun).toBeEnabled();
+  await stopRun.click();
+  await expect(page.getByText('已停止', { exact: true })).toHaveCount(2);
+  const continueRow = page.locator('article[data-agent-message-role="user"]', { hasText: '继续' });
+  const continueMessageId = await continueRow.getAttribute('data-agent-message-id');
+  expect(continueMessageId).not.toBeNull();
+  await expect(
+    page.locator(
+      `article[data-agent-execution-for-message="${continueMessageId}"] [data-agent-execution-status="cancelled"]`,
+    ),
+  ).toHaveCount(1);
+  await expect(firstExecution).toHaveCount(1);
+  expect(pageErrors).toEqual([]);
 });
 
 test('opens the localized calendar with the seeded holiday group', async () => {
@@ -362,6 +449,7 @@ test('opens the localized calendar with the seeded holiday group', async () => {
     'true',
   );
 
+  const existingUntitledEventCount = await page.getByText('新日程', { exact: true }).count();
   await page.getByRole('button', { name: '新建日程' }).click();
   await expect(page.getByRole('button', { name: '完成' })).toBeVisible();
   await expect(page.getByRole('button', { name: '确认' })).toHaveCount(0);
@@ -370,7 +458,9 @@ test('opens the localized calendar with the seeded holiday group', async () => {
   await expect(page.getByRole('button', { name: '关闭' })).toHaveCount(0);
   await page.getByRole('button', { name: '完成' }).click();
   await expect(page.getByRole('textbox', { name: '备注' })).toHaveCount(0);
-  await expect(page.getByText('新日程')).toHaveCount(2);
+  await expect(page.getByText('新日程', { exact: true })).toHaveCount(
+    existingUntitledEventCount + 1,
+  );
 
   await page.getByText('每日运营晨会').click();
   const existingTitle = page.getByRole('textbox', { name: '文本' });
@@ -384,27 +474,103 @@ test('opens the localized calendar with the seeded holiday group', async () => {
   await expect(page.getByText('自动保存的晨会标题')).toHaveCount(0);
 
   await page.getByRole('button', { name: '今天' }).click();
-  for (let index = 0; index < 4; index += 1) {
+  const periodHeading = page.getByRole('heading', { level: 2 });
+  for (let index = 0; index < 8; index += 1) {
+    if ((await periodHeading.textContent())?.includes('2026年8月30日–9月5日')) break;
     await page.getByRole('button', { name: '下一个时段' }).click();
   }
-  await expect(page.getByRole('heading', { level: 2 })).toContainText('2026年8月30日–9月5日');
-  await expect(page.getByTestId('mini-calendar-month')).toHaveText('2026年9月');
+  await expect(periodHeading).toContainText('2026年8月30日–9月5日');
+  await expect(page.getByTestId('mini-calendar-month')).toHaveText('2026年8月');
 
   await page.getByRole('button', { name: '迷你日历下一个月' }).click();
-  await expect(page.getByTestId('mini-calendar-month')).toHaveText('2026年10月');
+  await expect(page.getByTestId('mini-calendar-month')).toHaveText('2026年9月');
   await page.locator('.hotel-mini-calendar .wx-day:not(.wx-out)', { hasText: /^15$/ }).click();
-  await expect(page.getByRole('heading', { level: 2 })).toContainText('10月');
+  await expect(page.getByRole('heading', { level: 2 })).toContainText('9月');
 });
 
-test('previews generated hotel UI with static data', async () => {
+test('shows only executable public MCP quick actions', async () => {
   await login();
   await page.getByRole('link', { name: '小智AI 管家' }).click();
-  await page.getByRole('button', { name: '预览房态库存' }).click();
 
-  await expect(page.getByRole('heading', { name: '房态与库存' })).toBeVisible();
-  await expect(page.getByText('高级双床房库存偏紧')).toBeVisible();
-  await expect(page.getByText('Mock 数据')).toBeVisible();
-  await expect(page.locator('[data-generative-ui="hotel"]')).toBeVisible();
+  const yesterdayReview = page.getByRole('button', { name: '昨日经营复盘', exact: true });
+  const sevenDayTrend = page.getByRole('button', { name: '近 7 日经营趋势', exact: true });
+  await expect(yesterdayReview).toBeVisible();
+  await expect(sevenDayTrend).toBeVisible();
+  await expect(page.getByRole('button', { name: '本月经营进度', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: '渠道经营对比', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: '查看酒店经营概览', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: '查看今日天气', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: '未来七天天气', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: '空气质量提醒', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: '预览房态库存' })).toHaveCount(0);
+
+  await yesterdayReview.click();
+  await expect(page.getByRole('form', { name: '补充任务信息' })).toBeVisible();
+  await expect(page.getByRole('button', { name: '确认', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: '取消', exact: true })).toBeVisible();
+  await expect(sevenDayTrend).toBeEnabled();
+  const userMessageCount = await page.locator('article[data-agent-message-role="user"]').count();
+
+  await sevenDayTrend.click();
+
+  await expect(
+    page.getByText('当前任务正在等待补充信息，请先确认或取消当前任务。', { exact: true }),
+  ).toBeVisible();
+  await expect(page.locator('article[data-agent-message-role="user"]')).toHaveCount(
+    userMessageCount,
+  );
+  await expect(page.getByRole('form', { name: '补充任务信息' })).toBeVisible();
+  await expect(page.getByText(/快捷操作启动失败/)).toHaveCount(0);
+
+  await page.getByRole('button', { name: '取消', exact: true }).click();
+  await expect(
+    page.getByText('当前任务正在等待补充信息，请先确认或取消当前任务。', { exact: true }),
+  ).toHaveCount(0);
+});
+
+test('keeps the Agent conversation at the latest content without interrupting history reading', async () => {
+  await login();
+  await page.getByRole('link', { name: '小智AI 管家' }).click();
+
+  for (let index = 0; index < 4; index += 1) {
+    await page.getByRole('button', { name: '昨日经营复盘', exact: true }).click();
+    await expect(page.getByRole('form', { name: '补充任务信息' })).toBeVisible();
+    await page.getByRole('button', { name: '取消', exact: true }).click();
+    await expect(page.getByRole('form', { name: '补充任务信息' })).toHaveCount(0);
+  }
+
+  const viewport = page.getByRole('region', { name: '对话内容' });
+  await expect
+    .poll(() =>
+      viewport.evaluate(
+        (element) => element.scrollHeight - element.scrollTop - element.clientHeight,
+      ),
+    )
+    .toBeLessThanOrEqual(2);
+
+  await viewport.evaluate((element) => {
+    element.scrollTop = 0;
+    element.dispatchEvent(new Event('scroll'));
+    const filler = document.createElement('div');
+    filler.dataset.scrollTestFiller = 'true';
+    filler.style.height = '200px';
+    element.firstElementChild?.append(filler);
+  });
+  await page.waitForTimeout(100);
+  expect(await viewport.evaluate((element) => element.scrollTop)).toBe(0);
+  await viewport.evaluate((element) => {
+    element.querySelector('[data-scroll-test-filler]')?.remove();
+  });
+
+  await page.getByRole('button', { name: '开始新会话' }).click();
+  await page.locator('aside button[aria-pressed="false"]').first().click();
+  await expect
+    .poll(() =>
+      viewport.evaluate(
+        (element) => element.scrollHeight - element.scrollTop - element.clientHeight,
+      ),
+    )
+    .toBeLessThanOrEqual(2);
 });
 
 test('navigates between the browser workspace and settings', async () => {

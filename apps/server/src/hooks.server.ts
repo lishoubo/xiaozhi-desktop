@@ -5,13 +5,15 @@ import { auth } from '$lib/server/auth';
 import { isDesktopTrpcPath } from '$lib/server/desktop-trpc-path';
 import { safeErrorDetails, safeErrorType, serverLogger } from '$lib/server/logging/logger';
 import { executeLoggedRequest } from '$lib/server/logging/request-logging';
+import { initializeServerAuthResources } from '$lib/server/server-auth-resources-runtime';
 import { svelteKitHandler } from 'better-auth/svelte-kit';
 
-export const init: ServerInit = () => {
+export const init: ServerInit = async () => {
 	serverLogger.info(
 		{ event: 'server.logging.initialized', logLevel: serverLogger.level },
 		'Server logging initialized'
 	);
+	await initializeServerAuthResources();
 };
 
 const handleRequestLogging: Handle = ({ event, resolve }) =>

@@ -22,8 +22,13 @@ function setup(responses: Response[]) {
     fetch: inner as unknown as typeof globalThis.fetch,
     provider,
     logger,
+    now: (() => {
+      let value = 0;
+      return () => (value += 5);
+    })(),
+    requestIdFactory: () => 'desktop-rms-business-1',
   });
-  return { fetch, inner, provider };
+  return { fetch, inner, logger, provider };
 }
 
 function headersOf(inner: ReturnType<typeof vi.fn>, call = 0): Headers {
@@ -51,7 +56,7 @@ describe('createAuthenticatedRmsFetch', () => {
   });
 
   it('retries once with a fresh token when the server rejects the current one', async () => {
-    const { fetch, inner, provider } = setup([
+    const { fetch, inner, logger, provider } = setup([
       jsonResponse({ code: 11004, message: 'token 已过期' }, 401),
       jsonResponse({ code: 0, data: [] }),
     ]);
@@ -61,6 +66,17 @@ describe('createAuthenticatedRmsFetch', () => {
     expect(inner).toHaveBeenCalledTimes(2);
     expect(provider.invalidate).toHaveBeenCalledOnce();
     await expect(response.json()).resolves.toMatchObject({ code: 0 });
+    const serialized = JSON.stringify([
+      ...logger.info.mock.calls,
+      ...logger.warn.mock.calls,
+      ...logger.error.mock.calls,
+    ]);
+    expect(serialized.match(/rms\.http\.request\.started/g)).toHaveLength(2);
+    expect(serialized.match(/rms\.http\.request\.completed/g)).toHaveLength(2);
+    expect(serialized).toContain('desktop-rms-business-1');
+    expect(serialized).toContain('"attempt":1');
+    expect(serialized).toContain('"attempt":2');
+    expect(serialized).not.toContain('access-1');
   });
 
   it('does not retry forever when the refreshed token is rejected too', async () => {

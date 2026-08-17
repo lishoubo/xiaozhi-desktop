@@ -4,6 +4,7 @@
 
 | 文档 | 讲什么 | 状态 |
 |---|---|---|
+| [Hotel Agent 当前架构图](2026-08-12-hotel-agent-architecture.mmd) | 可直接导入 mermaid.live；覆盖会话、压缩、运行时、工具、持久化与 SSE | ✅ 当前实现 |
 | [OTA 标签页异步结果对接范式](2026-08-08-ota-tab-async-result-pattern.md) | UI 发起 → 开标签页 → 用户操作 → 结果回到 UI 的标准形状；加同类流程该改哪些文件 | ✅ 已落地两例 |
 | [Electron IPC 背景](2026-08-06-electron-ipc-background.md) | IPC 边界的约束与写法 | ✅ 有效 |
 | [浏览器 session partition](2026-08-03-electron-browser-session-partition.md) | partition 命名与登录态隔离 | ✅ 有效 |

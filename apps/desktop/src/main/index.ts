@@ -6,7 +6,11 @@ import { app, BrowserWindow } from 'electron';
 import log from 'electron-log/main';
 import started from 'electron-squirrel-startup';
 import { APP_ENVIRONMENT, APP_PRODUCT_NAME } from '../shared/app-environment';
-import { configureMainLogging } from './logging/configure-main-logging';
+import { AUTH_VARIANT } from '../shared/auth-variant';
+import {
+  configureDesktopLogDirectory,
+  configureMainLogging,
+} from './logging/configure-main-logging';
 import { configureNetworkPrivacy } from './security/network-privacy';
 import { createAppScope, type AppScope } from './composition/app-scope';
 import { createWindowScope, type WindowScope } from './composition/window-scope';
@@ -14,8 +18,11 @@ import { resolveRmsOrigin } from './staff-auth/rms-endpoint';
 
 /**
  * ⚠️ **必须是本文件的第一条语句**：`app.getName()` 决定 userData 与日志目录，而
- * 下面的 `configureMainLogging` 一初始化就会解析日志路径、`app-scope` 会取
+ * 下面的 `configureDesktopLogDirectory` 会读 `getPath('logs')`、`app-scope` 会取
  * userData。晚一步这两者就落到旧目录去了。
+ *
+ * 日志目录最终是 `<环境专属应用名>/<登录变体>/` —— 环境由这里的应用名决定，
+ * 变体由 `configureDesktopLogDirectory` 再加一层子目录。
  *
  * 打包时 forge 的 `packagerConfig.name` 已经设了同一个值，这行是为了让 **dev 模式**
  * （`electron-forge start`，不经 packager）也拿到环境专属的应用名——否则 dev 会回落到
@@ -27,9 +34,11 @@ let appScope: AppScope | null = null;
 let windowScope: WindowScope | null = null;
 
 configureNetworkPrivacy(app.commandLine);
+const logsDirectory = configureDesktopLogDirectory(app, AUTH_VARIANT);
 configureMainLogging(log, {
   appVersion: app.getVersion(),
   isPackaged: app.isPackaged,
+  logsDirectory,
   platform: process.platform,
 });
 

@@ -11,9 +11,15 @@ import { AutoUnpackNativesPlugin } from '@electron-forge/plugin-auto-unpack-nati
 import { FusesPlugin } from '@electron-forge/plugin-fuses';
 import { FuseV1Options, FuseVersion } from '@electron/fuses';
 import { environmentProfile } from './vite-plugins/app-env';
+import { resolveAuthVariant } from './vite-plugins/auth-variant';
 
 const nativeRuntimeDependencies = ['better-sqlite3', 'node-addon-api'] as const;
 const require = createRequire(import.meta.url);
+const authVariant = resolveAuthVariant();
+const privateCaPath = process.env.HOTEL_BUTLER_PRIVATE_CA_PATH?.trim();
+if (privateCaPath && path.basename(privateCaPath) !== 'private-ca.pem') {
+  throw new Error('HOTEL_BUTLER_PRIVATE_CA_PATH must point to a file named private-ca.pem');
+}
 
 /**
  * 应用标识随构建环境变化，让 dev / pre / online 三套包能并存安装。
@@ -23,11 +29,20 @@ const require = createRequire(import.meta.url);
  */
 const profile = environmentProfile();
 
+/**
+ * 环境与登录变体是**两根正交的轴**：环境决定连哪个后端与数据目录，变体决定装哪套登录。
+ * 两者都要体现在应用标识里，否则 `staff` 与 `phone` 的包会共用同一份数据目录。
+ */
+const isPhone = authVariant === 'phone';
+
 const config: ForgeConfig = {
+  buildIdentifier: authVariant,
   packagerConfig: {
     asar: true,
-    name: profile.productName,
-    appBundleId: profile.bundleId,
+    name: isPhone ? `${profile.productName}(手机登录)` : profile.productName,
+    appBundleId: isPhone ? `${profile.bundleId}.phone` : profile.bundleId,
+    executableName: isPhone ? 'hotel-butler-phone' : undefined,
+    extraResource: privateCaPath ?? undefined,
   },
   hooks: {
     // Forge's Vite plugin excludes externalized modules from the packaged app, so copy the
@@ -54,8 +69,8 @@ const config: ForgeConfig = {
     // 才不会互相覆盖安装。这里用 ASCII slug 而非中文展示名：Squirrel 对非 ASCII
     // 字符支持不佳，展示名交给 `setupExe` 与 packagerConfig.name。
     new MakerSquirrel({
-      name: profile.squirrelName,
-      setupExe: `${profile.productName}-setup.exe`,
+      name: isPhone ? `${profile.squirrelName}-phone` : profile.squirrelName,
+      setupExe: `${profile.productName}${isPhone ? '-phone' : ''}-setup.exe`,
     }),
     new MakerZIP({}, ['darwin']),
     new MakerRpm({}),

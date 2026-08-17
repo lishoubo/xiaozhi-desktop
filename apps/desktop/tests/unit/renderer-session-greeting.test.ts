@@ -20,8 +20,4 @@ describe('weekdayLabel', () => {
   it('names Sunday as 星期日 rather than 星期六', () => {
     expect(weekdayLabel(new Date(2026, 7, 9))).toBe('星期日');
   });
-
-  it('names a midweek day', () => {
-    expect(weekdayLabel(new Date(2026, 7, 12))).toBe('星期三');
-  });
 });

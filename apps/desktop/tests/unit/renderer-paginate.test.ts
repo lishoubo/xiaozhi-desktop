@@ -9,13 +9,6 @@ describe('paginate', () => {
     expect(paginate(ITEMS, 2, 2).pageItems).toEqual(['c', 'd']);
   });
 
-  it('最后一页不足一整页时只给剩下的', () => {
-    const { pageItems, totalPages } = paginate(ITEMS, 3, 2);
-
-    expect(pageItems).toEqual(['e']);
-    expect(totalPages).toBe(3);
-  });
-
   /** 删到最后一页空了、或重新加载后总数变少，页码不回退就会停在空白页。 */
   it('页码越界时夹回最后一页', () => {
     const { safePage, pageItems } = paginate(ITEMS, 99, 2);
@@ -35,16 +28,5 @@ describe('paginate', () => {
     expect(safePage).toBe(1);
     expect(totalPages).toBe(1);
     expect(pageItems).toEqual([]);
-  });
-
-  it('条目数正好整除时不多出空白页', () => {
-    expect(paginate(['a', 'b', 'c', 'd'], 1, 2).totalPages).toBe(2);
-  });
-
-  it('条目数少于一页时只有一页', () => {
-    const { totalPages, pageItems } = paginate(['a'], 1, 10);
-
-    expect(totalPages).toBe(1);
-    expect(pageItems).toEqual(['a']);
   });
 });

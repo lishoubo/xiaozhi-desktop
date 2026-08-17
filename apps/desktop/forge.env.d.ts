@@ -12,6 +12,9 @@ declare const __AUTH_VARIANT__: 'staff' | 'phone';
  */
 declare const __RMS_ORIGIN__: string;
 
+/** hotel-butler server 地址：由 vite-plugins/server-origin.ts 在构建期注入。 */
+declare const __SERVER_ORIGIN__: string;
+
 /**
  * 构建环境：由 vite-plugins/app-env.ts 在三处构建里 define 注入。
  * 决定应用标识（进而决定各平台的数据与日志目录）、RMS 默认地址与 partition 命名。

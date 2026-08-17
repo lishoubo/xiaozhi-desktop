@@ -16,6 +16,7 @@ export default defineConfig({
       INITIAL_ADMIN_PASSWORD: 'admin123',
       INITIAL_ADMIN_USERNAME: 'admin',
       ORIGIN: serverOrigin,
+      XIAOZHI_AUTH_VARIANT: 'phone',
       RMS_DATABASE_URL: `mysql://hotel_butler:testpassword@localhost:${e2eRmsHostPort}/rms`,
     },
     port: 4173,

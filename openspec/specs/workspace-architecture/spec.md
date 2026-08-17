@@ -27,6 +27,12 @@ Desktop-to-server communication SHALL use tRPC over `/api/trpc`, and the desktop
 - **THEN** Electron main uses the shared tRPC contract
 - **AND** renderer does not import or call the server implementation directly
 
+#### Scenario: Desktop streams Agent events
+
+- **WHEN** desktop runs a long-lived Agent task
+- **THEN** Electron main uses the shared tRPC SSE subscription over HTTPS
+- **AND** preload forwards validated events to renderer without exposing the server credential
+
 #### Scenario: Desktop performs authentication operations
 
 - **WHEN** renderer requests login or session operations
@@ -42,6 +48,12 @@ Local desktop and server development endpoints SHALL use the host-trusted mkcert
 - **THEN** certificate setup runs before Electron Forge starts
 - **AND** Electron loads the renderer from `https://localhost:5174`
 - **AND** the desktop main process connects to the local server at `https://localhost:5173` by default
+
+#### Scenario: Start the local server
+
+- **WHEN** a developer starts the server through either the host development command or local Docker Compose
+- **THEN** the server is available to the desktop at `https://localhost:5173` by default
+- **AND** local Docker Compose may override the host port through `SERVER_HTTPS_PORT`
 
 ### Requirement: Local data remains explicit
 

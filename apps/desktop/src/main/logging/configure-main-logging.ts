@@ -1,3 +1,5 @@
+import path from 'node:path';
+import type { AuthVariant } from '../../shared/auth-variant';
 import { redactLogData, type LogMessageData } from '../../shared/logging';
 
 type MainLoggingTarget = {
@@ -18,6 +20,7 @@ type MainLoggingTarget = {
       // depth 与 electron-log 的实际签名对齐（它允许 null/undefined 表示「不限制/用默认」），
       // 这里写窄了会让 index.ts 传入真实 logger 时类型不兼容。
       inspectOptions: { depth?: number | null };
+      resolvePathFn: (...arguments_: never[]) => string;
     };
     ipc: { level: string | false };
     remote: { level: string | false };
@@ -27,7 +30,13 @@ type MainLoggingTarget = {
 type MainLoggingOptions = Readonly<{
   appVersion: string;
   isPackaged: boolean;
+  logsDirectory: string;
   platform: NodeJS.Platform;
+}>;
+
+type ElectronLogDirectoryTarget = Readonly<{
+  getPath(name: 'logs'): string;
+  setAppLogsPath(path?: string): void;
 }>;
 
 const MAX_LOG_FILE_SIZE = 10 * 1024 * 1024;
@@ -53,10 +62,22 @@ const MAX_LOG_FILE_SIZE = 10 * 1024 * 1024;
  */
 const FILE_LOG_INSPECT_DEPTH = 8;
 
+export function configureDesktopLogDirectory(
+  electronApp: ElectronLogDirectoryTarget,
+  authVariant: AuthVariant,
+): string {
+  electronApp.setAppLogsPath();
+  const profileDirectory = path.join(electronApp.getPath('logs'), authVariant);
+  electronApp.setAppLogsPath(profileDirectory);
+  return electronApp.getPath('logs');
+}
+
 export function configureMainLogging(logger: MainLoggingTarget, options: MainLoggingOptions): void {
+  const logFilePath = path.join(options.logsDirectory, 'main.log');
   logger.transports.file.level = options.isPackaged ? 'info' : 'debug';
   logger.transports.file.maxSize = MAX_LOG_FILE_SIZE;
   logger.transports.file.inspectOptions = { depth: FILE_LOG_INSPECT_DEPTH };
+  logger.transports.file.resolvePathFn = () => logFilePath;
   logger.transports.console.level = options.isPackaged ? 'warn' : 'debug';
   logger.transports.ipc.level = false;
   logger.transports.remote.level = false;
@@ -81,6 +102,7 @@ export function configureMainLogging(logger: MainLoggingTarget, options: MainLog
   logger.info('Application logging initialized', {
     appVersion: options.appVersion,
     isPackaged: options.isPackaged,
+    logFilePath,
     platform: options.platform,
   });
 }

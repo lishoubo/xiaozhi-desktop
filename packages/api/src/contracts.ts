@@ -1,5 +1,7 @@
 import { z } from 'zod';
 
+export * from './agent-contracts';
+
 export const employeeIdentitySchema = z.strictObject({
   id: z.string().regex(/^\d+$/),
   orgId: z.string().regex(/^\d+$/),

@@ -14,6 +14,38 @@ export type AppLogger = Readonly<{
   error: (...data: unknown[]) => unknown;
 }>;
 
+export type SafeLogErrorDetails = Readonly<{
+  name: string;
+  message: string;
+  stack?: string;
+  cause?: SafeLogErrorDetails;
+}>;
+
+export function safeLogErrorDetails(error: unknown): SafeLogErrorDetails {
+  return serializeLogError(error, new Set(), 0);
+}
+
+function serializeLogError(
+  error: unknown,
+  seen: ReadonlySet<Error>,
+  depth: number,
+): SafeLogErrorDetails {
+  if (!(error instanceof Error)) {
+    return { name: 'UnknownError', message: redactText(String(error)) };
+  }
+
+  const nextSeen = new Set(seen);
+  nextSeen.add(error);
+  return {
+    name: /^[A-Za-z][A-Za-z0-9]{0,63}$/.test(error.name) ? error.name : 'Error',
+    message: redactText(error.message),
+    ...(error.stack ? { stack: redactText(error.stack) } : {}),
+    ...(error.cause instanceof Error && !nextSeen.has(error.cause) && depth < 4
+      ? { cause: serializeLogError(error.cause, nextSeen, depth + 1) }
+      : {}),
+  };
+}
+
 export function redactLogData(data: unknown[]): unknown[] {
   const visited = new WeakSet<object>();
 
@@ -63,5 +95,7 @@ function redactText(value: string): string {
   return value
     .replace(/\bBearer\s+[^\s,;]+/gi, `Bearer ${REDACTED}`)
     .replace(SENSITIVE_VALUE_PATTERN, `$1${REDACTED}`)
+    .replace(/\b1\d{10}\b/g, REDACTED)
+    .replace(/([a-z][a-z\d+.-]*:\/\/)[^\s/@]+:[^\s/@]+@/gi, `$1${REDACTED}@`)
     .replace(/(cookie\s*:\s*)[^\r\n]+/gi, `$1${REDACTED}`);
 }

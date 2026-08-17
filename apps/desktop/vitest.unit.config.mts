@@ -7,6 +7,7 @@ export default defineConfig({
     __RMS_ORIGIN__: JSON.stringify('http://localhost:8080'),
     __APP_ENV__: JSON.stringify('dev'),
     __APP_PRODUCT_NAME__: JSON.stringify('小智酒店管家[开发]'),
+    __SERVER_ORIGIN__: JSON.stringify('https://localhost:5173'),
   },
   test: {
     environment: 'node',

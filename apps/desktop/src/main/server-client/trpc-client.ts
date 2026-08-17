@@ -1,6 +1,13 @@
 import type { AppRouter } from '@hotel-butler/api';
-import { createTRPCClient, httpLink, type TRPCClient } from '@trpc/client';
+import {
+  createTRPCClient,
+  httpLink,
+  httpSubscriptionLink,
+  splitLink,
+  type TRPCClient,
+} from '@trpc/client';
 import { net, type Session } from 'electron';
+import { EventSource } from 'eventsource';
 
 export interface ServerTrpcClientOptions {
   baseUrl: string;
@@ -35,11 +42,43 @@ export function createElectronSessionFetch(
 }
 
 export function createServerTrpcClient(options: ServerTrpcClientOptions): TRPCClient<AppRouter> {
+  const fetchImplementation = options.fetch ?? electronNetFetch;
+
   return createTRPCClient<AppRouter>({
     links: [
       httpLink({
         url: serverTrpcEndpoint(options.baseUrl),
-        fetch: options.fetch ?? electronNetFetch,
+        fetch: fetchImplementation,
+      }),
+    ],
+  });
+}
+
+export function createServerTrpcStreamingClient(
+  options: ServerTrpcClientOptions,
+): TRPCClient<AppRouter> {
+  const fetchImplementation = options.fetch ?? electronNetFetch;
+  class AuthenticatedEventSource extends EventSource {
+    constructor(url: string | URL, init?: EventSourceInit) {
+      super(url, {
+        ...init,
+        fetch: (input, eventSourceInit) => fetchImplementation(input, eventSourceInit),
+      });
+    }
+  }
+
+  return createTRPCClient<AppRouter>({
+    links: [
+      splitLink({
+        condition: (operation) => operation.type === 'subscription',
+        true: httpSubscriptionLink({
+          url: serverTrpcEndpoint(options.baseUrl),
+          EventSource: AuthenticatedEventSource,
+        }),
+        false: httpLink({
+          url: serverTrpcEndpoint(options.baseUrl),
+          fetch: fetchImplementation,
+        }),
       }),
     ],
   });

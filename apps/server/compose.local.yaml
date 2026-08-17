@@ -42,11 +42,12 @@ services:
   database-init:
     image: hotel-butler-server:local
     restart: 'no'
-    env_file:
-      - .env
     environment:
       NODE_ENV: development
       DATABASE_URL: ${COMPOSE_DATABASE_URL:?Set COMPOSE_DATABASE_URL}
+      INITIAL_ADMIN_NAME: ${INITIAL_ADMIN_NAME:-本地管理员}
+      INITIAL_ADMIN_PASSWORD: ${INITIAL_ADMIN_PASSWORD:-admin123}
+      INITIAL_ADMIN_USERNAME: ${INITIAL_ADMIN_USERNAME:-admin}
     depends_on:
       db:
         condition: service_healthy
@@ -59,17 +60,29 @@ services:
       target: local-runtime
     image: hotel-butler-server:local
     restart: unless-stopped
-    env_file:
-      - .env
     environment:
       DATABASE_URL: ${COMPOSE_DATABASE_URL:?Set COMPOSE_DATABASE_URL}
-      RMS_DATABASE_URL: ${COMPOSE_RMS_DATABASE_URL:?Set COMPOSE_RMS_DATABASE_URL}
-      ORIGIN: https://localhost:${SERVER_HTTPS_PORT:-4173}
+      RMS_DATABASE_URL: ${COMPOSE_RMS_DATABASE_URL:-}
+      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?Set BETTER_AUTH_SECRET}
+      ORIGIN: https://localhost:${SERVER_HTTPS_PORT:-5173}
       LOCAL_HTTPS_CERT_DIR: /certs
       NODE_EXTRA_CA_CERTS: /certs/rootCA.pem
       SHOW_LOCAL_ADMIN_CREDENTIALS: 'true'
+      XIAOZHI_RMS_SERVER_URL: ${XIAOZHI_RMS_SERVER_URL:-http://host.docker.internal:8080}
+      AI_KIMI_API_KEY: ${AI_KIMI_API_KEY:-}
+      AI_KIMI_BASE_URL: ${AI_KIMI_BASE_URL:-https://api.moonshot.cn/v1}
+      AI_KIMI_MODEL: ${AI_KIMI_MODEL:-kimi-k3}
+      AI_PUBLIC_WEATHER_MCP_ENABLED: ${AI_PUBLIC_WEATHER_MCP_ENABLED:-true}
+      AI_DMS_MCP_URL: ${AI_DMS_MCP_URL:-https://dms-mcpver-vjne-ndunixfhxl.cn-hangzhou.fcapp.run/sse}
+      AI_DMS_MCP_BEARER_TOKEN: ${AI_DMS_MCP_BEARER_TOKEN:-}
+      AI_DMS_DATABASE_ID: ${AI_DMS_DATABASE_ID:-}
+      AI_DMS_DATABASE_NAME: ${AI_DMS_DATABASE_NAME:-}
+      AI_MCP_SERVERS_JSON: ${AI_MCP_SERVERS_JSON:-{}}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
     ports:
-      - '${SERVER_HTTPS_PORT:-4173}:4173'
+      - '${SERVER_HTTPS_PORT:-5173}:4173'
+    extra_hosts:
+      - 'host.docker.internal:host-gateway'
     volumes:
       - ./.cert:/certs:ro
     depends_on:
@@ -89,11 +102,9 @@ services:
   connectivity-test:
     image: hotel-butler-server:local
     profiles: ['test']
-    env_file:
-      - .env
     environment:
       DATABASE_URL: ${COMPOSE_DATABASE_URL:?Set COMPOSE_DATABASE_URL}
-      RMS_DATABASE_URL: ${COMPOSE_RMS_DATABASE_URL:?Set COMPOSE_RMS_DATABASE_URL}
+      RMS_DATABASE_URL: ${COMPOSE_RMS_DATABASE_URL:-}
       SERVER_URL: https://server:4173
       NODE_EXTRA_CA_CERTS: /certs/rootCA.pem
     volumes:

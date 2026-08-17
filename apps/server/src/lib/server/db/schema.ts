@@ -7,4 +7,5 @@ export const task = pgTable('task', {
 });
 
 export * from './auth.schema';
+export * from './agent.schema';
 export * from './desktop-session.schema';

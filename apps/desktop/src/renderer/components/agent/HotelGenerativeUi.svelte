@@ -11,3 +11,14 @@
     <Renderer {spec} registry={hotelGenerativeUiRegistry} />
   </JsonUIProvider>
 </div>
+
+<style>
+  .hotel-generative-ui :global([data-slot='table-container']) {
+    max-width: 100%;
+    overscroll-behavior-inline: contain;
+  }
+
+  .hotel-generative-ui :global([data-slot='table']) {
+    min-width: max-content;
+  }
+</style>

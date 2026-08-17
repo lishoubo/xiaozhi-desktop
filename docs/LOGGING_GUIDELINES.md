@@ -15,6 +15,12 @@ Add concise logs at meaningful boundaries such as:
 - long-running or multi-stage operations where start and final outcome are necessary to diagnose interruption;
 - degraded outcomes, partial success, retry exhaustion, or recovery actions.
 
+For third-party API and MCP boundaries, log the call lifecycle and outcome at the orchestration
+boundary. A successful response MAY include an allow-listed, non-content summary such as protocol
+status, result type, content-block count, serialized character count, filtering state and a SHA-256
+fingerprint. A failure SHOULD identify the safe operation/tool name, failure stage, error class,
+retryability and duration. Never include request arguments or response content in these summaries.
+
 Prefer one outcome log at the boundary that knows the operation's result. Do not log every helper call, query, render, state assignment, resize event, normal navigation event, or high-frequency loop iteration.
 
 ## Levels
@@ -34,6 +40,8 @@ Do not use `error` for expected validation feedback and do not use `info` for hi
 - Log success only after the operation has actually succeeded.
 - At layered boundaries, avoid duplicating the same failure unless each log represents a distinct operational stage.
 - Preserve enough context to correlate the operation without logging raw payloads.
+- Correlate third-party calls with the owning run/request, conversation or business execution when
+  that context exists; cached catalog initialization may instead use safe server/tool counts.
 
 ## Sensitive Data
 

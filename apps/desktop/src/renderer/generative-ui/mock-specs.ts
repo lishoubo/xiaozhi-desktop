@@ -72,18 +72,16 @@ export const hotelGenerativeUiPreviews: HotelPreview[] = [
       '今日运营简报',
       '上海静安店 · 2026 年 8 月 1 日',
       {
-        metrics: element('Grid', { columns: 3, gap: 'md' }, ['occupancy', 'arrivals', 'tasks']),
-        occupancy: element(
-          'Card',
-          {
-            title: '入住率 78%',
-            description: '可售 86 间 · 已售 67 间',
-            maxWidth: 'full',
-            centered: false,
-          },
-          ['occupancy-progress'],
-        ),
-        'occupancy-progress': element('Progress', { value: 78, max: 100, label: '今日入住率' }),
+        occupancy: element('HotelRadialChart', {
+          title: '今日入住率',
+          description: '可售 86 间 · 已售 67 间',
+          label: '已售 / 可售',
+          value: 78,
+          max: 100,
+          unit: '%',
+          source: 'Mock PMS · 14:20',
+        }),
+        metrics: element('Grid', { columns: 2, gap: 'md' }, ['arrivals', 'tasks']),
         arrivals: element('Card', {
           title: '预计到店 42 间',
           description: '已办理 18 间',
@@ -102,7 +100,7 @@ export const hotelGenerativeUiPreviews: HotelPreview[] = [
           type: 'warning',
         }),
       },
-      ['metrics', 'alert'],
+      ['occupancy', 'metrics', 'alert'],
     ),
   },
   {
@@ -200,22 +198,26 @@ export const hotelGenerativeUiPreviews: HotelPreview[] = [
       '渠道价格对比',
       '未来 3 天 · 含税可订价格',
       {
+        chart: element('HotelLineChart', {
+          title: '豪华大床房价格趋势',
+          description: '直销与携程含税可订价格',
+          data: [
+            { label: '8 月 1 日', value: 688, comparison: 688 },
+            { label: '8 月 2 日', value: 718, comparison: 688 },
+            { label: '8 月 3 日', value: 628, comparison: 628 },
+          ],
+          valueLabel: '直销价',
+          comparisonLabel: '携程价',
+          unit: '元',
+          source: 'Mock 公开报价 · 14:20',
+        }),
         alert: element('Alert', {
           title: '发现 1 项倒挂',
           message: '8 月 2 日豪华大床房的携程价低于直销价 30 元。',
           type: 'warning',
         }),
-        table: element('Table', {
-          columns: ['日期', '房型', '直销', '携程', '美团', '飞猪', '最低价差'],
-          rows: [
-            ['8 月 1 日', '豪华大床房', '¥688', '¥688', '¥698', '¥688', '¥0'],
-            ['8 月 2 日', '豪华大床房', '¥718', '¥688', '¥718', '¥708', '-¥30'],
-            ['8 月 3 日', '高级双床房', '¥628', '¥628', '¥638', '¥628', '¥0'],
-          ],
-          caption: '价格仅用于静态预览',
-        }),
       },
-      ['alert', 'table'],
+      ['chart', 'alert'],
     ),
   },
   {
@@ -226,29 +228,18 @@ export const hotelGenerativeUiPreviews: HotelPreview[] = [
       '渠道经营表现',
       '本月截至 8 月 1 日',
       {
-        grid: element('Grid', { columns: 3, gap: 'md' }, ['ctrip', 'meituan', 'fliggy']),
-        ctrip: element(
-          'Card',
-          {
-            title: '携程',
-            description: '订单 126 · 间夜 184 · ¥112,680',
-            maxWidth: 'full',
-            centered: false,
-          },
-          ['ctrip-progress'],
-        ),
-        'ctrip-progress': element('Progress', { value: 61, max: 100, label: '渠道间夜占比 61%' }),
-        meituan: element('Card', {
-          title: '美团',
-          description: '订单 52 · 间夜 73 · ¥39,420',
-          maxWidth: 'full',
-          centered: false,
-        }),
-        fliggy: element('Card', {
-          title: '飞猪',
-          description: '订单 31 · 间夜 44 · ¥25,960',
-          maxWidth: 'full',
-          centered: false,
+        chart: element('HotelBarChart', {
+          title: '渠道间夜对比',
+          description: '本月与上月同期',
+          data: [
+            { label: '携程', value: 184, comparison: 172 },
+            { label: '美团', value: 73, comparison: 68 },
+            { label: '飞猪', value: 44, comparison: 51 },
+          ],
+          valueLabel: '本月',
+          comparisonLabel: '上月同期',
+          unit: '间夜',
+          source: 'Mock 渠道汇总',
         }),
         alert: element('Alert', {
           title: '渠道连接正常',
@@ -256,7 +247,7 @@ export const hotelGenerativeUiPreviews: HotelPreview[] = [
           type: 'success',
         }),
       },
-      ['grid', 'alert'],
+      ['chart', 'alert'],
     ),
   },
   {
@@ -344,24 +335,20 @@ export const hotelGenerativeUiPreviews: HotelPreview[] = [
       '点评与口碑',
       '近 30 天 · 三方渠道汇总',
       {
-        grid: element('Grid', { columns: 3, gap: 'md' }, ['score', 'positive', 'pending']),
-        score: element('Card', {
-          title: '综合评分 4.72',
-          description: '较上期 +0.08',
-          maxWidth: 'full',
-          centered: false,
-        }),
-        positive: element('Card', {
-          title: '好评率 96%',
-          description: '共 128 条点评',
-          maxWidth: 'full',
-          centered: false,
-        }),
-        pending: element('Card', {
-          title: '待回复 3 条',
-          description: '其中低分点评 1 条',
-          maxWidth: 'full',
-          centered: false,
+        chart: element('HotelRadarChart', {
+          title: '服务质量维度',
+          description: '本酒店与同城均值',
+          items: [
+            { label: '清洁', value: 94, benchmark: 88 },
+            { label: '服务', value: 91, benchmark: 87 },
+            { label: '位置', value: 96, benchmark: 90 },
+            { label: '设施', value: 86, benchmark: 84 },
+            { label: '入住效率', value: 78, benchmark: 85 },
+          ],
+          max: 100,
+          valueLabel: '本酒店',
+          benchmarkLabel: '同城均值',
+          source: 'Mock 点评聚合',
         }),
         alert: element('Alert', {
           title: '优先回复入住等待反馈',
@@ -378,7 +365,7 @@ export const hotelGenerativeUiPreviews: HotelPreview[] = [
           caption: null,
         }),
       },
-      ['grid', 'alert', 'topics'],
+      ['chart', 'alert', 'topics'],
     ),
   },
   {
@@ -389,24 +376,22 @@ export const hotelGenerativeUiPreviews: HotelPreview[] = [
       '未来 7 天收益预测',
       '基于当前预订与示例需求曲线',
       {
-        grid: element('Grid', { columns: 3, gap: 'md' }, ['occupancy', 'adr', 'revpar']),
-        occupancy: element('Card', {
-          title: '预测入住率 84%',
-          description: '较去年同期 +6 个百分点',
-          maxWidth: 'full',
-          centered: false,
-        }),
-        adr: element('Card', {
-          title: '平均房价 ¥672',
-          description: '较当前在售价 +¥24',
-          maxWidth: 'full',
-          centered: false,
-        }),
-        revpar: element('Card', {
-          title: 'RevPAR ¥564',
-          description: '较去年同期 +11%',
-          maxWidth: 'full',
-          centered: false,
+        chart: element('HotelAreaChart', {
+          title: '未来 7 天入住率预测',
+          description: '当前预测与去年同期',
+          data: [
+            { label: '8/2', value: 91, comparison: 84 },
+            { label: '8/3', value: 86, comparison: 79 },
+            { label: '8/4', value: 64, comparison: 61 },
+            { label: '8/5', value: 72, comparison: 68 },
+            { label: '8/6', value: 79, comparison: 73 },
+            { label: '8/7', value: 88, comparison: 81 },
+            { label: '8/8', value: 94, comparison: 86 },
+          ],
+          valueLabel: '预测入住率',
+          comparisonLabel: '去年同期',
+          unit: '%',
+          source: 'Mock 预订曲线',
         }),
         table: element('Table', {
           columns: ['日期', '预测入住率', '当前均价', '建议均价', '建议'],
@@ -423,7 +408,7 @@ export const hotelGenerativeUiPreviews: HotelPreview[] = [
           type: 'info',
         }),
       },
-      ['grid', 'table', 'alert'],
+      ['chart', 'table', 'alert'],
     ),
   },
 ];

@@ -6,5 +6,6 @@
  * 实现连同 import 一起摇掉，两套登录不会同时进产物。
  */
 export const AUTH_VARIANT: 'staff' | 'phone' = __AUTH_VARIANT__;
+export type AuthVariant = typeof AUTH_VARIANT;
 
 export const IS_STAFF_AUTH = AUTH_VARIANT === 'staff';
