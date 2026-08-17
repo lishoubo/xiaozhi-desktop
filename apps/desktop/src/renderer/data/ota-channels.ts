@@ -16,6 +16,25 @@ export type OtaChannel = Readonly<{
  */
 export const BINDABLE_CHANNEL_IDS: readonly string[] = ['ctrip', 'douyin', 'meituan'];
 
+/**
+ * 浏览器工作区顶部展示哪些渠道入口。
+ *
+ * 只留已经接通改价/房态监听与账号探测的那三个：入口太多会让工作区顶部拥挤，而其余渠道
+ * 点进去也只是个空浏览器——既探测不出账号，也不上报任何改动，对用户没有价值。
+ *
+ * ⚠️ **不是从 `OTA_CHANNELS` 里删条目**：`account.source` 是远端存下来的历史数据，各处
+ * 都用 `OTA_CHANNELS.find()` 把它翻译成中文名（酒店卡片、重认弹窗、cookie 列表）。删了
+ * 定义，那些记录就会退化成显示 `fliggy` 这样的裸 id。定义留着，只控制入口是否展示。
+ *
+ * 恢复某个渠道时把它加回这个数组即可；`OTA_CHANNELS` 里的定义一直都在。
+ */
+export const WORKSPACE_CHANNEL_IDS: readonly string[] = ['ctrip', 'meituan', 'douyin'];
+
+/**
+ * 全部渠道定义。**这里是「id → 展示信息」的字典，不是「展示哪些入口」的清单**
+ * —— 后者见 `WORKSPACE_CHANNEL_IDS`。未展示的渠道也必须留在这里，否则历史绑定记录
+ * 会显示成裸 id。
+ */
 export const OTA_CHANNELS: readonly OtaChannel[] = [
   {
     id: 'ctrip',

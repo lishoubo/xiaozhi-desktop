@@ -18,7 +18,11 @@
     PAGE_ENTER_OPTIONS,
     SURFACE_TRANSITION_OPTIONS,
   } from '../../motion';
-  import { OTA_CHANNELS, type OtaChannel } from '../../data/ota-channels';
+  import {
+    OTA_CHANNELS,
+    WORKSPACE_CHANNEL_IDS,
+    type OtaChannel,
+  } from '../../data/ota-channels';
   import { dismissAppNotification, showAppNotification } from '../../notifications';
   import { browserOtaTabs } from './browser-ota-tabs.svelte';
   import { cookieListAutoOpen, tabActivation } from './cross-route-intents';
@@ -35,6 +39,11 @@
   } from './login-credential-options';
 
   const COOKIE_PROMPT_KEY = 'hotel-butler.cookie-import-prompted';
+  // 顶部入口只列已接通监听与探测的渠道；`OTA_CHANNELS` 仍是完整字典，负责把历史
+  // 绑定记录里的 `source` 翻译成中文名（理由见 `WORKSPACE_CHANNEL_IDS`）。
+  const workspaceChannels = OTA_CHANNELS.filter((channel) =>
+    WORKSPACE_CHANNEL_IDS.includes(channel.id),
+  );
   // 标签页状态归 `browserOtaTabs`（渲染进程侧的 OTA tab 状态层）；本组件只渲染
   // 它、并把视口尺寸注册进去。凭证列表不属于 tab 状态，仍留在本地。
   let credentialsByChannel = $state<Record<string, OtaCredentialDto[]>>({});
@@ -387,7 +396,7 @@
     class="flex min-w-0 items-center gap-1 overflow-x-auto border-b border-[#e5e7eb] bg-[#f4f6fa] px-4"
     aria-label="OTA 快捷入口"
   >
-    {#each OTA_CHANNELS as channel (channel.id)}
+    {#each workspaceChannels as channel (channel.id)}
       <button
         class={[
           'flex h-10 shrink-0 items-center justify-center gap-[7px] rounded-lg border px-2.5 text-sm font-medium whitespace-nowrap transition-[background-color,border-color,color,box-shadow] duration-150 ease-out motion-reduce:transition-none',

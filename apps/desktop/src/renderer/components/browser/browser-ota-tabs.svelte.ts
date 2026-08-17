@@ -17,7 +17,7 @@
  * 不收凭证列表（`credentialsByChannel`）：那是 tab 的邻居，不是同一件事。
  */
 import type { BrowserTab, OtaTabIntentDto } from '../../../shared/browser';
-import { OTA_CHANNELS } from '../../data/ota-channels';
+import { WORKSPACE_CHANNEL_IDS } from '../../data/ota-channels';
 import { pickRestoreTarget } from './restore-target';
 
 /** 视口尺寸由组件在挂载时注册；store 自己拿不到 DOM。 */
@@ -26,7 +26,9 @@ type ViewportReader = () => DOMRect;
 class BrowserOtaTabsStore {
   tabsByChannel = $state<Record<string, BrowserTab[]>>({});
   activeTabIds = $state<Record<string, string>>({});
-  activeChannelId = $state<string>(OTA_CHANNELS[0].id);
+  // 默认渠道取工作区第一个入口，而不是 `OTA_CHANNELS[0]` —— 后者是完整字典，首项
+  // 未必在展示清单里，取到隐藏渠道会让标签栏没有任何一项高亮。
+  activeChannelId = $state<string>(WORKSPACE_CHANNEL_IDS[0]);
 
   #readViewport: ViewportReader | undefined;
 
