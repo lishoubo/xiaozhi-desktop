@@ -18,6 +18,7 @@
  */
 import type { BrowserTab, OtaTabIntentDto } from '../../../shared/browser';
 import { OTA_CHANNELS } from '../../data/ota-channels';
+import { pickRestoreTarget } from './restore-target';
 
 /** 视口尺寸由组件在挂载时注册；store 自己拿不到 DOM。 */
 type ViewportReader = () => DOMRect;
@@ -53,6 +54,11 @@ class BrowserOtaTabsStore {
 
   get activeTabs(): BrowserTab[] {
     return this.tabsByChannel[this.activeChannelId] ?? [];
+  }
+
+  /** 所有渠道的标签页。`restoreTarget` 的兜底需要跨渠道找，不能只看当前渠道那一栏。 */
+  get allTabs(): BrowserTab[] {
+    return Object.values(this.tabsByChannel).flat();
   }
 
   get activeTab(): BrowserTab | undefined {
@@ -168,6 +174,11 @@ class BrowserOtaTabsStore {
   async activateIfIdle(tab: BrowserTab): Promise<void> {
     if (this.#explicitlyActivated) return;
     await this.activate(tab);
+  }
+
+  /** 重新进入工作区时该激活哪个 tab —— 规则与理由见 `pickRestoreTarget`。 */
+  restoreTarget(tabs: readonly BrowserTab[]): BrowserTab | undefined {
+    return pickRestoreTarget(tabs, this.activeChannelId, this.activeTabIds[this.activeChannelId]);
   }
 
   /** 离开浏览器工作区：下次进来重新按「默认激活」处理，让位状态也一并复位。 */

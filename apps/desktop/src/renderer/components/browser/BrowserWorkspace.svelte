@@ -245,6 +245,17 @@
   function finishCookiePrompt(): void {
     cookiePrompt = false;
     localStorage.setItem(COOKIE_PROMPT_KEY, 'true');
+    // 引导页让开后内容区才真正可见，此刻补上挂载时跳过的那次激活。
+    // 已经有标签页时才做——刚导入 cookie 那条路会自己开标签并 adopt，
+    // `activateIfIdle` 会让位给它。
+    const target = browserOtaTabs.restoreTarget(browserOtaTabs.allTabs);
+    if (target) {
+      void browserOtaTabs.activateIfIdle(target).catch((error: unknown) => {
+        log.warn('Tab could not be activated after the cookie prompt', {
+          errorName: error instanceof Error ? error.name : 'UnknownError',
+        });
+      });
+    }
   }
 
   async function finishCookiePromptAndReviewImports(): Promise<void> {
@@ -321,27 +332,34 @@
     } else {
       void loadCredentials(activeChannelId);
       cookiePrompt = localStorage.getItem(COOKIE_PROMPT_KEY) !== 'true';
-      if (!cookiePrompt) {
-        void window.hotelButler.browser
-          .list()
-          .then(async (tabs) => {
-            if (!mounted) return;
-            browserOtaTabs.hydrate(tabs);
-            // 兜底激活：带着绑定意图进来时，标签页由 BindHotelDialog 那条链开，
-            // 它先起跑但后完成——这里必须让位，否则会把它从内容区顶掉。
-            const ctripTab = tabs.find((tab) => tab.channelId === OTA_CHANNELS[0].id);
-            if (ctripTab) await browserOtaTabs.activateIfIdle(ctripTab);
-          })
-          .catch((error: unknown) => {
-            if (mounted) {
-              reportBrowserFailure(
-                'Browser workspace could not be loaded',
-                '浏览器工作区加载失败，请重试',
-                error,
-              );
-            }
-          });
-      }
+      // ⚠️ 不论引导页在不在都要 hydrate：标签栏依赖它才画得出来。此前整段被
+      // `if (!cookiePrompt)` 包着，导致**引导页出现过的那一次**标签状态从未装载，
+      // 关掉引导页后标签栏是空的、内容区也没人激活——用户点一下标签才恢复。
+      // 引导页只在首次出现，所以这个 case「只有第一次能复现」。
+      void window.hotelButler.browser
+        .list()
+        .then(async (tabs) => {
+          if (!mounted) return;
+          browserOtaTabs.hydrate(tabs);
+          // 引导页盖着内容区时不激活：此刻激活等于把网页画到引导页底下，
+          // 用户关掉引导页才看得见。留给 `finishCookiePrompt` 那条路去做。
+          if (cookiePrompt) return;
+          // 兜底激活：带着绑定意图进来时，标签页由 BindHotelDialog 那条链开，
+          // 它先起跑但后完成——这里必须让位，否则会把它从内容区顶掉。
+          //
+          // 目标是「用户上次看的那个」而非固定的第一个渠道，理由见 `restoreTarget`。
+          const target = browserOtaTabs.restoreTarget(tabs);
+          if (target) await browserOtaTabs.activateIfIdle(target);
+        })
+        .catch((error: unknown) => {
+          if (mounted) {
+            reportBrowserFailure(
+              'Browser workspace could not be loaded',
+              '浏览器工作区加载失败，请重试',
+              error,
+            );
+          }
+        });
     }
     return () => {
       mounted = false;
