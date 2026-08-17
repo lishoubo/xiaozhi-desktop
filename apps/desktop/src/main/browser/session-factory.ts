@@ -64,13 +64,10 @@ export class SessionFactory {
    * 返回的 `partitionName` 是这份登录态唯一的权威指针，调用方必须原样保留——
    * 探测成功后要靠它落库 `OtaCredential.partitionName`。
    */
-  sessionForLogin(
-    environment: 'prod' | 'dev',
-    channel: ChannelId,
-  ): Readonly<{ session: Session; partitionName: string }> {
+  sessionForLogin(channel: ChannelId): Readonly<{ session: Session; partitionName: string }> {
     const shortId = randomUUID().slice(0, 8);
-    const partitionName = toPartitionName(environment, channel, shortId);
-    this.logger.info('Login session created', { channel, environment });
+    const partitionName = toPartitionName(channel, shortId);
+    this.logger.info('Login session created', { channel });
     return { session: this.configuredSession(partitionName), partitionName };
   }
 

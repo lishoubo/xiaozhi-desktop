@@ -29,9 +29,10 @@ const REAUTH_BY_HOTEL_INTENT = {
   otaAccountId: 42,
 } as const;
 
+// 不含 environment：环境由构建期决定，renderer 传不进来（schema 是 strictObject，
+// 多带这个字段会被拒绝）。
 const LOGIN_INPUT = {
   channelId: 'douyin',
-  environment: 'prod',
   url: 'https://life.douyin.com/p/login',
 } as const;
 

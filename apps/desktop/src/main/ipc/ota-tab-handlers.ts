@@ -13,30 +13,20 @@ import {
 import { toChannelId, type ChannelId } from '../ids';
 import { IPC_CHANNELS } from '../../shared/ipc-channels';
 import type { AppLogger } from '../../shared/logging';
-import type { OtaTabIntent, PendingPartition } from '../ota-tab';
+import type { OtaTabIntent } from '../ota-tab';
 import { createHandlerRegistry, type TrustedWindow } from './create-handler-registry';
 
 /** handler 声明自己需要什么，由 `OtaTabService` 满足；不 import 实现类。 */
 export interface OtaTabOrchestrator {
-  openForNewLogin(
-    environment: PendingPartition['environment'],
-    channel: ChannelId,
-    url: string,
-    intent?: OtaTabIntent,
-  ): Promise<BrowserTab>;
+  openForNewLogin(channel: ChannelId, url: string, intent?: OtaTabIntent): Promise<BrowserTab>;
   openWithImportedCookie(
-    environment: PendingPartition['environment'],
     channel: ChannelId,
     url: string,
     intent?: OtaTabIntent,
   ): Promise<BrowserTab>;
   openExisting(credentialId: string, intent?: OtaTabIntent): BrowserTab;
   /** 开一份新 partition 并注入原账号 cookie（为什么必须新建见 `OtaTabService`）。 */
-  openExistingForBinding(
-    environment: PendingPartition['environment'],
-    credentialId: string,
-    intent?: OtaTabIntent,
-  ): Promise<BrowserTab>;
+  openExistingForBinding(credentialId: string, intent?: OtaTabIntent): Promise<BrowserTab>;
 }
 
 type RegisterOtaTabHandlersOptions = Readonly<{
@@ -57,16 +47,16 @@ export function registerOtaTabHandlers({
     // intent 同 openExisting：可缺省，用 `.default()` 保持元组定长。
     z.tuple([startLoginInputSchema, otaTabIntentSchema.nullish().default(null)]),
     '登录参数无效',
-    ({ channelId, environment, url }, intent) =>
-      service.openForNewLogin(environment, toChannelId(channelId), url, intent ?? undefined),
+    ({ channelId, url }, intent) =>
+      service.openForNewLogin(toChannelId(channelId), url, intent ?? undefined),
   );
   registry.handle(
     IPC_CHANNELS.otaTab.openWithImportedCookie,
     // intent 同上：可缺省，用 `.default()` 保持元组定长。
     z.tuple([startLoginInputSchema, otaTabIntentSchema.nullish().default(null)]),
     '登录参数无效',
-    ({ channelId, environment, url }, intent) =>
-      service.openWithImportedCookie(environment, toChannelId(channelId), url, intent ?? undefined),
+    ({ channelId, url }, intent) =>
+      service.openWithImportedCookie(toChannelId(channelId), url, intent ?? undefined),
   );
   registry.handle(
     IPC_CHANNELS.otaTab.openExisting,
@@ -80,8 +70,7 @@ export function registerOtaTabHandlers({
     IPC_CHANNELS.otaTab.openExistingForBinding,
     z.tuple([otaCredentialIdSchema, otaTabIntentSchema.nullish().default(null)]),
     '登录凭据标识无效',
-    (credentialId, intent) =>
-      service.openExistingForBinding('prod', credentialId, intent ?? undefined),
+    (credentialId, intent) => service.openExistingForBinding(credentialId, intent ?? undefined),
   );
 
   return () => registry.dispose();

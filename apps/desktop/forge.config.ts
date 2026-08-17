@@ -10,13 +10,24 @@ import { VitePlugin } from '@electron-forge/plugin-vite';
 import { AutoUnpackNativesPlugin } from '@electron-forge/plugin-auto-unpack-natives';
 import { FusesPlugin } from '@electron-forge/plugin-fuses';
 import { FuseV1Options, FuseVersion } from '@electron/fuses';
+import { environmentProfile } from './vite-plugins/app-env';
 
 const nativeRuntimeDependencies = ['better-sqlite3', 'node-addon-api'] as const;
 const require = createRequire(import.meta.url);
 
+/**
+ * 应用标识随构建环境变化，让 dev / pre / online 三套包能并存安装。
+ *
+ * `name` 同时决定 `app.getName()`，进而决定各平台的数据目录与日志目录——
+ * **存储隔离靠的就是这一个字段**，主进程里不需要任何 `app.setPath` 或平台分支。
+ */
+const profile = environmentProfile();
+
 const config: ForgeConfig = {
   packagerConfig: {
     asar: true,
+    name: profile.productName,
+    appBundleId: profile.bundleId,
   },
   hooks: {
     // Forge's Vite plugin excludes externalized modules from the packaged app, so copy the
@@ -38,7 +49,18 @@ const config: ForgeConfig = {
     },
   },
   rebuildConfig: {},
-  makers: [new MakerSquirrel({}), new MakerZIP({}, ['darwin']), new MakerRpm({}), new MakerDeb({})],
+  makers: [
+    // Squirrel 用 `name` 决定 `%LOCALAPPDATA%\<name>` 与注册表卸载项，三环境必须不同
+    // 才不会互相覆盖安装。这里用 ASCII slug 而非中文展示名：Squirrel 对非 ASCII
+    // 字符支持不佳，展示名交给 `setupExe` 与 packagerConfig.name。
+    new MakerSquirrel({
+      name: profile.squirrelName,
+      setupExe: `${profile.productName}-setup.exe`,
+    }),
+    new MakerZIP({}, ['darwin']),
+    new MakerRpm({}),
+    new MakerDeb({}),
+  ],
   plugins: [
     new VitePlugin({
       // `build` can specify multiple entry builds, which can be Main process, Preload scripts, Worker process, etc.

@@ -56,10 +56,9 @@ describe('OtaTabService', () => {
   it('openForNewLogin() 新建 partition 并登记登录判定', async () => {
     const { service, browserManager, loginDetector } = setup();
 
-    await service.openForNewLogin('prod', CTRIP, 'https://ctrip.com');
+    await service.openForNewLogin(CTRIP, 'https://ctrip.com');
 
     expect(browserManager.createAndNewPartition).toHaveBeenCalledWith(
-      'prod',
       CTRIP,
       'https://ctrip.com',
     );
@@ -72,7 +71,7 @@ describe('OtaTabService', () => {
     const { service, loginDetector } = setup();
     const intent = { kind: 'bind-hotel', requestId: 'req-1' } as const;
 
-    await service.openForNewLogin('prod', CTRIP, 'https://ctrip.com', intent);
+    await service.openForNewLogin(CTRIP, 'https://ctrip.com', intent);
 
     expect(loginDetector.register).toHaveBeenCalledWith('tab-1', CTRIP, intent);
   });
@@ -80,7 +79,7 @@ describe('OtaTabService', () => {
   it('openWithImportedCookie() 在该渠道没有已导入 cookie 时报错', async () => {
     const { service } = setup();
 
-    await expect(service.openWithImportedCookie('prod', CTRIP, 'https://ctrip.com')).rejects.toThrow(
+    await expect(service.openWithImportedCookie(CTRIP, 'https://ctrip.com')).rejects.toThrow(
       '该渠道尚未导入 Cookie',
     );
   });
@@ -92,10 +91,9 @@ describe('OtaTabService', () => {
       sourceId: 'chrome',
     });
 
-    await service.openWithImportedCookie('prod', CTRIP, 'https://ctrip.com');
+    await service.openWithImportedCookie(CTRIP, 'https://ctrip.com');
 
     expect(browserManager.createAndNewPartition).toHaveBeenCalledWith(
-      'prod',
       CTRIP,
       'https://ctrip.com',
       { importedCookies: [{ name: 'a', value: '1' }] },
@@ -157,7 +155,7 @@ describe('OtaTabService', () => {
     });
     readInjectableCookies.mockResolvedValue([{ name: 'sid', value: 'v1' }]);
 
-    await service.openExistingForBinding('prod', 'credential-1', {
+    await service.openExistingForBinding('credential-1', {
       kind: 'bind-hotel',
       requestId: 'req-1',
     });
@@ -167,7 +165,6 @@ describe('OtaTabService', () => {
     // ……但开的是新 partition，不是复用那一个。
     expect(browserManager.createWithAlreadyPartition).not.toHaveBeenCalled();
     expect(browserManager.createAndNewPartition).toHaveBeenCalledWith(
-      'prod',
       DOUYIN,
       expect.any(String),
       { importedCookies: [{ name: 'sid', value: 'v1' }] },
@@ -189,7 +186,7 @@ describe('OtaTabService', () => {
       partitionName: 'persist:existing',
     });
 
-    await service.openExistingForBinding('prod', 'credential-1');
+    await service.openExistingForBinding('credential-1');
 
     const ledger = JSON.parse(
       fs.readFileSync(path.join(userDataDir, 'partitions.json'), 'utf8'),
@@ -202,7 +199,7 @@ describe('OtaTabService', () => {
   it('openExistingForBinding() 找不到凭据时报错', async () => {
     const { service } = setup();
 
-    await expect(service.openExistingForBinding('prod', 'credential-1')).rejects.toThrow(
+    await expect(service.openExistingForBinding('credential-1')).rejects.toThrow(
       '未找到该登录凭据',
     );
   });

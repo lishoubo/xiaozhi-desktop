@@ -12,10 +12,8 @@ import { otaChannelLandingUrl } from '../channels/landing-url';
 import type { BrowserTab } from '../../shared/browser';
 import type { AppLogger } from '../../shared/logging';
 import { readImportedCookies } from '../cookie-import/store';
-import {
-  recordPartitionCreated,
-  type PendingPartition,
-} from '../file-store/partition-ledger';
+import { recordPartitionCreated } from '../file-store/partition-ledger';
+import { APP_ENVIRONMENT } from '../../shared/app-environment';
 import type { LoginDetector } from './login-detector';
 import type { OtaTabIntent } from './intent';
 
@@ -50,19 +48,13 @@ export class OtaTabService {
    * 「新登录账号」快捷方式带 `bind-hotel` 意图走这条路：新账号可操作的门店未知，
    * 登录成功后必须探测并让用户确认。
    */
-  async openForNewLogin(
-    environment: PendingPartition['environment'],
-    channel: ChannelId,
-    url: string,
-    intent?: OtaTabIntent,
-  ): Promise<BrowserTab> {
+  async openForNewLogin(channel: ChannelId, url: string, intent?: OtaTabIntent): Promise<BrowserTab> {
     const { tab, partitionName } = await this.deps.browserManager.createAndNewPartition(
-      environment,
       channel,
       url,
     );
     this.deps.loginDetector.register(tab.id, channel, intent);
-    await this.rememberPendingPartition(partitionName, channel, environment);
+    await this.rememberPendingPartition(partitionName, channel);
     return tab;
   }
 
@@ -77,7 +69,6 @@ export class OtaTabService {
    * 可选」。三个开口都收 intent，这一层才真正与渠道无关。
    */
   async openWithImportedCookie(
-    environment: PendingPartition['environment'],
     channel: ChannelId,
     url: string,
     intent?: OtaTabIntent,
@@ -86,13 +77,12 @@ export class OtaTabService {
     if (!imported) throw new Error('该渠道尚未导入 Cookie');
 
     const { tab, partitionName } = await this.deps.browserManager.createAndNewPartition(
-      environment,
       channel,
       url,
       { importedCookies: imported.cookies },
     );
     this.deps.loginDetector.register(tab.id, channel, intent);
-    await this.rememberPendingPartition(partitionName, channel, environment);
+    await this.rememberPendingPartition(partitionName, channel);
     return tab;
   }
 
@@ -129,24 +119,19 @@ export class OtaTabService {
    * 治理另行处理」——那件事已经做完：这里创建的 partition 会登记进 `partitions.json`
    * 账本（`pending`），认领后转 `claimed`，没被认领的由启动清理当孤儿回收。
    */
-  async openExistingForBinding(
-    environment: PendingPartition['environment'],
-    credentialId: string,
-    intent?: OtaTabIntent,
-  ): Promise<BrowserTab> {
+  async openExistingForBinding(credentialId: string, intent?: OtaTabIntent): Promise<BrowserTab> {
     const credential = this.deps.otaCredentialRepository.findById(toOtaCredentialId(credentialId));
     if (!credential) throw new Error('未找到该登录凭据');
 
     const cookies = await this.deps.readInjectableCookies(credential.partitionName);
     const { tab, partitionName } = await this.deps.browserManager.createAndNewPartition(
-      environment,
       credential.channel,
       otaChannelLandingUrl(credential.channel),
       { importedCookies: cookies },
     );
     this.deps.loginDetector.register(tab.id, credential.channel, intent);
     // 登记进账本：这正是 e977c06 当年欠下、本轮补上的那一环。
-    await this.rememberPendingPartition(partitionName, credential.channel, environment);
+    await this.rememberPendingPartition(partitionName, credential.channel);
     return tab;
   }
 
@@ -164,15 +149,11 @@ export class OtaTabService {
   }
 
   /** 登记进账本，状态 pending —— 探测成功后由 credential 侧改成 claimed。 */
-  private rememberPendingPartition(
-    partitionName: string,
-    channel: ChannelId,
-    environment: PendingPartition['environment'],
-  ): Promise<void> {
+  private rememberPendingPartition(partitionName: string, channel: ChannelId): Promise<void> {
     return recordPartitionCreated(this.deps.userDataDir, {
       partitionName,
       channel,
-      environment,
+      environment: APP_ENVIRONMENT,
       createdAt: new Date().toISOString(),
     });
   }

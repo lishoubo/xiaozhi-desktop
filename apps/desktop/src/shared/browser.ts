@@ -77,9 +77,13 @@ export const importedChannelSummarySchema = z.strictObject({
 
 export type ImportedChannelSummary = Readonly<z.infer<typeof importedChannelSummarySchema>>;
 
+/**
+ * 不含 environment：环境由构建期决定（见 `shared/app-environment.ts`），renderer
+ * 无从、也不应该指定。此前这里有个 `environment` 字段，但所有调用方都传同一个
+ * 字面量。
+ */
 export const startLoginInputSchema = z.strictObject({
   channelId: nonEmptyStringSchema,
-  environment: z.enum(['prod', 'dev']),
   url: browserWebUrlSchema,
 });
 

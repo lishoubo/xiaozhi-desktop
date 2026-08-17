@@ -32,7 +32,7 @@ async function seed(dir: string, name: string, retired: boolean): Promise<void> 
   await recordPartitionCreated(dir, {
     partitionName: name,
     channel: DOUYIN,
-    environment: 'prod',
+    environment: 'dev',
     createdAt: '2026-01-01T00:00:00.000Z',
   });
   if (retired) {
@@ -67,7 +67,7 @@ describe('启动时清理退休 partition', () => {
     await recordPartitionCreated(dir, {
       partitionName: 'persist:claimed',
       channel: DOUYIN,
-      environment: 'prod',
+      environment: 'dev',
       createdAt: '2026-01-01T00:00:00.000Z',
     });
     await updatePartitionState(dir, 'persist:claimed', {
@@ -134,16 +134,16 @@ function makePartitionDir(userDataDir: string, partitionName: string): void {
 describe('清理孤儿 partition（账本建立前泄漏的）', () => {
   it('清掉磁盘上无人认领、账本里也没有的 partition', async () => {
     const dir = tempDir();
-    makePartitionDir(dir, 'persist:xiaozhi:prod:douyin:orphan');
+    makePartitionDir(dir, 'persist:xiaozhi:dev:douyin:orphan');
     const deps = createDeps(dir);
 
     expect(await cleanupOrphanPartitions(deps)).toEqual({ cleared: 1 });
-    expect(deps.clearPartitionStorage).toHaveBeenCalledWith('persist:xiaozhi:prod:douyin:orphan');
+    expect(deps.clearPartitionStorage).toHaveBeenCalledWith('persist:xiaozhi:dev:douyin:orphan');
   });
 
   it('账本里有活记录的不算孤儿', async () => {
     const dir = tempDir();
-    const name = 'persist:xiaozhi:prod:douyin:known';
+    const name = 'persist:xiaozhi:dev:douyin:known';
     makePartitionDir(dir, name);
     await seed(dir, name, false); // pending：可能正在登录中
 
@@ -154,9 +154,24 @@ describe('清理孤儿 partition（账本建立前泄漏的）', () => {
 
   it('被 credential 引用的不算孤儿', async () => {
     const dir = tempDir();
-    const name = 'persist:xiaozhi:prod:douyin:claimed';
+    const name = 'persist:xiaozhi:dev:douyin:claimed';
     makePartitionDir(dir, name);
     const deps = createDeps(dir, [name]);
+
+    expect(await cleanupOrphanPartitions(deps)).toEqual({ cleared: 0 });
+    expect(deps.clearPartitionStorage).not.toHaveBeenCalled();
+  });
+
+  /**
+   * 🔴 回归：2026-08-17 真机事故。环境段从 `prod` 改成 `dev` 后，19 个旧 partition
+   * 每次启动全被当孤儿清空——因为孤儿判定依据「credential 表里没有」，而另一套环境的
+   * partition 在本环境的表里必然查不到。表现是「cookie 导入成功却仍停在登录页」。
+   */
+  it('绝不碰其他环境的 partition —— 它们在本环境的 credential 表里必然查不到', async () => {
+    const dir = tempDir();
+    makePartitionDir(dir, 'persist:xiaozhi:prod:douyin:legacy');
+    makePartitionDir(dir, 'persist:xiaozhi:pre:ctrip:other-env');
+    const deps = createDeps(dir);
 
     expect(await cleanupOrphanPartitions(deps)).toEqual({ cleared: 0 });
     expect(deps.clearPartitionStorage).not.toHaveBeenCalled();
@@ -186,7 +201,7 @@ describe('清理孤儿 partition（账本建立前泄漏的）', () => {
 
   it('已 cleared 的记录不妨碍它被再次识别为孤儿', async () => {
     const dir = tempDir();
-    const name = 'persist:xiaozhi:prod:douyin:recleared';
+    const name = 'persist:xiaozhi:dev:douyin:recleared';
     makePartitionDir(dir, name);
     await seed(dir, name, true);
     await updatePartitionState(dir, name, { kind: 'cleared', clearedAt: new Date().toISOString() });

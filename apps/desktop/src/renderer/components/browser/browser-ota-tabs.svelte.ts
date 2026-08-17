@@ -109,7 +109,7 @@ class BrowserOtaTabsStore {
     intent?: OtaTabIntentDto,
   ): Promise<BrowserTab> {
     const tab = await window.hotelButler.otaTab.openForNewLogin(
-      { channelId, environment: 'prod', url },
+      { channelId, url },
       intent,
     );
     return this.adopt(tab);
@@ -125,7 +125,7 @@ class BrowserOtaTabsStore {
     intent?: OtaTabIntentDto,
   ): Promise<BrowserTab> {
     const tab = await window.hotelButler.otaTab.openWithImportedCookie(
-      { channelId, environment: 'prod', url },
+      { channelId, url },
       intent,
     );
     return this.adopt(tab);

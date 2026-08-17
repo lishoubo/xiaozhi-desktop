@@ -109,6 +109,8 @@ Thumbs.db
 # Vite
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
+# 本仓库的 vite config 是 vite.<target>.config.{ts,mts}，上面两条通配不到它们的临时文件
+vite.*.config.*.timestamp-*
 # Playwright
 test-results
 playwright-report/

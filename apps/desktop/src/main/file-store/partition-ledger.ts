@@ -38,6 +38,7 @@
  */
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import type { AppEnvironment } from '../../shared/app-environment';
 import type { ChannelId } from '../ids';
 
 const LEDGER_FILENAME = 'partitions.json';
@@ -53,20 +54,29 @@ export type PartitionState =
   | Readonly<{ kind: 'cleared'; clearedAt: string }>;
 
 /**
+ * 账本里的环境取值。
+ *
+ * 写入侧只会产生构建期环境（`AppEnvironment`），但**读取侧必须容忍 `'prod'`**：
+ * 账本落在用户磁盘上，历史记录是环境概念引入之前写的，那时所有调用点都硬编码
+ * `'prod'`。它只是条待回收的历史事实，不值得为它写迁移。
+ */
+export type LedgerEnvironment = AppEnvironment | 'prod';
+
+/**
  * 创建一份 partition 时要登记的事实。沿用 `PendingPartition` 这个名字是因为
  * 调用方签名里已经用它表达「新建出来、还没被认领」，换名字只会制造无谓 diff。
  */
 export type PendingPartition = Readonly<{
   partitionName: string;
   channel: ChannelId;
-  environment: 'prod' | 'dev';
+  environment: LedgerEnvironment;
   createdAt: string;
 }>;
 
 export type PartitionRecord = Readonly<{
   partitionName: string;
   channel: ChannelId;
-  environment: 'prod' | 'dev';
+  environment: LedgerEnvironment;
   createdAt: string;
   state: PartitionState;
 }>;
@@ -137,7 +147,8 @@ export function recordPartitionCreated(
   entry: Readonly<{
     partitionName: string;
     channel: ChannelId;
-    environment: 'prod' | 'dev';
+    // 写入侧只产生构建期环境；`'prod'` 只可能来自历史记录，不接受新写入。
+    environment: AppEnvironment;
     createdAt: string;
   }>,
 ): Promise<void> {
@@ -153,7 +164,7 @@ export function updatePartitionState(
   userDataDir: string,
   partitionName: string,
   state: PartitionState,
-  fallback?: Readonly<{ channel: ChannelId; environment: 'prod' | 'dev' }>,
+  fallback?: Readonly<{ channel: ChannelId; environment: AppEnvironment }>,
 ): Promise<void> {
   return withMutex(async () => {
     const records = await readAll(userDataDir);

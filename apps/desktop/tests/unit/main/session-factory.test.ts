@@ -51,11 +51,11 @@ describe('SessionFactory', () => {
 
   it('sessionForLogin 每次生成不同的 partitionName，并原样返回给调用方', () => {
     const factory = new SessionFactory(createLogger());
-    const first = factory.sessionForLogin('prod', toChannelId('douyin'));
-    const second = factory.sessionForLogin('prod', toChannelId('douyin'));
+    const first = factory.sessionForLogin(toChannelId('douyin'));
+    const second = factory.sessionForLogin(toChannelId('douyin'));
 
     expect(first.partitionName).not.toBe(second.partitionName);
-    expect(first.partitionName).toMatch(/^persist:xiaozhi:prod:douyin:/);
+    expect(first.partitionName).toMatch(/^persist:xiaozhi:dev:douyin:/);
     expect(electron.session.fromPartition).toHaveBeenCalledWith(first.partitionName);
   });
 

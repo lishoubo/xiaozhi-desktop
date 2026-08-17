@@ -118,17 +118,14 @@ export class BrowserManager extends EventEmitter {
    * `tab:navigated` 自行处理，这里只负责开 tab。
    */
   async createAndNewPartition(
-    environment: 'prod' | 'dev',
     channelId: ChannelId,
     url: string,
     options: Readonly<{
       importedCookies?: readonly CookiesSetDetails[];
     }> = {},
   ): Promise<Readonly<{ tab: BrowserTab; partitionName: string }>> {
-    const { session: tabSession, partitionName } = this.sessionFactory.sessionForLogin(
-      environment,
-      channelId,
-    );
+    const { session: tabSession, partitionName } =
+      this.sessionFactory.sessionForLogin(channelId);
     if (options.importedCookies) {
       await Promise.all(options.importedCookies.map((cookie) => tabSession.cookies.set(cookie)));
     }

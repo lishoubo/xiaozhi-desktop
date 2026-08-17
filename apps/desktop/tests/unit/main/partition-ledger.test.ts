@@ -30,7 +30,7 @@ function record(overrides: Partial<PartitionRecord> = {}): PartitionRecord {
   return {
     partitionName: 'persist:xiaozhi:prod:douyin:aaa',
     channel: DOUYIN,
-    environment: 'prod',
+    environment: 'dev',
     createdAt: '2026-01-01T00:00:00.000Z',
     state: { kind: 'pending' },
     ...overrides,
@@ -44,7 +44,7 @@ describe('partition 账本', () => {
     await recordPartitionCreated(dir, {
       partitionName: 'persist:xiaozhi:prod:douyin:aaa',
       channel: DOUYIN,
-      environment: 'prod',
+      environment: 'dev',
       createdAt: '2026-01-01T00:00:00.000Z',
     });
 
@@ -62,7 +62,7 @@ describe('partition 账本', () => {
     await recordPartitionCreated(dir, {
       partitionName: name,
       channel: DOUYIN,
-      environment: 'prod',
+      environment: 'dev',
       createdAt: '2026-01-01T00:00:00.000Z',
     });
 
@@ -98,7 +98,7 @@ describe('partition 账本', () => {
       dir,
       'persist:xiaozhi:prod:douyin:legacy',
       { kind: 'retired', retiredAt: 'T1' },
-      { channel: DOUYIN, environment: 'prod' },
+      { channel: DOUYIN, environment: 'dev' },
     );
 
     expect(await listPartitionRecords(dir)).toEqual([
@@ -132,7 +132,7 @@ describe('partition 账本', () => {
         recordPartitionCreated(dir, {
           partitionName: `persist:xiaozhi:prod:douyin:p${index}`,
           channel: DOUYIN,
-          environment: 'prod',
+          environment: 'dev',
           createdAt: '2026-01-01T00:00:00.000Z',
         }),
       ),

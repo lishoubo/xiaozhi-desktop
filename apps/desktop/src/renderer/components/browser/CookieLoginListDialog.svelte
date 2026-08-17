@@ -74,7 +74,6 @@
     try {
       const tab = await window.hotelButler.otaTab.openWithImportedCookie({
         channelId,
-        environment: 'prod',
         url: channelUrl(channelId),
       });
       tabActivation.set(tab);

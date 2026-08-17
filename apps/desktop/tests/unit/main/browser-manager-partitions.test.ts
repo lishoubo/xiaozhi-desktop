@@ -73,9 +73,9 @@ function createSessionFactoryStub() {
     return created;
   });
   let loginCounter = 0;
-  const sessionForLogin = vi.fn((environment: string, channel: string) => {
+  const sessionForLogin = vi.fn((channel: string) => {
     loginCounter += 1;
-    const partitionName = `persist:xiaozhi:${environment}:${channel}:generated-${loginCounter}`;
+    const partitionName = `persist:xiaozhi:dev:${channel}:generated-${loginCounter}`;
     const created = createMockSession(partitionName);
     sessions.set(partitionName, created);
     return { session: created, partitionName };
@@ -128,14 +128,13 @@ describe('BrowserManager — partition-aware tab creation', () => {
     );
 
     const { tab, partitionName } = await manager.createAndNewPartition(
-      'prod',
       toChannelId('douyin'),
       'https://life.douyin.com/p/login',
     );
 
-    expect(partitionName).toMatch(/^persist:xiaozhi:prod:douyin:/);
+    expect(partitionName).toMatch(/^persist:xiaozhi:dev:douyin:/);
     expect(tab.channelId).toBe('douyin');
-    expect(sessionFactory.sessionForLogin).toHaveBeenCalledWith('prod', 'douyin');
+    expect(sessionFactory.sessionForLogin).toHaveBeenCalledWith('douyin');
   });
 
   it('createAndNewPartition 传入已导入 cookie 时，逐条注入新 session 后才算创建完成', async () => {
@@ -151,7 +150,6 @@ describe('BrowserManager — partition-aware tab creation', () => {
     ];
 
     const { partitionName } = await manager.createAndNewPartition(
-      'prod',
       toChannelId('douyin'),
       'https://life.douyin.com/p/login',
       { importedCookies },
@@ -274,7 +272,6 @@ describe('BrowserManager — tab:navigated / tab:closed 事件广播', () => {
     manager.on('tab:navigated', listener);
 
     const { tab, partitionName } = await manager.createAndNewPartition(
-      'prod',
       toChannelId('ctrip'),
       'https://ebooking.ctrip.com/login/',
     );
@@ -301,7 +298,6 @@ describe('BrowserManager — tab:navigated / tab:closed 事件广播', () => {
     manager.on('tab:navigated', listener);
 
     await manager.createAndNewPartition(
-      'prod',
       toChannelId('douyin'),
       'https://life.douyin.com/p/login',
     );

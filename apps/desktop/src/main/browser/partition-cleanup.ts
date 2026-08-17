@@ -15,6 +15,7 @@
  */
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { APP_ENVIRONMENT } from '../../shared/app-environment';
 import type { AppLogger } from '../../shared/logging';
 import { listPartitionRecords, updatePartitionState } from '../file-store/partition-ledger';
 
@@ -120,11 +121,27 @@ export async function cleanupOrphanPartitions(
 }
 
 /**
- * 只清「OTA 登录态」这一类 partition：`persist:xiaozhi:<env>:<channel>:<shortId>`。
+ * 只清「**本环境**的 OTA 登录态」：`persist:xiaozhi:<本环境>:<channel>:<shortId>`。
+ *
  * `persist:xiaozhi:server-api` / `:rms-api` 段数不足，天然被挡在外面。
+ *
+ * ⚠️ **环境段必须比对**，不能只看前缀加段数。孤儿判定的依据是「credential 表里没有」，
+ * 而 credential 表是**按环境隔离**的——另一套环境的 partition 在本环境的表里必然查不到，
+ * 于是会被当成孤儿清空。2026-08-17 真机就是这么炸的：环境段从 `prod` 改成 `dev` 后，
+ * 19 个旧 partition 每次启动全被清，导入 cookie 后新建的 partition 也在下一轮被清掉，
+ * 用户看到的现象是「导入成功却仍停在登录页」。
+ *
+ * 正常情况下三套环境的数据目录本就不共享，跨环境的 partition 不会出现在同一个
+ * `Partitions/` 下；但**换环境命名规则时同一目录里会新旧并存**，这道判断就是那时的守卫。
  */
 function isOtaLoginPartition(partitionName: string): boolean {
-  return partitionName.startsWith('persist:xiaozhi:') && partitionName.split(':').length === 5;
+  const segments = partitionName.split(':');
+  // persist:xiaozhi:<env>:<channel>:<shortId>
+  return (
+    partitionName.startsWith('persist:xiaozhi:') &&
+    segments.length === 5 &&
+    segments[2] === APP_ENVIRONMENT
+  );
 }
 
 async function listPartitionDirectoryNames(userDataDir: string): Promise<readonly string[]> {
