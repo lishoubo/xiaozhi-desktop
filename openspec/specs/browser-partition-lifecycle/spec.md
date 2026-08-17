@@ -17,11 +17,20 @@ partition 指针」这一**静态事实**，这里定义 partition 指针**如�
 `shortId` MUST 由随机源生成，不得由账号 ID、酒店 ID 或任何业务标识派生。定位某个账号的
 登录态 MUST 通过 `OtaCredential.partitionName` 字段查询，不得通过拼接规则推导。
 
+`<environment>` MUST 取当前产物的构建期环境值（见 `desktop-build-environments`），
+MUST NOT 由调用方各自传入字面量——此前该段虽贯穿契约但所有调用点写死同一个值，使其
+无法反映真实环境。
+
 #### Scenario: 定位账号的登录态
 
 - **WHEN** 任意流程需要打开某个 OTA 账号的登录态
 - **THEN** 系统读取该账号关联 credential 的 `partitionName`
 - **AND** 不得按渠道与账号 ID 拼出 partition 名称
+
+#### Scenario: partition 名称反映构建环境
+
+- **WHEN** 在某套环境的产物中创建新 partition
+- **THEN** 名称中的 `<environment>` 段等于该产物的构建期环境值
 
 ### Requirement: 每个 partition 在账本中有唯一记录
 
@@ -151,6 +160,32 @@ Chromium 未公开的 partition 目录结构删除文件。
 - **WHEN** 用户关闭一个标签页
 - **THEN** 系统只对该标签页所属 partition 重试清空
 - **AND** 不遍历退休集合中的其他 partition
+
+### Requirement: 孤儿回收只作用于本环境的 OTA 登录 partition
+
+系统 MUST 把「磁盘上存在、且无人认领」的 partition 当作孤儿回收，但候选范围 MUST 同时
+满足两个条件：命名符合 OTA 登录 partition 的布局，且 `<environment>` 段等于当前产物的
+构建期环境。
+
+**环境段必须比对**：孤儿的判定依据是「本环境的 credential 表里查不到」，而 credential
+按环境隔离存储，其他环境的 partition 在本环境的表里必然查不到——不比对环境就会把它们
+全部误判成孤儿清空。基础设施 partition（服务端与 RMS 的会话）不符合该布局，天然被排除。
+
+#### Scenario: 其他环境的 partition 不被回收
+
+- **WHEN** 同一数据目录下存在其他构建环境命名的 partition
+- **THEN** 系统不将其视为孤儿
+- **AND** 不清空其存储
+
+#### Scenario: 基础设施 partition 不被回收
+
+- **WHEN** 启动清理扫描到服务端或 RMS 会话所用的 partition
+- **THEN** 系统不将其视为孤儿
+
+#### Scenario: 本环境的无主 partition 被回收
+
+- **WHEN** 磁盘上存在本环境命名、账本与 credential 表中均无记录的 partition
+- **THEN** 系统清空其存储
 
 ### Requirement: 新建标签页继承当前标签页的登录态
 

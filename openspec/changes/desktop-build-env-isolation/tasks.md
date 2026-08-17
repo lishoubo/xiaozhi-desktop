@@ -95,6 +95,11 @@
 
 ## 7. 规范同步
 
-- [ ] 7.1 本次触及跨模块契约（shared schema）、架构（环境概念）与部署方式（打包），
-      触发完成门禁：验收后把 `specs/` delta 合并进 `openspec/specs/`
-      （`desktop-build-environments` 新建、`browser-partition-lifecycle` 更新）
+- [x] 7.1 已合并 delta 进 `openspec/specs/`：新建
+      `desktop-build-environments/spec.md`（106 行）；`browser-partition-lifecycle`
+      更新「partition 名称不可从账号反推」并**新增「孤儿回收只作用于本环境的 OTA
+      登录 partition」**——后者是 5A.1 那个真机 bug 暴露出的规范缺口，原规范只约束了
+      `retired` 的清空条件，没约束孤儿回收的候选范围。
+      `openspec validate --specs` 两份均通过
+- [ ] 7.2 待 Windows 验收后 `openspec archive desktop-build-env-isolation`
+      （现在归档为时过早：6.5 未完成）
