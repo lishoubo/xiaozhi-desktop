@@ -39,6 +39,7 @@ import { getIntentDefinition } from './execution/intent-registry';
 import { assessEvidence, normalizeEvidence } from './execution/evidence';
 import type { JsonValue } from './execution/business-execution-state';
 import type { DeterministicWorkflowCollector } from './execution/deterministic-workflow-collector';
+import { buildDeterministicDataQueryAnswer } from './execution/deterministic-data-query-answer';
 import { buildDeterministicOperatingAnswer } from './execution/deterministic-operating-answer';
 import {
 	agentErrorType,
@@ -97,10 +98,9 @@ export function describeAgentRunFailure(
 					? '酒店经营数据服务暂时没有响应。请确认酒店和日期范围后重试，或稍后再试。'
 					: error.kind === 'timeout' && error.operation === 'analyze_grounded_answer'
 						? '经营数据和图表已展示，但上游大模型分析超时。你可以先查看现有结果，或稍后重试分析。'
-						: error.kind === 'invalid_response' &&
-							  error.operation === 'analyze_grounded_answer'
+						: error.kind === 'invalid_response' && error.operation === 'analyze_grounded_answer'
 							? '经营数据和图表已展示，但上游大模型没有返回完整分析。你可以先查看现有结果，或重试分析。'
-						: '小智暂时无法完成这次请求，请稍后重试。',
+							: '小智暂时无法完成这次请求，请稍后重试。',
 			retryable: agentErrorRetryable(error)
 		};
 	}
@@ -932,10 +932,12 @@ export class HotelAgentGateway implements AgentGateway {
 
 				if (execution.state.status === 'answering') {
 					if (execution.state.mode === 'grounded' && execution.state.request) {
-						const deterministicAnswer = buildDeterministicOperatingAnswer(
-							execution.state.request,
-							execution.state.evidence
-						);
+						const deterministicAnswer =
+							buildDeterministicOperatingAnswer(
+								execution.state.request,
+								execution.state.evidence
+							) ??
+							buildDeterministicDataQueryAnswer(execution.state.request, execution.state.evidence);
 						if (deterministicAnswer) {
 							const toolCallId = `render_hotel_ui_${randomUUID()}`;
 							await this.forwardRuntimeEvent(

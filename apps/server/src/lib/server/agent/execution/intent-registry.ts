@@ -62,9 +62,10 @@ const definitions = [
 		capability: 'hotel_data',
 		workflowId: 'generic_hotel_data_query.v1',
 		slots: [
-			{ name: 'hotelReference', required: true },
-			{ name: 'dateRange', required: true },
-			{ name: 'metrics', required: true }
+			{ name: 'hotelReference', required: false },
+			{ name: 'dateRange', required: false },
+			{ name: 'metrics', required: false },
+			{ name: 'resultLimit', required: false, defaultValue: 20 }
 		],
 		maxToolCalls: 6,
 		allowSchemaDiscovery: true,

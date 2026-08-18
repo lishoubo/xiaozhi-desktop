@@ -96,6 +96,26 @@ describe('BusinessIntentRouter', () => {
 		});
 	});
 
+	it('treats a direct record lookup as data-only even when the classifier requests analysis', async () => {
+		const router = new BusinessIntentRouter({
+			classify: vi.fn().mockResolvedValue({
+				category: 'business_read',
+				intentCandidate: 'generic_hotel_data_query',
+				requestedEffect: 'read',
+				responseMode: 'analysis',
+				confidence: 0.9,
+				slots: {}
+			})
+		});
+
+		await expect(
+			router.route({ kind: 'prompt', text: '查询最新的携程订单' })
+		).resolves.toMatchObject({
+			intent: 'generic_hotel_data_query',
+			responseMode: 'data_only'
+		});
+	});
+
 	it('drops model-proposed slots that are not registered for the selected intent', async () => {
 		const router = new BusinessIntentRouter({
 			classify: vi.fn().mockResolvedValue({

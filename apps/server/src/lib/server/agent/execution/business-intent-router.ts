@@ -33,6 +33,18 @@ export type RouteDecision = Readonly<{
 
 const directWriteRequest =
 	/(?:帮我|请|立即|直接|现在|把).{0,24}(?:改价|调价|提高|降低|修改|更新|删除|取消订单|退款|支付|发布|关房|开房|停售|上架|下架)/i;
+const analysisRequest =
+	/(?:分析|概览|趋势|原因|为什么|为何|异常|建议|对比|比较|变化|复盘|解读|预测|洞察|相关性|表现如何)/i;
+const directDataLookup =
+	/(?:查询|查一下|查找|看一下|看看|列出|显示|获取|返回|最新|明细|详情|有多少|多少条)/i;
+
+function responseModeForPrompt(
+	text: string,
+	proposed: RouteClassifierOutput['responseMode']
+): RouteClassifierOutput['responseMode'] {
+	if (proposed === 'data_only') return proposed;
+	return directDataLookup.test(text) && !analysisRequest.test(text) ? 'data_only' : proposed;
+}
 
 function candidateSlots(values: Readonly<Record<string, string>>): SlotCollection {
 	return Object.fromEntries(
@@ -116,7 +128,7 @@ export class BusinessIntentRouter {
 				intent,
 				slots: registeredCandidateSlots(intent, proposed.slots),
 				confidence: proposed.confidence,
-				responseMode: proposed.responseMode
+				responseMode: responseModeForPrompt(input.text, proposed.responseMode)
 			};
 		}
 		return {
