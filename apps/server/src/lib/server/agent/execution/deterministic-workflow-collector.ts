@@ -199,7 +199,11 @@ export class DeterministicWorkflowCollector {
 	constructor(private readonly tools: ToolProviderPort) {}
 
 	async collect(input: WorkflowCollectionRequest): Promise<WorkflowCollectionResult> {
-		if (input.request.intent === 'generic_hotel_data_query') {
+		if (
+			input.request.intent === 'generic_hotel_data_query' ||
+			(input.request.intent === 'hotel_operating_summary' &&
+				Array.isArray(input.request.slots.hotelReference))
+		) {
 			return { status: 'fallback', reason: 'agent_required' };
 		}
 		const tools = await runAgentEffect(

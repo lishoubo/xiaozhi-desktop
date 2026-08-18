@@ -155,7 +155,17 @@ export interface DesktopSessionGateway {
   revoke(): Promise<void>;
 }
 
-export type AgentPrincipal = Readonly<{ employeeId: string; orgId: string }>;
+export type AgentHotelAccess = Readonly<{
+  kind: 'staff_managed_hotels';
+  currentHotelId: string | null;
+  hotels: readonly Readonly<{ id: string; label: string }>[];
+}>;
+
+export type AgentPrincipal = Readonly<{
+  employeeId: string;
+  orgId: string;
+  hotelAccess?: AgentHotelAccess;
+}>;
 
 /* eslint-disable no-unused-vars -- parameter names document the server-owned gateway contract. */
 export interface AgentGateway {

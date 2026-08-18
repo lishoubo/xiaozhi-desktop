@@ -37,7 +37,7 @@ import type { BusinessIntentRouter } from './execution/business-intent-router';
 import { resolveRelativeDateRange, type BusinessSlotResolver } from './execution/slot-resolver';
 import { getIntentDefinition } from './execution/intent-registry';
 import { assessEvidence, normalizeEvidence } from './execution/evidence';
-import type { JsonValue } from './execution/business-execution-state';
+import type { JsonValue, ResolvedBusinessRequest } from './execution/business-execution-state';
 import type { DeterministicWorkflowCollector } from './execution/deterministic-workflow-collector';
 import { buildDeterministicDataQueryAnswer } from './execution/deterministic-data-query-answer';
 import { buildDeterministicOperatingAnswer } from './execution/deterministic-operating-answer';
@@ -49,6 +49,7 @@ import {
 	AgentProtocolError,
 	AgentUpstreamError
 } from './agent-effect';
+import { runWithHotelDataAccessScope } from './hotel-data-access-scope';
 
 type AgentRepositoryPort = Pick<
 	AgentRepository,
@@ -78,6 +79,22 @@ type BusinessIntentRouterPort = Pick<BusinessIntentRouter, 'route'>;
 type BusinessSlotResolverPort = Pick<BusinessSlotResolver, 'resolve'>;
 
 const GROUNDED_ANALYSIS_TIMEOUT_MS = 90_000;
+
+function requestHotelDataScope(
+	principal: AgentPrincipal,
+	request: ResolvedBusinessRequest
+): readonly string[] | undefined {
+	if (!principal.hotelAccess) return undefined;
+	const allowed = new Set(principal.hotelAccess.hotels.map((hotel) => hotel.id));
+	const requested = request.slots.hotelReference;
+	const hotelIds =
+		typeof requested === 'string'
+			? [requested]
+			: Array.isArray(requested) && requested.every((hotel) => typeof hotel === 'string')
+				? requested
+				: [];
+	return hotelIds.every((hotel) => allowed.has(hotel)) ? hotelIds : [];
+}
 
 const terminal = (event: AgentRunEvent): boolean =>
 	event.type === 'run_completed' || event.type === 'run_failed' || event.type === 'run_cancelled';
@@ -662,6 +679,17 @@ export class HotelAgentGateway implements AgentGateway {
 		runId: string,
 		controller: AbortController
 	): Promise<void> {
+		return runWithHotelDataAccessScope(
+			principal.hotelAccess?.hotels.map((hotel) => hotel.id),
+			() => this.executeRunWithHotelDataAccess(principal, runId, controller)
+		);
+	}
+
+	private async executeRunWithHotelDataAccess(
+		principal: AgentPrincipal,
+		runId: string,
+		controller: AbortController
+	): Promise<void> {
 		const startedAt = performance.now();
 		try {
 			const context = await this.repository.getRunContext(principal, runId);
@@ -750,6 +778,7 @@ export class HotelAgentGateway implements AgentGateway {
 						intent: execution.state.intent,
 						responseMode: execution.state.responseMode,
 						orgId: principal.orgId,
+						hotelAccess: principal.hotelAccess,
 						slots: execution.state.slots,
 						anchorMessageId: execution.summary.triggerUserMessageId,
 						version: execution.version + 1
@@ -800,6 +829,7 @@ export class HotelAgentGateway implements AgentGateway {
 				while (execution.state.status === 'executing' && workflowPasses < 2) {
 					workflowPasses += 1;
 					const workflowRequest = execution.state.request;
+					const workflowHotelIds = requestHotelDataScope(principal, workflowRequest);
 					const collectionStartedAt = performance.now();
 					let collectionStrategy: 'deterministic' | 'agent' = 'agent';
 					let collectedToolEvidence: NonNullable<
@@ -816,36 +846,41 @@ export class HotelAgentGateway implements AgentGateway {
 						},
 						'Agent workflow collection started'
 					);
-					const deterministic = this.workflowCollector
-						? await this.workflowCollector.collect({
-								principal,
-								request: workflowRequest,
-								signal: controller.signal,
-								emit: (event) =>
-									this.forwardRuntimeEvent(
-										principal,
-										runId,
-										context.conversation.id,
-										event,
-										context.run.businessExecutionId
-									)
-							})
+					const workflowCollector = this.workflowCollector;
+					const deterministic = workflowCollector
+						? await runWithHotelDataAccessScope(workflowHotelIds, () =>
+								workflowCollector.collect({
+									principal,
+									request: workflowRequest,
+									signal: controller.signal,
+									emit: (event) =>
+										this.forwardRuntimeEvent(
+											principal,
+											runId,
+											context.conversation.id,
+											event,
+											context.run.businessExecutionId
+										)
+								})
+							)
 						: { status: 'fallback' as const, reason: 'agent_required' as const };
 					if (deterministic.status === 'collected') {
 						collectionStrategy = deterministic.strategy;
 						collectedToolEvidence = deterministic.toolEvidence;
 					} else {
-						controlledResult = await this.runtime.run({
-							principal,
-							conversationSummary: prepared.summary,
-							history: prepared.history,
-							signal: controller.signal,
-							workflowRequest,
-							emit: (event) =>
-								event.type === 'tool_started' || event.type === 'tool_completed'
-									? this.publish(principal, runId, context.conversation.id, event)
-									: Promise.resolve()
-						});
+						controlledResult = await runWithHotelDataAccessScope(workflowHotelIds, () =>
+							this.runtime.run({
+								principal,
+								conversationSummary: prepared.summary,
+								history: prepared.history,
+								signal: controller.signal,
+								workflowRequest,
+								emit: (event) =>
+									event.type === 'tool_started' || event.type === 'tool_completed'
+										? this.publish(principal, runId, context.conversation.id, event)
+										: Promise.resolve()
+							})
+						);
 						collectedToolEvidence = controlledResult.toolEvidence ?? [];
 					}
 					this.logger.info(

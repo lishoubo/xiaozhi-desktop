@@ -163,6 +163,10 @@ CREATE TABLE `hotel` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='酒店';
 /*!40101 SET character_set_client = @saved_cs_client */;
 
+-- Local development hotel matching the DMS fixture used by Agent E2E.
+INSERT INTO `hotel` (`id`,`org_id`,`name`,`short_name`,`status`)
+VALUES (4,42,'银际酒店（包头青山文化路王府井店）','银际酒店',1);
+
 --
 -- Table structure for table `hotel_commission_config`
 --
@@ -256,6 +260,10 @@ CREATE TABLE `hotel_user_access` (
   KEY `idx_access_hotel` (`hotel_id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='员工 → 酒店显式授权';
 /*!40101 SET character_set_client = @saved_cs_client */;
+
+-- Give the local phone OTP employee the same managed-hotel context as staff login.
+INSERT INTO `hotel_user_access` (`org_id`,`employee_id`,`hotel_id`,`granted_by`)
+VALUES (42,2,4,2);
 
 --
 -- Table structure for table `inventory_snapshot`

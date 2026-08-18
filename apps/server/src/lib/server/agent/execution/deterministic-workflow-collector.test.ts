@@ -228,6 +228,14 @@ describe('deterministic workflow collector', () => {
 			collector.collect(request('generic_hotel_data_query', { hotelReference: 'hotel-1' }))
 		).resolves.toEqual({ status: 'fallback', reason: 'agent_required' });
 		await expect(
+			collector.collect(
+				request('hotel_operating_summary', {
+					hotelReference: ['9', '10'],
+					dateRange: { start: '2026-08-01', end: '2026-08-17' }
+				})
+			)
+		).resolves.toEqual({ status: 'fallback', reason: 'agent_required' });
+		await expect(
 			collector.collect(request('weather_operations_advice', { location: '上海', date: 'today' }))
 		).rejects.toMatchObject({
 			_tag: 'AgentUpstreamError',

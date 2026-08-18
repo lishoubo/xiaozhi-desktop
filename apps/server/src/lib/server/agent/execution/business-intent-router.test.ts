@@ -119,6 +119,25 @@ describe('BusinessIntentRouter', () => {
 		});
 	});
 
+	it('preserves an explicit all-hotels scope even when the classifier omits the slot', async () => {
+		const router = new BusinessIntentRouter({
+			classify: vi.fn().mockResolvedValue({
+				category: 'business_read',
+				intentCandidate: 'generic_hotel_data_query',
+				requestedEffect: 'read',
+				responseMode: 'data_only',
+				confidence: 0.9,
+				slots: {}
+			})
+		});
+
+		await expect(
+			router.route({ kind: 'prompt', text: '查询所有酒店的最新订单' })
+		).resolves.toMatchObject({
+			slots: { hotelReference: { status: 'candidate', raw: '所有酒店' } }
+		});
+	});
+
 	it('derives today for current-state lookups without overriding an explicit date', async () => {
 		const classify = vi
 			.fn()

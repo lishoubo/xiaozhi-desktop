@@ -1,6 +1,8 @@
 <script lang="ts">
   import type { AgentPendingClarification } from '@hotel-butler/api';
   import LoaderCircle from '@lucide/svelte/icons/loader-circle';
+  import Building2 from '@lucide/svelte/icons/building-2';
+  import { push } from 'svelte-spa-router';
   import { Button } from '$lib/components/ui/button';
 
   let {
@@ -49,6 +51,12 @@
   onsubmit={submit}
 >
   <p class="m-0 text-sm font-medium text-foreground">{clarification.prompt}</p>
+  {#if clarification.action?.destination === 'hotel_management'}
+    <Button class="mt-3" type="button" onclick={() => push('/hotels')}>
+      <Building2 size={16} />
+      {clarification.action.label}
+    </Button>
+  {/if}
   {#if expired}
     <p class="mt-2 mb-0 text-xs text-destructive">这次补充信息已过期，请取消后重新发起。</p>
   {/if}

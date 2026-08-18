@@ -110,6 +110,79 @@ describe('business evidence', () => {
 		});
 	});
 
+	it('accepts only evidence contained in an explicit multi-hotel scope', () => {
+		const multiHotelRequest = {
+			...request,
+			slots: { ...request.slots, hotelReference: ['9', '10'] }
+		};
+		const allowed = normalizeEvidence({
+			request: multiHotelRequest,
+			toolName: 'query_hotel_operating_data_sql',
+			toolArgs: {},
+			result:
+				'| hotel_id | data_date | gmv |\n| --- | --- | --- |\n| 9 | 2026-07-10 | 100 |\n| 10 | 2026-07-10 | 200 |'
+		});
+		const outside = normalizeEvidence({
+			request: multiHotelRequest,
+			toolName: 'query_hotel_operating_data_sql',
+			toolArgs: {},
+			result:
+				'| hotel_id | data_date | gmv |\n| --- | --- | --- |\n| 9 | 2026-07-10 | 100 |\n| 11 | 2026-07-10 | 200 |'
+		});
+
+		expect(assessEvidence(multiHotelRequest, [allowed], false)).toMatchObject({
+			status: 'sufficient'
+		});
+		expect(assessEvidence(multiHotelRequest, [outside], false)).toEqual({
+			status: 'rejected',
+			reasonCode: 'evidence_scope_mismatch'
+		});
+		const structuredOutside = normalizeEvidence({
+			request: multiHotelRequest,
+			toolName: 'query_hotel_operating_data_sql',
+			toolArgs: {},
+			result: JSON.stringify([{ hotel_id: 9 }, { hotel_id: 11 }])
+		});
+		const unverifiable = normalizeEvidence({
+			request: multiHotelRequest,
+			toolName: 'query_hotel_operating_data_sql',
+			toolArgs: {},
+			result: JSON.stringify([{ order_id: 'A-1' }])
+		});
+		expect(assessEvidence(multiHotelRequest, [structuredOutside], false)).toEqual({
+			status: 'rejected',
+			reasonCode: 'evidence_scope_mismatch'
+		});
+		expect(assessEvidence(multiHotelRequest, [unverifiable], false)).toEqual({
+			status: 'rejected',
+			reasonCode: 'evidence_scope_mismatch'
+		});
+		for (const result of [
+			JSON.stringify([{ hotel_id: 9, value: 1 }, { order_id: 'unscoped' }]),
+			JSON.stringify({ query: { hotel_id: 9 }, rows: [{ order_id: 'unscoped' }] }),
+			JSON.stringify({ query: { hotel_id: 9 }, row: { order_id: 'unscoped' } }),
+			JSON.stringify({ query: { hotel_id: 9 }, records: { a: { order_id: 'unscoped' } } }),
+			JSON.stringify({ query: { hotel_id: 9 }, summary: { total: 999 } }),
+			JSON.stringify({ hotel_id: 9, rows: [{ order_id: 'unscoped' }] }),
+			JSON.stringify({
+				query: { hotel_id: 9 },
+				columns: ['order_id'],
+				rows: [['A-1']]
+			})
+		]) {
+			const mixed = normalizeEvidence({
+				request: multiHotelRequest,
+				toolName: 'query_hotel_operating_data_sql',
+				toolArgs: {},
+				result
+			});
+			expect(assessEvidence(multiHotelRequest, [mixed], false)).toEqual({
+				status: 'rejected',
+				reasonCode: 'evidence_scope_mismatch'
+			});
+		}
+	});
+
 	it('rejects operating table rows outside the requested hotel or date range', () => {
 		const operatingRequest = {
 			...request,
@@ -120,8 +193,7 @@ describe('business evidence', () => {
 			request: operatingRequest,
 			toolName: 'query_hotel_operating_data_sql',
 			toolArgs: {},
-			result:
-				'| hotel_id | data_date | gmv |\n| --- | --- | --- |\n| 99 | 2025-01-01 | 100 |'
+			result: '| hotel_id | data_date | gmv |\n| --- | --- | --- |\n| 99 | 2025-01-01 | 100 |'
 		});
 
 		expect(evidence.scope).toEqual({

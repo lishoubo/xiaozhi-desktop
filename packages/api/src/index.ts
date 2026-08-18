@@ -66,6 +66,7 @@ export {
   type AgentMessage,
   type AgentQuickAction,
   type AgentQuickActionId,
+  type AgentHotelAccess,
   type AgentPrincipal,
   type AgentRunEvent,
   type ApiLogger,

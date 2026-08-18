@@ -163,6 +163,73 @@ describe('hotel data MCP guardrails', () => {
 		});
 	});
 
+	it('enforces the staff managed-hotel scope before SQL execution', () => {
+		const scoped = constrainHotelDataSqlArgs(
+			{ script: 'SELECT hotel_id, order_id FROM ota_order WHERE hotel_id IN (9, 10)' },
+			'81918192',
+			['9', '10']
+		);
+		expect(scoped).toMatchObject({ database_id: '81918192' });
+		expect(
+			typeof scoped === 'object' && scoped !== null ? Reflect.get(scoped, 'script') : null
+		).toContain(
+			'FROM (SELECT * FROM ota_order WHERE hotel_id IN (9, 10)) AS ota_order WHERE hotel_id IN (9, 10)'
+		);
+		const qualified = constrainHotelDataSqlArgs(
+			{ script: 'SELECT o.order_id FROM rms_data.ota_order AS o ORDER BY o.created_at DESC' },
+			'81918192',
+			['9'],
+			'rms_data'
+		);
+		expect(
+			typeof qualified === 'object' && qualified !== null ? Reflect.get(qualified, 'script') : null
+		).toContain(
+			'FROM (SELECT * FROM rms_data.ota_order WHERE hotel_id IN (9)) AS o ORDER BY o.created_at DESC'
+		);
+		expect(() =>
+			constrainHotelDataSqlArgs(
+				{ script: 'SELECT * FROM other_schema.ota_order' },
+				'81918192',
+				['9'],
+				'rms_data'
+			)
+		).toThrow('目标数据库范围');
+		const quotedKeyword = constrainHotelDataSqlArgs(
+			{ script: "SELECT 'from ota_order where' AS marker, s.secret FROM secret_table s" },
+			'81918192',
+			['9'],
+			'rms_data'
+		);
+		expect(
+			typeof quotedKeyword === 'object' && quotedKeyword !== null
+				? Reflect.get(quotedKeyword, 'script')
+				: null
+		).toContain(
+			"SELECT 'from ota_order where' AS marker, s.secret FROM (SELECT * FROM secret_table WHERE hotel_id IN (9)) AS s"
+		);
+		for (const script of [
+			'SELECT s.secret FROM secret_table s, fact_business_daily f WHERE f.hotel_id = 9 AND s.active = 1',
+			'SELECT o.hotel_id, h.name FROM ota_order o JOIN hotel h ON h.id = o.hotel_id WHERE o.hotel_id = 9',
+			'SELECT * FROM (SELECT * FROM ota_order) rows WHERE hotel_id = 9'
+		]) {
+			expect(() => constrainHotelDataSqlArgs({ script }, '81918192', ['9', '10'])).toThrow();
+		}
+		const alternativeBoolean = constrainHotelDataSqlArgs(
+			{
+				script: 'SELECT * FROM fact_business_daily WHERE hotel_id = 9 AND 0 XOR hotel_id > 10'
+			},
+			'81918192',
+			['9']
+		);
+		expect(
+			typeof alternativeBoolean === 'object' && alternativeBoolean !== null
+				? Reflect.get(alternativeBoolean, 'script')
+				: null
+		).toContain(
+			'FROM (SELECT * FROM fact_business_daily WHERE hotel_id IN (9)) AS fact_business_daily'
+		);
+	});
+
 	it('rejects writes, multiple statements, comments, files, locks, and dangerous functions', () => {
 		for (const script of [
 			'DELETE FROM ota_order',

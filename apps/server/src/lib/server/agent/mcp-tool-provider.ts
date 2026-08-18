@@ -4,6 +4,7 @@ import { Effect } from 'effect';
 import { HOTEL_DATA_MCP_SERVER_NAME } from './agent-config';
 import type { McpCapability, McpServerConfig } from './agent-config';
 import { agentPromise, AgentProtocolError, runAgentEffect } from './agent-effect';
+import { currentHotelDataAccessScope } from './hotel-data-access-scope';
 import {
 	compactHotelDataToolResult,
 	constrainHotelDataGenerateSqlArgs,
@@ -65,8 +66,7 @@ function configureHotelDataTool(tool: DynamicStructuredTool): DynamicStructuredT
 			'根据自然语言和已配置的酒店数据库生成只读 SELECT。生成结果仍须交给受限 SQL 工具执行。';
 	} else if (tool.name === DMS_SQL_TOOL_NAME) {
 		tool.name = HOTEL_DATA_SQL_TOOL_NAME;
-		tool.description =
-			`执行一条酒店经营数据 SELECT/CTE 查询。系统会拒绝写操作、多语句、注释、文件操作、锁和高风险函数，并将结果限制为 ${HOTEL_DATA_RESULT_ROW_LIMIT} 行。`;
+		tool.description = `执行一条酒店经营数据 SELECT/CTE 查询。系统会拒绝写操作、多语句、注释、文件操作、锁和高风险函数，并将结果限制为 ${HOTEL_DATA_RESULT_ROW_LIMIT} 行。`;
 	} else if (tool.name === DMS_LIST_TABLES_TOOL_NAME) {
 		tool.name = HOTEL_DATA_LIST_TABLES_TOOL_NAME;
 		tool.description = '列出或搜索 DMS 当前数据库中的业务表。只读。';
@@ -176,7 +176,14 @@ export class McpToolProvider {
 				}
 				if (name === DMS_SQL_TOOL_NAME) {
 					if (!resolvedDmsDatabaseId) throw new Error('DMS DatabaseId is unresolved');
-					return { args: constrainHotelDataSqlArgs(args, resolvedDmsDatabaseId) };
+					return {
+						args: constrainHotelDataSqlArgs(
+							args,
+							resolvedDmsDatabaseId,
+							currentHotelDataAccessScope()?.hotelIds,
+							resolvedDmsDatabaseName ?? undefined
+						)
+					};
 				}
 				if (name === DMS_LIST_TABLES_TOOL_NAME) {
 					if (!resolvedDmsDatabaseId) throw new Error('DMS DatabaseId is unresolved');

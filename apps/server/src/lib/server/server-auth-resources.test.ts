@@ -33,6 +33,9 @@ describe('server authentication resources', () => {
 		await expect(resources.employeeDirectory.findActiveByPhone('13800138000')).rejects.toThrow(
 			'RMS employee identity source is not configured'
 		);
+		await expect(
+			resources.employeeHotelAccessDirectory.findByEmployeeId('1', '42')
+		).rejects.toThrow('RMS employee hotel access source is not configured');
 	});
 
 	it('advertises the RMS employee directory only after the read-only startup check succeeds', async () => {
@@ -97,7 +100,9 @@ describe('server authentication resources', () => {
 	});
 
 	it('suppresses repeated unavailable diagnostics during a background retry', async () => {
-		const execute = vi.fn().mockRejectedValue(Object.assign(new Error('timed out'), { code: 'ETIMEDOUT' }));
+		const execute = vi
+			.fn()
+			.mockRejectedValue(Object.assign(new Error('timed out'), { code: 'ETIMEDOUT' }));
 		const resources = await createServerAuthResources({
 			environment: { RMS_DATABASE_URL: 'mysql://readonly:private@example.invalid/rms' },
 			logger,

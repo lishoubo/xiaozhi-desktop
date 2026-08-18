@@ -1,6 +1,12 @@
 import { type EmployeeIdentityDirectory, type PhoneOtpGateway } from '@hotel-butler/api';
-import type { EmployeeQueryExecutor } from './employee-identity-directory';
-import { createEmployeeIdentityDirectory } from './employee-identity-directory';
+import type {
+	EmployeeHotelAccessDirectory,
+	EmployeeQueryExecutor
+} from './employee-identity-directory';
+import {
+	createEmployeeHotelAccessDirectory,
+	createEmployeeIdentityDirectory
+} from './employee-identity-directory';
 import { createRmsClient as createDefaultRmsClient } from './db/rms';
 import { safeErrorType } from './logging/logger';
 import { createTemporaryPhoneOtpGateway } from './temporary-phone-otp-gateway';
@@ -25,6 +31,7 @@ type ServerAuthResourcesOptions = Readonly<{
 export type ServerAuthResources = Readonly<{
 	phoneIdentitySourceConfigured: boolean;
 	employeeDirectory: EmployeeIdentityDirectory;
+	employeeHotelAccessDirectory: EmployeeHotelAccessDirectory;
 	phoneOtp: PhoneOtpGateway;
 }>;
 
@@ -35,6 +42,14 @@ function unavailableEmployeeDirectory(): EmployeeIdentityDirectory {
 	return {
 		findActiveById: unavailable,
 		findActiveByPhone: unavailable
+	};
+}
+
+function unavailableEmployeeHotelAccessDirectory(): EmployeeHotelAccessDirectory {
+	return {
+		findByEmployeeId: async () => {
+			throw new Error('RMS employee hotel access source is not configured');
+		}
 	};
 }
 
@@ -76,6 +91,7 @@ export async function createServerAuthResources(
 		return {
 			phoneIdentitySourceConfigured: false,
 			employeeDirectory: unavailableEmployeeDirectory(),
+			employeeHotelAccessDirectory: unavailableEmployeeHotelAccessDirectory(),
 			phoneOtp
 		};
 	}
@@ -111,6 +127,7 @@ export async function createServerAuthResources(
 		return {
 			phoneIdentitySourceConfigured: false,
 			employeeDirectory: unavailableEmployeeDirectory(),
+			employeeHotelAccessDirectory: unavailableEmployeeHotelAccessDirectory(),
 			phoneOtp
 		};
 	}
@@ -133,6 +150,7 @@ export async function createServerAuthResources(
 	return {
 		phoneIdentitySourceConfigured: true,
 		employeeDirectory: createEmployeeIdentityDirectory(rmsClient),
+		employeeHotelAccessDirectory: createEmployeeHotelAccessDirectory(rmsClient),
 		phoneOtp
 	};
 }

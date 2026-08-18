@@ -160,24 +160,49 @@ function sourceForIntent(intent: AgentBusinessIntent): EvidenceEnvelope['source'
 	return 'aliyun_dms_mcp';
 }
 
-function explicitHotelReference(value: unknown, depth = 0): string | null {
-	if (depth > 6 || value === null || typeof value !== 'object') return null;
+function explicitHotelReferences(value: unknown, depth = 0): readonly string[] {
+	if (depth > 6 || value === null || typeof value !== 'object') return [];
 	if (Array.isArray(value)) {
-		for (const item of value) {
-			const found = explicitHotelReference(item, depth + 1);
-			if (found) return found;
-		}
-		return null;
+		return [...new Set(value.flatMap((item) => explicitHotelReferences(item, depth + 1)))];
 	}
+	const direct: string[] = [];
 	for (const key of ['hotelReference', 'hotelId', 'hotel_id', 'hotelCode', 'hotel_code']) {
 		const candidate = Reflect.get(value, key);
-		if (typeof candidate === 'string' || typeof candidate === 'number') return String(candidate);
+		if (typeof candidate === 'string' || typeof candidate === 'number')
+			direct.push(String(candidate));
 	}
-	for (const item of Object.values(value)) {
-		const found = explicitHotelReference(item, depth + 1);
-		if (found) return found;
+	return [
+		...new Set([
+			...direct,
+			...Object.values(value).flatMap((item) => explicitHotelReferences(item, depth + 1))
+		])
+	];
+}
+
+function structuredHotelReferences(value: unknown, depth = 0): readonly string[] | null {
+	if (depth > 6 || value === null || typeof value !== 'object') return null;
+	if (Array.isArray(value)) {
+		if (
+			value.length === 0 ||
+			!value.every((item) => typeof item === 'object' && item !== null && !Array.isArray(item))
+		) {
+			return null;
+		}
+		const rowScopes = value.map((row) => explicitHotelReferences(row, 6));
+		if (rowScopes.some((scope) => scope.length === 0)) return null;
+		return [...new Set(rowScopes.flat())];
 	}
-	return null;
+	const collections = ['rows', 'data', 'records', 'items', 'result'].flatMap((key) => {
+		const candidate = Reflect.get(value, key);
+		return candidate === undefined ? [] : [candidate];
+	});
+	if (collections.length > 0) {
+		const scopes = collections.map((collection) => structuredHotelReferences(collection, depth + 1));
+		if (scopes.some((scope) => scope === null)) return null;
+		return [...new Set(scopes.flatMap((scope) => scope ?? []))];
+	}
+	const direct = explicitHotelReferences(value, 6);
+	return direct.length > 0 ? direct : null;
 }
 
 export function normalizeEvidence(
@@ -211,8 +236,8 @@ export function normalizeEvidence(
 		.map((row) => row.data_date)
 		.filter((value): value is string => /^\d{4}-\d{2}-\d{2}$/.test(value))
 		.sort();
-	const observedHotel =
-		observedHotelIds.length > 0 ? observedHotelIds.join(',') : explicitHotelReference(data);
+	const explicitHotelIds = structuredHotelReferences(data) ?? [];
+	const observedHotel = [...new Set([...observedHotelIds, ...explicitHotelIds])].join(',') || null;
 	const observedPeriod =
 		observedDates.length > 0
 			? { start: observedDates[0] ?? '', end: observedDates.at(-1) ?? '' }
@@ -273,6 +298,17 @@ export function assessEvidence(
 		evidence.some(
 			(item) => item.scope.hotelReference !== null && item.scope.hotelReference !== requestedHotel
 		)
+	) {
+		return { status: 'rejected', reasonCode: 'evidence_scope_mismatch' };
+	}
+	if (
+		Array.isArray(requestedHotel) &&
+		requestedHotel.every((hotel): hotel is string => typeof hotel === 'string') &&
+		evidence.some((item) => {
+			if (item.scope.hotelReference === null) return true;
+			const allowed = new Set(requestedHotel);
+			return item.scope.hotelReference.split(',').some((hotel) => !allowed.has(hotel));
+		})
 	) {
 		return { status: 'rejected', reasonCode: 'evidence_scope_mismatch' };
 	}

@@ -1,6 +1,7 @@
 import type { EmployeeIdentityDirectory, PhoneOtpGateway } from '@hotel-butler/api';
 import { describe, expect, it, vi } from 'vitest';
 import type { ServerAuthResources } from './server-auth-resources';
+import type { EmployeeHotelAccessDirectory } from './employee-identity-directory';
 import { createAuthResourcesRuntime } from './server-auth-resources-runtime';
 
 const employeeDirectory: EmployeeIdentityDirectory = {
@@ -11,9 +12,21 @@ const phoneOtp: PhoneOtpGateway = {
 	requestCode: vi.fn().mockResolvedValue({ expiresInSeconds: 300 }),
 	verifyCode: vi.fn().mockResolvedValue(true)
 };
+const employeeHotelAccessDirectory: EmployeeHotelAccessDirectory = {
+	findByEmployeeId: vi.fn().mockResolvedValue({
+		kind: 'staff_managed_hotels',
+		currentHotelId: null,
+		hotels: []
+	})
+};
 
 function resources(phoneIdentitySourceConfigured: boolean): ServerAuthResources {
-	return { employeeDirectory, phoneIdentitySourceConfigured, phoneOtp };
+	return {
+		employeeDirectory,
+		employeeHotelAccessDirectory,
+		phoneIdentitySourceConfigured,
+		phoneOtp
+	};
 }
 
 describe('server authentication resources runtime', () => {

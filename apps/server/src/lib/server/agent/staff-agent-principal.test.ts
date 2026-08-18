@@ -19,24 +19,35 @@ function capturedLogger(): Readonly<{
 describe('resolveStaffAgentPrincipal', () => {
 	it('derives the principal from an RMS bearer session over remote HTTP', async () => {
 		const { logger, records } = capturedLogger();
-		const fetch = vi.fn().mockResolvedValue(
-			new Response(
-				JSON.stringify({
-					code: 0,
-					data: {
-						userId: 1001,
-						username: 'front-desk',
-						fullName: '前台员工',
-						role: 'FRONT_DESK',
-						orgId: 42,
-						currentHotelId: 9,
-						accessibleHotelIds: [9],
-						permissions: ['ORDER_READ']
-					}
-				}),
-				{ status: 200, headers: { 'content-type': 'application/json' } }
+		const fetch = vi
+			.fn()
+			.mockResolvedValueOnce(
+				new Response(
+					JSON.stringify({
+						code: 0,
+						data: {
+							userId: 1001,
+							username: 'front-desk',
+							fullName: '前台员工',
+							role: 'FRONT_DESK',
+							orgId: 42,
+							currentHotelId: 9,
+							accessibleHotelIds: [9],
+							permissions: ['ORDER_READ']
+						}
+					}),
+					{ status: 200, headers: { 'content-type': 'application/json' } }
+				)
 			)
-		);
+			.mockResolvedValueOnce(
+				new Response(
+					JSON.stringify({
+						code: 0,
+						data: [{ id: 9, name: '银际酒店', status: 1 }]
+					}),
+					{ status: 200, headers: { 'content-type': 'application/json' } }
+				)
+			);
 
 		await expect(
 			resolveStaffAgentPrincipal(
@@ -49,9 +60,23 @@ describe('resolveStaffAgentPrincipal', () => {
 					requestId: 'request-rms-success'
 				}
 			)
-		).resolves.toEqual({ employeeId: '1001', orgId: '42' });
+		).resolves.toEqual({
+			employeeId: '1001',
+			orgId: '42',
+			hotelAccess: {
+				kind: 'staff_managed_hotels',
+				currentHotelId: '9',
+				hotels: [{ id: '9', label: '银际酒店' }]
+			}
+		});
 		expect(fetch).toHaveBeenCalledWith(
 			'http://rms.internal.example:8080/api/v1/me',
+			expect.objectContaining({
+				headers: expect.objectContaining({ authorization: 'Bearer staff-session-a' })
+			})
+		);
+		expect(fetch).toHaveBeenCalledWith(
+			'http://rms.internal.example:8080/api/v1/app/hotels',
 			expect.objectContaining({
 				headers: expect.objectContaining({ authorization: 'Bearer staff-session-a' })
 			})

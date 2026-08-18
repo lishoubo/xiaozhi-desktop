@@ -76,7 +76,9 @@ export function parseOperatingEvidenceRows(value: unknown): readonly TableRow[] 
 	return text ? markdownRows(text) : [];
 }
 
-function requestedRange(request: ResolvedBusinessRequest): Readonly<{ start: string; end: string }> | null {
+function requestedRange(
+	request: ResolvedBusinessRequest
+): Readonly<{ start: string; end: string }> | null {
 	const range = request.slots.dateRange;
 	if (typeof range !== 'object' || range === null || Array.isArray(range)) return null;
 	const start = Reflect.get(range, 'start');
@@ -91,6 +93,13 @@ export function operatingRowsMatchRequest(
 	if (rows.length === 0) return false;
 	const hotel = request.slots.hotelReference;
 	if (typeof hotel === 'string' && !rows.every((row) => row.hotel_id === hotel)) return false;
+	if (
+		Array.isArray(hotel) &&
+		hotel.every((item): item is string => typeof item === 'string') &&
+		!rows.every((row) => typeof row.hotel_id === 'string' && hotel.includes(row.hotel_id))
+	) {
+		return false;
+	}
 	const range = requestedRange(request);
 	if (!range) return true;
 	if (rows.some((row) => 'data_date' in row)) {
@@ -149,6 +158,8 @@ export function buildDeterministicOperatingAnswer(
 	evidence: readonly EvidenceRecord[]
 ): Readonly<{ content: string; ui: GenerativeUiSpec }> | null {
 	if (request.intent !== 'hotel_operating_summary') return null;
+	if (Array.isArray(request.slots.hotelReference) && request.slots.hotelReference.length > 1)
+		return null;
 	const source = evidence.find((item) => item.source === 'aliyun_dms_mcp');
 	const rows = source ? parseOperatingEvidenceRows(source.data) : [];
 	if (!operatingRowsMatchRequest(rows, request)) return null;
@@ -232,7 +243,10 @@ export function buildDeterministicOperatingAnswer(
 			? row
 			: selected;
 	}, null);
-	const filtered = typeof source?.data === 'object' && source.data !== null && Reflect.get(source.data, 'filtered') === true;
+	const filtered =
+		typeof source?.data === 'object' &&
+		source.data !== null &&
+		Reflect.get(source.data, 'filtered') === true;
 	const unstructured =
 		typeof source?.data === 'object' &&
 		source.data !== null &&

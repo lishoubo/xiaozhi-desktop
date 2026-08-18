@@ -1,5 +1,9 @@
 import { randomUUID } from 'node:crypto';
-import type { AgentBusinessIntent, AgentPendingClarification } from '@hotel-butler/api';
+import type {
+	AgentBusinessIntent,
+	AgentHotelAccess,
+	AgentPendingClarification
+} from '@hotel-butler/api';
 import type { IntentDefinition } from './intent-registry';
 import type {
 	JsonValue,
@@ -12,7 +16,7 @@ export type HotelCandidate = Readonly<{
 	id: string;
 	label: string;
 	match: 'exact' | 'alias' | 'fuzzy';
-	accessScope: 'shared_dms_token';
+	accessScope: 'shared_dms_token' | 'staff_managed_hotels';
 }>;
 
 export interface HotelReferenceResolver {
@@ -123,6 +127,45 @@ function rawText(slot: SlotState | undefined): string | null {
 	return slot?.status === 'candidate' && typeof slot.raw === 'string' ? slot.raw.trim() : null;
 }
 
+function normalizedHotelName(value: string): string {
+	return value
+		.normalize('NFKC')
+		.trim()
+		.toLocaleLowerCase('zh-CN')
+		.replace(/[\s·・_—\-()[\]{}（）【】]/g, '');
+}
+
+function managedHotelCandidates(
+	hotelAccess: AgentHotelAccess,
+	reference: string
+): readonly HotelCandidate[] {
+	const target = normalizedHotelName(reference);
+	return hotelAccess.hotels.flatMap((hotel) => {
+		const name = normalizedHotelName(hotel.label);
+		const exact = hotel.id === reference || name === target;
+		if (!exact && !name.includes(target) && !target.includes(name)) return [];
+		return [
+			{
+				id: hotel.id,
+				label: hotel.label,
+				match: exact ? ('exact' as const) : ('alias' as const),
+				accessScope: 'staff_managed_hotels' as const
+			}
+		];
+	});
+}
+
+function splitHotelReferences(reference: string): readonly string[] {
+	return reference
+		.split(/[、,，;；]|(?:\s+(?:和|及|与)\s+)|(?:和|及|与)(?=[^店]{1,40}(?:店|酒店))/)
+		.map((item) => item.trim())
+		.filter(Boolean);
+}
+
+function allHotelsRequested(reference: string): boolean {
+	return /^(?:所有|全部|全量|各个|各家|每家)酒店$|^酒店(?:全部|全量)$/.test(reference.trim());
+}
+
 function unresolvedFields(
 	slots: SlotCollection,
 	requiredNames: ReadonlySet<string>
@@ -152,10 +195,12 @@ function parseHotelCandidate(value: JsonValue): HotelCandidate | null {
 	const id = Reflect.get(value, 'id');
 	const label = Reflect.get(value, 'label');
 	const match = Reflect.get(value, 'match');
+	const accessScope = Reflect.get(value, 'accessScope');
 	if (
 		typeof id !== 'string' ||
 		typeof label !== 'string' ||
-		(match !== 'exact' && match !== 'alias' && match !== 'fuzzy')
+		(match !== 'exact' && match !== 'alias' && match !== 'fuzzy') ||
+		(accessScope !== 'shared_dms_token' && accessScope !== 'staff_managed_hotels')
 	) {
 		return null;
 	}
@@ -163,13 +208,14 @@ function parseHotelCandidate(value: JsonValue): HotelCandidate | null {
 		id,
 		label,
 		match,
-		accessScope: 'shared_dms_token'
+		accessScope
 	};
 }
 
 function buildClarification(
 	slots: SlotCollection,
 	requiredNames: ReadonlySet<string>,
+	hotelAccess: AgentHotelAccess | undefined,
 	anchorMessageId: string,
 	version: number,
 	now: Date
@@ -222,14 +268,27 @@ function buildClarification(
 		}
 	);
 	const unmatchedHotel = slots.hotelReference?.status === 'invalid';
+	const requiresHotelBinding =
+		hotelAccess?.kind === 'staff_managed_hotels' && hotelAccess.hotels.length === 0;
 	return {
 		interactionId: randomUUID(),
 		anchorMessageId,
 		version,
-		prompt: unmatchedHotel
-			? '未从酒店数据中匹配到该名称，请输入 OTA 后台显示的完整酒店名称。'
-			: `请补充${fields.map((field) => field.label).join('、')}。`,
+		prompt: requiresHotelBinding
+			? '当前账号还没有可管理的酒店。请先前往酒店管理完成绑定，再返回这里继续。'
+			: unmatchedHotel
+				? '未从酒店数据中匹配到该名称，请输入 OTA 后台显示的完整酒店名称。'
+				: `请补充${fields.map((field) => field.label).join('、')}。`,
 		fields,
+		...(requiresHotelBinding
+			? {
+					action: {
+						kind: 'navigate' as const,
+						destination: 'hotel_management' as const,
+						label: '前往酒店管理'
+					}
+				}
+			: {}),
 		expiresAt: new Date(now.getTime() + 24 * 60 * 60 * 1_000).toISOString()
 	};
 }
@@ -247,6 +306,7 @@ export class BusinessSlotResolver {
 			intent: AgentBusinessIntent;
 			responseMode?: 'analysis' | 'data_only';
 			orgId: string;
+			hotelAccess?: AgentHotelAccess;
 			slots: SlotCollection;
 			anchorMessageId: string;
 			version: number;
@@ -269,9 +329,74 @@ export class BusinessSlotResolver {
 			}
 		}
 
+		const existingHotel = slots.hotelReference;
+		if (existingHotel?.status === 'resolved' && input.hotelAccess) {
+			const allowed = new Set(input.hotelAccess.hotels.map((hotel) => hotel.id));
+			const selected = Array.isArray(existingHotel.value)
+				? existingHotel.value
+				: [existingHotel.value];
+			if (
+				!selected.every((hotel): hotel is string => typeof hotel === 'string' && allowed.has(hotel))
+			) {
+				slots.hotelReference = { status: 'invalid', reasonCode: 'hotel_not_managed' };
+			}
+		}
 		const hotelRaw = rawText(slots.hotelReference);
-		if (hotelRaw) {
-			if (/^\d+$/.test(hotelRaw)) {
+		if (existingHotel?.status !== 'resolved' && !hotelRaw && input.hotelAccess) {
+			if (input.hotelAccess.hotels.length === 1) {
+				const hotel = input.hotelAccess.hotels[0];
+				if (hotel) slots.hotelReference = resolved(hotel.id, 'only_staff_managed_hotel');
+			} else if (input.hotelAccess.hotels.length > 1) {
+				slots.hotelReference = {
+					status: 'ambiguous',
+					candidates: input.hotelAccess.hotels.slice(0, 100).map((hotel) => ({
+						id: hotel.id,
+						label: hotel.label,
+						match: 'exact',
+						accessScope: 'staff_managed_hotels'
+					}))
+				};
+			}
+		}
+		if (existingHotel?.status !== 'resolved' && hotelRaw) {
+			if (input.hotelAccess && allHotelsRequested(hotelRaw)) {
+				if (input.hotelAccess.hotels.length === 0) {
+					slots.hotelReference = { status: 'missing' };
+				} else {
+					slots.hotelReference = resolved(
+						input.hotelAccess.hotels.map((hotel) => hotel.id),
+						'explicit_all_staff_managed_hotels'
+					);
+				}
+			} else if (input.hotelAccess) {
+				const hotelAccess = input.hotelAccess;
+				const references = splitHotelReferences(hotelRaw);
+				const matches = references.map((reference) =>
+					managedHotelCandidates(hotelAccess, reference)
+				);
+				if (references.length > 1) {
+					if (matches.every((candidates) => candidates.length === 1)) {
+						slots.hotelReference = resolved(
+							[...new Set(matches.flatMap((candidates) => candidates.map(({ id }) => id)))],
+							'explicit_staff_managed_hotels'
+						);
+					} else {
+						slots.hotelReference = { status: 'invalid', reasonCode: 'hotel_not_managed' };
+					}
+				} else {
+					const candidates = matches[0] ?? [];
+					if (candidates.length === 1) {
+						slots.hotelReference = resolved(candidates[0]?.id ?? hotelRaw, 'staff_managed_hotel');
+					} else if (candidates.length > 1) {
+						slots.hotelReference = {
+							status: 'ambiguous',
+							candidates: candidates.map((candidate) => ({ ...candidate }))
+						};
+					} else {
+						slots.hotelReference = { status: 'invalid', reasonCode: 'hotel_not_managed' };
+					}
+				}
+			} else if (/^\d+$/.test(hotelRaw)) {
 				slots.hotelReference = resolved(hotelRaw, 'explicit_hotel_id');
 			} else {
 				const candidates = await this.hotels.resolve(hotelRaw, input.orgId);
@@ -312,6 +437,7 @@ export class BusinessSlotResolver {
 				clarification: buildClarification(
 					slots,
 					requiredNames,
+					input.hotelAccess,
 					input.anchorMessageId,
 					input.version,
 					this.now()

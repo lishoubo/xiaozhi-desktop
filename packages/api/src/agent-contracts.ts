@@ -53,7 +53,7 @@ export const agentClarificationFieldSchema = z.discriminatedUnion('kind', [
         }),
       )
       .min(2)
-      .max(20),
+      .max(100),
   }),
   z.strictObject({
     ...clarificationFieldBase,
@@ -88,6 +88,13 @@ export const agentPendingClarificationSchema = z.strictObject({
   version: z.number().int().positive(),
   prompt: z.string().trim().min(1).max(500),
   fields: z.array(agentClarificationFieldSchema).min(1).max(6),
+  action: z
+    .strictObject({
+      kind: z.literal('navigate'),
+      destination: z.literal('hotel_management'),
+      label: z.string().trim().min(1).max(80),
+    })
+    .optional(),
   expiresAt: isoDateSchema,
 });
 export type AgentPendingClarification = Readonly<z.infer<typeof agentPendingClarificationSchema>>;

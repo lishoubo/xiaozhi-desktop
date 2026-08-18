@@ -70,6 +70,16 @@ describe('Agent business execution contracts', () => {
     const schema = requireSchema('agentPendingClarificationSchema');
 
     expect(schema.safeParse(clarification).success).toBe(true);
+    expect(
+      schema.safeParse({
+        ...clarification,
+        action: {
+          kind: 'navigate',
+          destination: 'hotel_management',
+          label: '前往酒店管理',
+        },
+      }).success,
+    ).toBe(true);
     expect(schema.safeParse({ ...clarification, modelPrompt: 'hidden' }).success).toBe(false);
     expect(
       schema.safeParse({

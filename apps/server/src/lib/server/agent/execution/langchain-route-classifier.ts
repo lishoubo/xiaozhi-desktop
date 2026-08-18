@@ -21,7 +21,7 @@ category 只能表示：普通对话、酒店知识、业务读、业务写或�
 - hotel_operating_summary：酒店经营概览、指标、趋势
 - public_hotel_rates：公开房价查询
 - generic_hotel_data_query：其他安全的酒店数据读取
-slots 只放用户原文中明确出现的候选值；日期原词保留，不要自行猜测。通用酒店数据读取不应为了凑参数而虚构酒店、日期或指标。
+slots 只放用户原文中明确出现的候选值；日期原词保留，不要自行猜测。用户明确说所有/全部酒店时，hotelReference 保留该范围词；明确列出多家酒店时，hotelReference 按原顺序保留完整的多酒店名称文本。通用酒店数据读取不应为了凑参数而虚构酒店、日期或指标。
 responseMode 根据用户要完成的任务判断：查询、列出、查看、获取最新记录、明细、详情、数量等直接取数任务为 data_only，即使用户没有明确说“不需要分析”；趋势、比较、异常、原因、解读、预测、复盘或建议为 analysis。用户同时要求查询和分析时使用 analysis。`;
 
 export class LangChainRouteClassifier implements RouteClassifier {

@@ -1,8 +1,22 @@
 import { staffIdentitySchema, type AgentPrincipal } from '@hotel-butler/api';
+import { z } from 'zod';
 import { safeErrorDetails, serverLogger } from '$lib/server/logging/logger';
 import type { RequestLogger } from '$lib/server/logging/request-logging';
 
 type ApiEnvelope = Readonly<{ code: number; data: unknown }>;
+
+const staffHotelSchema = z.object({
+	id: z.number().int().positive(),
+	name: z.string().trim().min(1).max(256),
+	status: z.number().int()
+});
+type StaffHotel = Readonly<z.infer<typeof staffHotelSchema>>;
+type HotelCacheEntry = Readonly<{ expiresAt: number; hotels: readonly StaffHotel[] }>;
+
+const HOTEL_CACHE_TTL_MS = 30_000;
+const RMS_IDENTITY_TIMEOUT_MS = 10_000;
+const hotelCache = new Map<string, HotelCacheEntry>();
+const hotelLoads = new Map<string, Promise<readonly StaffHotel[]>>();
 
 function isEnvelope(value: unknown): value is ApiEnvelope {
 	return (
@@ -30,6 +44,49 @@ type RmsRequestLoggingOptions = Readonly<{
 
 function elapsedMilliseconds(startedAt: number, now: () => number): number {
 	return Math.max(0, Math.round(now() - startedAt));
+}
+
+async function loadAccessibleHotels(
+	authorization: string,
+	endpointOrigin: string,
+	userId: number,
+	accessibleHotelIds: readonly number[],
+	fetchImplementation: typeof globalThis.fetch
+): Promise<readonly StaffHotel[]> {
+	if (accessibleHotelIds.length === 0) return [];
+	const sortedIds = [...new Set(accessibleHotelIds)].sort((left, right) => left - right);
+	const cacheKey = `${endpointOrigin}:${userId}:${sortedIds.join(',')}`;
+	const cached = hotelCache.get(cacheKey);
+	if (cached && cached.expiresAt > Date.now()) return cached.hotels;
+	const inFlight = hotelLoads.get(cacheKey);
+	if (inFlight) return inFlight;
+	const load = (async () => {
+		const response = await fetchImplementation(`${endpointOrigin}/api/v1/app/hotels`, {
+			signal: AbortSignal.timeout(RMS_IDENTITY_TIMEOUT_MS),
+			headers: {
+				accept: 'application/json',
+				authorization,
+				'user-agent': 'XiaozhiHotelButlerServer/1.0.0'
+			}
+		});
+		if (!response.ok) throw new Error(`RMS hotel endpoint returned ${response.status}`);
+		const envelope: unknown = await response.json();
+		if (!isEnvelope(envelope) || envelope.code !== 0) {
+			throw new Error('RMS hotel response did not match the API envelope');
+		}
+		const hotels = z.array(staffHotelSchema).parse(envelope.data);
+		const allowed = new Set(sortedIds);
+		const accessible = hotels.filter((hotel) => allowed.has(hotel.id));
+		if (hotelCache.size >= 500) hotelCache.clear();
+		hotelCache.set(cacheKey, { expiresAt: Date.now() + HOTEL_CACHE_TTL_MS, hotels: accessible });
+		return accessible;
+	})();
+	hotelLoads.set(cacheKey, load);
+	try {
+		return await load;
+	} finally {
+		hotelLoads.delete(cacheKey);
+	}
 }
 
 export async function resolveStaffAgentPrincipal(
@@ -65,6 +122,7 @@ export async function resolveStaffAgentPrincipal(
 
 	try {
 		const response = await fetchImplementation(`${endpointOrigin}${endpointPath}`, {
+			signal: AbortSignal.timeout(RMS_IDENTITY_TIMEOUT_MS),
 			headers: {
 				accept: 'application/json',
 				authorization,
@@ -106,6 +164,14 @@ export async function resolveStaffAgentPrincipal(
 			throw new Error('RMS identity response did not match the shared contract');
 		}
 
+		const hotels = await loadAccessibleHotels(
+			authorization,
+			endpointOrigin,
+			identity.data.userId,
+			identity.data.accessibleHotelIds,
+			fetchImplementation
+		);
+
 		logger.info(
 			{
 				...logContext,
@@ -116,7 +182,16 @@ export async function resolveStaffAgentPrincipal(
 			},
 			'RMS HTTP request completed'
 		);
-		return { employeeId: String(identity.data.userId), orgId: String(identity.data.orgId) };
+		return {
+			employeeId: String(identity.data.userId),
+			orgId: String(identity.data.orgId),
+			hotelAccess: {
+				kind: 'staff_managed_hotels',
+				currentHotelId:
+					identity.data.currentHotelId === null ? null : String(identity.data.currentHotelId),
+				hotels: hotels.map((hotel) => ({ id: String(hotel.id), label: hotel.name }))
+			}
+		};
 	} catch (error) {
 		logger.error(
 			{

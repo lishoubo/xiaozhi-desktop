@@ -44,7 +44,7 @@ export const slotStateSchema = z.discriminatedUnion('status', [
 	}),
 	z.strictObject({
 		status: z.literal('ambiguous'),
-		candidates: z.array(jsonValueSchema).min(2).max(20)
+		candidates: z.array(jsonValueSchema).min(2).max(100)
 	}),
 	z.strictObject({ status: z.literal('invalid'), reasonCode: z.string().min(1).max(80) }),
 	z.strictObject({

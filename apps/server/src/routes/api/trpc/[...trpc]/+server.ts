@@ -78,10 +78,14 @@ const handleTrpcRequest: RequestHandler = ({ locals, request }) =>
 		req: request,
 		router: appRouter,
 		createContext: async ({ req, resHeaders }): Promise<ApiContext> => {
-			const { employeeDirectory, phoneIdentitySourceConfigured, phoneOtp } =
-				await initializeServerAuthResources({
-					waitForRetry: requiresPhoneIdentitySource(req)
-				});
+			const {
+				employeeDirectory,
+				employeeHotelAccessDirectory,
+				phoneIdentitySourceConfigured,
+				phoneOtp
+			} = await initializeServerAuthResources({
+				waitForRetry: requiresPhoneIdentitySource(req)
+			});
 			const desktopSession = createDesktopSessionGateway({
 				employeeDirectory,
 				generateId: randomUUID,
@@ -102,7 +106,15 @@ const handleTrpcRequest: RequestHandler = ({ locals, request }) =>
 						});
 					}
 					const employee = await desktopSession.currentEmployee();
-					return employee ? { employeeId: employee.id, orgId: employee.orgId } : null;
+					if (!employee) return null;
+					return {
+						employeeId: employee.id,
+						orgId: employee.orgId,
+						hotelAccess: await employeeHotelAccessDirectory.findByEmployeeId(
+							employee.id,
+							employee.orgId
+						)
+					};
 				},
 				desktopSession,
 				employeeDirectory,

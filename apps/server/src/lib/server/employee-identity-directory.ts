@@ -1,8 +1,16 @@
-import type { EmployeeIdentity, EmployeeIdentityDirectory } from '@hotel-butler/api';
+import type {
+	AgentHotelAccess,
+	EmployeeIdentity,
+	EmployeeIdentityDirectory
+} from '@hotel-butler/api';
 import type { ExecuteValues } from 'mysql2';
 
 export interface EmployeeQueryExecutor {
 	execute(sql: string, values: ExecuteValues): Promise<readonly [unknown, unknown]>;
+}
+
+export interface EmployeeHotelAccessDirectory {
+	findByEmployeeId(employeeId: string, orgId: string): Promise<AgentHotelAccess>;
 }
 
 type EmployeeRow = {
@@ -72,5 +80,39 @@ export function createEmployeeIdentityDirectory(
 	return {
 		findActiveById: (id) => findActive('id', id),
 		findActiveByPhone: (phone) => findActive('phone', phone)
+	};
+}
+
+export function createEmployeeHotelAccessDirectory(
+	executor: EmployeeQueryExecutor
+): EmployeeHotelAccessDirectory {
+	return {
+		findByEmployeeId: async (employeeId, orgId) => {
+			const [rows] = await executor.execute(
+				`SELECT h.id, h.name
+				 FROM hotel_user_access AS hua
+				 INNER JOIN hotel AS h
+				   ON h.id = hua.hotel_id AND h.org_id = hua.org_id
+				 WHERE hua.employee_id = ? AND hua.org_id = ? AND h.status = 1
+				 ORDER BY h.name ASC, h.id ASC`,
+				[employeeId, orgId]
+			);
+			if (!Array.isArray(rows)) throw new Error('RMS hotel access query returned invalid rows');
+			const hotels = rows.map((row) => {
+				if (
+					typeof row !== 'object' ||
+					row === null ||
+					!('id' in row) ||
+					!isIdentifier(String(row.id)) ||
+					!('name' in row) ||
+					typeof row.name !== 'string' ||
+					!row.name.trim()
+				) {
+					throw new Error('RMS hotel access query returned an invalid row');
+				}
+				return { id: String(row.id), label: row.name.trim() };
+			});
+			return { kind: 'staff_managed_hotels', currentHotelId: null, hotels };
+		}
 	};
 }

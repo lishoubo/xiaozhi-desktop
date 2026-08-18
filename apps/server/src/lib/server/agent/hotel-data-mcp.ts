@@ -24,8 +24,7 @@ type CompactionStats = {
 };
 
 export type DmsDatabaseDiscovery =
-	| Readonly<{ status: 'unavailable' }>
-	| Readonly<{ status: 'completed'; result: unknown }>;
+	Readonly<{ status: 'unavailable' }> | Readonly<{ status: 'completed'; result: unknown }>;
 
 export type DmsDatabaseResolution = Readonly<{
 	databaseId: string;
@@ -79,7 +78,9 @@ export function resolveDmsDatabaseId(
 		if (pinnedDatabaseId) {
 			return { databaseId: pinnedDatabaseId, source: 'configured_fallback' };
 		}
-		throw new Error('DMS database discovery is unavailable and AI_DMS_DATABASE_ID is not configured');
+		throw new Error(
+			'DMS database discovery is unavailable and AI_DMS_DATABASE_ID is not configured'
+		);
 	}
 	const candidates: Record<string, unknown>[] = [];
 	collectDatabaseCandidates(discovery.result, candidates);
@@ -118,11 +119,8 @@ export function selectDmsDatabaseId(
 	databaseName: string,
 	pinnedDatabaseId: string | null
 ): string {
-	return resolveDmsDatabaseId(
-		{ status: 'completed', result },
-		databaseName,
-		pinnedDatabaseId
-	).databaseId;
+	return resolveDmsDatabaseId({ status: 'completed', result }, databaseName, pinnedDatabaseId)
+		.databaseId;
 }
 
 export function constrainHotelDataGenerateSqlArgs(args: unknown, databaseId: string): unknown {
@@ -222,7 +220,107 @@ export function compactHotelDataResult(content: unknown): string {
 	return `${serialized.slice(0, MAX_RESULT_CHARACTERS)}…[结果已截断]${resultNotice(stats)}`;
 }
 
-export function constrainHotelDataSqlArgs(args: unknown, databaseId?: string): unknown {
+type SqlToken = Readonly<{ value: string; start: number; end: number; depth: number }>;
+
+function mysqlTokens(sql: string): readonly SqlToken[] {
+	const tokens: SqlToken[] = [];
+	let depth = 0;
+	for (let index = 0; index < sql.length;) {
+		const character = sql[index];
+		if (character === "'" || character === '"' || character === '`') {
+			const quote = character;
+			index += 1;
+			while (index < sql.length) {
+				if (sql[index] === '\\') {
+					index += 2;
+					continue;
+				}
+				if (sql[index] === quote) {
+					if (sql[index + 1] === quote) {
+						index += 2;
+						continue;
+					}
+					index += 1;
+					break;
+				}
+				index += 1;
+			}
+			continue;
+		}
+		if (character === '(') {
+			depth += 1;
+			index += 1;
+			continue;
+		}
+		if (character === ')') {
+			depth = Math.max(0, depth - 1);
+			index += 1;
+			continue;
+		}
+		if (character && /[A-Za-z_]/.test(character)) {
+			const start = index;
+			index += 1;
+			while (index < sql.length && /[A-Za-z0-9_$]/.test(sql[index] ?? '')) index += 1;
+			tokens.push({ value: sql.slice(start, index).toLowerCase(), start, end: index, depth });
+			continue;
+		}
+		index += 1;
+	}
+	return tokens;
+}
+
+function scopeHotelDataSql(
+	sql: string,
+	allowedHotelIds: readonly string[],
+	databaseName?: string
+): string {
+	if (allowedHotelIds.length === 0) throw new Error('当前账号没有可查询的酒店');
+	if (!allowedHotelIds.every((id) => /^\d+$/.test(id))) throw new Error('酒店数据访问范围无效');
+	const tokens = mysqlTokens(sql);
+	if (
+		tokens.some((token) => ['with', 'union', 'join'].includes(token.value)) ||
+		tokens.filter((token) => token.value === 'select').length !== 1
+	) {
+		throw new Error('员工酒店数据查询只允许单表、单 SELECT');
+	}
+	const from = tokens.find((token) => token.depth === 0 && token.value === 'from');
+	if (!from) {
+		throw new Error('员工酒店数据查询缺少单一数据表');
+	}
+	const clauseEnd =
+		tokens.find(
+			(token) =>
+				token.depth === 0 &&
+				token.start > from.end &&
+				['where', 'group', 'order', 'having', 'limit'].includes(token.value)
+		)?.start ?? sql.length;
+	const sourceClause = sql.slice(from.end, clauseEnd).trim();
+	const identifier = '`?[A-Za-z_][A-Za-z0-9_$-]*`?';
+	const sourcePattern = new RegExp(
+		`^(${identifier}(?:\\s*\\.\\s*${identifier})?)(?:\\s+(?:as\\s+)?(${identifier}))?$`,
+		'i'
+	);
+	const parsedSource = sourcePattern.exec(sourceClause);
+	if (!parsedSource) throw new Error('员工酒店数据查询只允许单一数据表，不允许联表或子查询');
+	const table = parsedSource[1];
+	if (!table) throw new Error('员工酒店数据查询的数据表无效');
+	const qualifiedParts = table.split('.').map((part) => part.trim().replace(/^`|`$/g, ''));
+	if (qualifiedParts.length === 2 && databaseName && qualifiedParts[0] !== databaseName) {
+		throw new Error('员工酒店数据查询超出目标数据库范围');
+	}
+	const alias = parsedSource[2] ?? table.split('.').at(-1)?.trim();
+	if (!alias) throw new Error('员工酒店数据查询的数据表别名无效');
+	const authorizedIds = allowedHotelIds.join(', ');
+	const scopedSource = ` (SELECT * FROM ${table} WHERE hotel_id IN (${authorizedIds})) AS ${alias} `;
+	return `${sql.slice(0, from.end)}${scopedSource}${sql.slice(clauseEnd)}`;
+}
+
+export function constrainHotelDataSqlArgs(
+	args: unknown,
+	databaseId?: string,
+	allowedHotelIds?: readonly string[],
+	databaseName?: string
+): unknown {
 	if (typeof args !== 'object' || args === null || Array.isArray(args)) {
 		throw new Error('DMS executeScript 参数格式无效');
 	}
@@ -236,6 +334,7 @@ export function constrainHotelDataSqlArgs(args: unknown, databaseId?: string): u
 	if (sql.includes(';')) throw new Error('经营数据 SQL 只允许单条语句');
 	if (!/^(select|with)\b/i.test(sql)) throw new Error('经营数据 SQL 只允许 SELECT 或 CTE 查询');
 	if (FORBIDDEN_SQL.test(sql)) throw new Error('经营数据 SQL 包含不允许的操作');
+	if (allowedHotelIds) sql = scopeHotelDataSql(sql, allowedHotelIds, databaseName);
 	return {
 		...parameters,
 		...(databaseId ? { database_id: databaseId } : {}),

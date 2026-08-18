@@ -24,6 +24,68 @@ describe('slot resolution', () => {
 		expect(hotels.resolve).not.toHaveBeenCalled();
 	});
 
+	it('keeps a submitted managed-hotel choice and rejects partially matched multi-hotel input', async () => {
+		const resolver = new BusinessSlotResolver({ resolve: vi.fn() }, () => now);
+		const hotelAccess = {
+			kind: 'staff_managed_hotels' as const,
+			currentHotelId: '9',
+			hotels: [
+				{ id: '9', label: '银际酒店' },
+				{ id: '10', label: '青山酒店' }
+			]
+		};
+		const base = {
+			definition: getIntentDefinition('generic_hotel_data_query'),
+			intent: 'generic_hotel_data_query' as const,
+			responseMode: 'data_only' as const,
+			orgId: '42',
+			hotelAccess,
+			anchorMessageId: '22222222-2222-4222-8222-222222222222',
+			version: 2
+		};
+
+		await expect(
+			resolver.resolve({
+				...base,
+				slots: {
+					hotelReference: {
+						status: 'resolved',
+						value: '9',
+						source: { kind: 'user_selected_candidate' }
+					}
+				}
+			})
+		).resolves.toMatchObject({ status: 'ready', request: { slots: { hotelReference: '9' } } });
+		await expect(
+			resolver.resolve({
+				...base,
+				slots: { hotelReference: { status: 'candidate', raw: '银际酒店、未知酒店' } }
+			})
+		).resolves.toMatchObject({
+			status: 'needs_clarification',
+			slots: { hotelReference: { status: 'invalid', reasonCode: 'hotel_not_managed' } }
+		});
+		await expect(
+			resolver.resolve({
+				...base,
+				hotelAccess: {
+					...hotelAccess,
+					hotels: [{ id: '10', label: '青山酒店' }]
+				},
+				slots: {
+					hotelReference: {
+						status: 'resolved',
+						value: '9',
+						source: { kind: 'user_selected_candidate' }
+					}
+				}
+			})
+		).resolves.toMatchObject({
+			status: 'needs_clarification',
+			slots: { hotelReference: { status: 'invalid', reasonCode: 'hotel_not_managed' } }
+		});
+	});
+
 	it('asks only for the hotel when a generic latest-data lookup already has its default date', async () => {
 		const hotels = { resolve: vi.fn() };
 		const resolver = new BusinessSlotResolver(hotels, () => now);
@@ -53,6 +115,129 @@ describe('slot resolution', () => {
 			}
 		});
 		expect(hotels.resolve).not.toHaveBeenCalled();
+	});
+
+	it('uses one managed hotel by default and offers all managed hotels when several are available', async () => {
+		const hotels = { resolve: vi.fn() };
+		const resolver = new BusinessSlotResolver(hotels, () => now);
+		const base = {
+			definition: getIntentDefinition('generic_hotel_data_query'),
+			intent: 'generic_hotel_data_query' as const,
+			responseMode: 'data_only' as const,
+			orgId: '42',
+			slots: {},
+			anchorMessageId: '22222222-2222-4222-8222-222222222222',
+			version: 1
+		};
+
+		await expect(
+			resolver.resolve({
+				...base,
+				hotelAccess: {
+					kind: 'staff_managed_hotels',
+					currentHotelId: '9',
+					hotels: [{ id: '9', label: '银际酒店' }]
+				}
+			})
+		).resolves.toMatchObject({
+			status: 'ready',
+			request: { slots: { hotelReference: '9' } }
+		});
+		await expect(
+			resolver.resolve({
+				...base,
+				hotelAccess: {
+					kind: 'staff_managed_hotels',
+					currentHotelId: '9',
+					hotels: [
+						{ id: '9', label: '银际酒店' },
+						{ id: '10', label: '青山酒店' }
+					]
+				}
+			})
+		).resolves.toMatchObject({
+			status: 'needs_clarification',
+			clarification: {
+				fields: [
+					{
+						kind: 'single_choice',
+						choices: [
+							{ value: '9', label: '银际酒店' },
+							{ value: '10', label: '青山酒店' }
+						]
+					}
+				]
+			}
+		});
+		expect(hotels.resolve).not.toHaveBeenCalled();
+	});
+
+	it('guides staff with no managed hotels and supports an explicit all-hotels scope', async () => {
+		const resolver = new BusinessSlotResolver({ resolve: vi.fn() }, () => now);
+		const base = {
+			definition: getIntentDefinition('generic_hotel_data_query'),
+			intent: 'generic_hotel_data_query' as const,
+			responseMode: 'data_only' as const,
+			orgId: '42',
+			anchorMessageId: '22222222-2222-4222-8222-222222222222',
+			version: 1
+		};
+
+		await expect(
+			resolver.resolve({
+				...base,
+				slots: {},
+				hotelAccess: {
+					kind: 'staff_managed_hotels',
+					currentHotelId: null,
+					hotels: []
+				}
+			})
+		).resolves.toMatchObject({
+			status: 'needs_clarification',
+			clarification: {
+				prompt: expect.stringContaining('酒店管理'),
+				action: {
+					kind: 'navigate',
+					destination: 'hotel_management',
+					label: '前往酒店管理'
+				}
+			}
+		});
+		await expect(
+			resolver.resolve({
+				...base,
+				slots: { hotelReference: { status: 'candidate', raw: '所有酒店' } },
+				hotelAccess: {
+					kind: 'staff_managed_hotels',
+					currentHotelId: '9',
+					hotels: [
+						{ id: '9', label: '银际酒店' },
+						{ id: '10', label: '青山酒店' }
+					]
+				}
+			})
+		).resolves.toMatchObject({
+			status: 'ready',
+			request: { slots: { hotelReference: ['9', '10'] } }
+		});
+		await expect(
+			resolver.resolve({
+				...base,
+				slots: { hotelReference: { status: 'candidate', raw: '银际酒店、青山酒店' } },
+				hotelAccess: {
+					kind: 'staff_managed_hotels',
+					currentHotelId: '9',
+					hotels: [
+						{ id: '9', label: '银际酒店' },
+						{ id: '10', label: '青山酒店' }
+					]
+				}
+			})
+		).resolves.toMatchObject({
+			status: 'ready',
+			request: { slots: { hotelReference: ['9', '10'] } }
+		});
 	});
 
 	it('normalizes relative dates with the explicit application timezone', () => {
