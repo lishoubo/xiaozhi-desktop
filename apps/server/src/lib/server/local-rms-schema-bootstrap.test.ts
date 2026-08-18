@@ -26,6 +26,14 @@ describe('local RMS schema bootstrap', () => {
 		expect(localCompose).not.toContain('mysql://hotel_butler:mysecretpassword');
 	});
 
+	it('waits for the final PostgreSQL TCP server before running migrations', () => {
+		const localCompose = readFileSync(`${serverDirectory}/compose.local.yaml`, 'utf8');
+
+		expect(localCompose).toContain(
+			'pg_isready -h 127.0.0.1 -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"'
+		);
+	});
+
 	it('mounts the development dump into MySQL initialization only in local Compose', () => {
 		const localCompose = readFileSync(`${serverDirectory}/compose.local.yaml`, 'utf8');
 		const productionCompose = readFileSync(`${serverDirectory}/compose.production.yaml`, 'utf8');
