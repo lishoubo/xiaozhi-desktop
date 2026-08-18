@@ -20,6 +20,7 @@ import {
 } from '../database/application-database';
 import { SqliteOtaCredentialRepository } from '../database/ota-credential-repository';
 import { SqliteOtaHotelRepository } from '../database/ota-hotel-repository';
+import { readOrCreateDeviceId } from '../file-store/device-id';
 import { updatePartitionState } from '../file-store/partition-ledger';
 import {
   cleanupOrphanPartitions,
@@ -106,7 +107,19 @@ export function createAppScope(logger: AppLogger): AppScope {
    */
   const rmsOrigin = resolveRmsOrigin();
   const rmsFetch = createElectronSessionFetch(sessionFactory.sessionForRmsApi());
-  const rmsAuthClient = createRmsAuthClient({ origin: rmsOrigin, fetch: rmsFetch, logger });
+  // 只读一次盘：认证请求可能并发，惰性 + 记忆化避免每次请求都去碰文件。
+  let deviceIdPromise: Promise<string> | null = null;
+  const deviceId = (): Promise<string> => {
+    deviceIdPromise ??= readOrCreateDeviceId(userDataDir, logger);
+    return deviceIdPromise;
+  };
+  const rmsAuthClient = createRmsAuthClient({
+    origin: rmsOrigin,
+    fetch: rmsFetch,
+    logger,
+    appVersion: app.getVersion(),
+    deviceId,
+  });
   const rmsTokens = createRmsTokenProvider({
     tokenStore: createStaffTokenStore({ userDataDir, logger }),
     client: rmsAuthClient,

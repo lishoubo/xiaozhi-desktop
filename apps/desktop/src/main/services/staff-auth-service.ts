@@ -5,7 +5,7 @@
  * 必须把刚写下的 token 清掉；恢复会话要先判过期、再决定刷不刷；登出无论远端成败
  * 都得清本地。这些都不是 client 或 store 单独能承担的判断。
  */
-import type { StaffIdentity } from '@hotel-butler/api';
+import type { StaffIdentity, StaffPhoneCodeRequestResponse } from '@hotel-butler/api';
 import type { AppLogger } from '../../shared/logging';
 import type { RmsAuthClient } from '../staff-auth/rms-auth-client';
 import {
@@ -37,6 +37,37 @@ export class StaffAuthService {
       // 拿到 token 却取不到身份：不能让"有凭证、无身份"的半截状态留在盘上。
       await this.deps.tokens.clear();
       throw this.toUserFacingError('login-profile', '登录失败，请稍后重试', error);
+    }
+  }
+
+  /**
+   * 发验证码。没有顺序也没有半截状态可管，这里只做一件事：把远端错误转成可读文案。
+   *
+   * 不校验手机号格式——那是 IPC 边界的职责（`phoneNumberSchema`），
+   * 这一层重复一遍只会让两处规则各自漂移。
+   */
+  async requestPhoneCode(phone: string): Promise<StaffPhoneCodeRequestResponse> {
+    return this.translate('request-phone-code', '验证码发送失败，请稍后再试', () =>
+      this.deps.client.requestPhoneCode(phone),
+    );
+  }
+
+  /**
+   * 验证码登录。与 `login()` 是同一段编排——短信登录返回的 token 对与密码登录
+   * 同形状，所以"换 token → 存 → 取身份"三步以及失败清理完全一致。
+   */
+  async loginWithPhoneCode(phone: string, code: string): Promise<StaffIdentity> {
+    const pair = await this.translate('login-phone', '登录失败，请稍后重试', () =>
+      this.deps.client.loginWithPhoneCode(phone, code),
+    );
+    await this.deps.tokens.adopt(pair);
+
+    try {
+      return await this.deps.client.me(pair.accessToken);
+    } catch (error) {
+      // 同 `login()`：拿到 token 却取不到身份，不能留"有凭证、无身份"的半截状态。
+      await this.deps.tokens.clear();
+      throw this.toUserFacingError('login-phone-profile', '登录失败，请稍后重试', error);
     }
   }
 
