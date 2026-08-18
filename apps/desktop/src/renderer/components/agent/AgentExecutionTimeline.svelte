@@ -34,7 +34,7 @@
   ): string {
     if (toolName !== 'upstream_llm_analysis') return toolName;
     if (stepStatus === 'completed') return '上游大模型分析';
-    return traceStatus === 'failed' ? '上游大模型分析超时或失败' : '上游大模型正在分析经营数据';
+    return traceStatus === 'failed' ? '上游大模型分析超时或失败' : '上游大模型正在分析数据';
   }
 </script>
 
