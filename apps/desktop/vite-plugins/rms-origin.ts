@@ -22,11 +22,19 @@ function isLoopback(hostname: string): boolean {
   return hostname === 'localhost' || hostname === '127.0.0.1';
 }
 
-export function resolveRmsOriginForBuild(environment: NodeJS.ProcessEnv = process.env): string {
+/**
+ * `profileOf` 只为测试留的接缝：「地址未确定就构建失败」是本函数的固有规则，但
+ * PROFILES 里三个环境当前都填了地址，没有环境能触发它。注入一个 `rmsOrigin` 为
+ * null 的 profile 才能测到这条规则，且不必为此把某个真实环境改回 null。
+ */
+export function resolveRmsOriginForBuild(
+  environment: NodeJS.ProcessEnv = process.env,
+  profileOf: typeof environmentProfile = environmentProfile,
+): string {
   const raw = environment.XIAOZHI_RMS_SERVER_URL;
   if (raw === undefined || raw === '') {
     // 未显式指定则取该环境的默认地址（见 app-env.ts 的 PROFILES）。
-    const { rmsOrigin } = environmentProfile(environment);
+    const { rmsOrigin } = profileOf(environment);
     if (rmsOrigin === null) {
       // 该环境的地址尚未确定。**不填占位地址、不兜底 localhost**：打出一个连着
       // 错误后端的包，比构建失败危险得多。

@@ -48,14 +48,27 @@ describe('environmentProfile', () => {
 
 describe('resolveRmsOriginForBuild', () => {
   it('未指定地址时取该环境的 profile 默认值', () => {
-    expect(resolveRmsOriginForBuild({ XIAOZHI_APP_ENV: 'dev' })).toBe('http://localhost:8080');
-    expect(resolveRmsOriginForBuild({ XIAOZHI_APP_ENV: 'pre' })).toBe('http://47.96.144.176');
+    for (const value of ['dev', 'pre', 'online'] satisfies AppEnvironment[]) {
+      expect(resolveRmsOriginForBuild({ XIAOZHI_APP_ENV: value })).toBe(
+        environmentProfile({ XIAOZHI_APP_ENV: value }).rmsOrigin,
+      );
+    }
   });
 
-  it('online 地址未确定时构建失败，不兜底也不填占位地址', () => {
-    expect(() => resolveRmsOriginForBuild({ XIAOZHI_APP_ENV: 'online' })).toThrow(
-      /尚未配置默认 RMS 地址/,
-    );
+  /**
+   * 「地址未确定就必须构建失败」是 `resolveRmsOriginForBuild` 的固有规则，不是某个
+   * 环境的属性。此前这条用 `online` 来触发——`online` 的 `rmsOrigin` 当时是 `null`。
+   * 5c13af4 把它改成指向 pre 的 RMS 后，用例就一直是红的（规则没坏，触发条件没了）。
+   *
+   * 改为直接构造一个 `rmsOrigin` 为 null 的 profile：规则本身照测，且不再随 PROFILES
+   * 里某个环境的取值变动而失效。
+   */
+  it('地址未确定时构建失败，不兜底也不填占位地址', () => {
+    const withoutOrigin = { ...environmentProfile({ XIAOZHI_APP_ENV: 'online' }), rmsOrigin: null };
+
+    expect(() =>
+      resolveRmsOriginForBuild({ XIAOZHI_APP_ENV: 'online' }, () => withoutOrigin),
+    ).toThrow(/尚未配置默认 RMS 地址/);
   });
 
   it('显式指定的地址覆盖 profile 默认值', () => {
