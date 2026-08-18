@@ -801,4 +801,20 @@ describe('describeAgentRunFailure', () => {
 		});
 		expect(failure.message).not.toContain('secret.internal.example');
 	});
+
+	it('explains an incomplete analysis while keeping validated data visible', () => {
+		const failure = describeAgentRunFailure(
+			new AgentUpstreamError({
+				service: 'model',
+				operation: 'analyze_grounded_answer',
+				kind: 'invalid_response'
+			})
+		);
+
+		expect(failure).toEqual({
+			message:
+				'经营数据和图表已展示，但上游大模型没有返回完整分析。你可以先查看现有结果，或重试分析。',
+			retryable: true
+		});
+	});
 });

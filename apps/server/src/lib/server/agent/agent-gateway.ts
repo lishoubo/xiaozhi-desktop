@@ -97,6 +97,9 @@ export function describeAgentRunFailure(
 					? '酒店经营数据服务暂时没有响应。请确认酒店和日期范围后重试，或稍后再试。'
 					: error.kind === 'timeout' && error.operation === 'analyze_grounded_answer'
 						? '经营数据和图表已展示，但上游大模型分析超时。你可以先查看现有结果，或稍后重试分析。'
+						: error.kind === 'invalid_response' &&
+							  error.operation === 'analyze_grounded_answer'
+							? '经营数据和图表已展示，但上游大模型没有返回完整分析。你可以先查看现有结果，或重试分析。'
 						: '小智暂时无法完成这次请求，请稍后重试。',
 			retryable: agentErrorRetryable(error)
 		};
@@ -154,10 +157,19 @@ function agentFailureLogFields(error: unknown): Readonly<{
 	upstreamService?: string;
 	upstreamOperation?: string;
 	upstreamFailureKind?: string;
+	analysisCompletionIssue?: 'empty' | 'output_limit';
 }> {
+	const analysisCompletionIssue =
+		error instanceof AgentUpstreamError &&
+		error.cause instanceof Error &&
+		error.cause.name === 'AgentAnalysisIncompleteError' &&
+		(error.cause.message === 'empty' || error.cause.message === 'output_limit')
+			? error.cause.message
+			: undefined;
 	return {
 		errorType: agentErrorType(error),
 		failureKind: agentFailureKind(error),
+		...(analysisCompletionIssue ? { analysisCompletionIssue } : {}),
 		...(error instanceof AgentUpstreamError
 			? {
 					upstreamService: error.service,
@@ -1049,6 +1061,7 @@ export class HotelAgentGateway implements AgentGateway {
 										conversationId: context.conversation.id,
 										businessExecutionId: context.run.businessExecutionId,
 										hasGenerativeUi: true,
+										responseCharacterCount: analysisResult.content.length,
 										durationMs: Math.max(0, Math.round(performance.now() - answerStartedAt))
 									},
 									'Agent answer model completed'

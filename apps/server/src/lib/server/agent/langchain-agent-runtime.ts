@@ -43,6 +43,23 @@ function textContent(value: unknown): string {
 		.join('');
 }
 
+type AnalysisCompletionIssue = 'output_limit' | 'empty';
+
+export function analysisCompletionIssue(
+	content: string,
+	finishReason: string | null
+): AnalysisCompletionIssue | null {
+	if (finishReason === 'length' || finishReason === 'max_tokens') return 'output_limit';
+	return content.trim() ? null : 'empty';
+}
+
+class AgentAnalysisIncompleteError extends Error {
+	constructor(readonly issue: AnalysisCompletionIssue) {
+		super(issue);
+		this.name = 'AgentAnalysisIncompleteError';
+	}
+}
+
 export class DuplicateUiRenderError extends Error {
 	constructor() {
 		super('A valid generated UI has already been emitted for this Run');
@@ -155,7 +172,6 @@ export class LangChainAgentRuntime implements AgentRuntime {
 			model: this.environment.model,
 			apiKey: this.environment.apiKey,
 			streaming: true,
-			maxTokens: 2_048,
 			maxRetries: 0,
 			timeout: 120_000,
 			configuration: { baseURL: this.environment.baseUrl }
@@ -281,6 +297,7 @@ export class LangChainAgentRuntime implements AgentRuntime {
 		let completedGroundedUi = false;
 		const modelStartedAt = performance.now();
 		let firstTokenPublished = false;
+		let finishReason: string | null = null;
 		try {
 			const stream = await agent.stream(
 				{ messages },
@@ -293,6 +310,8 @@ export class LangChainAgentRuntime implements AgentRuntime {
 			for await (const [message] of stream) {
 				options.signal.throwIfAborted();
 				if (AIMessageChunk.isInstance(message)) {
+					const chunkFinishReason = message.response_metadata.finish_reason;
+					if (typeof chunkFinishReason === 'string') finishReason = chunkFinishReason;
 					const delta = textContent(message.content);
 					if (delta) {
 						if (!firstTokenPublished) {
@@ -461,6 +480,17 @@ export class LangChainAgentRuntime implements AgentRuntime {
 				});
 			}
 			return recovered;
+		}
+		if (analysisOnly) {
+			const issue = analysisCompletionIssue(content, finishReason);
+			if (issue) {
+				throw new AgentUpstreamError({
+					service: 'model',
+					operation: 'analyze_grounded_answer',
+					kind: 'invalid_response',
+					cause: new AgentAnalysisIncompleteError(issue)
+				});
+			}
 		}
 		return { content, ui: generatedUi, toolEvidence };
 	}

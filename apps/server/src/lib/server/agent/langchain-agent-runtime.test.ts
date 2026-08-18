@@ -1,6 +1,7 @@
 import type { GenerativeUiSpec } from '@hotel-butler/api';
 import { describe, expect, it } from 'vitest';
 import {
+	analysisCompletionIssue,
 	DuplicateUiRenderError,
 	completeGroundedAnswerAfterUi,
 	recoverCompletedUiAfterRenderLimit,
@@ -50,6 +51,14 @@ describe('completeGroundedAnswerAfterUi', () => {
 			content: '近 7 日趋势如下。\n\n结果视图已经生成，请结合上方数据查看。',
 			ui
 		});
+	});
+});
+
+describe('analysisCompletionIssue', () => {
+	it('rejects output-limit and empty analysis responses without rejecting complete text', () => {
+		expect(analysisCompletionIssue('未完成的分析', 'length')).toBe('output_limit');
+		expect(analysisCompletionIssue('   ', 'stop')).toBe('empty');
+		expect(analysisCompletionIssue('经营趋势整体上升。', 'stop')).toBeNull();
 	});
 });
 
