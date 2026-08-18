@@ -42,14 +42,6 @@ describe('deployment environment boundaries', () => {
 		expect(localCompose).toContain("'${SERVER_HTTPS_PORT:-5173}:4173'");
 	});
 
-	it('uses plain progress output for local Compose startup', () => {
-		const packageJson = readFileSync(`${serverDirectory}/package.json`, 'utf8');
-
-		expect(packageJson).toContain(
-			'"compose:local:up": "docker compose --progress plain --env-file .env'
-		);
-	});
-
 	it('does not keep production example settings that Compose never reads', () => {
 		const example = readFileSync(`${serverDirectory}/.env.production.example`, 'utf8');
 		const productionCompose = readFileSync(`${serverDirectory}/compose.production.yaml`, 'utf8');

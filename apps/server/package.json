@@ -24,7 +24,7 @@
 		"test:e2e": "playwright test",
 		"precompose:local:up": "npm run https:setup",
 		"compose:local:config": "docker compose --env-file .env -f compose.local.yaml config --quiet",
-		"compose:local:up": "docker compose --progress plain --env-file .env -f compose.local.yaml up --build --detach --wait",
+		"compose:local:up": "docker compose --env-file .env -f compose.local.yaml up --build --detach --wait",
 		"compose:local:logs": "docker compose --env-file .env -f compose.local.yaml logs --follow server",
 		"compose:local:down": "docker compose --env-file .env -f compose.local.yaml down --remove-orphans",
 		"precompose:local:test": "npm run https:setup",
