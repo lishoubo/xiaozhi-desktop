@@ -24,6 +24,29 @@
   import type { RmsHotelDto, RmsOtaAccountDto } from '../../shared/hotel-management';
   import { enter, PAGE_ENTER_OPTIONS } from '../motion';
   import { dismissAppNotification, showAppNotification } from '../notifications';
+  import { readAuthSession } from '../auth';
+  import { readStaffSession } from '../staff-auth';
+  import { capabilitiesOf } from '../permissions';
+  import { IS_STAFF_AUTH } from '../../shared/auth-variant';
+
+  /**
+   * 写操作入口的开关。会话在一次页面生命周期内不会变——变了必然经过登出、整页重建，
+   * 所以读一次就够，不需要响应式 store。
+   *
+   * 两个登录变体各有各的会话存放处，这里按编译期变体取对应的那个；`capabilitiesOf`
+   * 对两种身份形状都做默认拒绝。
+   */
+  const canManage = capabilitiesOf(
+    IS_STAFF_AUTH ? readStaffSession() : readAuthSession(),
+  ).manageHotel;
+
+  /**
+   * 表头与数据行必须用同一份列定义，否则两者错位。无写权限时第三列（操作）整列
+   * 没有内容，留着 88px 会在每行右侧空出一段。
+   */
+  const gridColumns = canManage
+    ? 'grid-cols-[minmax(180px,0.8fr)_minmax(360px,2fr)_88px]'
+    : 'grid-cols-[minmax(180px,0.8fr)_minmax(360px,2fr)]';
 
   let loading = $state(true);
   let loadError = $state(false);
@@ -255,10 +278,12 @@
             {/if}
           </div>
         {/if}
-        <Button size="sm" onclick={openCreateDialog}>
-          <Plus />
-          新增酒店
-        </Button>
+        {#if canManage}
+          <Button size="sm" onclick={openCreateDialog}>
+            <Plus />
+            新增酒店
+          </Button>
+        {/if}
       </div>
     </header>
 
@@ -281,18 +306,34 @@
         class="mt-4 overflow-visible rounded-lg border border-border bg-card shadow-[0_1px_3px_rgba(20,20,20,0.035)]"
       >
         <div
-          class="grid grid-cols-[minmax(180px,0.8fr)_minmax(360px,2fr)_88px] items-center gap-4 border-b border-border bg-muted/40 px-4 py-2 text-[11px] font-medium text-muted-foreground"
+          class={[
+            'grid items-center gap-4 border-b border-border bg-muted/40 px-4 py-2 text-[11px] font-medium text-muted-foreground',
+            gridColumns,
+          ]}
           aria-hidden="true"
         >
           <span>酒店</span>
           <span>绑定的 OTA 账号</span>
-          <span class="text-right">操作</span>
+          {#if canManage}
+            <span class="text-right">操作</span>
+          {/if}
         </div>
+
+        <!--
+          空态刻意保持朴素：不写「联系管理员开通」一类引导——酒店用户看到空列表是
+          正常状态，不是需要补救的故障。
+        -->
+        {#if hotels.length === 0}
+          <p class="m-0 px-4 py-10 text-center text-sm text-muted-foreground">暂无酒店</p>
+        {/if}
 
         {#each pagedHotels as hotel}
           {@const accounts = accountsByHotelId.get(hotel.id) ?? []}
           <section
-            class="grid min-h-16 grid-cols-[minmax(180px,0.8fr)_minmax(360px,2fr)_88px] items-center gap-4 border-b border-border px-4 py-2 last:border-b-0"
+            class={[
+              'grid min-h-16 items-center gap-4 border-b border-border px-4 py-2 last:border-b-0',
+              gridColumns,
+            ]}
             data-testid="managed-hotel"
             data-layout="single-row"
             aria-labelledby={`hotel-${hotel.id}`}
@@ -311,6 +352,7 @@
                 {#each accounts.slice(0, 3) as account}
                   <BoundOtaAccountCard
                     {account}
+                    {canManage}
                     onAction={showAccountAction}
                     onUnbind={(target, channelName) =>
                       (unbindTarget = { account: target, channelName })}
@@ -326,26 +368,28 @@
               {/if}
             </div>
 
-            <div class="flex justify-end gap-1">
-              <Button
-                size="icon-sm"
-                variant="ghost"
-                title="新增绑定账号"
-                aria-label={`新增绑定账号 - ${hotel.name}`}
-                onclick={() => (addBindingTarget = hotel)}
-              >
-                <Plus />
-              </Button>
-              <Button
-                size="icon-sm"
-                variant="ghost"
-                title="删除酒店"
-                aria-label={`删除酒店 - ${hotel.name}`}
-                onclick={() => (deleteTarget = hotel)}
-              >
-                <Trash2 />
-              </Button>
-            </div>
+            {#if canManage}
+              <div class="flex justify-end gap-1">
+                <Button
+                  size="icon-sm"
+                  variant="ghost"
+                  title="新增绑定账号"
+                  aria-label={`新增绑定账号 - ${hotel.name}`}
+                  onclick={() => (addBindingTarget = hotel)}
+                >
+                  <Plus />
+                </Button>
+                <Button
+                  size="icon-sm"
+                  variant="ghost"
+                  title="删除酒店"
+                  aria-label={`删除酒店 - ${hotel.name}`}
+                  onclick={() => (deleteTarget = hotel)}
+                >
+                  <Trash2 />
+                </Button>
+              </div>
+            {/if}
           </section>
         {/each}
       </div>

@@ -15,10 +15,18 @@
 
   let {
     account,
+    canManage,
     onAction,
     onUnbind,
   }: {
     account: RmsOtaAccountDto;
+    /**
+     * 是否展示写操作入口（解绑、重新登录/重新选择门店）。
+     *
+     * 刻意设为必填：将来出现第二个使用方时，编译器会逼它对权限做出选择，
+     * 而不是默认放行。
+     */
+    canManage: boolean;
     onAction: (action: OtaAccountAction, account: RmsOtaAccountDto, channelName: string) => void;
     onUnbind: (account: RmsOtaAccountDto, channelName: string) => void;
   } = $props();
@@ -135,34 +143,40 @@
         {/each}
       </dl>
 
-      <div class="mt-3 flex items-center justify-between gap-2 border-t border-border pt-3">
-        <Button
-          size="xs"
-          variant="outline"
-          aria-label={`解绑${channelName}账号`}
-          onclick={runUnbind}
-        >
-          <Unlink />
-          解绑
-        </Button>
-        {#if presentation.action}
+      <!--
+        整条操作栏只装写操作，无权限时连同分隔线一起隐藏——留一条空的 border-t
+        会在详情卡底部拖出一道没有内容的横线。
+      -->
+      {#if canManage}
+        <div class="mt-3 flex items-center justify-between gap-2 border-t border-border pt-3">
           <Button
             size="xs"
-            variant={presentation.action === 'login' ? 'default' : 'outline'}
-            aria-label={presentation.action === 'login'
-              ? `重新登录${channelName}账号`
-              : `${actionLabel}${channelName}账号`}
-            onclick={runAction}
+            variant="outline"
+            aria-label={`解绑${channelName}账号`}
+            onclick={runUnbind}
           >
-            {#if presentation.action === 'login'}
-              <ArrowUpRight />
-            {:else}
-              <RotateCcw />
-            {/if}
-            {actionLabel}
+            <Unlink />
+            解绑
           </Button>
-        {/if}
-      </div>
+          {#if presentation.action}
+            <Button
+              size="xs"
+              variant={presentation.action === 'login' ? 'default' : 'outline'}
+              aria-label={presentation.action === 'login'
+                ? `重新登录${channelName}账号`
+                : `${actionLabel}${channelName}账号`}
+              onclick={runAction}
+            >
+              {#if presentation.action === 'login'}
+                <ArrowUpRight />
+              {:else}
+                <RotateCcw />
+              {/if}
+              {actionLabel}
+            </Button>
+          {/if}
+        </div>
+      {/if}
     </div>
   {/if}
 </div>
