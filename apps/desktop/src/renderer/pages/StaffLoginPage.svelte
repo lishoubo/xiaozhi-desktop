@@ -198,11 +198,7 @@
     >
       <h2 class="sr-only">登录</h2>
 
-      <div
-        class="mb-6 flex justify-end"
-        role="tablist"
-        aria-label="选择用户类型"
-      >
+      <div class="mb-6 flex justify-end" role="tablist" aria-label="选择用户类型">
         <div class="inline-flex rounded-lg border border-border bg-muted/60 p-0.5 text-xs">
           <button
             class={[
@@ -260,18 +256,15 @@
               bind:value={code}
             />
             <button
-              class={[
-                'rounded-md border border-input bg-background px-3 font-medium transition-colors duration-150 ease-out hover:bg-muted motion-reduce:transition-none disabled:text-muted-foreground',
-                resendSeconds > 0 ? 'text-[11px]' : 'text-sm',
-              ]}
+              class="rounded-md border border-input bg-background px-3 text-sm font-medium whitespace-nowrap transition-colors duration-150 ease-out hover:bg-muted motion-reduce:transition-none disabled:text-muted-foreground"
               type="button"
               disabled={resendSeconds > 0 || requestingCode}
               onclick={() => void requestCode()}
             >
               {requestingCode
-                ? '正在发送…'
+                ? '发送中…'
                 : resendSeconds > 0
-                  ? `${resendSeconds} 秒后重新获取`
+                  ? `${resendSeconds}s 后重发`
                   : '获取验证码'}
             </button>
           </div>
