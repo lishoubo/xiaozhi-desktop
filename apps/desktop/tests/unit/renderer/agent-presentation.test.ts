@@ -7,6 +7,7 @@ import {
   messageOwnsPendingClarification,
   shouldDisplayExecutionTrace,
   trendAxisTickSpacing,
+  trendAxisTicks,
 } from '../../../src/renderer/agent-presentation';
 
 describe('isPendingBusinessExecutionConflict', () => {
@@ -161,5 +162,13 @@ describe('Agent result presentation', () => {
     expect(compactTrendAxisLabel('今天 8月12日')).toBe('8/12');
     expect(trendAxisTickSpacing([{ label: '8/12' }, { label: '8/13' }])).toBe(52);
     expect(trendAxisTickSpacing([{ label: '2026年8月12日 星期三' }])).toBe(72);
+  });
+
+  it('shows every label for a seven-point trend and becomes adaptive for larger datasets', () => {
+    const sevenDays = Array.from({ length: 7 }, (_, index) => ({ label: `8/${index + 1}` }));
+    const eightDays = [...sevenDays, { label: '8/8' }];
+
+    expect(trendAxisTicks(sevenDays)).toEqual(sevenDays.map((item) => item.label));
+    expect(trendAxisTicks(eightDays)).toBeUndefined();
   });
 });

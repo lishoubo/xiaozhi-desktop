@@ -43,7 +43,7 @@ describe('slot resolution', () => {
 			request: {
 				intent: 'generic_hotel_data_query',
 				responseMode: 'data_only',
-				slots: { resultLimit: 20 }
+				slots: { resultLimit: 50 }
 			}
 		});
 		expect(hotels.resolve).not.toHaveBeenCalled();

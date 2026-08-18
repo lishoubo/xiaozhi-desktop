@@ -66,6 +66,10 @@ export function trendAxisTickSpacing(data: readonly { label: string }[]): number
   return 52;
 }
 
+export function trendAxisTicks(data: readonly { label: string }[]): string[] | undefined {
+  return data.length > 0 && data.length <= 7 ? data.map((item) => item.label) : undefined;
+}
+
 export function formatConversationUpdatedAt(value: string): string {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return '';

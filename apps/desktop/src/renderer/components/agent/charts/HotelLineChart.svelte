@@ -3,7 +3,11 @@
   import { LineChart } from 'layerchart';
   import * as Chart from '$lib/components/ui/chart';
   import type { HotelTrendChartProps } from '../../../generative-ui/chart-types';
-  import { compactTrendAxisLabel, trendAxisTickSpacing } from '../../../agent-presentation';
+  import {
+    compactTrendAxisLabel,
+    trendAxisTickSpacing,
+    trendAxisTicks,
+  } from '../../../agent-presentation';
 
   let { props }: BaseComponentProps<HotelTrendChartProps> = $props();
 
@@ -21,12 +25,16 @@
       ? [{ key: 'comparison', label: config.comparison.label, color: config.comparison.color }]
       : []),
   ]);
-  const xAxis = $derived({
-    placement: 'bottom' as const,
-    tickSpacing: trendAxisTickSpacing(props.data),
-    tickMarks: false,
-    format: compactTrendAxisLabel,
-    tickLabelProps: { fontSize: 11 },
+  const xAxis = $derived.by(() => {
+    const ticks = trendAxisTicks(props.data);
+    return {
+      placement: 'bottom' as const,
+      ticks,
+      tickSpacing: ticks ? null : trendAxisTickSpacing(props.data),
+      tickMarks: false,
+      format: compactTrendAxisLabel,
+      tickLabelProps: { fontSize: 11 },
+    };
   });
 </script>
 

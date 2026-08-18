@@ -65,7 +65,7 @@ const definitions = [
 			{ name: 'hotelReference', required: false },
 			{ name: 'dateRange', required: false },
 			{ name: 'metrics', required: false },
-			{ name: 'resultLimit', required: false, defaultValue: 20 }
+			{ name: 'resultLimit', required: false, defaultValue: 50 }
 		],
 		maxToolCalls: 6,
 		allowSchemaDiscovery: true,
