@@ -174,6 +174,66 @@ describe('HotelAgentGateway session isolation', () => {
 		};
 		await expect(consume()).rejects.toMatchObject({ code: 'NOT_FOUND' });
 	});
+
+	it('executes runs from different conversations concurrently with independent cancellation', async () => {
+		const { gateway, repository, runtime } = createGatewayHarness(vi.fn(async () => []));
+		const principal = { employeeId: '1001', orgId: '42' } as const;
+		const runs = [
+			{
+				runId: '33333333-3333-4333-8333-333333333331',
+				conversationId: '44444444-4444-4444-8444-444444444441',
+				clientRequestId: '55555555-5555-4555-8555-555555555551'
+			},
+			{
+				runId: '33333333-3333-4333-8333-333333333332',
+				conversationId: '44444444-4444-4444-8444-444444444442',
+				clientRequestId: '55555555-5555-4555-8555-555555555552'
+			}
+		] as const;
+		const releases: Array<(value: { content: string; ui: null }) => void> = [];
+		repository.startRun.mockImplementation(async (_principal, input) => {
+			const run = runs.find((candidate) => candidate.conversationId === input.conversationId);
+			if (!run) throw new Error('Unexpected conversation');
+			return {
+				created: true,
+				response: {
+					runId: run.runId,
+					userMessage: {
+						id: run.clientRequestId,
+						conversationId: run.conversationId,
+						role: 'user' as const,
+						content: '查询数据',
+						ui: null,
+						createdAt: '2026-08-10T00:00:00.000Z'
+					}
+				}
+			};
+		});
+		repository.getRunContext.mockImplementation(async (_principal, runId) => {
+			const run = runs.find((candidate) => candidate.runId === runId);
+			if (!run) throw new Error('Unexpected run');
+			return { run: { id: run.runId, status: 'running' }, conversation: { id: run.conversationId } };
+		});
+		runtime.run.mockImplementation(
+			() => new Promise((resolve) => releases.push(resolve))
+		);
+		repository.finalizeRunSuccess.mockResolvedValue({ id: 'assistant-message' });
+
+		await Promise.all(
+			runs.map((run) =>
+				gateway.startRun(principal, {
+					conversationId: run.conversationId,
+					prompt: '查询数据',
+					clientRequestId: run.clientRequestId
+				})
+			)
+		);
+		await vi.waitFor(() => expect(runtime.run).toHaveBeenCalledTimes(2));
+
+		expect(runtime.run.mock.calls[0]?.[0].signal).not.toBe(runtime.run.mock.calls[1]?.[0].signal);
+		for (const release of releases) release({ content: '完成', ui: null });
+		await vi.waitFor(() => expect(repository.finalizeRunSuccess).toHaveBeenCalledTimes(2));
+	});
 });
 
 describe('HotelAgentGateway hotel quick actions', () => {
@@ -796,7 +856,7 @@ describe('describeAgentRunFailure', () => {
 		);
 
 		expect(failure).toEqual({
-			message: '酒店经营数据服务暂时没有响应。请确认酒店和日期范围后重试，或稍后再试。',
+			message: '酒店经营数据服务暂时没有响应，请稍后重试。',
 			retryable: true
 		});
 		expect(failure.message).not.toContain('secret.internal.example');

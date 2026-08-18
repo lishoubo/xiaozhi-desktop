@@ -24,7 +24,7 @@ describe('slot resolution', () => {
 		expect(hotels.resolve).not.toHaveBeenCalled();
 	});
 
-	it('does not require operating-summary filters for a generic data lookup', async () => {
+	it('asks only for the hotel when a generic latest-data lookup already has its default date', async () => {
 		const hotels = { resolve: vi.fn() };
 		const resolver = new BusinessSlotResolver(hotels, () => now);
 
@@ -34,16 +34,22 @@ describe('slot resolution', () => {
 				intent: 'generic_hotel_data_query',
 				responseMode: 'data_only',
 				orgId: '42',
-				slots: {},
+				slots: { dateRange: { status: 'candidate', raw: '最近30天（含今天）' } },
 				anchorMessageId: '22222222-2222-4222-8222-222222222222',
 				version: 1
 			})
 		).resolves.toMatchObject({
-			status: 'ready',
-			request: {
-				intent: 'generic_hotel_data_query',
-				responseMode: 'data_only',
-				slots: { resultLimit: 50 }
+			status: 'needs_clarification',
+			clarification: {
+				prompt: '请补充酒店。',
+				fields: [{ slot: 'hotelReference', label: '酒店' }]
+			},
+			slots: {
+				dateRange: {
+					status: 'resolved',
+					value: { start: '2026-07-15', end: '2026-08-13' }
+				},
+				resultLimit: { status: 'resolved', value: 50 }
 			}
 		});
 		expect(hotels.resolve).not.toHaveBeenCalled();
@@ -64,6 +70,10 @@ describe('slot resolution', () => {
 		expect(resolveRelativeDateRange('最近7天', now)).toMatchObject({
 			start: '2026-08-06',
 			end: '2026-08-12'
+		});
+		expect(resolveRelativeDateRange('最近30天（含今天）', now)).toMatchObject({
+			start: '2026-07-15',
+			end: '2026-08-13'
 		});
 		expect(resolveRelativeDateRange('本月至今', now)).toMatchObject({
 			start: '2026-08-01',

@@ -95,7 +95,7 @@ export function describeAgentRunFailure(
 		return {
 			message:
 				error.service === 'mcp'
-					? '酒店经营数据服务暂时没有响应。请确认酒店和日期范围后重试，或稍后再试。'
+					? '酒店经营数据服务暂时没有响应，请稍后重试。'
 					: error.kind === 'timeout' && error.operation === 'analyze_grounded_answer'
 						? '经营数据和图表已展示，但上游大模型分析超时。你可以先查看现有结果，或稍后重试分析。'
 						: error.kind === 'invalid_response' && error.operation === 'analyze_grounded_answer'
@@ -110,7 +110,7 @@ export function describeAgentRunFailure(
 	}
 	if (/askDatabase|executeScript|aliyun-dms-hotel-data|dms-mcpr/i.test(detail)) {
 		return {
-			message: '酒店经营数据服务暂时没有响应。请确认酒店和日期范围后重试，或稍后再试。',
+			message: '酒店经营数据服务暂时没有响应，请稍后重试。',
 			retryable: true
 		};
 	}

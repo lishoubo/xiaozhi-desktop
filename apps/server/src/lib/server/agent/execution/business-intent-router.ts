@@ -37,6 +37,9 @@ const analysisRequest =
 	/(?:分析|概览|趋势|原因|为什么|为何|异常|建议|对比|比较|变化|复盘|解读|预测|洞察|相关性|表现如何)/i;
 const directDataLookup =
 	/(?:查询|查一下|查找|看一下|看看|列出|显示|获取|返回|最新|明细|详情|有多少|多少条)/i;
+const currentDataLookup = /(?:当前|今天|今日|现在|实时)/i;
+const recentDataLookup = /(?:最新|最近|近期|近来)/i;
+const explicitDateLookup = /(?:最近7天|近7天|过去7天|本月至今|上个月|昨天|今天|今日|\d{4}-\d{2}-\d{2})/i;
 
 function responseModeForPrompt(
 	text: string,
@@ -60,6 +63,27 @@ function registeredCandidateSlots(
 	return candidateSlots(
 		Object.fromEntries(Object.entries(values).filter(([name]) => allowed.has(name)))
 	);
+}
+
+function defaultTemporalSlots(
+	intent: AgentBusinessIntent,
+	text: string,
+	slots: SlotCollection
+): SlotCollection {
+	if (intent !== 'generic_hotel_data_query' || slots.dateRange) return slots;
+	const explicit = text.match(explicitDateLookup)?.[0] ?? null;
+	const raw = explicit
+		? /^(?:近7天|过去7天)$/.test(explicit)
+			? '最近7天'
+			: explicit === '今日'
+				? '今天'
+				: explicit
+		: currentDataLookup.test(text)
+			? '今天'
+			: recentDataLookup.test(text)
+				? '最近30天（含今天）'
+				: null;
+	return raw ? { ...slots, dateRange: { status: 'candidate', raw } } : slots;
 }
 
 export class BusinessIntentRouter {
@@ -123,10 +147,11 @@ export class BusinessIntentRouter {
 		}
 		if (proposed.category === 'business_read') {
 			const intent = proposed.intentCandidate ?? 'generic_hotel_data_query';
+			const slots = registeredCandidateSlots(intent, proposed.slots);
 			return {
 				routeKind: 'business_read',
 				intent,
-				slots: registeredCandidateSlots(intent, proposed.slots),
+				slots: defaultTemporalSlots(intent, input.text, slots),
 				confidence: proposed.confidence,
 				responseMode: responseModeForPrompt(input.text, proposed.responseMode)
 			};

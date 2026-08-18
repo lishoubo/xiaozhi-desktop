@@ -68,6 +68,14 @@ export function resolveRelativeDateRange(
 			original: raw
 		};
 	}
+	if (/^最近30天（含今天）$/.test(raw)) {
+		return {
+			start: shiftIsoDate(today, -29),
+			end: today,
+			timezone,
+			original: raw
+		};
+	}
 	if (/^本月至今$/.test(raw)) {
 		const [year, month] = today.split('-');
 		return {
@@ -115,9 +123,12 @@ function rawText(slot: SlotState | undefined): string | null {
 	return slot?.status === 'candidate' && typeof slot.raw === 'string' ? slot.raw.trim() : null;
 }
 
-function unresolvedFields(slots: SlotCollection): readonly string[] {
+function unresolvedFields(
+	slots: SlotCollection,
+	requiredNames: ReadonlySet<string>
+): readonly string[] {
 	return Object.entries(slots)
-		.filter(([, slot]) => slot.status !== 'resolved')
+		.filter(([name, slot]) => requiredNames.has(name) && slot.status !== 'resolved')
 		.map(([name]) => name);
 }
 
@@ -158,50 +169,58 @@ function parseHotelCandidate(value: JsonValue): HotelCandidate | null {
 
 function buildClarification(
 	slots: SlotCollection,
+	requiredNames: ReadonlySet<string>,
 	anchorMessageId: string,
 	version: number,
 	now: Date
 ): AgentPendingClarification {
-	const fields: AgentPendingClarification['fields'] = unresolvedFields(slots).map((name) => {
-		const slot = slots[name];
-		if (slot?.status === 'ambiguous' && name === 'hotelReference') {
+	const fields: AgentPendingClarification['fields'] = unresolvedFields(slots, requiredNames).map(
+		(name) => {
+			const slot = slots[name];
+			if (slot?.status === 'ambiguous' && name === 'hotelReference') {
+				return {
+					kind: 'single_choice' as const,
+					slot: name,
+					label: fieldLabel(name),
+					required: true,
+					choices: slot.candidates.map((candidate) => {
+						const hotel = parseHotelCandidate(candidate);
+						if (!hotel) throw new Error('Hotel clarification candidate is invalid');
+						return { value: hotel.id, label: hotel.label };
+					})
+				};
+			}
+			if (name === 'dateRange') {
+				return {
+					kind: 'date_range' as const,
+					slot: name,
+					label: fieldLabel(name),
+					required: true
+				};
+			}
+			if (name === 'date' || name === 'checkIn' || name === 'checkOut') {
+				return { kind: 'date' as const, slot: name, label: fieldLabel(name), required: true };
+			}
+			if (name === 'guests') {
+				return {
+					kind: 'number' as const,
+					slot: name,
+					label: fieldLabel(name),
+					required: true,
+					min: 1,
+					max: 20,
+					integer: true
+				};
+			}
 			return {
-				kind: 'single_choice' as const,
+				kind: 'text' as const,
 				slot: name,
 				label: fieldLabel(name),
 				required: true,
-				choices: slot.candidates.map((candidate) => {
-					const hotel = parseHotelCandidate(candidate);
-					if (!hotel) throw new Error('Hotel clarification candidate is invalid');
-					return { value: hotel.id, label: hotel.label };
-				})
+				maxLength: 200
 			};
 		}
-		if (name === 'dateRange') {
-			return { kind: 'date_range' as const, slot: name, label: fieldLabel(name), required: true };
-		}
-		if (name === 'date' || name === 'checkIn' || name === 'checkOut') {
-			return { kind: 'date' as const, slot: name, label: fieldLabel(name), required: true };
-		}
-		if (name === 'guests') {
-			return {
-				kind: 'number' as const,
-				slot: name,
-				label: fieldLabel(name),
-				required: true,
-				min: 1,
-				max: 20,
-				integer: true
-			};
-		}
-		return {
-			kind: 'text' as const,
-			slot: name,
-			label: fieldLabel(name),
-			required: true,
-			maxLength: 200
-		};
-	});
+	);
 	const unmatchedHotel = slots.hotelReference?.status === 'invalid';
 	return {
 		interactionId: randomUUID(),
@@ -284,10 +303,19 @@ export class BusinessSlotResolver {
 			(definition) => definition.required && slots[definition.name]?.status !== 'resolved'
 		);
 		if (unresolved) {
+			const requiredNames = new Set(
+				input.definition.slots.filter((definition) => definition.required).map(({ name }) => name)
+			);
 			return {
 				status: 'needs_clarification',
 				slots,
-				clarification: buildClarification(slots, input.anchorMessageId, input.version, this.now())
+				clarification: buildClarification(
+					slots,
+					requiredNames,
+					input.anchorMessageId,
+					input.version,
+					this.now()
+				)
 			};
 		}
 		return {

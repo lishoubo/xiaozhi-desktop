@@ -112,7 +112,41 @@ describe('BusinessIntentRouter', () => {
 			router.route({ kind: 'prompt', text: '查询最新的携程订单' })
 		).resolves.toMatchObject({
 			intent: 'generic_hotel_data_query',
-			responseMode: 'data_only'
+			responseMode: 'data_only',
+			slots: {
+				dateRange: { status: 'candidate', raw: '最近30天（含今天）' }
+			}
+		});
+	});
+
+	it('derives today for current-state lookups without overriding an explicit date', async () => {
+		const classify = vi
+			.fn()
+			.mockResolvedValueOnce({
+				category: 'business_read',
+				intentCandidate: 'generic_hotel_data_query',
+				requestedEffect: 'read',
+				responseMode: 'data_only',
+				confidence: 0.9,
+				slots: {}
+			})
+			.mockResolvedValueOnce({
+				category: 'business_read',
+				intentCandidate: 'generic_hotel_data_query',
+				requestedEffect: 'read',
+				responseMode: 'data_only',
+				confidence: 0.9,
+				slots: {}
+			});
+		const router = new BusinessIntentRouter({ classify });
+
+		await expect(router.route({ kind: 'prompt', text: '查看当前房态' })).resolves.toMatchObject({
+			slots: { dateRange: { status: 'candidate', raw: '今天' } }
+		});
+		await expect(
+			router.route({ kind: 'prompt', text: '查询上个月的最新订单' })
+		).resolves.toMatchObject({
+			slots: { dateRange: { status: 'candidate', raw: '上个月' } }
 		});
 	});
 
