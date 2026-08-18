@@ -13,6 +13,7 @@ export const routeClassifierOutputSchema = z.strictObject({
 	category: agentBusinessRouteKindSchema,
 	intentCandidate: agentBusinessIntentSchema.nullable(),
 	requestedEffect: z.enum(['explain', 'read', 'write', 'unclear']),
+	responseMode: z.enum(['analysis', 'data_only']),
 	confidence: z.number().min(0).max(1),
 	slots: z.record(z.string().min(1).max(80), z.string().min(1).max(2_000))
 });
@@ -27,6 +28,7 @@ export type RouteDecision = Readonly<{
 	intent: AgentBusinessIntent | null;
 	slots: SlotCollection;
 	confidence: number;
+	responseMode: 'analysis' | 'data_only';
 }>;
 
 const directWriteRequest =
@@ -61,7 +63,7 @@ export class BusinessIntentRouter {
 				input.quickActionId === 'yesterday_operating_review'
 					? '昨天'
 					: input.quickActionId === 'last_7_days_operating_trend' ||
-							input.quickActionId === 'channel_operating_comparison'
+						  input.quickActionId === 'channel_operating_comparison'
 						? '最近7天'
 						: input.quickActionId === 'month_to_date_operating_progress'
 							? '本月至今'
@@ -90,7 +92,8 @@ export class BusinessIntentRouter {
 							}
 						: {})
 				},
-				confidence: 1
+				confidence: 1,
+				responseMode: 'analysis'
 			};
 		}
 
@@ -98,7 +101,13 @@ export class BusinessIntentRouter {
 			await this.classifier.classify({ text: input.text })
 		);
 		if (proposed.requestedEffect === 'write' || directWriteRequest.test(input.text)) {
-			return { routeKind: 'business_write', intent: null, slots: {}, confidence: 1 };
+			return {
+				routeKind: 'business_write',
+				intent: null,
+				slots: {},
+				confidence: 1,
+				responseMode: 'analysis'
+			};
 		}
 		if (proposed.category === 'business_read') {
 			const intent = proposed.intentCandidate ?? 'generic_hotel_data_query';
@@ -106,14 +115,16 @@ export class BusinessIntentRouter {
 				routeKind: 'business_read',
 				intent,
 				slots: registeredCandidateSlots(intent, proposed.slots),
-				confidence: proposed.confidence
+				confidence: proposed.confidence,
+				responseMode: proposed.responseMode
 			};
 		}
 		return {
 			routeKind: proposed.category,
 			intent: null,
 			slots: {},
-			confidence: proposed.confidence
+			confidence: proposed.confidence,
+			responseMode: 'analysis'
 		};
 	}
 }

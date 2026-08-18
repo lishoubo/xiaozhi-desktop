@@ -21,7 +21,8 @@ category 只能表示：普通对话、酒店知识、业务读、业务写或�
 - hotel_operating_summary：酒店经营概览、指标、趋势
 - public_hotel_rates：公开房价查询
 - generic_hotel_data_query：其他安全的酒店数据读取
-slots 只放用户原文中明确出现的候选值；日期原词保留，不要自行猜测。`;
+slots 只放用户原文中明确出现的候选值；日期原词保留，不要自行猜测。
+responseMode 只有在用户明确表示“只查数据、不需要分析/建议”时才是 data_only；其余情况一律为 analysis。`;
 
 export class LangChainRouteClassifier implements RouteClassifier {
 	private readonly model: ChatOpenAI;
@@ -91,6 +92,7 @@ export class LangChainRouteClassifier implements RouteClassifier {
 						category: 'unclear',
 						intentCandidate: null,
 						requestedEffect: 'unclear',
+						responseMode: 'analysis',
 						confidence: 0,
 						slots: {}
 					})

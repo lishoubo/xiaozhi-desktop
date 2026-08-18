@@ -1,10 +1,13 @@
 import { env } from '$env/dynamic/private';
-import { serverLogger } from './logging/logger';
+import type { PhoneOtpGateway } from '@hotel-butler/api';
+import { safeErrorType, serverLogger } from './logging/logger';
 import { createServerAuthResources, type ServerAuthResources } from './server-auth-resources';
+import { createTemporaryPhoneOtpGateway } from './temporary-phone-otp-gateway';
 
 type AuthResourcesRuntimeOptions = Readonly<{
 	isRmsConfigured(): boolean;
-	load(): Promise<ServerAuthResources>;
+	load(options: Readonly<{ reportFailure: boolean }>): Promise<ServerAuthResources>;
+	reportUnexpectedFailure?(error: unknown): void;
 	now?: () => number;
 	retryDelayMs?: number;
 }>;
@@ -15,32 +18,66 @@ export function createAuthResourcesRuntime(options: AuthResourcesRuntimeOptions)
 	let current: ServerAuthResources | undefined;
 	let inFlight: Promise<ServerAuthResources> | undefined;
 	let retryAfter = 0;
+	const recordResult = (resources: ServerAuthResources): ServerAuthResources => {
+		current = resources;
+		retryAfter =
+			resources.phoneIdentitySourceConfigured || !options.isRmsConfigured()
+				? Number.POSITIVE_INFINITY
+				: now() + retryDelayMs;
+		return resources;
+	};
 
-	return async (): Promise<ServerAuthResources> => {
+	return async (
+		request: Readonly<{ waitForRetry?: boolean }> = {}
+	): Promise<ServerAuthResources> => {
 		if (current?.phoneIdentitySourceConfigured === true) return current;
 		if (current && (!options.isRmsConfigured() || now() < retryAfter)) return current;
-		if (inFlight) return inFlight;
-
-		inFlight = options.load();
+		if (current) {
+			const fallback = current;
+			if (!inFlight) {
+				inFlight = options
+					.load({ reportFailure: false })
+					.then(recordResult)
+					.catch((error: unknown) => {
+						options.reportUnexpectedFailure?.(error);
+						return fallback;
+					})
+					.finally(() => {
+						inFlight = undefined;
+					});
+			}
+			return request.waitForRetry ? inFlight : current;
+		}
+		if (!inFlight) inFlight = options.load({ reportFailure: true }).then(recordResult);
 		try {
-			current = await inFlight;
-			retryAfter =
-				current.phoneIdentitySourceConfigured || !options.isRmsConfigured()
-					? Number.POSITIVE_INFINITY
-					: now() + retryDelayMs;
-			return current;
+			return await inFlight;
 		} finally {
 			inFlight = undefined;
 		}
 	};
 }
 
+let sharedPhoneOtp: PhoneOtpGateway | undefined;
 const loadServerAuthResources = createAuthResourcesRuntime({
 	isRmsConfigured: () => Boolean(env.RMS_DATABASE_URL?.trim()),
-	load: () => createServerAuthResources({ environment: env, logger: serverLogger })
+	reportUnexpectedFailure: (error) =>
+		serverLogger.error(
+			{ errorType: safeErrorType(error), event: 'server.auth.resources_retry_failed' },
+			'Unexpected authentication resource retry failure'
+		),
+	load: ({ reportFailure }) =>
+		createServerAuthResources({
+			environment: env,
+			logger: serverLogger,
+			reportFailure,
+			createPhoneOtp: (logger) =>
+				(sharedPhoneOtp ??= createTemporaryPhoneOtpGateway(logger))
+		})
 });
 
 /** Start during server init, retry transient failures, and share the first verified RMS pool. */
-export function initializeServerAuthResources(): Promise<ServerAuthResources> {
-	return loadServerAuthResources();
+export function initializeServerAuthResources(
+	options: Readonly<{ waitForRetry?: boolean }> = {}
+): Promise<ServerAuthResources> {
+	return loadServerAuthResources(options);
 }

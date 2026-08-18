@@ -13,7 +13,8 @@ describe('BusinessIntentRouter', () => {
 			routeKind: 'business_read',
 			intent: 'hotel_operating_summary',
 			slots: {},
-			confidence: 1
+			confidence: 1,
+			responseMode: 'analysis'
 		});
 		expect(classifier.classify).not.toHaveBeenCalled();
 	});
@@ -60,7 +61,8 @@ describe('BusinessIntentRouter', () => {
 			routeKind: 'business_read',
 			intent: 'hotel_operating_summary',
 			slots: { dateRange: { status: 'candidate', raw: '昨天' } },
-			confidence: 1
+			confidence: 1,
+			responseMode: 'analysis'
 		});
 		expect(classifier.classify).not.toHaveBeenCalled();
 	});
@@ -71,6 +73,7 @@ describe('BusinessIntentRouter', () => {
 				category: 'business_read',
 				intentCandidate: null,
 				requestedEffect: 'read',
+				responseMode: 'data_only',
 				confidence: 0.82,
 				slots: {
 					hotelReference: '西湖店',
@@ -85,6 +88,7 @@ describe('BusinessIntentRouter', () => {
 		).resolves.toMatchObject({
 			routeKind: 'business_read',
 			intent: 'generic_hotel_data_query',
+			responseMode: 'data_only',
 			slots: {
 				hotelReference: { status: 'candidate', raw: '西湖店' },
 				dateRange: { status: 'candidate', raw: '上个月' }
@@ -98,6 +102,7 @@ describe('BusinessIntentRouter', () => {
 				category: 'business_read',
 				intentCandidate: 'hotel_operating_summary',
 				requestedEffect: 'read',
+				responseMode: 'analysis',
 				confidence: 0.88,
 				slots: {
 					hotelReference: '西湖店',
@@ -116,7 +121,8 @@ describe('BusinessIntentRouter', () => {
 					hotelReference: { status: 'candidate', raw: '西湖店' },
 					dateRange: { status: 'candidate', raw: '上个月' }
 				},
-				confidence: 0.88
+				confidence: 0.88,
+				responseMode: 'analysis'
 			}
 		);
 	});
@@ -127,6 +133,7 @@ describe('BusinessIntentRouter', () => {
 				category: 'business_read',
 				intentCandidate: 'generic_hotel_data_query',
 				requestedEffect: 'read',
+				responseMode: 'analysis',
 				confidence: 0.91,
 				slots: {}
 			})
@@ -136,7 +143,8 @@ describe('BusinessIntentRouter', () => {
 			routeKind: 'business_write',
 			intent: null,
 			slots: {},
-			confidence: 1
+			confidence: 1,
+			responseMode: 'analysis'
 		});
 	});
 
@@ -146,6 +154,7 @@ describe('BusinessIntentRouter', () => {
 				category: 'hotel_knowledge',
 				intentCandidate: null,
 				requestedEffect: 'explain',
+				responseMode: 'analysis',
 				confidence: 0.95,
 				slots: {}
 			})

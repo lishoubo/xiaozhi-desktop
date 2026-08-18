@@ -109,4 +109,48 @@ describe('business evidence', () => {
 			reasonCode: 'evidence_scope_mismatch'
 		});
 	});
+
+	it('rejects operating table rows outside the requested hotel or date range', () => {
+		const operatingRequest = {
+			...request,
+			intent: 'hotel_operating_summary' as const,
+			slots: { ...request.slots, hotelReference: '4' }
+		};
+		const evidence = normalizeEvidence({
+			request: operatingRequest,
+			toolName: 'query_hotel_operating_data_sql',
+			toolArgs: {},
+			result:
+				'| hotel_id | data_date | gmv |\n| --- | --- | --- |\n| 99 | 2025-01-01 | 100 |'
+		});
+
+		expect(evidence.scope).toEqual({
+			hotelReference: '99',
+			period: { start: '2025-01-01', end: '2025-01-01' }
+		});
+		expect(assessEvidence(operatingRequest, [evidence], false)).toEqual({
+			status: 'rejected',
+			reasonCode: 'evidence_scope_mismatch'
+		});
+	});
+
+	it('rejects a mixed operating table containing rows without verifiable scope', () => {
+		const operatingRequest = {
+			...request,
+			intent: 'hotel_operating_summary' as const,
+			slots: { ...request.slots, hotelReference: '4' }
+		};
+		const evidence = normalizeEvidence({
+			request: operatingRequest,
+			toolName: 'query_hotel_operating_data_sql',
+			toolArgs: {},
+			result:
+				'| hotel_id | data_date | gmv |\n| --- | --- | --- |\n| 4 | 2026-07-10 | NULL |\n|  |  | 900 |'
+		});
+
+		expect(assessEvidence(operatingRequest, [evidence], false)).toEqual({
+			status: 'rejected',
+			reasonCode: 'evidence_scope_mismatch'
+		});
+	});
 });

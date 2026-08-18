@@ -95,4 +95,19 @@ describe('server authentication resources', () => {
 		expect(serializedLogs).not.toContain('private');
 		expect(serializedLogs).not.toContain('readonly@example.invalid');
 	});
+
+	it('suppresses repeated unavailable diagnostics during a background retry', async () => {
+		const execute = vi.fn().mockRejectedValue(Object.assign(new Error('timed out'), { code: 'ETIMEDOUT' }));
+		const resources = await createServerAuthResources({
+			environment: { RMS_DATABASE_URL: 'mysql://readonly:private@example.invalid/rms' },
+			logger,
+			createRmsClient: vi.fn(() => ({ execute, end: vi.fn().mockResolvedValue(undefined) })),
+			createPhoneOtp: vi.fn(() => phoneOtp),
+			reportFailure: false
+		});
+
+		expect(resources.phoneIdentitySourceConfigured).toBe(false);
+		expect(logger.error).not.toHaveBeenCalled();
+		expect(logger.info).not.toHaveBeenCalled();
+	});
 });

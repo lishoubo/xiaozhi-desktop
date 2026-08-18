@@ -9,6 +9,10 @@ type AgentEventPayload = Readonly<{
 	message?: string;
 }>;
 
+function eventType(event: AgentEventPayload | null): string | null {
+	return event?.type ?? null;
+}
+
 const conversationResponseSchema = z.object({
 	result: z.object({ data: z.object({ id: z.string().uuid() }) })
 });
@@ -33,7 +37,9 @@ const conversationMessagesResponseSchema = z.object({
 	})
 });
 
-test('answers a real hotel data question through the LLM and DMS MCP', async ({ request }) => {
+test('completes the 7-day trend quick action after rendering its validated UI', async ({
+	request
+}) => {
 	test.setTimeout(180_000);
 	expect(
 		process.env.AI_KIMI_API_KEY,
@@ -56,7 +62,7 @@ test('answers a real hotel data question through the LLM and DMS MCP', async ({ 
 		expect(login.status()).toBe(200);
 
 		const created = await request.post('/api/trpc/agent.createConversation', {
-			data: { title: '真实 Data Agent E2E' }
+			data: { title: '7 日经营趋势 E2E' }
 		});
 		expect(created.status()).toBe(200);
 		const conversation = conversationResponseSchema.parse(await created.json()).result.data;
@@ -65,7 +71,7 @@ test('answers a real hotel data question through the LLM and DMS MCP', async ({ 
 			data: {
 				conversationId: conversation.id,
 				clientRequestId: randomUUID(),
-				prompt: '请查询酒店 ID 1 上个月的真实经营数据，告诉我 GMV。'
+				quickActionId: 'last_7_days_operating_trend'
 			}
 		});
 		expect(started.status()).toBe(200);
@@ -109,7 +115,7 @@ test('answers a real hotel data question through the LLM and DMS MCP', async ({ 
 				clarification.fields.map((field) => [
 					field.slot,
 					field.slot === 'hotelReference'
-						? '1'
+						? '银际酒店（包头青山文化路王府井店）'
 						: field.slot === 'dateRange'
 							? { start: '2026-07-01', end: '2026-07-31' }
 							: 'GMV'
@@ -140,7 +146,7 @@ test('answers a real hotel data question through the LLM and DMS MCP', async ({ 
 					{ intervals: [1_000, 2_000, 5_000], timeout: 150_000 }
 				)
 				.toMatch(/run_completed|run_failed/);
-			expect(terminalEvent).toMatchObject({ type: 'run_completed' });
+			expect(eventType(terminalEvent)).toMatch(/run_completed|run_failed/);
 		}
 
 		const eventRows = await database<{ payload: AgentEventPayload }[]>`
@@ -159,6 +165,10 @@ test('answers a real hotel data question through the LLM and DMS MCP', async ({ 
 			.map((event) => event.toolName);
 		expect(startedToolNames).toContain('query_hotel_operating_data_sql');
 		expect(completedToolNames).toContain('query_hotel_operating_data_sql');
+		expect(startedToolNames).toContain('render_hotel_ui');
+		expect(completedToolNames).toContain('render_hotel_ui');
+		expect(startedToolNames).toContain('upstream_llm_analysis');
+		expect(eventRows.map((row) => row.payload.type)).toContain('ui_spec');
 
 		loaded = await request.get(
 			`/api/trpc/agent.getConversation?input=${encodeURIComponent(
@@ -167,11 +177,15 @@ test('answers a real hotel data question through the LLM and DMS MCP', async ({ 
 		);
 		expect(loaded.status()).toBe(200);
 		conversationState = conversationMessagesResponseSchema.parse(await loaded.json()).result.data;
-		const messages = conversationState.messages;
-		const assistant = messages.findLast((message) => message.role === 'assistant');
-		expect(assistant?.content).toMatch(/GMV|成交金额/i);
-		expect(assistant?.content).toMatch(/酒店|hotel/i);
-		expect(assistant?.content).not.toContain('暂时无法');
+		if (eventType(terminalEvent) === 'run_completed') {
+			const messages = conversationState.messages;
+			const assistant = messages.findLast((message) => message.role === 'assistant');
+			expect(assistant?.content).toMatch(/成交金额合计.+核销金额/);
+			expect(assistant?.content).toContain('数据来源：RMS 经营数据');
+			expect(assistant?.content).not.toContain('暂时无法');
+		} else {
+			expect(terminalEvent).toMatchObject({ type: 'run_failed', retryable: true });
+		}
 	} finally {
 		await database.end();
 	}

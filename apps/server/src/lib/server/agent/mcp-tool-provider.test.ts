@@ -214,4 +214,22 @@ describe('hotel data MCP guardrails', () => {
 		expect(compacted).toContain('123');
 		expect(compacted).toContain('hotel');
 	});
+
+	it('preserves a seven-day markdown result without truncating its text block', () => {
+		const markdown = `| date | gmv |\n| --- | --- |\n${Array.from(
+			{ length: 7 },
+			(_, index) => `| 2026-08-${String(index + 10)} | ${'1'.repeat(250)} |`
+		).join('\n')}`;
+		const compacted = compactHotelDataResult([{ type: 'text', text: markdown }]);
+
+		expect(compacted).toContain('2026-08-16');
+		expect(compacted).not.toContain('值已截断');
+	});
+
+	it('keeps the smaller limit for ordinary MCP free text', () => {
+		const compacted = compactHotelDataResult([{ type: 'text', text: 'x'.repeat(2_000) }]);
+
+		expect(compacted).toContain('值已截断');
+		expect(compacted).not.toContain('x'.repeat(1_001));
+	});
 });

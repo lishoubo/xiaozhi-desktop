@@ -39,6 +39,7 @@ import { getIntentDefinition } from './execution/intent-registry';
 import { assessEvidence, normalizeEvidence } from './execution/evidence';
 import type { JsonValue } from './execution/business-execution-state';
 import type { DeterministicWorkflowCollector } from './execution/deterministic-workflow-collector';
+import { buildDeterministicOperatingAnswer } from './execution/deterministic-operating-answer';
 import {
 	agentErrorType,
 	agentErrorRetryable,
@@ -75,6 +76,8 @@ type WorkflowCollectorPort = Pick<DeterministicWorkflowCollector, 'collect'>;
 type BusinessIntentRouterPort = Pick<BusinessIntentRouter, 'route'>;
 type BusinessSlotResolverPort = Pick<BusinessSlotResolver, 'resolve'>;
 
+const GROUNDED_ANALYSIS_TIMEOUT_MS = 90_000;
+
 const terminal = (event: AgentRunEvent): boolean =>
 	event.type === 'run_completed' || event.type === 'run_failed' || event.type === 'run_cancelled';
 
@@ -92,7 +95,9 @@ export function describeAgentRunFailure(
 			message:
 				error.service === 'mcp'
 					? '酒店经营数据服务暂时没有响应。请确认酒店和日期范围后重试，或稍后再试。'
-					: '小智暂时无法完成这次请求，请稍后重试。',
+					: error.kind === 'timeout' && error.operation === 'analyze_grounded_answer'
+						? '经营数据和图表已展示，但上游大模型分析超时。你可以先查看现有结果，或稍后重试分析。'
+						: '小智暂时无法完成这次请求，请稍后重试。',
 			retryable: agentErrorRetryable(error)
 		};
 	}
@@ -161,6 +166,62 @@ function agentFailureLogFields(error: unknown): Readonly<{
 				}
 			: {})
 	};
+}
+
+export async function runGroundedAnalysis(
+	runtime: AgentRuntime,
+	options: Parameters<AgentRuntime['run']>[0],
+	timeoutMs = GROUNDED_ANALYSIS_TIMEOUT_MS,
+	operation = 'analyze_grounded_answer'
+): Promise<Awaited<ReturnType<AgentRuntime['run']>>> {
+	options.signal.throwIfAborted();
+	const analysisController = new AbortController();
+	let timedOut = false;
+	let finished = false;
+	let rejectDeadline: (reason: unknown) => void = () => undefined;
+	const deadline = new Promise<never>((_resolve, reject) => {
+		rejectDeadline = reject;
+	});
+	const abortFromParent = () => {
+		finished = true;
+		analysisController.abort(options.signal.reason);
+		rejectDeadline(options.signal.reason ?? new DOMException('Run cancelled', 'AbortError'));
+	};
+	options.signal.addEventListener('abort', abortFromParent, { once: true });
+	const timeout = setTimeout(() => {
+		timedOut = true;
+		finished = true;
+		const error = new AgentUpstreamError({
+			service: 'model',
+			operation,
+			kind: 'timeout'
+		});
+		analysisController.abort(error);
+		rejectDeadline(error);
+	}, timeoutMs);
+	timeout.unref();
+	const runtimeResult = runtime.run({
+		...options,
+		signal: analysisController.signal,
+		emit: (event) => (finished ? Promise.resolve() : options.emit(event))
+	});
+	try {
+		return await Promise.race([runtimeResult, deadline]);
+	} catch (error) {
+		if (timedOut && !options.signal.aborted && !(error instanceof AgentUpstreamError)) {
+			throw new AgentUpstreamError({
+				service: 'model',
+				operation,
+				kind: 'timeout',
+				cause: error
+			});
+		}
+		throw error;
+	} finally {
+		finished = true;
+		clearTimeout(timeout);
+		options.signal.removeEventListener('abort', abortFromParent);
+	}
 }
 
 export class HotelAgentGateway implements AgentGateway {
@@ -346,7 +407,10 @@ export class HotelAgentGateway implements AgentGateway {
 				'responseText' in input
 					? input.responseText
 					: execution.state.clarification.fields
-							.map((field) => `${field.label}：${formatClarificationAnswer(field, answers[field.slot])}`)
+							.map(
+								(field) =>
+									`${field.label}：${formatClarificationAnswer(field, answers[field.slot])}`
+							)
 							.join('；');
 			const result = await this.repository.resumeBusinessExecution(principal, {
 				businessExecutionId: input.businessExecutionId,
@@ -657,6 +721,7 @@ export class HotelAgentGateway implements AgentGateway {
 							proposal: {
 								routeKind: decision.routeKind,
 								intent: decision.intent,
+								responseMode: decision.responseMode,
 								slots: decision.slots
 							}
 						}
@@ -671,6 +736,7 @@ export class HotelAgentGateway implements AgentGateway {
 					const resolution = await this.slotResolver.resolve({
 						definition: getIntentDefinition(execution.state.intent),
 						intent: execution.state.intent,
+						responseMode: execution.state.responseMode,
 						orgId: principal.orgId,
 						slots: execution.state.slots,
 						anchorMessageId: execution.summary.triggerUserMessageId,
@@ -854,45 +920,187 @@ export class HotelAgentGateway implements AgentGateway {
 
 				if (execution.state.status === 'answering') {
 					if (execution.state.mode === 'grounded' && execution.state.request) {
-						const answerStartedAt = performance.now();
-						this.logger.info(
-							{
-								event: 'agent.answer.model.started',
-								runId,
-								conversationId: context.conversation.id,
-								businessExecutionId: context.run.businessExecutionId,
-								intent: execution.state.request.intent,
-								evidenceCount: execution.state.evidence.length
-							},
-							'Agent answer model started'
+						const deterministicAnswer = buildDeterministicOperatingAnswer(
+							execution.state.request,
+							execution.state.evidence
 						);
-						controlledResult = await this.runtime.run({
-							principal,
-							conversationSummary: null,
-							history: [],
-							signal: controller.signal,
-							workflowRequest: execution.state.request,
-							validatedEvidence: execution.state.evidence,
-							emit: (event) =>
-								this.forwardRuntimeEvent(
+						if (deterministicAnswer) {
+							const toolCallId = `render_hotel_ui_${randomUUID()}`;
+							await this.forwardRuntimeEvent(
+								principal,
+								runId,
+								context.conversation.id,
+								{ type: 'tool_started', toolCallId, toolName: 'render_hotel_ui' },
+								context.run.businessExecutionId
+							);
+							await this.forwardRuntimeEvent(
+								principal,
+								runId,
+								context.conversation.id,
+								{ type: 'ui_spec', spec: deterministicAnswer.ui },
+								context.run.businessExecutionId
+							);
+							await this.forwardRuntimeEvent(
+								principal,
+								runId,
+								context.conversation.id,
+								{ type: 'text_delta', delta: `${deterministicAnswer.content.trimEnd()}\n\n` },
+								context.run.businessExecutionId
+							);
+							await this.forwardRuntimeEvent(
+								principal,
+								runId,
+								context.conversation.id,
+								{
+									type: 'tool_completed',
+									toolCallId,
+									toolName: 'render_hotel_ui',
+									summary: '已根据验证后的经营数据生成结果视图'
+								},
+								context.run.businessExecutionId
+							);
+							this.logger.info(
+								{
+									event: 'agent.answer.deterministic.prepared',
+									runId,
+									conversationId: context.conversation.id,
+									businessExecutionId: context.run.businessExecutionId,
+									intent: execution.state.request.intent
+								},
+								'Deterministic grounded result prepared'
+							);
+							if (execution.state.request.responseMode === 'data_only') {
+								controlledResult = deterministicAnswer;
+								this.logger.info(
+									{
+										event: 'agent.answer.data_only.completed',
+										runId,
+										conversationId: context.conversation.id,
+										businessExecutionId: context.run.businessExecutionId,
+										intent: execution.state.request.intent
+									},
+									'Data-only grounded answer completed'
+								);
+							} else {
+								const analysisToolCallId = `upstream_llm_analysis_${randomUUID()}`;
+								await this.forwardRuntimeEvent(
 									principal,
 									runId,
 									context.conversation.id,
-									event,
+									{
+										type: 'tool_started',
+										toolCallId: analysisToolCallId,
+										toolName: 'upstream_llm_analysis'
+									},
 									context.run.businessExecutionId
-								)
-						});
-						this.logger.info(
-							{
-								event: 'agent.answer.model.completed',
-								runId,
-								conversationId: context.conversation.id,
-								businessExecutionId: context.run.businessExecutionId,
-								hasGenerativeUi: Boolean(controlledResult.ui),
-								durationMs: Math.max(0, Math.round(performance.now() - answerStartedAt))
-							},
-							'Agent answer model completed'
-						);
+								);
+								const answerStartedAt = performance.now();
+								this.logger.info(
+									{
+										event: 'agent.answer.model.started',
+										runId,
+										conversationId: context.conversation.id,
+										businessExecutionId: context.run.businessExecutionId,
+										intent: execution.state.request.intent,
+										evidenceCount: execution.state.evidence.length,
+										timeoutMs: GROUNDED_ANALYSIS_TIMEOUT_MS
+									},
+									'Agent answer model started'
+								);
+								const analysisResult = await runGroundedAnalysis(this.runtime, {
+									principal,
+									conversationSummary: null,
+									history: [],
+									signal: controller.signal,
+									workflowRequest: execution.state.request,
+									validatedEvidence: execution.state.evidence,
+									analysisOnly: true,
+									emit: (event) =>
+										this.forwardRuntimeEvent(
+											principal,
+											runId,
+											context.conversation.id,
+											event,
+											context.run.businessExecutionId
+										)
+								});
+								await this.forwardRuntimeEvent(
+									principal,
+									runId,
+									context.conversation.id,
+									{
+										type: 'tool_completed',
+										toolCallId: analysisToolCallId,
+										toolName: 'upstream_llm_analysis',
+										summary: '上游大模型分析已完成'
+									},
+									context.run.businessExecutionId
+								);
+								controlledResult = {
+									content: analysisResult.content.trim()
+										? `${deterministicAnswer.content.trimEnd()}\n\n${analysisResult.content.trim()}`
+										: deterministicAnswer.content,
+									ui: deterministicAnswer.ui
+								};
+								this.logger.info(
+									{
+										event: 'agent.answer.model.completed',
+										runId,
+										conversationId: context.conversation.id,
+										businessExecutionId: context.run.businessExecutionId,
+										hasGenerativeUi: true,
+										durationMs: Math.max(0, Math.round(performance.now() - answerStartedAt))
+									},
+									'Agent answer model completed'
+								);
+							}
+						} else {
+							const answerStartedAt = performance.now();
+							this.logger.info(
+								{
+									event: 'agent.answer.model.started',
+									runId,
+									conversationId: context.conversation.id,
+									businessExecutionId: context.run.businessExecutionId,
+									intent: execution.state.request.intent,
+									evidenceCount: execution.state.evidence.length,
+									timeoutMs: GROUNDED_ANALYSIS_TIMEOUT_MS
+								},
+								'Agent answer model started'
+							);
+							controlledResult = await runGroundedAnalysis(
+								this.runtime,
+								{
+									principal,
+									conversationSummary: null,
+									history: [],
+									signal: controller.signal,
+									workflowRequest: execution.state.request,
+									validatedEvidence: execution.state.evidence,
+									emit: (event) =>
+										this.forwardRuntimeEvent(
+											principal,
+											runId,
+											context.conversation.id,
+											event,
+											context.run.businessExecutionId
+										)
+								},
+								GROUNDED_ANALYSIS_TIMEOUT_MS,
+								'generate_grounded_answer'
+							);
+							this.logger.info(
+								{
+									event: 'agent.answer.model.completed',
+									runId,
+									conversationId: context.conversation.id,
+									businessExecutionId: context.run.businessExecutionId,
+									hasGenerativeUi: Boolean(controlledResult.ui),
+									durationMs: Math.max(0, Math.round(performance.now() - answerStartedAt))
+								},
+								'Agent answer model completed'
+							);
+						}
 					}
 					if (execution.state.mode === 'general' && !controlledResult) {
 						controlledResult = await this.runtime.run({

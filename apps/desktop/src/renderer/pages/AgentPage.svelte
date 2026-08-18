@@ -98,6 +98,7 @@
   const executions = $derived(activeView?.executions ?? []);
   const activeRunId = $derived(activeView?.activeRunId ?? null);
   const draftContent = $derived(activeView?.draftContent ?? '');
+  const draftUi = $derived(activeView?.draftUi ?? null);
   const sending = $derived(starting || activeRunId !== null);
   const stopping = $derived(activeRunId !== null && stoppingRunId === activeRunId);
   const latestFailure = $derived.by(() => {
@@ -244,7 +245,7 @@
     if (cached) {
       pendingConversationId = null;
       await activateConversation(conversationId);
-      if (cached.activeRunId && cached.errorMessage) void loadConversationState(conversationId);
+      if (cached.errorMessage) void loadConversationState(conversationId);
       return;
     }
     pendingConversationId = conversationId;
@@ -514,6 +515,7 @@
           : conversation,
       );
       void refreshConversations();
+      if (event.type === 'run_failed') void loadConversationState(event.conversationId);
     }
   }
 
@@ -745,7 +747,7 @@
           {/if}
         {/each}
 
-        {#if sending || draftContent}
+        {#if sending || draftContent || draftUi}
           {@const execution = activeExecution()}
           <article class="mt-6 flex gap-3">
             <AgentAvatar size="sm" />
@@ -756,6 +758,9 @@
                 <p class="m-0 inline-flex items-center gap-2 text-sm text-muted-foreground">
                   <LoaderCircle class="animate-spin" size={15} />正在理解任务…
                 </p>
+              {/if}
+              {#if draftUi}
+                <div class="mt-3"><HotelGenerativeUi spec={draftUi} /></div>
               {/if}
               {#if execution && shouldDisplayExecutionTrace(execution)}
                 <AgentExecutionTimeline trace={execution} />

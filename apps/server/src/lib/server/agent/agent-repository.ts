@@ -22,7 +22,11 @@ import {
 	agentRunEvent
 } from '$lib/server/db/agent.schema';
 import type { StoredConversationContext } from './conversation-context';
-import { buildActiveRunDraft, buildAgentExecutionTraces } from './agent-execution-trace';
+import {
+	buildActiveRunDraft,
+	buildAgentExecutionTraces,
+	buildRetainedFailedDraftMessages
+} from './agent-execution-trace';
 import {
 	businessExecutionStateSchema,
 	transitionBusinessExecution,
@@ -309,13 +313,20 @@ export class AgentRepository {
 				.reverse()
 				.find((execution) => !isTerminalBusinessExecutionStatus(execution.status)) ?? null;
 		const payloads = events.map((event) => event.payload);
+		const displayedMessages = [
+			...messages.map(toMessage),
+			...buildRetainedFailedDraftMessages(runs, payloads)
+		].sort(
+			(left, right) =>
+				left.createdAt.localeCompare(right.createdAt) || left.id.localeCompare(right.id)
+		);
 		return {
 			conversation: toConversationSummary(
 				conversation,
 				activeRun?.id ?? null,
 				activeBusinessExecution?.id ?? null
 			),
-			messages: messages.map(toMessage),
+			messages: displayedMessages,
 			executions: buildAgentExecutionTraces(runs, payloads),
 			businessExecutions: businessExecutions.map(toBusinessExecutionSummary),
 			activeBusinessExecution: activeBusinessExecution

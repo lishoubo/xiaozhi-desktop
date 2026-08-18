@@ -158,7 +158,42 @@ describe('Agent conversation view state', () => {
       },
     );
 
-    const failed = applyRunEvent(running, {
+    const withUi = applyRunEvent(running, {
+      id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaac',
+      runId,
+      conversationId,
+      type: 'ui_spec',
+      spec: {
+        root: 'root',
+        state: {},
+        elements: {
+          root: { type: 'Table', props: {}, children: [], visible: true },
+        },
+      },
+      createdAt: '2026-08-12T03:00:00.750Z',
+    });
+    const ordinaryFailure = applyRunEvent(withUi, {
+      id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaae',
+      runId,
+      conversationId,
+      type: 'run_failed',
+      message: '普通模型调用失败。',
+      retryable: true,
+      createdAt: '2026-08-12T03:00:00.780Z',
+    });
+    expect(ordinaryFailure).toMatchObject({ draftContent: '', draftUi: null });
+
+    const analyzing = applyRunEvent(withUi, {
+      id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaad',
+      runId,
+      conversationId,
+      type: 'tool_started',
+      toolCallId: 'analysis-1',
+      toolName: 'upstream_llm_analysis',
+      createdAt: '2026-08-12T03:00:00.800Z',
+    });
+
+    const failed = applyRunEvent(analyzing, {
       id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
       runId,
       conversationId,
@@ -175,8 +210,8 @@ describe('Agent conversation view state', () => {
     expect(failed).toMatchObject({
       activeRunId: null,
       activeBusinessExecution: null,
-      draftContent: '',
-      draftUi: null,
+      draftContent: '正在组织回答',
+      draftUi: expect.objectContaining({ root: 'root' }),
       preparingUi: false,
       errorMessage: '天气服务暂时不可用。',
     });

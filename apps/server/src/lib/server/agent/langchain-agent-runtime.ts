@@ -116,6 +116,13 @@ export function recoverCompletedUiAfterRenderLimit(
 	ui: GenerativeUiSpec | null
 ): Readonly<{ content: string; ui: GenerativeUiSpec }> | null {
 	if (!(error instanceof DuplicateUiRenderError) || !ui) return null;
+	return completeGroundedAnswerAfterUi(content, ui);
+}
+
+export function completeGroundedAnswerAfterUi(
+	content: string,
+	ui: GenerativeUiSpec
+): Readonly<{ content: string; ui: GenerativeUiSpec }> {
 	const conclusion = '结果视图已经生成，请结合上方数据查看。';
 	return {
 		content: content.trim() ? `${content.trimEnd()}\n\n${conclusion}` : conclusion,
@@ -126,6 +133,7 @@ export function recoverCompletedUiAfterRenderLimit(
 export class LangChainAgentRuntime implements AgentRuntime {
 	private readonly localToolHandlers: HotelAgentToolHandlers;
 	private readonly model: ChatOpenAI;
+	private readonly analysisModel: ChatOpenAI;
 
 	constructor(
 		private readonly environment: AgentEnvironment,
@@ -139,7 +147,16 @@ export class LangChainAgentRuntime implements AgentRuntime {
 			apiKey: this.environment.apiKey,
 			streaming: true,
 			maxTokens: 8192,
-			maxRetries: 2,
+			maxRetries: 1,
+			timeout: 60_000,
+			configuration: { baseURL: this.environment.baseUrl }
+		});
+		this.analysisModel = new ChatOpenAI({
+			model: this.environment.model,
+			apiKey: this.environment.apiKey,
+			streaming: true,
+			maxTokens: 2_048,
+			maxRetries: 0,
 			timeout: 120_000,
 			configuration: { baseURL: this.environment.baseUrl }
 		});
@@ -152,6 +169,7 @@ export class LangChainAgentRuntime implements AgentRuntime {
 		options.signal.throwIfAborted();
 		let generatedUi: GenerativeUiSpec | null = null;
 		const answerOnly = options.validatedEvidence !== undefined;
+		const analysisOnly = answerOnly && options.analysisOnly === true;
 		const [memories, skills] = answerOnly
 			? [[], []]
 			: await runAgentEffect(
@@ -176,7 +194,7 @@ export class LangChainAgentRuntime implements AgentRuntime {
 				);
 		options.signal.throwIfAborted();
 		const localTools =
-			options.workflowRequest && !answerOnly
+			analysisOnly || (options.workflowRequest && !answerOnly)
 				? []
 				: this.createLocalTools(
 						options,
@@ -216,13 +234,15 @@ export class LangChainAgentRuntime implements AgentRuntime {
 			? (options.validatedEvidence ?? []).some((item) => item.source === 'aliyun_dms_mcp')
 			: loadedMcpTools.some((candidate) => isHotelDataToolName(candidate.name));
 		const workflowConstraint =
-			answerOnly && options.workflowRequest
-				? `\n\n当前是证据校验后的回答阶段。不可变请求：${JSON.stringify(options.workflowRequest)}。已验证证据：${JSON.stringify(options.validatedEvidence)}。不得调用数据工具，不得补造证据中没有的事实；必须写明范围、来源和重要限制。可按需要调用一次 render_hotel_ui。`
-				: options.workflowRequest
-					? `\n\n当前是受限业务取证阶段。意图：${options.workflowRequest.intent}。已解析参数：${JSON.stringify(options.workflowRequest.slots)}。只能使用已提供的只读工具，不得调用、建议或模拟任何写操作。只完成数据获取，最终文字不会直接展示给用户。仅检查回答所必需的表结构，避免重复描述同一张表；generate_hotel_operating_data_sql 只生成 SQL、不是数据证据，调用后必须继续调用 query_hotel_operating_data_sql 执行。`
-					: '';
+			analysisOnly && options.workflowRequest
+				? `\n\n当前是已验证经营数据的分析阶段。不可变请求：${JSON.stringify(options.workflowRequest)}。已验证证据：${JSON.stringify(options.validatedEvidence)}。可靠数据摘要和图表已经展示给用户；不得调用任何工具，不要重复输出原始表格，直接给出简洁、有业务价值的趋势解读、异常提示和可执行建议。不得补造证据中没有的事实，必须说明重要限制。`
+				: answerOnly && options.workflowRequest
+					? `\n\n当前是证据校验后的回答阶段。不可变请求：${JSON.stringify(options.workflowRequest)}。已验证证据：${JSON.stringify(options.validatedEvidence)}。不得调用数据工具，不得补造证据中没有的事实；必须写明范围、来源和重要限制。可按需要调用一次 render_hotel_ui。`
+					: options.workflowRequest
+						? `\n\n当前是受限业务取证阶段。意图：${options.workflowRequest.intent}。已解析参数：${JSON.stringify(options.workflowRequest.slots)}。只能使用已提供的只读工具，不得调用、建议或模拟任何写操作。只完成数据获取，最终文字不会直接展示给用户。仅检查回答所必需的表结构，避免重复描述同一张表；generate_hotel_operating_data_sql 只生成 SQL、不是数据证据，调用后必须继续调用 query_hotel_operating_data_sql 执行。`
+						: '';
 		const agent = createAgent({
-			model: this.model,
+			model: analysisOnly ? this.analysisModel : this.model,
 			tools,
 			middleware: [singleSuccessfulUiRenderMiddleware(() => generatedUi !== null)],
 			systemPrompt: `${buildHotelAgentSystemPrompt({
@@ -235,7 +255,14 @@ export class LangChainAgentRuntime implements AgentRuntime {
 		});
 		const messages: BaseMessageLike[] =
 			answerOnly && options.workflowRequest
-				? [{ role: 'user', content: '请根据已验证证据生成最终答复。' }]
+				? [
+						{
+							role: 'user',
+							content: analysisOnly
+								? '请分析已验证的经营数据，给出结论和建议。'
+								: '请根据已验证证据生成最终答复。'
+						}
+					]
 				: options.history.map((message) => ({
 						role: message.role,
 						content: message.content
@@ -251,6 +278,9 @@ export class LangChainAgentRuntime implements AgentRuntime {
 		const toolNamesByCall = new Map<string, string>();
 		const mcpCallStartedAt = new Map<string, number>();
 		const toolEvidence: Array<{ toolName: string; toolArgs: unknown; result: unknown }> = [];
+		let completedGroundedUi = false;
+		const modelStartedAt = performance.now();
+		let firstTokenPublished = false;
 		try {
 			const stream = await agent.stream(
 				{ messages },
@@ -265,6 +295,14 @@ export class LangChainAgentRuntime implements AgentRuntime {
 				if (AIMessageChunk.isInstance(message)) {
 					const delta = textContent(message.content);
 					if (delta) {
+						if (!firstTokenPublished) {
+							firstTokenPublished = true;
+							await options.emit({
+								type: 'runtime_phase_completed',
+								phase: 'model_first_token',
+								durationMs: Math.max(0, Math.round(performance.now() - modelStartedAt))
+							});
+						}
 						content += delta;
 						await options.emit({ type: 'text_delta', delta });
 					}
@@ -390,6 +428,10 @@ export class LangChainAgentRuntime implements AgentRuntime {
 								: '酒店经营数据查询完成'
 							: '工具调用已完成'
 					});
+					if (answerOnly && toolName === 'render_hotel_ui' && generatedUi) {
+						completedGroundedUi = true;
+						return completeGroundedAnswerAfterUi(content, generatedUi);
+					}
 				}
 			}
 		} catch (error) {
@@ -405,7 +447,10 @@ export class LangChainAgentRuntime implements AgentRuntime {
 					retryable: agentErrorRetryable(error)
 				});
 			}
-			const recovered = recoverCompletedUiAfterRenderLimit(error, content, generatedUi);
+			const recovered =
+				completedGroundedUi && generatedUi && !options.signal.aborted
+					? completeGroundedAnswerAfterUi(content, generatedUi)
+					: recoverCompletedUiAfterRenderLimit(error, content, generatedUi);
 			if (!recovered) {
 				if (isAgentExecutionError(error)) throw error;
 				throw new AgentUpstreamError({

@@ -26,6 +26,16 @@
           ? '已停止'
           : '未完成',
   );
+
+  function stepLabel(
+    toolName: string,
+    stepStatus: AgentExecutionTrace['steps'][number]['status'],
+    traceStatus: AgentExecutionTrace['status'],
+  ): string {
+    if (toolName !== 'upstream_llm_analysis') return toolName;
+    if (stepStatus === 'completed') return '上游大模型分析';
+    return traceStatus === 'failed' ? '上游大模型分析超时或失败' : '上游大模型正在分析经营数据';
+  }
 </script>
 
 <div
@@ -74,13 +84,17 @@
           <span class="absolute top-[-11px] left-[6px] h-3 border-l border-border"></span>
           {#if step.status === 'completed'}
             <Check size={14} class="mt-0.5 shrink-0 text-emerald-600" />
+          {:else if trace.status === 'failed' && step.toolName === 'upstream_llm_analysis'}
+            <TriangleAlert size={14} class="mt-0.5 shrink-0 text-amber-600" />
           {:else if trace.status === 'cancelled'}
             <Square size={14} class="mt-0.5 shrink-0 text-muted-foreground" />
           {:else}
             <Wrench size={14} class="mt-0.5 shrink-0 text-primary" />
           {/if}
           <span class="min-w-0 leading-5">
-            <strong class="break-all font-medium text-foreground">{step.toolName}</strong>
+            <strong class="break-all font-medium text-foreground"
+              >{stepLabel(step.toolName, step.status, trace.status)}</strong
+            >
             {#if step.summary}<span> · {step.summary}</span>{/if}
           </span>
         </div>

@@ -12,6 +12,7 @@ export const HOTEL_DATA_DESCRIBE_TABLE_TOOL_NAME = 'describe_hotel_data_table';
 export const HOTEL_DATA_RESULT_ROW_LIMIT = 75;
 const MAX_RESULT_CHARACTERS = 40_000;
 const MAX_VALUE_CHARACTERS = 1_000;
+const MAX_MARKDOWN_TABLE_CHARACTERS = 10_000;
 const CREDENTIAL_FIELD = /authorization|credential|password|passwd|secret|token/i;
 const FORBIDDEN_SQL =
 	/\b(insert|update|delete|replace|merge|upsert|create|alter|drop|truncate|rename|grant|revoke|call|handler|load|lock|unlock|set|use|transaction|commit|rollback|savepoint|prepare|execute|deallocate|outfile|dumpfile|sleep|benchmark|load_file|get_lock|release_lock|is_free_lock|is_used_lock)\b|\bfor\s+update\b|\block\s+in\s+share\s+mode\b|\binto\b|:=/i;
@@ -144,8 +145,11 @@ function redactText(value: string, stats: CompactionStats): string {
 	let text = value
 		.replace(/Bearer\s+[A-Za-z0-9._~+-]+/gi, 'Bearer [REDACTED]')
 		.replace(/\bDMS-[A-Za-z0-9-]{16,}\b/g, '[REDACTED_DMS_TOKEN]');
-	if (text.length > MAX_VALUE_CHARACTERS) {
-		text = `${text.slice(0, MAX_VALUE_CHARACTERS)}…[值已截断]`;
+	const valueLimit = /^\|[^\n]+\|\n\|\s*:?-{3,}/.test(text.trimStart())
+		? MAX_MARKDOWN_TABLE_CHARACTERS
+		: MAX_VALUE_CHARACTERS;
+	if (text.length > valueLimit) {
+		text = `${text.slice(0, valueLimit)}…[值已截断]`;
 		stats.truncatedValues += 1;
 	}
 	return text;

@@ -3,7 +3,10 @@ import { fetchRequestHandler } from '@trpc/server/adapters/fetch';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { env } from '$env/dynamic/private';
 import { db } from '$lib/server/db';
-import { createDesktopSessionGateway } from '$lib/server/desktop-session';
+import {
+	createDesktopSessionGateway,
+	DESKTOP_SESSION_COOKIE_NAME
+} from '$lib/server/desktop-session';
 import { DrizzleDesktopSessionRepository } from '$lib/server/desktop-session-repository';
 import { initializeServerAuthResources } from '$lib/server/server-auth-resources-runtime';
 import { logTrpcFailure } from '$lib/server/logging/trpc-logging';
@@ -62,6 +65,13 @@ const agentGateway = new HotelAgentGateway(
 	new DeterministicWorkflowCollector(mcpToolProvider)
 );
 
+function requiresPhoneIdentitySource(request: Request): boolean {
+	const procedurePath = new URL(request.url).pathname;
+	if (procedurePath.includes('/auth.')) return true;
+	if (request.headers.has('authorization')) return false;
+	return request.headers.get('cookie')?.includes(`${DESKTOP_SESSION_COOKIE_NAME}=`) ?? false;
+}
+
 const handleTrpcRequest: RequestHandler = ({ locals, request }) =>
 	fetchRequestHandler({
 		endpoint,
@@ -69,7 +79,9 @@ const handleTrpcRequest: RequestHandler = ({ locals, request }) =>
 		router: appRouter,
 		createContext: async ({ req, resHeaders }): Promise<ApiContext> => {
 			const { employeeDirectory, phoneIdentitySourceConfigured, phoneOtp } =
-				await initializeServerAuthResources();
+				await initializeServerAuthResources({
+					waitForRetry: requiresPhoneIdentitySource(req)
+				});
 			const desktopSession = createDesktopSessionGateway({
 				employeeDirectory,
 				generateId: randomUUID,

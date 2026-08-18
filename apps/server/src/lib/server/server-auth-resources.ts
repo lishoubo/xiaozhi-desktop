@@ -16,6 +16,7 @@ type RmsClient = EmployeeQueryExecutor & Readonly<{ end(): Promise<void> }>;
 type ServerAuthResourcesOptions = Readonly<{
 	environment: Readonly<Record<string, string | undefined>>;
 	logger: PhoneOtpLogger;
+	reportFailure?: boolean;
 	createRmsClient?: (databaseUrl: string) => RmsClient;
 	createPhoneOtp?: (logger: PhoneOtpLogger) => PhoneOtpGateway;
 	now?: () => number;
@@ -87,24 +88,26 @@ export async function createServerAuthResources(
 		await rmsClient.execute('SELECT 1', []);
 	} catch (error) {
 		if (rmsClient) await closeFailedRmsClient(rmsClient, options.logger);
-		options.logger.error(
-			{
-				durationMs: Math.max(0, Math.round(now() - startedAt)),
-				errorCode: safeRmsErrorCode(error),
-				errorType: safeErrorType(error),
-				event: 'rms.connection.failed'
-			},
-			'RMS connection verification failed'
-		);
-		options.logger.info(
-			{
-				event: 'server.auth.resources_configured',
-				phoneIdentitySourceConfigured: false,
-				rmsDatabaseUrlConfigured: true,
-				rmsPoolEnabled: false
-			},
-			'Server authentication resources configured'
-		);
+		if (options.reportFailure !== false) {
+			options.logger.error(
+				{
+					durationMs: Math.max(0, Math.round(now() - startedAt)),
+					errorCode: safeRmsErrorCode(error),
+					errorType: safeErrorType(error),
+					event: 'rms.connection.failed'
+				},
+				'RMS connection verification failed'
+			);
+			options.logger.info(
+				{
+					event: 'server.auth.resources_configured',
+					phoneIdentitySourceConfigured: false,
+					rmsDatabaseUrlConfigured: true,
+					rmsPoolEnabled: false
+				},
+				'Server authentication resources configured'
+			);
+		}
 		return {
 			phoneIdentitySourceConfigured: false,
 			employeeDirectory: unavailableEmployeeDirectory(),

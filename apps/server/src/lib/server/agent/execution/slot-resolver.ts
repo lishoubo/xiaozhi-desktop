@@ -226,6 +226,7 @@ export class BusinessSlotResolver {
 		input: Readonly<{
 			definition: IntentDefinition;
 			intent: AgentBusinessIntent;
+			responseMode?: 'analysis' | 'data_only';
 			orgId: string;
 			slots: SlotCollection;
 			anchorMessageId: string;
@@ -295,6 +296,7 @@ export class BusinessSlotResolver {
 			request: {
 				routeKind: 'business_read',
 				intent: input.intent,
+				responseMode: input.responseMode ?? 'analysis',
 				slots: Object.fromEntries(
 					Object.entries(slots)
 						.filter(

@@ -2,6 +2,10 @@ import { createHash, randomUUID } from 'node:crypto';
 import type { AgentBusinessIntent } from '@hotel-butler/api';
 import { compactHotelDataResult } from '../hotel-data-mcp';
 import type { JsonValue, ResolvedBusinessRequest } from './business-execution-state';
+import {
+	operatingRowsMatchRequest,
+	parseOperatingEvidenceRows
+} from './deterministic-operating-answer';
 
 export type EvidenceEnvelope = Readonly<{
 	evidenceId: string;
@@ -195,7 +199,24 @@ export function normalizeEvidence(
 	}
 	const metrics = valueAt(input.request.slots, 'metrics');
 	const requestedHotel = valueAt(input.request.slots, 'hotelReference');
-	const observedHotel = explicitHotelReference(data);
+	const operatingRows = parseOperatingEvidenceRows(data);
+	const observedHotelIds = [
+		...new Set(
+			operatingRows
+				.map((row) => row.hotel_id)
+				.filter((value): value is string => typeof value === 'string' && value.length > 0)
+		)
+	];
+	const observedDates = operatingRows
+		.map((row) => row.data_date)
+		.filter((value): value is string => /^\d{4}-\d{2}-\d{2}$/.test(value))
+		.sort();
+	const observedHotel =
+		observedHotelIds.length > 0 ? observedHotelIds.join(',') : explicitHotelReference(data);
+	const observedPeriod =
+		observedDates.length > 0
+			? { start: observedDates[0] ?? '', end: observedDates.at(-1) ?? '' }
+			: null;
 	return {
 		evidenceId: randomUUID(),
 		source: sourceForIntent(input.request.intent),
@@ -205,7 +226,7 @@ export function normalizeEvidence(
 			.digest('hex'),
 		scope: {
 			hotelReference: observedHotel ?? (typeof requestedHotel === 'string' ? requestedHotel : null),
-			period: periodFromRequest(input.request)
+			period: observedPeriod ?? periodFromRequest(input.request)
 		},
 		metrics: Array.isArray(metrics)
 			? metrics.filter((metric): metric is string => typeof metric === 'string')
@@ -237,10 +258,31 @@ export function assessEvidence(
 			: { status: 'needs_more_data', limitation: '数据源未返回可验证数据。' };
 	}
 	const requestedHotel = valueAt(request.slots, 'hotelReference');
+	const requestedPeriod = periodFromRequest(request);
+	if (
+		request.intent === 'hotel_operating_summary' &&
+		evidence.some((item) => {
+			const rows = parseOperatingEvidenceRows(item.data);
+			return rows.length > 0 && !operatingRowsMatchRequest(rows, request);
+		})
+	) {
+		return { status: 'rejected', reasonCode: 'evidence_scope_mismatch' };
+	}
 	if (
 		typeof requestedHotel === 'string' &&
 		evidence.some(
 			(item) => item.scope.hotelReference !== null && item.scope.hotelReference !== requestedHotel
+		)
+	) {
+		return { status: 'rejected', reasonCode: 'evidence_scope_mismatch' };
+	}
+	if (
+		requestedPeriod &&
+		evidence.some(
+			(item) =>
+				item.scope.period !== null &&
+				(item.scope.period.start < requestedPeriod.start ||
+					item.scope.period.end > requestedPeriod.end)
 		)
 	) {
 		return { status: 'rejected', reasonCode: 'evidence_scope_mismatch' };

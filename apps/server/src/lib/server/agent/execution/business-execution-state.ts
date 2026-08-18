@@ -61,12 +61,14 @@ const slotCollectionSchema = z.record(z.string().min(1).max(80), slotStateSchema
 export type ResolvedBusinessRequest = Readonly<{
 	routeKind: AgentBusinessRouteKind;
 	intent: AgentBusinessIntent;
+	responseMode?: 'analysis' | 'data_only';
 	slots: Readonly<Record<string, JsonValue>>;
 }>;
 
 const resolvedBusinessRequestSchema = z.strictObject({
 	routeKind: agentBusinessRouteKindSchema,
 	intent: agentBusinessIntentSchema,
+	responseMode: z.enum(['analysis', 'data_only']).optional(),
 	slots: z.record(z.string().min(1).max(80), jsonValueSchema)
 });
 
@@ -88,6 +90,7 @@ export type RetryCheckpoint =
 			kind: 'resolving_slots';
 			routeKind: AgentBusinessRouteKind;
 			intent: AgentBusinessIntent;
+			responseMode?: 'analysis' | 'data_only';
 			slots: SlotCollection;
 	  }>
 	| Readonly<{
@@ -113,6 +116,7 @@ const retryCheckpointSchema: z.ZodType<RetryCheckpoint> = z.discriminatedUnion('
 		kind: z.literal('resolving_slots'),
 		routeKind: agentBusinessRouteKindSchema,
 		intent: agentBusinessIntentSchema,
+		responseMode: z.enum(['analysis', 'data_only']).optional(),
 		slots: slotCollectionSchema
 	}),
 	z.strictObject({
@@ -139,12 +143,14 @@ export type BusinessExecutionState =
 			status: 'resolving_slots';
 			routeKind: AgentBusinessRouteKind;
 			intent: AgentBusinessIntent | null;
+			responseMode?: 'analysis' | 'data_only';
 			slots: SlotCollection;
 	  }>
 	| Readonly<{
 			status: 'awaiting_clarification';
 			routeKind: AgentBusinessRouteKind;
 			intent: AgentBusinessIntent | null;
+			responseMode?: 'analysis' | 'data_only';
 			slots: SlotCollection;
 			clarification: AgentPendingClarification;
 	  }>
@@ -189,12 +195,14 @@ export const businessExecutionStateSchema: z.ZodType<BusinessExecutionState> = z
 			status: z.literal('resolving_slots'),
 			routeKind: agentBusinessRouteKindSchema,
 			intent: agentBusinessIntentSchema.nullable(),
+			responseMode: z.enum(['analysis', 'data_only']).optional(),
 			slots: slotCollectionSchema
 		}),
 		z.strictObject({
 			status: z.literal('awaiting_clarification'),
 			routeKind: agentBusinessRouteKindSchema,
 			intent: agentBusinessIntentSchema.nullable(),
+			responseMode: z.enum(['analysis', 'data_only']).optional(),
 			slots: slotCollectionSchema,
 			clarification: agentPendingClarificationSchema
 		}),
@@ -235,6 +243,7 @@ export const businessExecutionStateSchema: z.ZodType<BusinessExecutionState> = z
 export type RouteProposal = Readonly<{
 	routeKind: AgentBusinessRouteKind;
 	intent: AgentBusinessIntent | null;
+	responseMode?: 'analysis' | 'data_only';
 	slots: SlotCollection;
 }>;
 
@@ -363,6 +372,7 @@ function checkpointFromState(state: BusinessExecutionState): RetryCheckpoint | n
 						kind: 'resolving_slots',
 						routeKind: state.routeKind,
 						intent: state.intent,
+						responseMode: state.responseMode,
 						slots: state.slots
 					}
 				: null;
@@ -417,6 +427,7 @@ function restoreRetryCheckpoint(checkpoint: RetryCheckpoint): BusinessExecutionS
 				status: 'resolving_slots',
 				routeKind: checkpoint.routeKind,
 				intent: checkpoint.intent,
+				responseMode: checkpoint.responseMode,
 				slots: checkpoint.slots
 			};
 		case 'executing':
@@ -428,6 +439,7 @@ function restoreRetryCheckpoint(checkpoint: RetryCheckpoint): BusinessExecutionS
 					status: 'resolving_slots',
 					routeKind: checkpoint.request.routeKind,
 					intent: checkpoint.request.intent,
+					responseMode: checkpoint.request.responseMode,
 					slots: Object.fromEntries(
 						Object.entries(checkpoint.request.slots).map(([name, value]) => [
 							name,
@@ -514,6 +526,7 @@ export function transitionBusinessExecution(
 					status: 'awaiting_clarification',
 					routeKind: state.routeKind,
 					intent: state.intent,
+					responseMode: state.responseMode,
 					slots: event.slots,
 					clarification: event.clarification
 				};
@@ -526,6 +539,7 @@ export function transitionBusinessExecution(
 				status: 'resolving_slots',
 				routeKind: state.routeKind,
 				intent: state.intent,
+				responseMode: state.responseMode,
 				slots: mergeClarificationAnswers(state, event.answers)
 			};
 		case 'ready':

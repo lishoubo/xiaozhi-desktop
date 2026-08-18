@@ -2,6 +2,7 @@ import type { GenerativeUiSpec } from '@hotel-butler/api';
 import { describe, expect, it } from 'vitest';
 import {
 	DuplicateUiRenderError,
+	completeGroundedAnswerAfterUi,
 	recoverCompletedUiAfterRenderLimit,
 	selectWorkflowToolNames,
 	shouldCaptureToolEvidence,
@@ -36,6 +37,19 @@ describe('recoverCompletedUiAfterRenderLimit', () => {
 	it('does not hide unrelated failures or a failed first render', () => {
 		expect(recoverCompletedUiAfterRenderLimit(new Error('upstream'), '', ui)).toBeNull();
 		expect(recoverCompletedUiAfterRenderLimit(new DuplicateUiRenderError(), '', null)).toBeNull();
+	});
+});
+
+describe('completeGroundedAnswerAfterUi', () => {
+	it('finishes the grounded answer as soon as its validated UI tool completes', () => {
+		expect(completeGroundedAnswerAfterUi('', ui)).toEqual({
+			content: '结果视图已经生成，请结合上方数据查看。',
+			ui
+		});
+		expect(completeGroundedAnswerAfterUi('近 7 日趋势如下。', ui)).toEqual({
+			content: '近 7 日趋势如下。\n\n结果视图已经生成，请结合上方数据查看。',
+			ui
+		});
 	});
 });
 

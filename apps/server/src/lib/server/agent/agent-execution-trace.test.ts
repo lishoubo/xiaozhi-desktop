@@ -1,6 +1,10 @@
 import type { AgentRunEvent } from '@hotel-butler/api';
 import { describe, expect, it } from 'vitest';
-import { buildActiveRunDraft, buildAgentExecutionTraces } from './agent-execution-trace';
+import {
+	buildActiveRunDraft,
+	buildAgentExecutionTraces,
+	buildRetainedFailedDraftMessages
+} from './agent-execution-trace';
 
 const runId = '33333333-3333-4333-8333-333333333333';
 const conversationId = '44444444-4444-4444-8444-444444444444';
@@ -141,5 +145,49 @@ describe('buildActiveRunDraft', () => {
 			preparingUi: false,
 			lastEventId: uiEvent.id
 		});
+	});
+});
+
+describe('buildRetainedFailedDraftMessages', () => {
+	it('restores validated text and UI before analysis while excluding partial model output', () => {
+		const spec = {
+			root: 'root',
+			state: {},
+			elements: { root: { type: 'MetricGrid' as const, props: {}, children: [], visible: true } }
+		};
+		const uiEvent = event({ type: 'ui_spec', spec });
+		const messages = buildRetainedFailedDraftMessages(
+			[
+				{
+					id: runId,
+					businessExecutionId: '77777777-7777-4777-8777-777777777777',
+					userMessageId,
+					status: 'failed',
+					createdAt: new Date('2026-08-12T03:00:00.000Z'),
+					completedAt: new Date('2026-08-12T03:02:00.000Z')
+				}
+			],
+			[
+				event({ type: 'text_delta', delta: '可靠经营摘要' }),
+				uiEvent,
+				event({
+					type: 'tool_started',
+					toolCallId: 'analysis-1',
+					toolName: 'upstream_llm_analysis'
+				}),
+				event({ type: 'text_delta', delta: '未完成的模型分析' }),
+				event({ type: 'run_failed', message: '分析超时', retryable: true })
+			]
+		);
+
+		expect(messages).toEqual([
+			expect.objectContaining({
+				id: uiEvent.id,
+				conversationId,
+				role: 'assistant',
+				content: '可靠经营摘要',
+				ui: spec
+			})
+		]);
 	});
 });

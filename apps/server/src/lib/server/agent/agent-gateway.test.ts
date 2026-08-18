@@ -1,13 +1,16 @@
 import type { AgentRunEvent } from '@hotel-butler/api';
 import { describe, expect, it, vi } from 'vitest';
 import type { McpCapability } from './agent-config';
+import type { AgentRuntime } from './agent-runtime';
 import { AgentAccessDeniedError } from './agent-repository';
 import {
 	describeAgentRunFailure,
 	formatClarificationAnswer,
-	HotelAgentGateway
+	HotelAgentGateway,
+	runGroundedAnalysis
 } from './agent-gateway';
 import { AgentUpstreamError } from './agent-effect';
+import type { EvidenceRecord } from './execution/business-execution-state';
 
 const event: AgentRunEvent = {
 	id: '22222222-2222-4222-8222-222222222222',
@@ -18,6 +21,46 @@ const event: AgentRunEvent = {
 	message: 'test terminal',
 	retryable: true
 };
+
+describe('runGroundedAnalysis', () => {
+	it('enforces one total deadline and reports a model timeout', async () => {
+		const parent = new AbortController();
+		const publish = vi.fn(async () => undefined);
+		const runtimeState: {
+			emitLateEvent: ((event: { type: 'text_delta'; delta: string }) => Promise<void>) | null;
+		} = { emitLateEvent: null };
+		const runtime = {
+			run: vi.fn((options: Parameters<AgentRuntime['run']>[0]) => {
+				runtimeState.emitLateEvent = options.emit;
+				return new Promise<never>(() => undefined);
+			})
+		};
+
+		await expect(
+			runGroundedAnalysis(
+				runtime,
+				{
+					principal: { employeeId: '1001', orgId: '42' },
+					conversationSummary: null,
+					history: [],
+					signal: parent.signal,
+					emit: publish
+				},
+				5
+			)
+		).rejects.toMatchObject({
+			_tag: 'AgentUpstreamError',
+			service: 'model',
+			operation: 'analyze_grounded_answer',
+			kind: 'timeout'
+		});
+		expect(runtimeState.emitLateEvent).not.toBeNull();
+		if (runtimeState.emitLateEvent) {
+			await runtimeState.emitLateEvent({ type: 'text_delta', delta: '迟到内容' });
+		}
+		expect(publish).not.toHaveBeenCalled();
+	});
+});
 
 describe('formatClarificationAnswer', () => {
 	it('formats structured card values as readable conversation text', () => {
@@ -426,237 +469,280 @@ describe('HotelAgentGateway retry', () => {
 });
 
 describe('HotelAgentGateway deterministic business collection', () => {
-	it('uses the answer model only after deterministic evidence passes assessment', async () => {
-		const { repository, logger } = createGatewayHarness(
-			vi.fn(async () => []),
-			['weather']
-		);
-		const principal = { employeeId: '1001', orgId: '42' } as const;
-		const runId = '33333333-3333-4333-8333-333333333333';
-		const conversationId = '44444444-4444-4444-8444-444444444444';
-		const businessExecutionId = '88888888-8888-4888-8888-888888888888';
-		const userMessageId = '22222222-2222-4222-8222-222222222222';
-		const assistantMessageId = '99999999-9999-4999-8999-999999999999';
-		const runtime = {
-			run: vi.fn().mockResolvedValue({ content: '昨日经营复盘', ui: null })
-		};
-		const workflowCollector = {
-			collect: vi.fn().mockImplementation(async (input) => {
-				await input.emit({
-					type: 'mcp_call_started',
-					toolCallId: 'tool-call-1',
-					toolName: 'query_hotel_operating_data_sql'
-				});
-				await input.emit({
-					type: 'mcp_call_completed',
-					toolCallId: 'tool-call-1',
+	it.each([
+		{ responseMode: 'analysis' as const, runsAnalysis: true },
+		{ responseMode: 'data_only' as const, runsAnalysis: false }
+	])(
+		'renders validated operating evidence with $responseMode response mode',
+		async ({ responseMode, runsAnalysis }) => {
+			const { repository, logger } = createGatewayHarness(
+				vi.fn(async () => []),
+				['weather']
+			);
+			const principal = { employeeId: '1001', orgId: '42' } as const;
+			const runId = '33333333-3333-4333-8333-333333333333';
+			const conversationId = '44444444-4444-4444-8444-444444444444';
+			const businessExecutionId = '88888888-8888-4888-8888-888888888888';
+			const userMessageId = '22222222-2222-4222-8222-222222222222';
+			const assistantMessageId = '99999999-9999-4999-8999-999999999999';
+			const runtime = {
+				run: vi
+					.fn()
+					.mockResolvedValue({ content: '入住表现稳定，建议继续关注核销转化。', ui: null })
+			};
+			const workflowCollector = {
+				collect: vi.fn().mockImplementation(async (input) => {
+					await input.emit({
+						type: 'mcp_call_started',
+						toolCallId: 'tool-call-1',
+						toolName: 'query_hotel_operating_data_sql'
+					});
+					await input.emit({
+						type: 'mcp_call_completed',
+						toolCallId: 'tool-call-1',
+						toolName: 'query_hotel_operating_data_sql',
+						durationMs: 321,
+						resultSummary: {
+							resultType: 'object',
+							protocolStatus: 'success',
+							contentBlockCount: 1,
+							resultCharacterCount: 48,
+							resultFingerprint: 'a'.repeat(64),
+							filtered: false
+						}
+					});
+					return {
+						status: 'collected',
+						strategy: 'deterministic',
+						toolEvidence: [
+							{
+								toolName: 'query_hotel_operating_data_sql',
+								toolArgs: { database_id: 'server-configured' },
+								result: [
+									{
+										type: 'text',
+										text: '| hotel_id | data_date | gmv | verified_amount |\n| --- | --- | --- | --- |\n| 1 | 2026-08-12 | 1000 | 800 |'
+									}
+								]
+							}
+						]
+					};
+				})
+			};
+			const summary = {
+				id: businessExecutionId,
+				conversationId,
+				triggerUserMessageId: userMessageId,
+				routeKind: 'business_read' as const,
+				intent: 'hotel_operating_summary' as const,
+				status: 'routing' as const,
+				pendingClarification: null,
+				createdAt: '2026-08-13T00:00:00.000Z',
+				updatedAt: '2026-08-13T00:00:00.000Z',
+				completedAt: null
+			};
+			const request = {
+				routeKind: 'business_read' as const,
+				intent: 'hotel_operating_summary' as const,
+				responseMode,
+				slots: {
+					hotelReference: '1',
+					dateRange: { start: '2026-08-12', end: '2026-08-12' }
+				}
+			};
+			repository.startRun.mockResolvedValue({
+				created: true,
+				response: {
+					runId,
+					businessExecutionId,
+					userMessage: {
+						id: userMessageId,
+						conversationId,
+						businessExecutionId,
+						role: 'user',
+						content: '昨日经营复盘',
+						ui: null,
+						createdAt: '2026-08-13T00:00:00.000Z'
+					}
+				}
+			});
+			repository.getRunContext.mockResolvedValue({
+				run: { id: runId, status: 'running', businessExecutionId },
+				conversation: { id: conversationId }
+			});
+			repository.getBusinessExecution.mockResolvedValue({
+				summary,
+				state: {
+					status: 'routing',
+					inputKind: 'quick_action',
+					inputValue: 'yesterday_operating_review'
+				},
+				version: 1
+			});
+			let version = 1;
+			let persistedEvidence: readonly EvidenceRecord[] = [];
+			repository.transitionBusinessExecution.mockImplementation(
+				(_owner, _executionId, _expectedVersion, event) => {
+					version += 1;
+					if (event.type === 'route_classified') {
+						return Promise.resolve({
+							summary: { ...summary, status: 'resolving_slots' },
+							state: {
+								status: 'resolving_slots',
+								routeKind: 'business_read',
+								intent: 'hotel_operating_summary',
+								slots: event.proposal.slots
+							},
+							version
+						});
+					}
+					if (event.type === 'slots_ready') {
+						return Promise.resolve({
+							summary: { ...summary, status: 'ready' },
+							state: { status: 'ready', request },
+							version
+						});
+					}
+					if (event.type === 'workflow_started') {
+						return Promise.resolve({
+							summary: { ...summary, status: 'executing' },
+							state: { status: 'executing', request, evidence: [], followUpUsed: false },
+							version
+						});
+					}
+					if (event.type === 'workflow_completed') {
+						persistedEvidence = event.evidence;
+						return Promise.resolve({
+							summary: { ...summary, status: 'validating_evidence' },
+							state: {
+								status: 'validating_evidence',
+								request,
+								evidence: event.evidence,
+								followUpUsed: false
+							},
+							version
+						});
+					}
+					if (event.type === 'evidence_validated') {
+						return Promise.resolve({
+							summary: { ...summary, status: 'answering' },
+							state: {
+								status: 'answering',
+								mode: 'grounded',
+								request,
+								evidence: persistedEvidence,
+								limitations: []
+							},
+							version
+						});
+					}
+					return Promise.resolve({
+						summary: { ...summary, status: 'completed' },
+						state: { status: 'completed', assistantMessageId },
+						version
+					});
+				}
+			);
+			repository.finalizeRunSuccess.mockResolvedValue({
+				id: assistantMessageId,
+				conversationId,
+				businessExecutionId,
+				role: 'assistant',
+				content: '昨日经营复盘',
+				ui: null,
+				createdAt: '2026-08-13T00:00:01.000Z'
+			});
+			const gateway = new HotelAgentGateway(
+				{
+					apiKey: 'configured',
+					baseUrl: 'https://api.moonshot.cn/v1',
+					model: 'kimi-k3',
+					dmsDatabaseId: null,
+					dmsDatabaseName: null,
+					mcpServers: {}
+				},
+				repository,
+				runtime,
+				{ prepare: vi.fn().mockResolvedValue({ summary: null, history: [] }) },
+				{ serverCount: () => 1, capabilities: () => new Set(['hotel_data']) },
+				{ list: vi.fn().mockResolvedValue([]) },
+				logger,
+				{
+					route: vi.fn().mockResolvedValue({
+						routeKind: 'business_read',
+						intent: 'hotel_operating_summary',
+						slots: {}
+					})
+				},
+				{ resolve: vi.fn().mockResolvedValue({ status: 'ready', request }) },
+				workflowCollector
+			);
+
+			await gateway.startRun(principal, {
+				conversationId,
+				quickActionId: 'yesterday_operating_review',
+				clientRequestId: '55555555-5555-4555-8555-555555555555'
+			});
+			await vi.waitFor(() =>
+				expect(
+					repository.finalizeRunSuccess.mock.calls.length + logger.error.mock.calls.length
+				).toBe(1)
+			);
+			expect(logger.error).not.toHaveBeenCalled();
+
+			expect(workflowCollector.collect).toHaveBeenCalledOnce();
+			if (runsAnalysis) {
+				expect(runtime.run).toHaveBeenCalledWith(
+					expect.objectContaining({
+						workflowRequest: request,
+						validatedEvidence: persistedEvidence,
+						analysisOnly: true
+					})
+				);
+			} else {
+				expect(runtime.run).not.toHaveBeenCalled();
+			}
+			expect(repository.finalizeRunSuccess).toHaveBeenCalledWith(
+				runId,
+				conversationId,
+				runsAnalysis
+					? expect.stringMatching(/成交金额合计 1,000\.00 元[\s\S]+入住表现稳定/)
+					: expect.stringContaining('成交金额合计 1,000.00 元'),
+				expect.objectContaining({ root: 'root' })
+			);
+			if (runsAnalysis) {
+				expect(JSON.stringify(repository.appendEvent.mock.calls)).toContain(
+					'upstream_llm_analysis'
+				);
+			} else {
+				expect(JSON.stringify(repository.appendEvent.mock.calls)).not.toContain(
+					'upstream_llm_analysis'
+				);
+			}
+			expect(logger.info).toHaveBeenCalledWith(
+				expect.objectContaining({ event: 'agent.answer.deterministic.prepared' }),
+				'Deterministic grounded result prepared'
+			);
+			expect(logger.info).toHaveBeenCalledWith(
+				expect.objectContaining({
+					event: 'agent.workflow.collection.completed',
+					strategy: 'deterministic'
+				}),
+				'Agent workflow collection completed'
+			);
+			expect(logger.info).toHaveBeenCalledWith(
+				expect.objectContaining({
+					event: 'agent.mcp.call.completed',
 					toolName: 'query_hotel_operating_data_sql',
 					durationMs: 321,
-					resultSummary: {
-						resultType: 'object',
-						protocolStatus: 'success',
-						contentBlockCount: 1,
-						resultCharacterCount: 48,
-						resultFingerprint: 'a'.repeat(64),
-						filtered: false
-					}
-				});
-				return {
-					status: 'collected',
-					strategy: 'deterministic',
-					toolEvidence: [
-						{
-							toolName: 'query_hotel_operating_data_sql',
-							toolArgs: { database_id: 'server-configured' },
-							result: { hotel_id: 1, gmv: 1000 }
-						}
-					]
-				};
-			})
-		};
-		const summary = {
-			id: businessExecutionId,
-			conversationId,
-			triggerUserMessageId: userMessageId,
-			routeKind: 'business_read' as const,
-			intent: 'hotel_operating_summary' as const,
-			status: 'routing' as const,
-			pendingClarification: null,
-			createdAt: '2026-08-13T00:00:00.000Z',
-			updatedAt: '2026-08-13T00:00:00.000Z',
-			completedAt: null
-		};
-		const request = {
-			routeKind: 'business_read' as const,
-			intent: 'hotel_operating_summary' as const,
-			slots: {
-				hotelReference: '1',
-				dateRange: { start: '2026-08-12', end: '2026-08-12' }
-			}
-		};
-		repository.startRun.mockResolvedValue({
-			created: true,
-			response: {
-				runId,
-				businessExecutionId,
-				userMessage: {
-					id: userMessageId,
-					conversationId,
-					businessExecutionId,
-					role: 'user',
-					content: '昨日经营复盘',
-					ui: null,
-					createdAt: '2026-08-13T00:00:00.000Z'
-				}
-			}
-		});
-		repository.getRunContext.mockResolvedValue({
-			run: { id: runId, status: 'running', businessExecutionId },
-			conversation: { id: conversationId }
-		});
-		repository.getBusinessExecution.mockResolvedValue({
-			summary,
-			state: {
-				status: 'routing',
-				inputKind: 'quick_action',
-				inputValue: 'yesterday_operating_review'
-			},
-			version: 1
-		});
-		let version = 1;
-		repository.transitionBusinessExecution.mockImplementation(
-			(_owner, _executionId, _expectedVersion, event) => {
-				version += 1;
-				if (event.type === 'route_classified') {
-					return Promise.resolve({
-						summary: { ...summary, status: 'resolving_slots' },
-						state: {
-							status: 'resolving_slots',
-							routeKind: 'business_read',
-							intent: 'hotel_operating_summary',
-							slots: event.proposal.slots
-						},
-						version
-					});
-				}
-				if (event.type === 'slots_ready') {
-					return Promise.resolve({
-						summary: { ...summary, status: 'ready' },
-						state: { status: 'ready', request },
-						version
-					});
-				}
-				if (event.type === 'workflow_started') {
-					return Promise.resolve({
-						summary: { ...summary, status: 'executing' },
-						state: { status: 'executing', request, evidence: [], followUpUsed: false },
-						version
-					});
-				}
-				if (event.type === 'workflow_completed') {
-					return Promise.resolve({
-						summary: { ...summary, status: 'validating_evidence' },
-						state: {
-							status: 'validating_evidence',
-							request,
-							evidence: event.evidence,
-							followUpUsed: false
-						},
-						version
-					});
-				}
-				if (event.type === 'evidence_validated') {
-					return Promise.resolve({
-						summary: { ...summary, status: 'answering' },
-						state: {
-							status: 'answering',
-							mode: 'grounded',
-							request,
-							evidence: [
-								{
-									evidenceId: '77777777-7777-4777-8777-777777777777',
-									source: 'aliyun_dms_mcp',
-									data: {}
-								}
-							],
-							limitations: []
-						},
-						version
-					});
-				}
-				return Promise.resolve({
-					summary: { ...summary, status: 'completed' },
-					state: { status: 'completed', assistantMessageId },
-					version
-				});
-			}
-		);
-		repository.finalizeRunSuccess.mockResolvedValue({
-			id: assistantMessageId,
-			conversationId,
-			businessExecutionId,
-			role: 'assistant',
-			content: '昨日经营复盘',
-			ui: null,
-			createdAt: '2026-08-13T00:00:01.000Z'
-		});
-		const gateway = new HotelAgentGateway(
-			{
-				apiKey: 'configured',
-				baseUrl: 'https://api.moonshot.cn/v1',
-				model: 'kimi-k3',
-				dmsDatabaseId: null,
-				dmsDatabaseName: null,
-				mcpServers: {}
-			},
-			repository,
-			runtime,
-			{ prepare: vi.fn().mockResolvedValue({ summary: null, history: [] }) },
-			{ serverCount: () => 1, capabilities: () => new Set(['hotel_data']) },
-			{ list: vi.fn().mockResolvedValue([]) },
-			logger,
-			{
-				route: vi.fn().mockResolvedValue({
-					routeKind: 'business_read',
-					intent: 'hotel_operating_summary',
-					slots: {}
-				})
-			},
-			{ resolve: vi.fn().mockResolvedValue({ status: 'ready', request }) },
-			workflowCollector
-		);
-
-		await gateway.startRun(principal, {
-			conversationId,
-			quickActionId: 'yesterday_operating_review',
-			clientRequestId: '55555555-5555-4555-8555-555555555555'
-		});
-		await vi.waitFor(() => expect(repository.finalizeRunSuccess).toHaveBeenCalledOnce());
-
-		expect(workflowCollector.collect).toHaveBeenCalledOnce();
-		expect(runtime.run).toHaveBeenCalledOnce();
-		expect(runtime.run).toHaveBeenCalledWith(
-			expect.objectContaining({ workflowRequest: request, validatedEvidence: expect.any(Array) })
-		);
-		expect(logger.info).toHaveBeenCalledWith(
-			expect.objectContaining({
-				event: 'agent.workflow.collection.completed',
-				strategy: 'deterministic'
-			}),
-			'Agent workflow collection completed'
-		);
-		expect(logger.info).toHaveBeenCalledWith(
-			expect.objectContaining({
-				event: 'agent.mcp.call.completed',
-				toolName: 'query_hotel_operating_data_sql',
-				durationMs: 321,
-				protocolStatus: 'success',
-				resultCharacterCount: 48
-			}),
-			'MCP call completed'
-		);
-		expect(JSON.stringify(logger.info.mock.calls)).not.toContain('gmv');
-	});
+					protocolStatus: 'success',
+					resultCharacterCount: 48
+				}),
+				'MCP call completed'
+			);
+			expect(JSON.stringify(logger.info.mock.calls)).not.toContain('gmv');
+		}
+	);
 });
 
 describe('HotelAgentGateway observability', () => {

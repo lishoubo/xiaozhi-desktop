@@ -16,7 +16,7 @@ export type PublishableRuntimeEvent =
 export type RuntimeTelemetryEvent =
 	| Readonly<{
 			type: 'runtime_phase_completed';
-			phase: 'ui_spec_generated';
+			phase: 'ui_spec_generated' | 'model_first_token';
 			durationMs: number;
 	  }>
 	| Readonly<{
@@ -51,6 +51,7 @@ export type AgentRuntimeRunOptions = Readonly<{
 	emit(event: RuntimeEvent): Promise<void>;
 	workflowRequest?: ResolvedBusinessRequest;
 	validatedEvidence?: readonly EvidenceRecord[];
+	analysisOnly?: boolean;
 }>;
 
 export type AgentRuntimeResult = Readonly<{

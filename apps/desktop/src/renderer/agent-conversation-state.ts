@@ -16,6 +16,7 @@ export type AgentConversationViewState = Readonly<{
   draftContent: string;
   draftUi: GenerativeUiSpec | null;
   preparingUi: boolean;
+  retainValidatedDraftOnFailure: boolean;
   errorMessage: string;
   activeBusinessExecution: AgentBusinessExecutionSummary | null;
 }>;
@@ -29,6 +30,7 @@ export function createEmptyConversationView(conversationId: string): AgentConver
     draftContent: '',
     draftUi: null,
     preparingUi: false,
+    retainValidatedDraftOnFailure: false,
     errorMessage: '',
     activeBusinessExecution: null,
   };
@@ -43,6 +45,14 @@ export function hydrateConversationView(snapshot: AgentConversation): AgentConve
     draftContent: snapshot.activeRun?.content ?? '',
     draftUi: snapshot.activeRun?.ui ?? null,
     preparingUi: snapshot.activeRun?.preparingUi ?? false,
+    retainValidatedDraftOnFailure:
+      snapshot.activeRun !== null &&
+      snapshot.activeRun !== undefined &&
+      snapshot.executions.some(
+        (execution) =>
+          execution.runId === snapshot.activeRun?.runId &&
+          execution.steps.some((step) => step.toolName === 'upstream_llm_analysis'),
+      ),
     errorMessage: '',
     activeBusinessExecution: snapshot.activeBusinessExecution ?? null,
   };
@@ -74,6 +84,7 @@ export function addStartedRun(
     draftContent: '',
     draftUi: null,
     preparingUi: false,
+    retainValidatedDraftOnFailure: false,
     errorMessage: '',
   };
 }
@@ -92,6 +103,8 @@ export function applyRunEvent(
     return {
       ...state,
       preparingUi: state.preparingUi || event.toolName === 'render_hotel_ui',
+      retainValidatedDraftOnFailure:
+        state.retainValidatedDraftOnFailure || event.toolName === 'upstream_llm_analysis',
       executions: updateExecution(state.executions, event.runId, (execution) => ({
         ...execution,
         steps: [
@@ -156,7 +169,7 @@ export function applyRunEvent(
   }
   if (event.type === 'run_failed') {
     return {
-      ...clearActiveRun(state),
+      ...clearActiveRun(state, state.retainValidatedDraftOnFailure && state.draftUi !== null),
       activeBusinessExecution: null,
       errorMessage: event.message,
       executions: updateExecution(state.executions, event.runId, (execution) => ({
@@ -188,13 +201,17 @@ export function withConversationError(
   return { ...state, errorMessage };
 }
 
-function clearActiveRun(state: AgentConversationViewState): AgentConversationViewState {
+function clearActiveRun(
+  state: AgentConversationViewState,
+  preserveDraft = false,
+): AgentConversationViewState {
   return {
     ...state,
     activeRunId: null,
-    draftContent: '',
-    draftUi: null,
+    draftContent: preserveDraft ? state.draftContent : '',
+    draftUi: preserveDraft ? state.draftUi : null,
     preparingUi: false,
+    retainValidatedDraftOnFailure: false,
   };
 }
 

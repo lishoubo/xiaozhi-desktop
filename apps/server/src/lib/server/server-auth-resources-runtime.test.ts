@@ -17,12 +17,18 @@ function resources(phoneIdentitySourceConfigured: boolean): ServerAuthResources 
 }
 
 describe('server authentication resources runtime', () => {
-	it('retries a configured RMS source after the cooldown and caches the first verified pool', async () => {
+	it('retries a configured RMS source in the background without blocking requests', async () => {
 		let timestamp = 0;
+		let completeRetry: ((value: ServerAuthResources) => void) | undefined;
 		const load = vi
-			.fn<() => Promise<ServerAuthResources>>()
+			.fn<(options: Readonly<{ reportFailure: boolean }>) => Promise<ServerAuthResources>>()
 			.mockResolvedValueOnce(resources(false))
-			.mockResolvedValueOnce(resources(true));
+			.mockImplementationOnce(
+				() =>
+					new Promise((resolve) => {
+						completeRetry = resolve;
+					})
+			);
 		const initialize = createAuthResourcesRuntime({
 			isRmsConfigured: () => true,
 			load,
@@ -31,10 +37,17 @@ describe('server authentication resources runtime', () => {
 		});
 
 		await expect(initialize()).resolves.toMatchObject({ phoneIdentitySourceConfigured: false });
+		expect(load).toHaveBeenLastCalledWith({ reportFailure: true });
 		timestamp = 999;
 		await expect(initialize()).resolves.toMatchObject({ phoneIdentitySourceConfigured: false });
 		timestamp = 1_000;
-		await expect(initialize()).resolves.toMatchObject({ phoneIdentitySourceConfigured: true });
+		await expect(initialize()).resolves.toMatchObject({ phoneIdentitySourceConfigured: false });
+		expect(load).toHaveBeenLastCalledWith({ reportFailure: false });
+		const waitingForPhoneIdentity = initialize({ waitForRetry: true });
+		completeRetry?.(resources(true));
+		await expect(waitingForPhoneIdentity).resolves.toMatchObject({
+			phoneIdentitySourceConfigured: true
+		});
 		timestamp = 10_000;
 		await expect(initialize()).resolves.toMatchObject({ phoneIdentitySourceConfigured: true });
 		expect(load).toHaveBeenCalledTimes(2);
@@ -52,5 +65,29 @@ describe('server authentication resources runtime', () => {
 		await initialize();
 
 		expect(load).toHaveBeenCalledOnce();
+	});
+
+	it('reports an unexpected background loader rejection while retaining the fallback', async () => {
+		let timestamp = 0;
+		const failure = new Error('unexpected loader failure');
+		const reportUnexpectedFailure = vi.fn();
+		const load = vi
+			.fn<(options: Readonly<{ reportFailure: boolean }>) => Promise<ServerAuthResources>>()
+			.mockResolvedValueOnce(resources(false))
+			.mockRejectedValueOnce(failure);
+		const initialize = createAuthResourcesRuntime({
+			isRmsConfigured: () => true,
+			load,
+			now: () => timestamp,
+			retryDelayMs: 1,
+			reportUnexpectedFailure
+		});
+
+		await initialize();
+		timestamp = 1;
+		await expect(initialize({ waitForRetry: true })).resolves.toMatchObject({
+			phoneIdentitySourceConfigured: false
+		});
+		expect(reportUnexpectedFailure).toHaveBeenCalledWith(failure);
 	});
 });
