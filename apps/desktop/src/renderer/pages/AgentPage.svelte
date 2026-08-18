@@ -290,11 +290,17 @@
     const runId = activeRunId;
     const conversationId = activeConversationId;
     if (!runId || !conversationId || stoppingRunId) return;
+    const shouldFollow = followLatestContent;
     stoppingRunId = runId;
     pageErrorMessage = '';
     try {
       await window.hotelButler.agent.cancelRun(runId);
       await loadConversationState(conversationId);
+      if (shouldFollow && activeConversationId === conversationId) {
+        followLatestContent = true;
+        await tick();
+        scrollConversationToBottom();
+      }
       composer?.focus();
     } catch {
       pageErrorMessage = '停止当前执行失败，任务仍在继续，请稍后重试。';

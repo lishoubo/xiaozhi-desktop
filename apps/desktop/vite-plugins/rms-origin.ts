@@ -10,6 +10,8 @@
  *
  * 取值优先级：`XIAOZHI_RMS_SERVER_URL` > 当前环境的 profile 默认值（见 app-env.ts）。
  * profile 默认值为 `null`（地址未确定）且未显式指定时，**构建失败**——不兜底。
+ * 当前 online profile 暂时与 pre 共用 RMS；该受控例外及明文传输风险记录在 profile
+ * 注释和稳定规范中，正式 HTTPS 域名启用后应移除。
  *
  * 明文 HTTP 需要 `XIAOZHI_ALLOW_INSECURE_RMS=1` 显式豁免：JWT 是明文可用的凭证，
  * 裸奔出本机就有被劫持的风险。把豁免做成必须写在命令行上的开关，是为了让
@@ -32,7 +34,7 @@ export function resolveRmsOriginForBuild(environment: NodeJS.ProcessEnv = proces
       // 错误后端的包，比构建失败危险得多。
       throw new Error(
         `环境 ${resolveAppEnvironment(environment)} 尚未配置默认 RMS 地址。\n` +
-          '请在 vite-plugins/app-env.ts 的 PROFILES 中填入，或显式设置 XIAOZHI_RMS_SERVER_URL。',
+          '请在 vite-plugins/app-env-profiles.mjs 的 PROFILES 中填入，或显式设置 XIAOZHI_RMS_SERVER_URL。',
       );
     }
     return rmsOrigin;

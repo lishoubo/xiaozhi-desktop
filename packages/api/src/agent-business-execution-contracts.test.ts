@@ -66,6 +66,21 @@ const businessExecution = {
 } as const;
 
 describe('Agent business execution contracts', () => {
+  it('keeps a validated draft boundary for active analysis recovery', () => {
+    const schema = requireSchema('agentActiveRunSchema');
+
+    expect(
+      schema.safeParse({
+        runId: ID.run,
+        content: '可靠摘要\n\n未完成分析',
+        ui: null,
+        preparingUi: false,
+        retainedContentOnFailure: '可靠摘要',
+        lastEventId: null,
+      }).success,
+    ).toBe(true);
+  });
+
   it('accepts bounded deterministic clarification fields and rejects extra properties', () => {
     const schema = requireSchema('agentPendingClarificationSchema');
 

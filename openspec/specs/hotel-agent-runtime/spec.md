@@ -200,7 +200,8 @@ Agent progress and cancellation SHALL be delivered through a tRPC v11 SSE subscr
 tracked event IDs. Persisted lifecycle events SHALL also project to an SDK-neutral execution trace
 returned with the owned conversation. An active conversation response SHALL additionally project the
 partial text, latest generative UI, UI preparation state and last persisted event ID for its newest
-running Run.
+running Run. When validated deterministic output is followed by optional model analysis, the active-
+Run projection SHALL also retain the exact pre-analysis text boundary used for safe failure recovery.
 
 #### Scenario: Reconnect a run
 
@@ -246,6 +247,12 @@ running Run.
 - **WHEN** a persisted Run failure is marked retryable
 - **THEN** the desktop presents one manual retry action for the latest failed attempt
 - **AND** a new attempt preserves the failed execution trace in history
+
+#### Scenario: Analysis fails after validated output
+- **WHEN** validated text and generative UI have been emitted and the optional upstream analysis
+  later fails or times out
+- **THEN** the desktop keeps the validated text and UI available with the retryable failure
+- **AND** discards any incomplete model text emitted after the recorded pre-analysis boundary
 
 ### Requirement: Observable business execution phases
 

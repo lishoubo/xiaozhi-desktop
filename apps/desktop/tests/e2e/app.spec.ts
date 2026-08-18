@@ -480,9 +480,11 @@ test('opens the localized calendar with the seeded holiday group', async () => {
     await page.getByRole('button', { name: '下一个时段' }).click();
   }
   await expect(periodHeading).toContainText('2026年8月30日–9月5日');
-  await expect(page.getByTestId('mini-calendar-month')).toHaveText('2026年8月');
+  await expect(page.getByTestId('mini-calendar-month')).toHaveText('2026年9月');
 
   await page.getByRole('button', { name: '迷你日历下一个月' }).click();
+  await expect(page.getByTestId('mini-calendar-month')).toHaveText('2026年10月');
+  await page.getByRole('button', { name: '迷你日历上一个月' }).click();
   await expect(page.getByTestId('mini-calendar-month')).toHaveText('2026年9月');
   await page.locator('.hotel-mini-calendar .wx-day:not(.wx-out)', { hasText: /^15$/ }).click();
   await expect(page.getByRole('heading', { level: 2 })).toContainText('9月');
@@ -505,27 +507,15 @@ test('shows only executable public MCP quick actions', async () => {
   await expect(page.getByRole('button', { name: '预览房态库存' })).toHaveCount(0);
 
   await yesterdayReview.click();
-  await expect(page.getByRole('form', { name: '补充任务信息' })).toBeVisible();
-  await expect(page.getByRole('button', { name: '确认', exact: true })).toBeVisible();
-  await expect(page.getByRole('button', { name: '取消', exact: true })).toBeVisible();
-  await expect(sevenDayTrend).toBeEnabled();
-  const userMessageCount = await page.locator('article[data-agent-message-role="user"]').count();
-
-  await sevenDayTrend.click();
-
-  await expect(
-    page.getByText('当前任务正在等待补充信息，请先确认或取消当前任务。', { exact: true }),
-  ).toBeVisible();
-  await expect(page.locator('article[data-agent-message-role="user"]')).toHaveCount(
-    userMessageCount,
-  );
-  await expect(page.getByRole('form', { name: '补充任务信息' })).toBeVisible();
+  await expect(page.getByText('数据来源：RMS 经营数据。', { exact: true })).toBeVisible({
+    timeout: 15_000,
+  });
+  await expect(page.getByRole('table')).toBeVisible();
+  await expect(page.getByText('query_hotel_operating_data_sql', { exact: true })).toBeVisible();
+  await expect(sevenDayTrend).toBeDisabled();
   await expect(page.getByText(/快捷操作启动失败/)).toHaveCount(0);
-
-  await page.getByRole('button', { name: '取消', exact: true }).click();
-  await expect(
-    page.getByText('当前任务正在等待补充信息，请先确认或取消当前任务。', { exact: true }),
-  ).toHaveCount(0);
+  await page.getByRole('button', { name: '停止执行' }).click();
+  await expect(sevenDayTrend).toBeEnabled();
 });
 
 test('keeps the Agent conversation at the latest content without interrupting history reading', async () => {
@@ -534,9 +524,11 @@ test('keeps the Agent conversation at the latest content without interrupting hi
 
   for (let index = 0; index < 4; index += 1) {
     await page.getByRole('button', { name: '昨日经营复盘', exact: true }).click();
-    await expect(page.getByRole('form', { name: '补充任务信息' })).toBeVisible();
-    await page.getByRole('button', { name: '取消', exact: true }).click();
-    await expect(page.getByRole('form', { name: '补充任务信息' })).toHaveCount(0);
+    const stopRun = page.getByRole('button', { name: '停止执行' });
+    await expect(stopRun).toBeEnabled();
+    await stopRun.click();
+    await expect(page.getByText('已停止', { exact: true })).toHaveCount(index + 1);
+    await expect(page.getByRole('button', { name: '昨日经营复盘', exact: true })).toBeEnabled();
   }
 
   const viewport = page.getByRole('region', { name: '对话内容' });

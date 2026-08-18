@@ -64,12 +64,56 @@ CAS consistency, log privacy, tool allowlists/budgets, evidence/UI separation, S
 labels and legacy nullable associations. The implementation keeps server details out of
 `packages/api`, keeps renderer access behind preload and removes the obsolete write-tool toggle.
 
+## 2026-08-18 dev post-merge verification
+
+This pass revalidated the merged `dev` branch and the later corrections without repeating the
+completion-state full suite.
+
+- `npm run verify` was run once. All workspace checks and lint tasks passed. Unit results were
+  desktop 652/653, server 40 files / 205 tests and API 2 files / 25 tests. The sole desktop failure
+  was a stale assertion that still expected the intentionally configured temporary `online` RMS
+  origin to be absent; the suite stopped before E2E.
+- After aligning that assertion with the documented environment profile,
+  `apps/desktop/tests/unit/main/app-env.test.ts` passed 13/13.
+- The desktop E2E completion run passed 6/9. The three failures were stale cross-month calendar and
+  single-managed-hotel clarification expectations, plus a real follow-latest regression after a
+  cancelled Run reloaded the conversation. After correction, all three failed paths passed targeted
+  reruns (calendar 1/1, quick action 1/1 and conversation scrolling 1/1).
+- `TRUST_STORES=nss npm run test:e2e:server` passed 8/8, including real RMS authentication, Agent
+  ownership/retry/cancellation and the credential-backed seven-day DMS/model quick-action flow.
+- Focused regression suites passed for the retained failure boundary: API contract 6/6, server
+  execution trace 6/6 and desktop conversation state 4/4.
+- Final `npm run check:desktop` passed with 0 Svelte errors and 0 warnings; final
+  `npm run lint:desktop` and `git diff --check` passed.
+- Strict OpenSpec validation passed for `hotel-data-agent`, `hotel-agent-business-execution`,
+  `hotel-agent-runtime` and `desktop-build-environments`.
+
+Findings fixed during this pass:
+
+1. When optional upstream analysis streamed partial text and then failed, the live renderer retained
+   the incomplete model text even though restored conversation state correctly retained only the
+   validated deterministic result. The active-run contract now carries an explicit retained-content
+   boundary and live/restored failure behavior is consistent.
+2. Conversation reload after cancellation could disable follow-latest while content height changed,
+   leaving the user above the newest message. Reload now preserves the user's pre-reload follow state.
+3. Desktop E2E expectations and the build-environment test/spec had drifted from the merged
+   single-managed-hotel and temporary `online` environment behavior.
+
+The verification pass found no remaining blocking correctness or security issue in the merged scope.
+
+## 2026-08-18 dev post-merge code-review pass
+
+Reviewed the final diff separately after verification. The new active-Run field is represented
+consistently in the strict shared schema, server event projection and desktop live/hydrated state.
+The failure boundary is captured once at the first upstream-analysis event, so later partial deltas
+cannot replace validated content. The cancellation scroll correction restores follow-latest only
+when the user was already following and therefore does not pull a user away from history reading.
+Managed-hotel authorization remains server-derived and the updated E2E coverage no longer encodes
+the obsolete clarification behavior. No remaining blocking review finding was identified.
+
 ## Limitations
 
-- The credential-dependent natural-language `data-agent.e2e.ts` was not run because this environment
-  does not provide real Kimi and Aliyun DMS credentials. Therefore live model structured-output
-  compatibility and real external MCP response shapes remain deployment-environment verification.
-- The original full `npm run verify` was not repeated after its E2E startup failure, in accordance
-  with the repository rule to run the completion-state full suite once. The directly affected server
-  and desktop E2E paths, build, checks, lint, unit tests, OpenSpec validation and diff check were run
-  after the fix as recorded above.
+- The 2026-08-18 full `npm run verify` was not repeated after its stale desktop unit assertion, in
+  accordance with the repository rule to run the completion-state full suite once. The failing unit
+  path, all three failing desktop E2E paths, the complete server E2E suite, final desktop static
+  checks, affected specifications and whitespace checks were run after their fixes as recorded above.

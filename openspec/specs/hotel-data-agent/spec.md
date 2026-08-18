@@ -18,22 +18,32 @@ The server SHALL provide the designated DMS MCP as a fixed hotel-data capability
 
 ### Requirement: Read-only query boundary
 
-The capability SHALL expose only approved read tools and SHALL constrain SQL to one `SELECT` or CTE with at most 50 returned rows.
+The capability SHALL expose only approved read tools and SHALL constrain SQL to one `SELECT` or CTE with at most 75 returned rows.
 
 #### Scenario: Model attempts an unsafe query
 
 - **WHEN** SQL contains a write operation, multiple statements, comments, file access, locks or a blocked function
 - **THEN** the server rejects the tool call before it reaches DMS
 
-### Requirement: Shared initial data access
+### Requirement: Employee-managed hotel data access
 
-All authenticated employees SHALL initially share the query scope granted to the configured DMS token.
+The server SHALL derive each authenticated employee's managed hotels from trusted RMS identity data
+and SHALL constrain every DMS SQL execution to those hotel IDs. Client input and model-generated SQL
+SHALL NOT broaden that scope.
 
 #### Scenario: Employee starts a data query
 
 - **WHEN** any authenticated employee asks an operating-data question
-- **THEN** no local hotel-scope filter is added
-- **AND** DMS token permissions define the available data
+- **THEN** the server resolves the employee's current and accessible hotel IDs from RMS
+- **AND** injects an execution-scoped `hotel_id` filter before the SQL reaches DMS
+- **AND** rejects the query when the account has no managed hotels or the request names an
+  unauthorized hotel
+
+#### Scenario: Two employees query concurrently
+
+- **WHEN** concurrent Agent Runs use different managed-hotel sets
+- **THEN** each DMS call receives only its own Run's hotel scope
+- **AND** one employee's scope cannot leak into another asynchronous execution
 
 ### Requirement: Safe result delivery
 
@@ -73,20 +83,19 @@ filtering state and available observation metadata before answer generation.
 - **WHEN** the provider omits rows, hides credential fields or truncates values
 - **THEN** the evidence records filtering and the final answer discloses the material limitation
 
-### Requirement: Honest hotel resolution scope
+### Requirement: Authenticated hotel resolution scope
 
-Hotel-name resolution SHALL first query active hotels in the authenticated employee's RMS
-organization. When that directory has no match, candidate discovery MAY fall back to the bounded
-hotel IDs visible to the configured DMS token, and data queries SHALL retain the shared access scope
-granted by that token.
+Hotel-name resolution SHALL use the active hotels explicitly available to the authenticated employee.
+Clarification choices SHALL contain only those hotels, and resolved identifiers SHALL be checked
+again immediately before workflow execution.
 
-#### Scenario: Resolve a hotel through the RMS directory
-- **WHEN** an active hotel name or short name matches inside the authenticated organization
-- **THEN** the execution resolves it to the RMS hotel ID with a parameterized read query
-- **AND** does not query another organization's hotel directory
+#### Scenario: Resolve a managed hotel
+- **WHEN** an accessible hotel ID, full name or unambiguous short name matches the authenticated
+  employee's RMS hotel list
+- **THEN** the execution resolves it to that trusted RMS hotel ID
+- **AND** does not query or offer another employee's hotels
 
-#### Scenario: Fall back to shared DMS hotel IDs
-- **WHEN** the authenticated organization's RMS hotel directory has no matching hotel
-- **THEN** the execution retrieves a bounded distinct hotel-ID list from DMS
-- **AND** presents multiple IDs as explicit clarification choices rather than guessing from the name
-- **AND** does not represent them as employee-specific hotel authorization
+#### Scenario: Resolve all managed hotels
+- **WHEN** the employee explicitly requests all hotels
+- **THEN** the execution resolves the request to the complete authenticated managed-hotel ID list
+- **AND** the DMS execution scope remains the same bounded list

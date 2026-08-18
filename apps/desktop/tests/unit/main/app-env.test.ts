@@ -50,12 +50,7 @@ describe('resolveRmsOriginForBuild', () => {
   it('未指定地址时取该环境的 profile 默认值', () => {
     expect(resolveRmsOriginForBuild({ XIAOZHI_APP_ENV: 'dev' })).toBe('http://localhost:8080');
     expect(resolveRmsOriginForBuild({ XIAOZHI_APP_ENV: 'pre' })).toBe('http://47.96.144.176');
-  });
-
-  it('online 地址未确定时构建失败，不兜底也不填占位地址', () => {
-    expect(() => resolveRmsOriginForBuild({ XIAOZHI_APP_ENV: 'online' })).toThrow(
-      /尚未配置默认 RMS 地址/,
-    );
+    expect(resolveRmsOriginForBuild({ XIAOZHI_APP_ENV: 'online' })).toBe('http://47.96.144.176');
   });
 
   it('显式指定的地址覆盖 profile 默认值', () => {

@@ -143,7 +143,32 @@ describe('buildActiveRunDraft', () => {
 			content: '正在查询',
 			ui: spec,
 			preparingUi: false,
+			retainedContentOnFailure: null,
 			lastEventId: uiEvent.id
+		});
+	});
+
+	it('records only the validated text before upstream analysis for failure recovery', () => {
+		const spec = {
+			root: 'root',
+			state: {},
+			elements: { root: { type: 'Table' as const, props: {}, children: [], visible: true } }
+		};
+		const events = [
+			event({ type: 'text_delta', delta: '可靠经营摘要' }),
+			event({ type: 'ui_spec', spec }),
+			event({
+				type: 'tool_started',
+				toolCallId: 'analysis-1',
+				toolName: 'upstream_llm_analysis'
+			}),
+			event({ type: 'text_delta', delta: '未完成的模型分析' })
+		];
+
+		expect(buildActiveRunDraft(runId, events)).toMatchObject({
+			content: '可靠经营摘要未完成的模型分析',
+			ui: spec,
+			retainedContentOnFailure: '可靠经营摘要'
 		});
 	});
 });

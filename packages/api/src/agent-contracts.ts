@@ -253,6 +253,7 @@ export const agentActiveRunSchema = z.strictObject({
   content: z.string(),
   ui: generativeUiSpecSchema.nullable(),
   preparingUi: z.boolean(),
+  retainedContentOnFailure: z.string().nullable(),
   lastEventId: idSchema.nullable(),
 });
 export type AgentActiveRun = Readonly<z.infer<typeof agentActiveRunSchema>>;

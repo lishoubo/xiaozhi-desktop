@@ -82,6 +82,10 @@ online 环境的展示名称 MUST 是不含环境标记的正式名称；dev 与
 
 系统 MUST 让每个环境有各自的 RMS 服务端地址，并在构建期固化进产物。
 
+在正式 HTTPS 域名启用前，online MAY 暂时复用 pre 的 RMS 地址。该例外 MUST 在 profile
+中显式记录，打包入口 MUST 输出明文凭证传输与数据不隔离警告；正式域名启用后 MUST
+移除此例外。
+
 指向非本机地址时，该地址 MUST 使用 HTTPS。构建期检出明文 HTTP 的非本机地址时 MUST
 失败，除非构建方显式声明豁免——凭证以明文传输的产物必须可事后追溯，不能藏在默认值里。
 
@@ -94,6 +98,12 @@ online 环境的展示名称 MUST 是不含环境标记的正式名称；dev 与
 
 - **WHEN** 构建方显式声明了豁免
 - **THEN** 构建继续，并输出该产物以明文传输凭证的警告
+
+#### Scenario: online 暂时复用 pre RMS
+
+- **WHEN** 未显式覆盖 RMS 地址而构建 online 产物，且正式 HTTPS 域名尚未启用
+- **THEN** 构建使用 profile 中与 pre 相同的临时 RMS 地址
+- **AND** 打包入口警告 online 与 pre 数据不隔离且 JWT 通过明文 HTTP 传输
 
 ### Requirement: 环境标识对使用者可见
 

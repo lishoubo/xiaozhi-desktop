@@ -62,18 +62,18 @@ SHALL resume only from a valid owned response to the current interaction version
 - **WHEN** a conversation containing an unexpired waiting execution is reopened
 - **THEN** the same pending clarification is reconstructed from PostgreSQL
 
-### Requirement: MCP-backed hotel reference resolution
+### Requirement: Authenticated hotel reference resolution
 
-Until a server-owned hotel directory is available, the server SHALL resolve hotel names from a
-bounded, read-only MCP name-to-ID projection. Internal workflow inputs MAY use `hotel_id`, but any
-clarification choice SHALL present a recognizable hotel name rather than a bare ID.
+The server SHALL resolve hotel references against the authenticated employee's trusted RMS managed-
+hotel context when present. Internal workflow inputs MAY use `hotel_id`, but any clarification choice
+SHALL present a recognizable hotel name and SHALL exclude hotels outside that context.
 
-#### Scenario: Resolve or clarify an MCP hotel name
+#### Scenario: Resolve or clarify a managed hotel name
 - **WHEN** the user supplies a hotel name for a hotel-data request
-- **THEN** the server compares it with the bounded MCP hotel-name projection in application code
+- **THEN** the server compares it with the authenticated managed-hotel list in application code
 - **AND** proceeds automatically when one internal hotel ID matches
 - **AND** presents named choices when more than one internal hotel ID matches
-- **AND** does not offer unrelated bare IDs when no name matches
+- **AND** does not fall back to an unauthorized DMS-visible hotel when no managed hotel matches
 
 ### Requirement: Registered read workflow boundary
 

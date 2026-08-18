@@ -16,7 +16,7 @@ export type AgentConversationViewState = Readonly<{
   draftContent: string;
   draftUi: GenerativeUiSpec | null;
   preparingUi: boolean;
-  retainValidatedDraftOnFailure: boolean;
+  retainedContentOnFailure: string | null;
   errorMessage: string;
   activeBusinessExecution: AgentBusinessExecutionSummary | null;
 }>;
@@ -30,7 +30,7 @@ export function createEmptyConversationView(conversationId: string): AgentConver
     draftContent: '',
     draftUi: null,
     preparingUi: false,
-    retainValidatedDraftOnFailure: false,
+    retainedContentOnFailure: null,
     errorMessage: '',
     activeBusinessExecution: null,
   };
@@ -45,14 +45,7 @@ export function hydrateConversationView(snapshot: AgentConversation): AgentConve
     draftContent: snapshot.activeRun?.content ?? '',
     draftUi: snapshot.activeRun?.ui ?? null,
     preparingUi: snapshot.activeRun?.preparingUi ?? false,
-    retainValidatedDraftOnFailure:
-      snapshot.activeRun !== null &&
-      snapshot.activeRun !== undefined &&
-      snapshot.executions.some(
-        (execution) =>
-          execution.runId === snapshot.activeRun?.runId &&
-          execution.steps.some((step) => step.toolName === 'upstream_llm_analysis'),
-      ),
+    retainedContentOnFailure: snapshot.activeRun?.retainedContentOnFailure ?? null,
     errorMessage: '',
     activeBusinessExecution: snapshot.activeBusinessExecution ?? null,
   };
@@ -84,7 +77,7 @@ export function addStartedRun(
     draftContent: '',
     draftUi: null,
     preparingUi: false,
-    retainValidatedDraftOnFailure: false,
+    retainedContentOnFailure: null,
     errorMessage: '',
   };
 }
@@ -103,8 +96,10 @@ export function applyRunEvent(
     return {
       ...state,
       preparingUi: state.preparingUi || event.toolName === 'render_hotel_ui',
-      retainValidatedDraftOnFailure:
-        state.retainValidatedDraftOnFailure || event.toolName === 'upstream_llm_analysis',
+      retainedContentOnFailure:
+        event.toolName === 'upstream_llm_analysis' && state.retainedContentOnFailure === null
+          ? state.draftContent
+          : state.retainedContentOnFailure,
       executions: updateExecution(state.executions, event.runId, (execution) => ({
         ...execution,
         steps: [
@@ -169,7 +164,7 @@ export function applyRunEvent(
   }
   if (event.type === 'run_failed') {
     return {
-      ...clearActiveRun(state, state.retainValidatedDraftOnFailure && state.draftUi !== null),
+      ...clearActiveRun(state, state.retainedContentOnFailure !== null && state.draftUi !== null),
       activeBusinessExecution: null,
       errorMessage: event.message,
       executions: updateExecution(state.executions, event.runId, (execution) => ({
@@ -208,10 +203,10 @@ function clearActiveRun(
   return {
     ...state,
     activeRunId: null,
-    draftContent: preserveDraft ? state.draftContent : '',
+    draftContent: preserveDraft ? (state.retainedContentOnFailure ?? '') : '',
     draftUi: preserveDraft ? state.draftUi : null,
     preparingUi: false,
-    retainValidatedDraftOnFailure: false,
+    retainedContentOnFailure: null,
   };
 }
 

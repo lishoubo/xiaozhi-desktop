@@ -71,6 +71,7 @@ export function buildActiveRunDraft(
 	let content = '';
 	let ui: AgentActiveRun['ui'] = null;
 	let preparingUi = false;
+	let retainedContentOnFailure: string | null = null;
 	let lastEventId: string | null = null;
 
 	for (const event of events) {
@@ -83,10 +84,16 @@ export function buildActiveRunDraft(
 		} else if (event.type === 'ui_spec') {
 			ui = event.spec;
 			preparingUi = false;
+		} else if (
+			event.type === 'tool_started' &&
+			event.toolName === 'upstream_llm_analysis' &&
+			retainedContentOnFailure === null
+		) {
+			retainedContentOnFailure = content;
 		}
 	}
 
-	return { runId, content, ui, preparingUi, lastEventId };
+	return { runId, content, ui, preparingUi, retainedContentOnFailure, lastEventId };
 }
 
 export function buildRetainedFailedDraftMessages(

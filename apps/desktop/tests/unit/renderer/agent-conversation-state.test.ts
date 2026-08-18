@@ -28,6 +28,7 @@ describe('Agent conversation view state', () => {
         content: '已查询酒店',
         ui: null,
         preparingUi: true,
+        retainedContentOnFailure: null,
         lastEventId: '44444444-4444-4444-8444-444444444444',
       },
     };
@@ -193,7 +194,16 @@ describe('Agent conversation view state', () => {
       createdAt: '2026-08-12T03:00:00.800Z',
     });
 
-    const failed = applyRunEvent(analyzing, {
+    const partiallyAnalyzed = applyRunEvent(analyzing, {
+      id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaf',
+      runId,
+      conversationId,
+      type: 'text_delta',
+      delta: '未完成的模型分析',
+      createdAt: '2026-08-12T03:00:00.900Z',
+    });
+
+    const failed = applyRunEvent(partiallyAnalyzed, {
       id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
       runId,
       conversationId,
