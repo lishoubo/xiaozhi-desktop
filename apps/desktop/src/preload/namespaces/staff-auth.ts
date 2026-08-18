@@ -1,5 +1,9 @@
 /* eslint-disable import/no-unresolved -- ESLint's legacy resolver does not read this workspace package subpath export. */
-import { staffIdentitySchema, staffLogoutResponseSchema } from '@hotel-butler/api/contracts';
+import {
+  staffIdentitySchema,
+  staffLogoutResponseSchema,
+  staffPhoneCodeRequestResponseSchema,
+} from '@hotel-butler/api/contracts';
 /* eslint-enable import/no-unresolved */
 import { IPC_CHANNELS } from '../../shared/ipc-channels';
 import type { ValidatedInvoke } from '../invoke';
@@ -10,6 +14,14 @@ export function createStaffAuthApi(invoke: ValidatedInvoke) {
       invoke(staffIdentitySchema.nullable(), IPC_CHANNELS.staffAuth.currentSession),
     login: (username: string, password: string) =>
       invoke(staffIdentitySchema, IPC_CHANNELS.staffAuth.login, username, password),
+    requestPhoneCode: (phone: string) =>
+      invoke(
+        staffPhoneCodeRequestResponseSchema,
+        IPC_CHANNELS.staffAuth.requestPhoneCode,
+        phone,
+      ),
+    loginWithPhoneCode: (phone: string, code: string) =>
+      invoke(staffIdentitySchema, IPC_CHANNELS.staffAuth.loginWithPhoneCode, phone, code),
     logout: () => invoke(staffLogoutResponseSchema, IPC_CHANNELS.staffAuth.logout),
   });
 }

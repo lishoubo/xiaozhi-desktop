@@ -10,6 +10,11 @@ export const RMS_ERROR = {
   tokenExpired: 11004,
   tokenInvalid: 11005,
   refreshTokenInvalid: 11006,
+  phoneCodeSendTooFrequent: 11009,
+  phoneCodeInvalid: 11010,
+  phoneCodeAttemptsExceeded: 11011,
+  phoneNumberUnavailable: 11012,
+  phoneCodeSendFailed: 11013,
 } as const;
 
 /** access token 失效——调用方应据此触发一次 refresh，而不是直接把用户踢回登录页。 */
@@ -46,7 +51,22 @@ export function messageForRmsError(code: number, fallback: string): string {
     case RMS_ERROR.unauthorized:
       return '登录已过期，请重新登录';
     case RMS_ERROR.invalidParameter:
-      return '请检查用户名和密码';
+      // 短信登录侧前端已先行拦住手机号/验证码格式，正常到不了这里；
+      // 文案同时覆盖两种登录方式的入参。
+      return '请检查输入的信息';
+    case RMS_ERROR.phoneCodeSendTooFrequent:
+      return '发送太频繁了，请 60 秒后再试';
+    case RMS_ERROR.phoneCodeInvalid:
+      return '验证码错误或已过期';
+    case RMS_ERROR.phoneCodeAttemptsExceeded:
+      // 与 11003 不同：这个锁定 15 分钟自动解除，必须写明时长，
+      // 否则用户会以为账号被永久封禁而去找管理员。
+      return '错误次数过多，请 15 分钟后再试';
+    case RMS_ERROR.phoneNumberUnavailable:
+      // 登录即注册下陌生号不会命中；命中说明该号已被服务商员工占用或账号已停用。
+      return '该手机号不可用，请联系管理员';
+    case RMS_ERROR.phoneCodeSendFailed:
+      return '验证码发送失败，请稍后再试';
     default:
       return fallback;
   }
