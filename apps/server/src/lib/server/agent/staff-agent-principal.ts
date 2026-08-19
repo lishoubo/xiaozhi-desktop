@@ -188,7 +188,7 @@ export async function resolveStaffAgentPrincipal(
 			hotelAccess: {
 				kind: 'staff_managed_hotels',
 				currentHotelId:
-					identity.data.currentHotelId === null ? null : String(identity.data.currentHotelId),
+					identity.data.currentHotelId == null ? null : String(identity.data.currentHotelId),
 				hotels: hotels.map((hotel) => ({ id: String(hotel.id), label: hotel.name }))
 			}
 		};

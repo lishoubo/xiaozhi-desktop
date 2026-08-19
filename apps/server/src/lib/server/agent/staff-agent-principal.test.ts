@@ -28,6 +28,8 @@ describe('resolveStaffAgentPrincipal', () => {
 						data: {
 							userId: 1001,
 							username: 'front-desk',
+							phone: null,
+							userType: 'STAFF',
 							fullName: '前台员工',
 							role: 'FRONT_DESK',
 							orgId: 42,
@@ -91,6 +93,36 @@ describe('resolveStaffAgentPrincipal', () => {
 		expect(serialized).not.toContain('staff-session-a');
 		expect(serialized).not.toContain('front-desk');
 		expect(serialized).not.toContain('前台员工');
+	});
+
+	it('normalizes a missing current hotel for a phone-created RMS user', async () => {
+		const fetch = vi.fn().mockResolvedValue(
+			new Response(
+				JSON.stringify({
+					code: 0,
+					data: {
+						userId: 1002,
+						username: 'phone-user',
+						phone: '13800138000',
+						userType: 'HOTEL',
+						fullName: null,
+						role: 'HOTEL_STAFF',
+						orgId: 42,
+						accessibleHotelIds: [],
+						permissions: []
+					}
+				}),
+				{ status: 200, headers: { 'content-type': 'application/json' } }
+			)
+		);
+
+		await expect(
+			resolveStaffAgentPrincipal('Bearer phone-session', {}, fetch)
+		).resolves.toMatchObject({
+			employeeId: '1002',
+			hotelAccess: { currentHotelId: null, hotels: [] }
+		});
+		expect(fetch).toHaveBeenCalledTimes(1);
 	});
 
 	it('does not create a principal for a rejected bearer session', async () => {
