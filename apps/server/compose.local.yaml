@@ -77,7 +77,7 @@ services:
       AI_KIMI_BASE_URL: ${AI_KIMI_BASE_URL:-https://api.moonshot.cn/v1}
       AI_KIMI_MODEL: ${AI_KIMI_MODEL:-kimi-k3}
       AI_KIMI_FAST_MODEL: ${AI_KIMI_FAST_MODEL:-kimi-k2.6}
-      AI_PUBLIC_WEATHER_MCP_ENABLED: ${AI_PUBLIC_WEATHER_MCP_ENABLED:-true}
+      AI_PUBLIC_WEATHER_MCP_ENABLED: ${AI_PUBLIC_WEATHER_MCP_ENABLED:-false}
       AI_DMS_MCP_URL: ${AI_DMS_MCP_URL:-https://dms-mcpver-vjne-ndunixfhxl.cn-hangzhou.fcapp.run/sse}
       AI_DMS_MCP_BEARER_TOKEN: ${AI_DMS_MCP_BEARER_TOKEN:-}
       AI_DMS_DATABASE_ID: ${AI_DMS_DATABASE_ID:-}

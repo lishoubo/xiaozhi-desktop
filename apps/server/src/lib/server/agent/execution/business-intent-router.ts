@@ -45,11 +45,19 @@ const allHotelsLookup = /(?:(?:所有|全部|全量|各个|各家|每家)酒店|
 const weatherLookup = /(?:天气|气温|温度|下雨|降雨|暴雨|台风|下雪|降雪|晴天|阴天)/i;
 const hotelOperationsContext =
 	/(?:经营|运营|入住|出租率|房价|收益|营收|订单|预订|房态|库存|渠道|排班|客流|营销|RevPAR|ADR|GMV)/i;
+const hotelFactMetric =
+	/(?:经营数据|经营概览|入住率|出租率|房价|收益|营收|订单|预订|房态|库存|渠道数据|RevPAR|ADR|GMV)/i;
+const ownedHotelReference = /(?:我们|我方|本酒店|当前酒店|这家酒店|我的酒店)/i;
 const internalLookupDeclined =
 	/(?:不要|不用|无需|别).{0,10}(?:查询|查找|读取|调用).{0,10}(?:系统|内部|酒店|经营)?(?:信息|数据)?|(?:不查询|不查|不读取)(?:系统|内部|酒店|经营)?(?:信息|数据)?/i;
 
-function isStandaloneWeatherPrompt(text: string): boolean {
-	return weatherLookup.test(text) && !hotelOperationsContext.test(text);
+function explicitlyRequestsHotelFacts(text: string): boolean {
+	return (
+		hotelFactMetric.test(text) &&
+		(directDataLookup.test(text) ||
+			(ownedHotelReference.test(text) &&
+				(currentDataLookup.test(text) || recentDataLookup.test(text) || explicitDateLookup.test(text))))
+	);
 }
 
 function responseModeForPrompt(
@@ -174,13 +182,35 @@ export class BusinessIntentRouter {
 				responseMode: 'analysis'
 			};
 		}
-		if (isStandaloneWeatherPrompt(input.text)) {
+		if (weatherLookup.test(input.text) && !explicitlyRequestsHotelFacts(input.text)) {
 			return {
-				routeKind: 'general_conversation',
+				routeKind: hotelOperationsContext.test(input.text)
+					? 'hotel_knowledge'
+					: 'general_conversation',
 				intent: null,
 				slots: {},
 				confidence: Math.max(proposed.confidence, 0.95),
 				responseMode: 'analysis'
+			};
+		}
+		if (
+			weatherLookup.test(input.text) &&
+			explicitlyRequestsHotelFacts(input.text) &&
+			proposed.category === 'business_read' &&
+			proposed.intentCandidate === 'weather_operations_advice'
+		) {
+			const intent = 'generic_hotel_data_query';
+			const slots = explicitHotelScopeSlots(
+				intent,
+				input.text,
+				registeredCandidateSlots(intent, proposed.slots)
+			);
+			return {
+				routeKind: 'business_read',
+				intent,
+				slots: defaultTemporalSlots(intent, input.text, slots),
+				confidence: proposed.confidence,
+				responseMode: responseModeForPrompt(input.text, proposed.responseMode)
 			};
 		}
 		if (proposed.category === 'business_read' && internalLookupDeclined.test(input.text)) {

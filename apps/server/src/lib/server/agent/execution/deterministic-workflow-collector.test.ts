@@ -22,7 +22,7 @@ function request(
 }
 
 describe('deterministic workflow collector', () => {
-	it('calls the pinned weather summary directly with code-owned arguments', async () => {
+	it('does not load tools for a business route that declares no MCP dependency', async () => {
 		const invoke = vi.fn(async () => '# Weather Summary');
 		const weather = tool(invoke, {
 			name: 'get_weather_summary',
@@ -34,22 +34,16 @@ describe('deterministic workflow collector', () => {
 				detail: z.string().optional()
 			})
 		});
-		const collector = new DeterministicWorkflowCollector({
-			getTools: vi.fn().mockResolvedValue([weather])
-		});
+		const getTools = vi.fn().mockResolvedValue([weather]);
+		const collector = new DeterministicWorkflowCollector({ getTools });
 
 		const result = await collector.collect(
 			request('weather_operations_advice', { location: '上海', date: 'today' })
 		);
 
-		expect(result).toMatchObject({
-			status: 'collected',
-			toolEvidence: [{ toolName: 'get_weather_summary', result: '# Weather Summary' }]
-		});
-		expect(invoke).toHaveBeenCalledWith(
-			expect.objectContaining({ city_name: '上海', days: 1, detail: 'summary' }),
-			expect.anything()
-		);
+		expect(result).toEqual({ status: 'fallback', reason: 'tool_unavailable' });
+		expect(getTools).not.toHaveBeenCalled();
+		expect(invoke).not.toHaveBeenCalled();
 	});
 
 	it('falls back before invoking an incompatible public-rate tool', async () => {
@@ -209,19 +203,9 @@ describe('deterministic workflow collector', () => {
 		} satisfies Partial<AgentProtocolError>);
 	});
 
-	it('leaves generic discovery to the constrained Agent and propagates invoked-tool failures', async () => {
-		const failing = tool(
-			async () => {
-				throw new Error('weather unavailable');
-			},
-			{
-				name: 'get_weather_summary',
-				description: 'weather',
-				schema: z.object({ city_name: z.string() })
-			}
-		);
+	it('leaves generic and multi-hotel discovery to the constrained Agent', async () => {
 		const collector = new DeterministicWorkflowCollector({
-			getTools: vi.fn().mockResolvedValue([failing])
+			getTools: vi.fn().mockResolvedValue([])
 		});
 
 		await expect(
@@ -235,14 +219,6 @@ describe('deterministic workflow collector', () => {
 				})
 			)
 		).resolves.toEqual({ status: 'fallback', reason: 'agent_required' });
-		await expect(
-			collector.collect(request('weather_operations_advice', { location: '上海', date: 'today' }))
-		).rejects.toMatchObject({
-			_tag: 'AgentUpstreamError',
-			service: 'mcp',
-			operation: 'get_weather_summary',
-			kind: 'unavailable'
-		} satisfies Partial<AgentUpstreamError>);
 	});
 
 	it('emits a safe MCP failure event when deterministic invocation fails', async () => {
@@ -284,21 +260,35 @@ describe('deterministic workflow collector', () => {
 	});
 
 	it('does not accept an MCP error result as business evidence', async () => {
-		const weather = tool(async () => ({ isError: true, content: 'upstream failed' }), {
-			name: 'get_weather_summary',
-			description: 'weather',
-			schema: z.object({ city_name: z.string() })
+		const rates = tool(async () => ({ isError: true, content: 'upstream failed' }), {
+			name: 'search_public_rates',
+			description: 'rates',
+			schema: z.object({
+				hotel_id: z.string(),
+				check_in: z.string(),
+				check_out: z.string(),
+				adults: z.number(),
+				currency: z.string()
+			})
 		});
 		const collector = new DeterministicWorkflowCollector({
-			getTools: vi.fn().mockResolvedValue([weather])
+			getTools: vi.fn().mockResolvedValue([rates])
 		});
 
 		await expect(
-			collector.collect(request('weather_operations_advice', { location: '上海', date: 'today' }))
+			collector.collect(
+				request('public_hotel_rates', {
+					hotelReference: 'hotel-1',
+					checkIn: '2026-08-14',
+					checkOut: '2026-08-15',
+					guests: 2,
+					currency: 'CNY'
+				})
+			)
 		).rejects.toMatchObject({
 			_tag: 'AgentUpstreamError',
 			service: 'mcp',
-			operation: 'get_weather_summary',
+			operation: 'search_public_rates',
 			kind: 'invalid_response'
 		} satisfies Partial<AgentUpstreamError>);
 	});

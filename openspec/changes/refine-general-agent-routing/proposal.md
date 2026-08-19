@@ -19,9 +19,9 @@ hotel context.
 ## Success criteria
 
 - “今天天气如何” reaches general Agent execution and never asks for a hotel.
-- A request for weather-based hotel operating advice can still use the registered weather workflow.
+- Weather-based general hotel operating advice uses the LLM-only hotel-knowledge route.
 - Hotel orders, operations, rates, inventory and other internal facts continue to prefer system data.
-- General conversation keeps access to normal safe Agent tools without entering hotel slot resolution.
+- General conversation calls the LLM without MCP tools or business Skills and does not enter hotel slot resolution.
 
 ## Non-goals
 

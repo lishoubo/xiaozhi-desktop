@@ -1,5 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
-import { isReadOnlyMcpToolName, loadMcpServerToolsInOrder } from './mcp-tool-provider';
+import {
+	isReadOnlyMcpToolName,
+	loadMcpServerToolsInOrder,
+	selectMcpServersByCapabilities
+} from './mcp-tool-provider';
 import { summarizeMcpResult } from './mcp-observability';
 import {
 	compactHotelDataResult,
@@ -42,6 +46,27 @@ describe('loadMcpServerToolsInOrder', () => {
 		releases.get('weather')?.(['weather-tool']);
 
 		await expect(loading).resolves.toEqual([['weather-tool'], ['hotel-tool']]);
+	});
+});
+
+describe('selectMcpServersByCapabilities', () => {
+	it('selects only explicitly authorized capabilities and denies an empty allowlist', () => {
+		const servers = {
+			weather: {
+				transport: 'stdio' as const,
+				command: 'node',
+				args: [],
+				capabilities: ['weather' as const]
+			},
+			dms: {
+				transport: 'sse' as const,
+				url: 'https://example.com/dms',
+				capabilities: ['hotel_data' as const]
+			}
+		};
+
+		expect(Object.keys(selectMcpServersByCapabilities(servers, []))).toEqual([]);
+		expect(Object.keys(selectMcpServersByCapabilities(servers, ['hotel_data']))).toEqual(['dms']);
 	});
 });
 

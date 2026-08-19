@@ -102,7 +102,7 @@ function hotelDataServer(token: string, endpoint: string): McpServerConfig {
 
 export function readAgentEnvironment(environment: NodeJS.ProcessEnv): AgentEnvironment {
 	const configuredServers = parseMcpServers(environment.AI_MCP_SERVERS_JSON);
-	const publicWeatherEnabled = !['0', 'false', 'no', 'off'].includes(
+	const publicWeatherEnabled = ['1', 'true', 'yes', 'on'].includes(
 		(environment.AI_PUBLIC_WEATHER_MCP_ENABLED ?? '').trim().toLowerCase()
 	);
 	const dmsBearerToken = environment.AI_DMS_MCP_BEARER_TOKEN?.trim() ?? '';

@@ -1,5 +1,26 @@
 import { describe, expect, it, vi } from 'vitest';
 import { BusinessIntentRouter } from './business-intent-router';
+import { executionPolicyForIntent } from './intent-registry';
+
+describe('business route MCP dependencies', () => {
+	it('derives the MCP allowlist from the registered business route', () => {
+		expect(executionPolicyForIntent('hotel_operating_summary')).toEqual({
+			allowedMcpCapabilities: ['hotel_data'],
+			allowedSkillNames: [],
+			allowedLocalToolNames: ['render_hotel_ui']
+		});
+		expect(executionPolicyForIntent('public_hotel_rates')).toEqual({
+			allowedMcpCapabilities: ['hotel_rates'],
+			allowedSkillNames: [],
+			allowedLocalToolNames: ['render_hotel_ui']
+		});
+		expect(executionPolicyForIntent('weather_operations_advice')).toEqual({
+			allowedMcpCapabilities: [],
+			allowedSkillNames: [],
+			allowedLocalToolNames: ['render_hotel_ui']
+		});
+	});
+});
 import { getIntentDefinition } from './intent-registry';
 
 describe('BusinessIntentRouter', () => {
@@ -262,7 +283,7 @@ describe('BusinessIntentRouter', () => {
 		});
 	});
 
-	it('keeps weather-informed operating advice in the business workflow', async () => {
+	it('keeps weather-informed operating advice on the LLM-only hotel knowledge route', async () => {
 		const router = new BusinessIntentRouter({
 			classify: vi.fn().mockResolvedValue({
 				category: 'business_read',
@@ -276,10 +297,12 @@ describe('BusinessIntentRouter', () => {
 
 		await expect(
 			router.route({ kind: 'prompt', text: '结合杭州今天的天气给酒店经营和排班建议' })
-		).resolves.toMatchObject({
-			routeKind: 'business_read',
-			intent: 'weather_operations_advice',
-			slots: { location: { status: 'candidate', raw: '杭州' } }
+		).resolves.toEqual({
+			routeKind: 'hotel_knowledge',
+			intent: null,
+			slots: {},
+			confidence: 0.95,
+			responseMode: 'analysis'
 		});
 	});
 

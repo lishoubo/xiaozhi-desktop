@@ -338,17 +338,21 @@ Conversation messages SHALL survive process restarts, and employee-scoped long-t
 
 ### Requirement: Controlled extensibility
 
-MCP tools SHALL load only from server-side configuration, and business Skills SHALL be supplied through a Skill provider that may be empty.
+MCP tools and business Skills SHALL load only when the selected server-owned intent explicitly
+declares them. Configuration alone SHALL NOT authorize a dependency for a Run. General conversation
+SHALL use the LLM with history and memory while passing empty MCP and Skill allowlists. It MAY expose
+the local long-term-memory write tool, but SHALL NOT expose generative UI.
 
 #### Scenario: No MCP or Skill is configured
 
 - **WHEN** the Agent starts without configured MCP servers or Skills
 - **THEN** normal Kimi conversation and local memory/UI tools remain available
 
-#### Scenario: Load MCP tools
+#### Scenario: Load intent-declared MCP tools
 
-- **WHEN** MCP servers are configured
+- **WHEN** a business route explicitly declares a configured MCP capability
 - **THEN** remote URLs use HTTPS except loopback development
+- **AND** only servers matching that route capability initialize for the Run
 - **AND** write-like tools remain unavailable regardless of operator or remote catalog settings
 - **AND** independent server tool catalogs initialize concurrently and retain configuration order
 
@@ -377,8 +381,8 @@ MCP tools SHALL load only from server-side configuration, and business Skills SH
 The Agent SHALL advertise a compact quick-action catalog derived from configured MCP capabilities,
 and SHALL resolve quick-action prompts on the server rather than accepting prompt text from the
 client. The representative catalog SHALL expose yesterday operating review and configurable-period
-hotel operating-data actions when the DMS hotel-data capability is configured. Weather SHALL remain
-available to natural-language routing but SHALL NOT occupy a quick-action slot.
+hotel operating-data actions when the DMS hotel-data capability is configured. Ordinary weather
+questions SHALL use general LLM conversation without MCP and SHALL NOT occupy a quick-action slot.
 
 #### Scenario: Show representative test shortcuts
 

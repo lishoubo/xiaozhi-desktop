@@ -31,10 +31,15 @@ describe('agent configuration', () => {
 		expect(environment.model).toBe('custom-analysis');
 	});
 
-	it('enables the pinned public weather MCP with metric units by default', () => {
-		const environment = readAgentEnvironment({ AI_KIMI_API_KEY: 'secret' });
+	it('keeps public weather MCP disabled by default and requires explicit opt-in', () => {
+		const defaultEnvironment = readAgentEnvironment({ AI_KIMI_API_KEY: 'secret' });
+		const enabledEnvironment = readAgentEnvironment({
+			AI_KIMI_API_KEY: 'secret',
+			AI_PUBLIC_WEATHER_MCP_ENABLED: 'true'
+		});
 
-		expect(environment.mcpServers['public-weather']).toMatchObject({
+		expect(defaultEnvironment.mcpServers).toEqual({});
+		expect(enabledEnvironment.mcpServers['public-weather']).toMatchObject({
 			transport: 'stdio',
 			command: process.execPath,
 			capabilities: ['weather'],

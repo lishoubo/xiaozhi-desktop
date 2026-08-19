@@ -23,7 +23,8 @@ clarified before exposing a business tool.
 
 - **WHEN** a prompt asks about weather or another general capability without hotel-operating context
 - **THEN** it routes to ordinary Agent conversation and does not request hotel fields
-- **AND** ordinary Agent tools remain available for completing the general task
+- **AND** it calls the LLM with history and memory but no MCP tools or business Skills
+- **AND** only the local long-term-memory tool remains available; generative UI is not exposed
 
 #### Scenario: Honor an explicit no-internal-data request
 
@@ -89,8 +90,9 @@ SHALL present a recognizable hotel name and SHALL exclude hotels outside that co
 
 ### Requirement: Registered read workflow boundary
 
-Every business read SHALL execute through a server-registered workflow with an MCP capability,
-allowed tools, normalized input, call budget, timeout and evidence requirements.
+Every business read SHALL execute through a server-registered workflow with explicit dependency
+declarations, allowed tools, normalized input, call budget, timeout and evidence requirements. A
+workflow that declares no MCP or Skill SHALL execute without them.
 
 #### Scenario: Execute a generic read workflow
 - **WHEN** a long-tail hotel-data question has normalized hotel/date/metric context

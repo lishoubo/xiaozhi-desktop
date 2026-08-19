@@ -16,8 +16,8 @@ depends on current or historical hotel business facts or asks for hotel-operatin
 #### Scenario: Weather-informed hotel advice
 
 - **WHEN** a user asks how weather affects hotel operations, staffing, pricing or occupancy
-- **THEN** the request may route to the registered weather operations workflow
-- **AND** only weather-workflow slots may be requested
+- **THEN** the request routes to LLM-only hotel knowledge unless it explicitly requests live hotel facts
+- **AND** no weather MCP or hotel-selection fields are loaded for general advice
 
 #### Scenario: Hotel business facts
 

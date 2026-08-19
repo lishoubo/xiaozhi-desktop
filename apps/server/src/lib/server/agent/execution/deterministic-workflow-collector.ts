@@ -15,6 +15,7 @@ import { HOTEL_DATA_SQL_TOOL_NAME } from '../hotel-data-mcp';
 import { summarizeMcpResult } from '../mcp-observability';
 import type { McpToolProvider } from '../mcp-tool-provider';
 import type { JsonValue, ResolvedBusinessRequest } from './business-execution-state';
+import { executionPolicyForIntent } from './intent-registry';
 
 type ToolProviderPort = Pick<McpToolProvider, 'getTools'>;
 
@@ -206,12 +207,16 @@ export class DeterministicWorkflowCollector {
 		) {
 			return { status: 'fallback', reason: 'agent_required' };
 		}
+		const { allowedMcpCapabilities } = executionPolicyForIntent(input.request.intent);
+		if (allowedMcpCapabilities.length === 0) {
+			return { status: 'fallback', reason: 'tool_unavailable' };
+		}
 		const tools = await runAgentEffect(
 			agentPromise({
 				service: 'mcp',
 				operation: 'load_tool_catalog',
 				timeoutMs: 55_000,
-				try: () => this.tools.getTools()
+				try: () => this.tools.getTools(allowedMcpCapabilities)
 			}),
 			input.signal
 		);

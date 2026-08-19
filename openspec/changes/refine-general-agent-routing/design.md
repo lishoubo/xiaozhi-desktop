@@ -19,6 +19,7 @@ routes to `general_conversation`, regardless of whether the classifier proposed
 `weather_operations_advice` or a generic hotel-data intent. A request containing operating context
 continues through the classifier decision.
 
-The guard does not answer the request. General runtime execution may use the already configured public
-weather MCP, ask a normal text clarification for location, or answer from model knowledge as
-appropriate; it never creates a hotel-selection card solely for weather.
+The guard does not answer the request. General runtime execution calls the LLM with conversation
+history and memory but without MCP tools or business Skills; it never creates a hotel-selection card
+solely for weather. Tool-loading details are superseded by
+`../enforce-agent-mcp-opt-in/design.md`.

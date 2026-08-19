@@ -15,7 +15,7 @@ import { isHotelDataToolName } from './hotel-data-mcp';
 import { summarizeMcpResult } from './mcp-observability';
 import { buildHotelAgentSystemPrompt } from './hotel-agent-prompt';
 import { HotelAgentToolHandlers } from './hotel-agent-tool-handlers';
-import type { SkillProvider } from './skill-provider';
+import type { AgentSkill, SkillProvider } from './skill-provider';
 import { modelForTier, modelKwargsForTier } from './model-tier';
 import { getIntentDefinition } from './execution/intent-registry';
 import {
@@ -128,6 +128,25 @@ export function selectWorkflowToolNames(
 	return availableNames.filter((name) => /rate|price|availability|room/i.test(name));
 }
 
+export function shouldLoadMcpTools(
+	request: Pick<AgentRuntimeRunOptions, 'allowedMcpCapabilities' | 'validatedEvidence'>
+): boolean {
+	return request.validatedEvidence === undefined && request.allowedMcpCapabilities.length > 0;
+}
+
+export function shouldLoadSkills(
+	request: Pick<AgentRuntimeRunOptions, 'allowedSkillNames'>
+): boolean {
+	return request.allowedSkillNames.length > 0;
+}
+
+export function isLocalToolAllowed(
+	request: Pick<AgentRuntimeRunOptions, 'allowedLocalToolNames'>,
+	toolName: AgentRuntimeRunOptions['allowedLocalToolNames'][number]
+): boolean {
+	return request.allowedLocalToolNames.includes(toolName);
+}
+
 export function recoverCompletedUiAfterRenderLimit(
 	error: unknown,
 	content: string,
@@ -204,41 +223,32 @@ export class LangChainAgentRuntime implements AgentRuntime {
 		let generatedUi: GenerativeUiSpec | null = null;
 		const answerOnly = options.validatedEvidence !== undefined;
 		const analysisOnly = answerOnly && options.analysisOnly === true;
-		const [memories, skills] = answerOnly
-			? [options.memories ?? [], []]
-			: options.memories
-				? [
-						options.memories,
-						await runAgentEffect(
-							agentPromise({
+		const [memories, availableSkills] = await runAgentEffect(
+			Effect.all(
+				[
+					options.memories
+						? Effect.succeed(options.memories)
+						: agentPromise({
+								service: 'persistence',
+								operation: 'load_agent_memories',
+								timeoutMs: 10_000,
+								try: () => this.repository.listMemories(options.principal)
+							}),
+					shouldLoadSkills(options)
+						? agentPromise({
 								service: 'persistence',
 								operation: 'load_agent_skills',
 								timeoutMs: 10_000,
 								try: () => this.skills.list()
-							}),
-							options.signal
-						)
-					]
-				: await runAgentEffect(
-						Effect.all(
-							[
-								agentPromise({
-									service: 'persistence',
-									operation: 'load_agent_memories',
-									timeoutMs: 10_000,
-									try: () => this.repository.listMemories(options.principal)
-								}),
-								agentPromise({
-									service: 'persistence',
-									operation: 'load_agent_skills',
-									timeoutMs: 10_000,
-									try: () => this.skills.list()
-								})
-							],
-							{ concurrency: 'unbounded' }
-						),
-						options.signal
-					);
+							})
+						: Effect.succeed<readonly AgentSkill[]>([])
+				],
+				{ concurrency: 'unbounded' }
+			),
+			options.signal
+		);
+		const allowedSkillNames = new Set(options.allowedSkillNames);
+		const skills = availableSkills.filter((skill) => allowedSkillNames.has(skill.name));
 		options.signal.throwIfAborted();
 		const localTools =
 			analysisOnly || (options.workflowRequest && !answerOnly)
@@ -248,17 +258,16 @@ export class LangChainAgentRuntime implements AgentRuntime {
 						(spec) => {
 							if (generatedUi) throw new DuplicateUiRenderError();
 							generatedUi = spec;
-						},
-						!answerOnly
+						}
 					);
-		const loadedMcpTools = answerOnly
+		const loadedMcpTools = !shouldLoadMcpTools(options)
 			? []
 			: await runAgentEffect(
 					agentPromise({
 						service: 'mcp',
 						operation: 'load_runtime_tools',
 						timeoutMs: 55_000,
-						try: () => this.mcpTools.getTools()
+						try: () => this.mcpTools.getTools(options.allowedMcpCapabilities)
 					}),
 					options.signal
 				);
@@ -528,8 +537,7 @@ export class LangChainAgentRuntime implements AgentRuntime {
 
 	private createLocalTools(
 		options: AgentRuntimeRunOptions,
-		setUi: (spec: GenerativeUiSpec) => void,
-		allowMemoryWrite: boolean
+		setUi: (spec: GenerativeUiSpec) => void
 	): StructuredToolInterface[] {
 		const remember = tool(
 			async ({ key, content, importance }) => {
@@ -567,6 +575,11 @@ export class LangChainAgentRuntime implements AgentRuntime {
 				schema: z.object({ spec: generativeUiSpecSchema })
 			}
 		);
-		return allowMemoryWrite ? [remember, renderUi] : [renderUi];
+		return [
+			{ name: 'remember_long_term_memory' as const, tool: remember },
+			{ name: 'render_hotel_ui' as const, tool: renderUi }
+		]
+			.filter((candidate) => isLocalToolAllowed(options, candidate.name))
+			.map((candidate) => candidate.tool);
 	}
 }

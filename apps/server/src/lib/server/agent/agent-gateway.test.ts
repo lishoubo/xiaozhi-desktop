@@ -44,6 +44,9 @@ describe('runGroundedAnalysis', () => {
 					principal: { employeeId: '1001', orgId: '42' },
 					conversationSummary: null,
 					history: [],
+					allowedMcpCapabilities: [],
+					allowedSkillNames: [],
+					allowedLocalToolNames: [],
 					signal: parent.signal,
 					emit: publish
 				},
@@ -121,6 +124,9 @@ function createGatewayHarness(
 	};
 	const runtime = { run: vi.fn() };
 	const logger = { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() };
+	const conversationContext = {
+		prepare: vi.fn().mockResolvedValue({ summary: null, history: [] })
+	};
 	const gateway = new HotelAgentGateway(
 		{
 			apiKey: '',
@@ -133,7 +139,7 @@ function createGatewayHarness(
 		},
 		repository,
 		runtime,
-		{ prepare: vi.fn().mockResolvedValue({ summary: null, history: [] }) },
+		conversationContext,
 		{
 			serverCount: () => mcpCapabilities.length,
 			capabilities: () => new Set(mcpCapabilities)
@@ -145,7 +151,7 @@ function createGatewayHarness(
 		undefined,
 		conversationTitleGenerator
 	);
-	return { gateway, repository, runtime, logger };
+	return { gateway, repository, runtime, logger, conversationContext };
 }
 
 function createGateway(listEvents: ListEvents) {
@@ -161,7 +167,7 @@ describe('HotelAgentGateway session isolation', () => {
 		const titleGenerator = {
 			generate: vi.fn(() => pendingTitle)
 		};
-		const { gateway, repository, runtime } = createGatewayHarness(
+		const { gateway, repository, runtime, conversationContext } = createGatewayHarness(
 			vi.fn(async () => []),
 			[],
 			titleGenerator
@@ -170,6 +176,19 @@ describe('HotelAgentGateway session isolation', () => {
 		const conversationId = '44444444-4444-4444-8444-444444444444';
 		const runId = '33333333-3333-4333-8333-333333333333';
 		const prompt = '请帮我查询上海酒店最近七天经营趋势';
+		const history = [
+			{
+				id: '11111111-1111-4111-8111-111111111111',
+				conversationId,
+				role: 'user' as const,
+				content: '之前关注上海酒店',
+				ui: null,
+				createdAt: '2026-08-18T00:00:00.000Z'
+			}
+		];
+		const memories = [{ key: 'preferred.city', content: '上海', importance: 3 }];
+		conversationContext.prepare.mockResolvedValue({ summary: '用户关注上海酒店。', history });
+		repository.listMemories.mockResolvedValue(memories);
 		repository.startRun.mockResolvedValue({
 			created: true,
 			response: {
@@ -198,6 +217,16 @@ describe('HotelAgentGateway session isolation', () => {
 			clientRequestId: '55555555-5555-4555-8555-555555555555'
 		});
 		await vi.waitFor(() => expect(repository.finalizeRunSuccess).toHaveBeenCalledOnce());
+		expect(runtime.run).toHaveBeenCalledWith(
+			expect.objectContaining({
+				conversationSummary: '用户关注上海酒店。',
+				history,
+				memories,
+				allowedMcpCapabilities: [],
+				allowedSkillNames: [],
+				allowedLocalToolNames: ['remember_long_term_memory']
+			})
+		);
 		expect(titleGenerator.generate).toHaveBeenCalledWith(prompt, expect.any(AbortSignal));
 		expect(repository.updateConversationTitle).not.toHaveBeenCalled();
 

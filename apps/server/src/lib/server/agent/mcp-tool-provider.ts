@@ -59,6 +59,18 @@ export function loadMcpServerToolsInOrder<T>(
 	);
 }
 
+export function selectMcpServersByCapabilities(
+	servers: Readonly<Record<string, McpServerConfig>>,
+	capabilities: readonly McpCapability[]
+): Readonly<Record<string, McpServerConfig>> {
+	const allowed = new Set(capabilities);
+	return Object.fromEntries(
+		Object.entries(servers).filter(([, server]) =>
+			server.capabilities.some((capability) => allowed.has(capability))
+		)
+	);
+}
+
 function configureHotelDataTool(tool: DynamicStructuredTool): DynamicStructuredTool {
 	if (tool.name === DMS_GENERATE_SQL_TOOL_NAME) {
 		tool.name = HOTEL_DATA_GENERATE_SQL_TOOL_NAME;
@@ -78,8 +90,8 @@ function configureHotelDataTool(tool: DynamicStructuredTool): DynamicStructuredT
 }
 
 export class McpToolProvider {
-	private client: MultiServerMCPClient | null = null;
-	private toolsPromise: Promise<readonly DynamicStructuredTool[]> | null = null;
+	private readonly clients = new Set<MultiServerMCPClient>();
+	private readonly toolsPromises = new Map<string, Promise<readonly DynamicStructuredTool[]>>();
 
 	constructor(
 		private readonly servers: Readonly<Record<string, McpServerConfig>>,
@@ -96,19 +108,27 @@ export class McpToolProvider {
 		return new Set(Object.values(this.servers).flatMap((server) => server.capabilities));
 	}
 
-	getTools(): Promise<readonly DynamicStructuredTool[]> {
-		if (!this.toolsPromise) {
+	getTools(capabilities: readonly McpCapability[]): Promise<readonly DynamicStructuredTool[]> {
+		const normalizedCapabilities = [...new Set(capabilities)].sort();
+		const cacheKey = normalizedCapabilities.join(',') || 'none';
+		const cached = this.toolsPromises.get(cacheKey);
+		if (cached) return cached;
+		const selectedServers = selectMcpServersByCapabilities(this.servers, normalizedCapabilities);
+		const selectedServerCount = Object.keys(selectedServers).length;
+		if (selectedServerCount === 0) return Promise.resolve([]);
+		{
 			const startedAt = performance.now();
 			this.logger?.info?.(
-				{ event: 'agent.mcp.catalog.load.started', serverCount: this.serverCount() },
+				{ event: 'agent.mcp.catalog.load.started', serverCount: selectedServerCount, cacheKey },
 				'MCP tool catalog load started'
 			);
-			this.toolsPromise = this.loadTools()
+			const loading = this.loadTools(selectedServers)
 				.then((tools) => {
 					this.logger?.info?.(
 						{
 							event: 'agent.mcp.catalog.load.completed',
-							serverCount: this.serverCount(),
+							serverCount: selectedServerCount,
+							cacheKey,
 							toolCount: tools.length,
 							durationMs: Math.max(0, Math.round(performance.now() - startedAt))
 						},
@@ -120,25 +140,28 @@ export class McpToolProvider {
 					this.logger?.error?.(
 						{
 							event: 'agent.mcp.catalog.load.failed',
-							serverCount: this.serverCount(),
+							serverCount: selectedServerCount,
+							cacheKey,
 							durationMs: Math.max(0, Math.round(performance.now() - startedAt)),
 							errorType: error instanceof Error ? error.name : 'UnknownError'
 						},
 						'MCP tool catalog load failed'
 					);
-					this.toolsPromise = null;
+					this.toolsPromises.delete(cacheKey);
 					throw error;
 				});
+			this.toolsPromises.set(cacheKey, loading);
+			return loading;
 		}
-		return this.toolsPromise;
 	}
 
-	private async loadTools(): Promise<readonly DynamicStructuredTool[]> {
-		if (this.serverCount() === 0) return [];
+	private async loadTools(
+		servers: Readonly<Record<string, McpServerConfig>>
+	): Promise<readonly DynamicStructuredTool[]> {
 		let resolvedDmsDatabaseId = this.dmsDatabaseId;
 		let resolvedDmsDatabaseName = this.dmsDatabaseName;
 		const connections = Object.fromEntries(
-			Object.entries(this.servers).map(([name, server]) => {
+			Object.entries(servers).map(([name, server]) => {
 				if (server.transport === 'stdio') {
 					return [
 						name,
@@ -199,15 +222,15 @@ export class McpToolProvider {
 				return { result: compactHotelDataToolResult(result) };
 			}
 		});
-		this.client = client;
+		this.clients.add(client);
 
-		const serverNames = Object.keys(this.servers);
+		const serverNames = Object.keys(servers);
 		const loadedByServer = await loadMcpServerToolsInOrder(serverNames, (name) =>
 			client.getTools(name)
 		);
 		const hotelDataIndex = serverNames.indexOf(HOTEL_DATA_MCP_SERVER_NAME);
 		const hotelDataTools = hotelDataIndex < 0 ? [] : (loadedByServer[hotelDataIndex] ?? []);
-		if (this.dmsDatabaseName) {
+		if (hotelDataIndex >= 0 && this.dmsDatabaseName) {
 			const discoveryStartedAt = performance.now();
 			const searchDatabase = hotelDataTools.find(
 				(tool) => tool.name === DMS_SEARCH_DATABASE_TOOL_NAME
@@ -333,21 +356,23 @@ export class McpToolProvider {
 	}
 
 	async close(): Promise<void> {
-		const client = this.client;
+		const clients = [...this.clients];
 		try {
-			if (client) {
-				await runAgentEffect(
-					agentPromise({
-						service: 'mcp',
-						operation: 'close_connections',
-						timeoutMs: 10_000,
-						try: () => client.close()
-					})
-				);
-			}
+			await Promise.all(
+				clients.map((client) =>
+					runAgentEffect(
+						agentPromise({
+							service: 'mcp',
+							operation: 'close_connections',
+							timeoutMs: 10_000,
+							try: () => client.close()
+						})
+					)
+				)
+			);
 		} finally {
-			this.client = null;
-			this.toolsPromise = null;
+			this.clients.clear();
+			this.toolsPromises.clear();
 		}
 	}
 }

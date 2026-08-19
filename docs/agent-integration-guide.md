@@ -20,8 +20,8 @@ AI_DMS_MCP_BEARER_TOKEN="replace-with-server-token"
 AI_DMS_DATABASE_NAME="rms_data"
 AI_DMS_DATABASE_ID="replace-with-reviewed-database-id"
 
-# 默认启用仓库固定版本的公共天气 MCP；不需要 API Key。
-AI_PUBLIC_WEATHER_MCP_ENABLED="true"
+# 公共天气 MCP 默认关闭；只有明确注册对应业务意图时才按需启用。
+AI_PUBLIC_WEATHER_MCP_ENABLED="false"
 
 # server name -> @langchain/mcp-adapters HTTP/SSE/stdio connection
 AI_MCP_SERVERS_JSON='{
@@ -213,7 +213,7 @@ const started = await client.agent.startRun.mutate({
 → server 校验并暂存 UI spec；只在保存 assistant Message 和发布 run_completed 时一起提交
 ```
 
-固定天气 MCP 当前返回 Markdown，因此由版本化天气适配器提取常用字段并保留有界原文；它不被假设为 JavaScript 对象。第三方 MCP 若提供 `structuredContent`，证据层优先使用；若只有 JSON 文本则解析后校验；若只有普通文本则保留为 `unstructured` 并在最终回答中说明字段级校验限制。
+天气 MCP 当前默认关闭，普通天气和天气相关的一般酒店建议直接由 LLM 回答。未来若显式注册天气业务意图，现有版本化天气适配器可提取 Markdown 中的常用字段并保留有界原文；第三方 MCP 若提供 `structuredContent`，证据层优先使用，若只有 JSON 文本则解析后校验，若只有普通文本则保留为 `unstructured` 并在最终回答中说明字段级校验限制。
 
 服务端用不含正文和结果的结构化日志区分耗时：`agent.workflow.collection.*`、`agent.workflow.evidence.assessed` 和 `agent.answer.model.*`。客户端原有的 `tool_started/tool_completed` 继续表示用户可见的工具生命周期；结果视图只在 Run 成功结束后显示，不提前渲染空框或候选视图。
 
@@ -277,7 +277,7 @@ type AgentPrincipal = {
 
 ## MCP 与 Skill 扩展
 
-`AI_MCP_SERVERS_JSON` 的每个 entry 交给 `MultiServerMCPClient`，支持 HTTP、SSE 和 stdio。远端必须 HTTPS，本机开发可使用 loopback HTTP。系统没有“开启写工具”的配置：加载层始终拒绝 create/update/delete/refund/pay/publish 等写入语义工具，业务路由层也会把订单、价格、库存、房态、支付和配置变更确定性拒绝。内置 DMS 在工具初始化时由程序调用 `searchDatabase`，按 `AI_DMS_DATABASE_NAME` 要求唯一精确匹配，并可用 `AI_DMS_DATABASE_ID` 二次核对；随后只向 Agent 暴露 `listTables`、受同一 schema 约束的 `getTableDetailInfo`、`generateSql` 与经程序校验的 `executeScript`，且每次覆盖模型提交的 databaseId。无法绑定 DatabaseId 的 `askDatabase`、实例管理、数据变更单和审批工具不会进入 Agent。专用经营概览由代码构造固定聚合 SELECT，只调用一次 SQL 工具；通用酒店数据问题才允许受限 schema/SQL Agent。`capabilities` 接受 `weather`、`hotel_rates` 与内置 DMS 的 `hotel_data`；快捷操作仅在对应能力真实配置时返回。不要把 MCP URL、command、args 或 header 暴露成用户输入。生产 MCP server 仍应按凭证实施真正的只读权限。
+`AI_MCP_SERVERS_JSON` 只声明可用连接，不会让 Agent 自动加载这些 MCP。通用意图始终直接调用 LLM，并携带会话历史、摘要和员工记忆；MCP 与业务 Skill 清单为空，只保留用户明确要求记忆时使用的本地长期记忆工具，不提供生成式 UI。只有选中的服务端业务意图显式声明某项 capability、Skill 或本地工具时，运行时才加载该意图所需的依赖。每个获准的 MCP entry 交给 `MultiServerMCPClient`，支持 HTTP、SSE 和 stdio。远端必须 HTTPS，本机开发可使用 loopback HTTP。系统没有“开启写工具”的配置：加载层始终拒绝 create/update/delete/refund/pay/publish 等写入语义工具，业务路由层也会把订单、价格、库存、房态、支付和配置变更确定性拒绝。内置 DMS 在工具初始化时由程序调用 `searchDatabase`，按 `AI_DMS_DATABASE_NAME` 要求唯一精确匹配，并可用 `AI_DMS_DATABASE_ID` 二次核对；随后只向 Agent 暴露 `listTables`、受同一 schema 约束的 `getTableDetailInfo`、`generateSql` 与经程序校验的 `executeScript`，且每次覆盖模型提交的 databaseId。无法绑定 DatabaseId 的 `askDatabase`、实例管理、数据变更单和审批工具不会进入 Agent。专用经营概览由代码构造固定聚合 SELECT，只调用一次 SQL 工具；通用酒店数据问题才允许受限 schema/SQL Agent。`capabilities` 接受 `weather`、`hotel_rates` 与内置 DMS 的 `hotel_data`；快捷操作仅在对应能力真实配置时返回。不要把 MCP URL、command、args 或 header 暴露成用户输入。生产 MCP server 仍应按凭证实施真正的只读权限。
 
 Skill 当前是显式空实现：
 

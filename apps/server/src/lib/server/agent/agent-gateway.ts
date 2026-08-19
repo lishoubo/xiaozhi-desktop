@@ -35,7 +35,12 @@ import type { SkillProvider } from './skill-provider';
 import { getHotelQuickAction, listHotelQuickActions } from './hotel-quick-actions';
 import type { BusinessIntentRouter } from './execution/business-intent-router';
 import { resolveRelativeDateRange, type BusinessSlotResolver } from './execution/slot-resolver';
-import { getIntentDefinition } from './execution/intent-registry';
+import {
+	executionPolicyForIntent,
+	generalConversationExecutionPolicy,
+	getIntentDefinition,
+	presentationPolicyForIntent
+} from './execution/intent-registry';
 import { assessEvidence, normalizeEvidence } from './execution/evidence';
 import { buildNoHotelDataAnswer } from './execution/no-data-answer';
 import { buildRoutingContext } from './execution/routing-context';
@@ -925,6 +930,7 @@ export class HotelAgentGateway implements AgentGateway {
 								conversationSummary: prepared.summary,
 								history: prepared.history,
 								memories,
+								...executionPolicyForIntent(workflowRequest.intent),
 								signal: controller.signal,
 								workflowRequest,
 								emit: (event) =>
@@ -1113,6 +1119,7 @@ export class HotelAgentGateway implements AgentGateway {
 									conversationSummary: null,
 									history: [],
 									memories,
+									...presentationPolicyForIntent(execution.state.request.intent),
 									signal: controller.signal,
 									workflowRequest: execution.state.request,
 									validatedEvidence: execution.state.evidence,
@@ -1178,6 +1185,7 @@ export class HotelAgentGateway implements AgentGateway {
 									conversationSummary: null,
 									history: [],
 									memories,
+									...presentationPolicyForIntent(execution.state.request.intent),
 									signal: controller.signal,
 									workflowRequest: execution.state.request,
 									validatedEvidence: execution.state.evidence,
@@ -1212,6 +1220,7 @@ export class HotelAgentGateway implements AgentGateway {
 							conversationSummary: prepared.summary,
 							history: prepared.history,
 							memories,
+							...generalConversationExecutionPolicy,
 							signal: controller.signal,
 							emit: (event) =>
 								this.forwardRuntimeEvent(
@@ -1261,6 +1270,7 @@ export class HotelAgentGateway implements AgentGateway {
 				conversationSummary: prepared.summary,
 				history: prepared.history,
 				memories,
+				...generalConversationExecutionPolicy,
 				signal: controller.signal,
 				emit: (event) =>
 					this.forwardRuntimeEvent(

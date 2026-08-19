@@ -5,12 +5,41 @@ import {
 	DuplicateUiRenderError,
 	completeGroundedAnswerAfterUi,
 	groundedAnalysisWritingInstructions,
+	isLocalToolAllowed,
 	recoverCompletedUiAfterRenderLimit,
 	selectWorkflowToolNames,
+	shouldLoadMcpTools,
+	shouldLoadSkills,
 	shouldCaptureToolEvidence,
 	shouldSuppressUiRenderCall,
 	shouldStopDuplicateUiRender
 } from './langchain-agent-runtime';
+
+describe('shouldLoadMcpTools', () => {
+	it('denies MCP by default and only loads an explicit collection-phase allowlist', () => {
+		expect(shouldLoadMcpTools({ allowedMcpCapabilities: [] })).toBe(false);
+		expect(shouldLoadMcpTools({ allowedMcpCapabilities: ['hotel_data'] })).toBe(true);
+		expect(
+			shouldLoadMcpTools({ allowedMcpCapabilities: ['hotel_data'], validatedEvidence: [] })
+		).toBe(false);
+	});
+});
+
+describe('shouldLoadSkills', () => {
+	it('loads skills only when the active intent explicitly names them', () => {
+		expect(shouldLoadSkills({ allowedSkillNames: [] })).toBe(false);
+		expect(shouldLoadSkills({ allowedSkillNames: ['night-audit'] })).toBe(true);
+	});
+});
+
+describe('isLocalToolAllowed', () => {
+	it('keeps local memory but excludes generative UI from general conversation', () => {
+		const general = { allowedLocalToolNames: ['remember_long_term_memory'] as const };
+
+		expect(isLocalToolAllowed(general, 'remember_long_term_memory')).toBe(true);
+		expect(isLocalToolAllowed(general, 'render_hotel_ui')).toBe(false);
+	});
+});
 
 const ui: GenerativeUiSpec = {
 	root: 'root',

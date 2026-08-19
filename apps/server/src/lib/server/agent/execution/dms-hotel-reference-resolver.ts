@@ -3,7 +3,9 @@ import { HOTEL_DATA_SQL_TOOL_NAME } from '../hotel-data-mcp';
 import { agentPromise, runAgentEffect } from '../agent-effect';
 import type { HotelCandidate, HotelReferenceResolver } from './slot-resolver';
 
-type McpToolsPort = Readonly<{ getTools(): Promise<readonly DynamicStructuredTool[]> }>;
+type McpToolsPort = Readonly<{
+	getTools(capabilities: readonly ['hotel_data']): Promise<readonly DynamicStructuredTool[]>;
+}>;
 
 function collectText(value: unknown, output: string[], depth = 0): void {
 	if (depth > 8) return;
@@ -81,7 +83,7 @@ export class DmsHotelReferenceResolver implements HotelReferenceResolver {
 		...input: readonly [reference: string, orgId: string]
 	): Promise<readonly HotelCandidate[]> {
 		const [reference] = input;
-		const queryTool = (await this.tools.getTools()).find(
+		const queryTool = (await this.tools.getTools(['hotel_data'])).find(
 			(tool) => tool.name === HOTEL_DATA_SQL_TOOL_NAME
 		);
 		if (!queryTool) return [];

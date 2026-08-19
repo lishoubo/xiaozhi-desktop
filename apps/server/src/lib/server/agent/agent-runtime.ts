@@ -1,5 +1,6 @@
 import type { AgentMessage, AgentPrincipal, GenerativeUiSpec } from '@hotel-butler/api';
 import type { EvidenceRecord, ResolvedBusinessRequest } from './execution/business-execution-state';
+import type { McpCapability } from './agent-config';
 import type { McpResultSummary } from './mcp-observability';
 
 export type AgentRuntimeMemory = Readonly<{
@@ -7,6 +8,8 @@ export type AgentRuntimeMemory = Readonly<{
 	content: string;
 	importance: number;
 }>;
+
+export type AgentLocalToolName = 'remember_long_term_memory' | 'render_hotel_ui';
 
 export type PublishableRuntimeEvent =
 	| Readonly<{ type: 'text_delta'; delta: string }>
@@ -54,6 +57,9 @@ export type AgentRuntimeRunOptions = Readonly<{
 	conversationSummary: string | null;
 	history: readonly AgentMessage[];
 	memories?: readonly AgentRuntimeMemory[];
+	allowedMcpCapabilities: readonly McpCapability[];
+	allowedSkillNames: readonly string[];
+	allowedLocalToolNames: readonly AgentLocalToolName[];
 	signal: AbortSignal;
 	emit(event: RuntimeEvent): Promise<void>;
 	workflowRequest?: ResolvedBusinessRequest;

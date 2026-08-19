@@ -1,5 +1,6 @@
 import type { AgentBusinessIntent } from '@hotel-butler/api';
 import type { McpCapability } from '../agent-config';
+import type { AgentLocalToolName } from '../agent-runtime';
 
 export type SlotDefinition = Readonly<{
 	name: string;
@@ -9,7 +10,9 @@ export type SlotDefinition = Readonly<{
 
 export type IntentDefinition = Readonly<{
 	intent: AgentBusinessIntent;
-	capability: McpCapability;
+	mcpCapabilities: readonly McpCapability[];
+	skillNames: readonly string[];
+	localToolNames: readonly AgentLocalToolName[];
 	workflowId: string;
 	slots: readonly SlotDefinition[];
 	maxToolCalls: number;
@@ -20,7 +23,9 @@ export type IntentDefinition = Readonly<{
 const definitions = [
 	{
 		intent: 'weather_operations_advice',
-		capability: 'weather',
+		mcpCapabilities: [],
+		skillNames: [],
+		localToolNames: ['render_hotel_ui'],
 		workflowId: 'weather_operations_advice.v1',
 		slots: [
 			{ name: 'location', required: true },
@@ -32,7 +37,9 @@ const definitions = [
 	},
 	{
 		intent: 'hotel_operating_summary',
-		capability: 'hotel_data',
+		mcpCapabilities: ['hotel_data'],
+		skillNames: [],
+		localToolNames: ['render_hotel_ui'],
 		workflowId: 'hotel_operating_summary.v1',
 		slots: [
 			{ name: 'hotelReference', required: true },
@@ -44,7 +51,9 @@ const definitions = [
 	},
 	{
 		intent: 'public_hotel_rates',
-		capability: 'hotel_rates',
+		mcpCapabilities: ['hotel_rates'],
+		skillNames: [],
+		localToolNames: ['render_hotel_ui'],
 		workflowId: 'public_hotel_rates.v1',
 		slots: [
 			{ name: 'hotelReference', required: true },
@@ -59,7 +68,9 @@ const definitions = [
 	},
 	{
 		intent: 'generic_hotel_data_query',
-		capability: 'hotel_data',
+		mcpCapabilities: ['hotel_data'],
+		skillNames: [],
+		localToolNames: ['render_hotel_ui'],
 		workflowId: 'generic_hotel_data_query.v1',
 		slots: [
 			{ name: 'hotelReference', required: true },
@@ -94,4 +105,30 @@ export function getIntentDefinition(intent: AgentBusinessIntent): IntentDefiniti
 
 export function listIntentDefinitions(): readonly IntentDefinition[] {
 	return definitions;
+}
+
+export type IntentExecutionPolicy = Readonly<{
+	allowedMcpCapabilities: readonly McpCapability[];
+	allowedSkillNames: readonly string[];
+	allowedLocalToolNames: readonly AgentLocalToolName[];
+}>;
+
+export const generalConversationExecutionPolicy: IntentExecutionPolicy = {
+	allowedMcpCapabilities: [],
+	allowedSkillNames: [],
+	allowedLocalToolNames: ['remember_long_term_memory']
+};
+
+export function executionPolicyForIntent(intent: AgentBusinessIntent): IntentExecutionPolicy {
+	const definition = getIntentDefinition(intent);
+	return {
+		allowedMcpCapabilities: definition.mcpCapabilities,
+		allowedSkillNames: definition.skillNames,
+		allowedLocalToolNames: definition.localToolNames
+	};
+}
+
+export function presentationPolicyForIntent(intent: AgentBusinessIntent): IntentExecutionPolicy {
+	const policy = executionPolicyForIntent(intent);
+	return { ...policy, allowedMcpCapabilities: [] };
 }
