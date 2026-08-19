@@ -87,6 +87,13 @@ analysis SHALL use low reasoning effort.
   generates a conversation title
 - **THEN** it uses `AI_KIMI_FAST_MODEL`, defaulting to `kimi-k2.6`
 - **AND** does not enable Kimi thinking for K2.6
+- **AND** structured route classification explicitly uses Kimi-compatible function calling
+
+#### Scenario: Bypass classification for an obvious general prompt
+
+- **WHEN** the user sends a simple greeting or standalone weather question
+- **THEN** the server selects general conversation without a classifier model call
+- **AND** the general LLM call still receives conversation history and employee memory
 
 #### Scenario: Analyze validated business evidence
 

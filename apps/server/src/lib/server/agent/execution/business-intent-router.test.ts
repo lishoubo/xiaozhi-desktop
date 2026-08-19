@@ -24,6 +24,22 @@ describe('business route MCP dependencies', () => {
 import { getIntentDefinition } from './intent-registry';
 
 describe('BusinessIntentRouter', () => {
+	it('routes a simple greeting without invoking the model classifier', async () => {
+		const classifier = {
+			classify: vi.fn().mockRejectedValue(new Error('classifier must not run for a greeting'))
+		};
+		const router = new BusinessIntentRouter(classifier);
+
+		await expect(router.route({ kind: 'prompt', text: '你好' })).resolves.toEqual({
+			routeKind: 'general_conversation',
+			intent: null,
+			slots: {},
+			confidence: 1,
+			responseMode: 'analysis'
+		});
+		expect(classifier.classify).not.toHaveBeenCalled();
+	});
+
 	it('maps a server-owned quick action without invoking the classifier', async () => {
 		const classifier = { classify: vi.fn() };
 		const router = new BusinessIntentRouter(classifier);
@@ -263,7 +279,7 @@ describe('BusinessIntentRouter', () => {
 	});
 
 	it('corrects standalone weather to general conversation without hotel slots', async () => {
-		const router = new BusinessIntentRouter({
+		const classifier = {
 			classify: vi.fn().mockResolvedValue({
 				category: 'business_read',
 				intentCandidate: 'generic_hotel_data_query',
@@ -272,7 +288,8 @@ describe('BusinessIntentRouter', () => {
 				confidence: 0.7,
 				slots: { hotelReference: '当前酒店' }
 			})
-		});
+		};
+		const router = new BusinessIntentRouter(classifier);
 
 		await expect(router.route({ kind: 'prompt', text: '今天天气如何？' })).resolves.toEqual({
 			routeKind: 'general_conversation',
@@ -281,10 +298,11 @@ describe('BusinessIntentRouter', () => {
 			confidence: 0.95,
 			responseMode: 'analysis'
 		});
+		expect(classifier.classify).not.toHaveBeenCalled();
 	});
 
 	it('keeps weather-informed operating advice on the LLM-only hotel knowledge route', async () => {
-		const router = new BusinessIntentRouter({
+		const classifier = {
 			classify: vi.fn().mockResolvedValue({
 				category: 'business_read',
 				intentCandidate: 'weather_operations_advice',
@@ -293,7 +311,8 @@ describe('BusinessIntentRouter', () => {
 				confidence: 0.9,
 				slots: { location: '杭州' }
 			})
-		});
+		};
+		const router = new BusinessIntentRouter(classifier);
 
 		await expect(
 			router.route({ kind: 'prompt', text: '结合杭州今天的天气给酒店经营和排班建议' })
@@ -304,6 +323,7 @@ describe('BusinessIntentRouter', () => {
 			confidence: 0.95,
 			responseMode: 'analysis'
 		});
+		expect(classifier.classify).not.toHaveBeenCalled();
 	});
 
 	it('honors an explicit request not to query internal hotel data', async () => {

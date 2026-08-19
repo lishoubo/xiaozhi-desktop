@@ -18,6 +18,18 @@ declare the minimum MCP capabilities and Skill names required by its fixed workf
   something
 - **AND** does not expose generative UI to the general route
 
+#### Scenario: Obvious general request
+
+- **WHEN** the prompt is a simple greeting or a standalone weather request
+- **THEN** the server routes it without invoking the model classifier
+- **AND** the selected general execution still receives history and memory
+
+#### Scenario: Model-assisted intent classification
+
+- **WHEN** a free-text request requires model-assisted routing
+- **THEN** the fast Kimi tier uses thinking-disabled function calling for structured output
+- **AND** does not rely on LangChain's inferred OpenAI JSON Schema mode
+
 #### Scenario: Hotel knowledge without live facts
 
 - **WHEN** a user asks for hospitality knowledge or operating advice that does not require the user's

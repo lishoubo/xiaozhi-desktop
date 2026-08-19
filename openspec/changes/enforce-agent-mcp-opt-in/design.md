@@ -20,6 +20,10 @@ the user's real hotel facts; both LLM-only routes receive history and memory but
 explicit real-data request continues through the business-read flow and may use DMS for the hotel
 facts only.
 
+Obvious greetings and weather requests are classified deterministically before any model call. Other
+free-text routing uses the fast Kimi tier with thinking disabled and forces LangChain structured
+output through `functionCalling`; the OpenAI adapter's inferred JSON Schema mode is not used for Kimi.
+
 ## Extensibility
 
 Configuration makes an MCP server available to the application; it does not authorize use. Adding a

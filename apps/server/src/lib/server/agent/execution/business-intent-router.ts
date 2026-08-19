@@ -48,6 +48,8 @@ const hotelOperationsContext =
 const hotelFactMetric =
 	/(?:经营数据|经营概览|入住率|出租率|房价|收益|营收|订单|预订|房态|库存|渠道数据|RevPAR|ADR|GMV)/i;
 const ownedHotelReference = /(?:我们|我方|本酒店|当前酒店|这家酒店|我的酒店)/i;
+const simpleGreeting =
+	/^(?:你?好|您好|嗨|哈[喽啰罗]|hello|hi|早上好|上午好|下午好|晚上好|在吗|谢谢|感谢|再见)[!！?？,.，。~～\s]*$/i;
 const internalLookupDeclined =
 	/(?:不要|不用|无需|别).{0,10}(?:查询|查找|读取|调用).{0,10}(?:系统|内部|酒店|经营)?(?:信息|数据)?|(?:不查询|不查|不读取)(?:系统|内部|酒店|经营)?(?:信息|数据)?/i;
 
@@ -166,16 +168,18 @@ export class BusinessIntentRouter {
 				responseMode: 'analysis'
 			};
 		}
-
-		const proposed = routeClassifierOutputSchema.parse(
-			await this.classifier.classify({
-				text: input.text,
-				...(input.context ? { context: input.context } : {})
-			})
-		);
-		if (proposed.requestedEffect === 'write' || directWriteRequest.test(input.text)) {
+		if (directWriteRequest.test(input.text)) {
 			return {
 				routeKind: 'business_write',
+				intent: null,
+				slots: {},
+				confidence: 1,
+				responseMode: 'analysis'
+			};
+		}
+		if (simpleGreeting.test(input.text)) {
+			return {
+				routeKind: 'general_conversation',
 				intent: null,
 				slots: {},
 				confidence: 1,
@@ -189,7 +193,23 @@ export class BusinessIntentRouter {
 					: 'general_conversation',
 				intent: null,
 				slots: {},
-				confidence: Math.max(proposed.confidence, 0.95),
+				confidence: 0.95,
+				responseMode: 'analysis'
+			};
+		}
+
+		const proposed = routeClassifierOutputSchema.parse(
+			await this.classifier.classify({
+				text: input.text,
+				...(input.context ? { context: input.context } : {})
+			})
+		);
+		if (proposed.requestedEffect === 'write') {
+			return {
+				routeKind: 'business_write',
+				intent: null,
+				slots: {},
+				confidence: 1,
 				responseMode: 'analysis'
 			};
 		}
