@@ -43,7 +43,6 @@
     isPendingBusinessExecutionConflict,
     messageOwnsPendingClarification,
     shouldDisplayExecutionTrace,
-    usesWideGenerativeUiLayout,
   } from '../agent-presentation';
   import { greetingName } from '../session-greeting.svelte';
   import { isAgentViewportNearBottom } from '../agent-scroll';
@@ -684,7 +683,10 @@
       aria-live="polite"
       onscroll={handleConversationScroll}
     >
-      <div bind:this={conversationContent} class="mx-auto w-full max-w-5xl px-7 py-8">
+      <div
+        bind:this={conversationContent}
+        class="mx-auto w-full max-w-[1280px] px-6 py-8 sm:px-8 lg:px-10"
+      >
         {#if loading}
           <div class="flex items-center justify-center gap-2 py-20 text-sm text-muted-foreground">
             <LoaderCircle class="animate-spin" size={18} />正在读取会话
@@ -727,62 +729,77 @@
         {#each messages as message (message.id)}
           {@const execution = executionForDisplayedMessage(executions, message)}
           <article
-            class:justify-end={message.role === 'user'}
-            class="mt-6 flex gap-3"
+            class="mt-6"
             data-agent-message-id={message.id}
             data-agent-message-role={message.role}
           >
-            {#if message.role === 'assistant'}<AgentAvatar size="sm" />{/if}
             <div
               class={[
-                'min-w-0',
-                usesWideGenerativeUiLayout(message) ? 'w-full max-w-none' : 'max-w-[82%]',
+                'mx-auto flex w-full max-w-4xl gap-3',
+                message.role === 'user' ? 'justify-end' : '',
               ]}
             >
-              <p
-                class={[
-                  'mt-0 mb-2 text-xs font-semibold text-muted-foreground',
-                  message.role === 'user' ? 'text-right' : 'text-left',
-                ]}
-              >
-                {message.role === 'assistant' ? AGENT_CHAT_DISPLAY_NAME : currentUserDisplayName}
-              </p>
-              {#if execution && message.role === 'assistant' && shouldDisplayExecutionTrace(execution)}
-                <AgentExecutionTimeline trace={execution} />
-              {/if}
-              {#if message.content && message.role === 'assistant'}
-                <div class:max-w-3xl={usesWideGenerativeUiLayout(message)}>
-                  <AgentMarkdown content={message.content} />
-                </div>
-              {:else if message.content}
+              {#if message.role === 'assistant'}<AgentAvatar size="sm" />{/if}
+              <div class={['min-w-0', message.role === 'assistant' ? 'flex-1' : 'max-w-[82%]']}>
                 <p
-                  class="m-0 whitespace-pre-wrap rounded-xl bg-secondary px-4 py-3 text-sm leading-7 transition-colors duration-200 ease-out"
+                  class={[
+                    'mt-0 mb-2 text-xs font-semibold text-muted-foreground',
+                    message.role === 'user' ? 'text-right' : 'text-left',
+                  ]}
                 >
-                  {message.content}
+                  {message.role === 'assistant' ? AGENT_CHAT_DISPLAY_NAME : currentUserDisplayName}
                 </p>
-              {/if}
-              {#if message.ui}
-                <div class="mt-3"><HotelGenerativeUi spec={message.ui} /></div>
-              {/if}
-              {#if pendingClarification && messageOwnsPendingClarification(activeBusinessExecution, message, messages)}
-                <AgentClarificationCard
-                  clarification={pendingClarification}
-                  submitting={clarificationSubmitting}
-                  onsubmit={(answers) => void submitClarification({ answers })}
-                  oncancel={() => void cancelPendingBusinessExecution()}
-                />
-              {/if}
+                {#if execution && message.role === 'assistant' && shouldDisplayExecutionTrace(execution)}
+                  <div class="max-w-2xl">
+                    <AgentExecutionTimeline trace={execution} />
+                  </div>
+                {/if}
+                {#if message.content && message.role === 'assistant'}
+                  <div
+                    class={[
+                      'w-full',
+                      execution && shouldDisplayExecutionTrace(execution) ? 'mt-5' : '',
+                    ]}
+                  >
+                    <AgentMarkdown content={message.content} />
+                  </div>
+                {:else if message.content}
+                  <p
+                    class="m-0 whitespace-pre-wrap rounded-xl bg-secondary px-4 py-3 text-sm leading-7 transition-colors duration-200 ease-out"
+                  >
+                    {message.content}
+                  </p>
+                {/if}
+                {#if message.ui}
+                  <div class="mt-5 w-full">
+                    <HotelGenerativeUi spec={message.ui} />
+                  </div>
+                {/if}
+                {#if pendingClarification && messageOwnsPendingClarification(activeBusinessExecution, message, messages)}
+                  <AgentClarificationCard
+                    clarification={pendingClarification}
+                    submitting={clarificationSubmitting}
+                    onsubmit={(answers) => void submitClarification({ answers })}
+                    oncancel={() => void cancelPendingBusinessExecution()}
+                  />
+                {/if}
+              </div>
+              {#if message.role === 'user'}<UserAvatar name={currentUserDisplayName} />{/if}
             </div>
-            {#if message.role === 'user'}<UserAvatar name={currentUserDisplayName} />{/if}
           </article>
           {#if execution && message.role === 'user' && shouldDisplayExecutionTrace(execution)}
-            <article class="mt-3 flex gap-3" data-agent-execution-for-message={message.id}>
+            <article
+              class="mx-auto mt-3 flex w-full max-w-4xl gap-3"
+              data-agent-execution-for-message={message.id}
+            >
               <AgentAvatar size="sm" />
               <div class="min-w-0 flex-1">
                 <p class="mt-0 mb-2 text-xs font-semibold text-muted-foreground">
                   {AGENT_CHAT_DISPLAY_NAME}
                 </p>
-                <AgentExecutionTimeline trace={execution} />
+                <div class="max-w-2xl">
+                  <AgentExecutionTimeline trace={execution} />
+                </div>
               </div>
             </article>
           {/if}
@@ -790,25 +807,43 @@
 
         {#if sending || draftContent || draftUi}
           {@const execution = activeExecution()}
-          <article class="mt-6 flex gap-3">
-            <AgentAvatar size="sm" />
-            <div class="min-w-0 flex-1">
-              <p class="mt-0 mb-2 text-xs font-semibold text-muted-foreground">
-                {AGENT_CHAT_DISPLAY_NAME}
-              </p>
-              {#if execution && shouldDisplayExecutionTrace(execution)}
-                <AgentExecutionTimeline trace={execution} />
-              {/if}
-              {#if draftContent}
-                <AgentMarkdown content={draftContent} />
-              {:else}
-                <p class="m-0 inline-flex items-center gap-2 text-sm text-muted-foreground">
-                  <LoaderCircle class="animate-spin" size={15} />正在理解任务…
+          <article class="mt-6">
+            <div class="mx-auto flex w-full max-w-4xl gap-3">
+              <AgentAvatar size="sm" />
+              <div class="min-w-0 flex-1">
+                <p class="mt-0 mb-2 text-xs font-semibold text-muted-foreground">
+                  {AGENT_CHAT_DISPLAY_NAME}
                 </p>
-              {/if}
-              {#if draftUi}
-                <div class="mt-3"><HotelGenerativeUi spec={draftUi} /></div>
-              {/if}
+                {#if execution && shouldDisplayExecutionTrace(execution)}
+                  <div class="max-w-2xl">
+                    <AgentExecutionTimeline trace={execution} />
+                  </div>
+                {/if}
+                {#if draftContent}
+                  <div
+                    class={[
+                      'w-full',
+                      execution && shouldDisplayExecutionTrace(execution) ? 'mt-5' : '',
+                    ]}
+                  >
+                    <AgentMarkdown content={draftContent} />
+                  </div>
+                {:else}
+                  <p
+                    class={[
+                      'mb-0 inline-flex items-center gap-2 text-sm text-muted-foreground',
+                      execution && shouldDisplayExecutionTrace(execution) ? 'mt-5' : 'mt-2',
+                    ]}
+                  >
+                    <LoaderCircle class="animate-spin" size={15} />正在理解任务…
+                  </p>
+                {/if}
+                {#if draftUi}
+                  <div class="mt-5 w-full">
+                    <HotelGenerativeUi spec={draftUi} />
+                  </div>
+                {/if}
+              </div>
             </div>
           </article>
         {/if}

@@ -32,6 +32,10 @@ describe('buildDeterministicOperatingAnswer', () => {
 
 		expect(result?.content).toContain('2026-08-10 至 2026-08-16');
 		expect(result?.content).toContain('成交金额合计 4,986.79 元');
+		expect(result?.ui.elements.root).toMatchObject({
+			type: 'Stack',
+			props: { direction: 'vertical', gap: 'lg', align: 'stretch', justify: 'start' }
+		});
 		expect(result?.ui.elements.trend).toMatchObject({
 			type: 'HotelLineChart',
 			props: {
@@ -61,7 +65,9 @@ describe('buildDeterministicOperatingAnswer', () => {
 				{
 					evidenceId: '77777777-7777-4777-8777-777777777777',
 					source: 'aliyun_dms_mcp',
-					data: { data: '| hotel_id | data_date | gmv |\n| --- | --- | --- |\n| 4 | 2026-08-10 | 100 |' }
+					data: {
+						data: '| hotel_id | data_date | gmv |\n| --- | --- | --- |\n| 4 | 2026-08-10 | 100 |'
+					}
 				}
 			]
 		);

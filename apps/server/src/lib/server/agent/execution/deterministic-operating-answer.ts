@@ -203,7 +203,9 @@ export function buildDeterministicOperatingAnswer(
 	const elements: GenerativeUiSpec['elements'] = {
 		root: {
 			type: showTrend ? 'Stack' : 'Card',
-			props: {},
+			props: showTrend
+				? { direction: 'vertical', gap: 'lg', align: 'stretch', justify: 'start' }
+				: {},
 			children: showTrend ? ['trend', 'detail'] : ['detail'],
 			visible: true
 		},
