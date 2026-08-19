@@ -19,6 +19,18 @@ clarified before exposing a business tool.
 - **THEN** the system routes it to the constrained generic hotel-data workflow
 - **AND** does not reject it merely because the wording or metric was not anticipated
 
+#### Scenario: Route a standalone general question
+
+- **WHEN** a prompt asks about weather or another general capability without hotel-operating context
+- **THEN** it routes to ordinary Agent conversation and does not request hotel fields
+- **AND** ordinary Agent tools remain available for completing the general task
+
+#### Scenario: Honor an explicit no-internal-data request
+
+- **WHEN** the user explicitly asks not to query internal hotel data
+- **THEN** the router does not start the hotel business-read workflow
+- **AND** may answer as hotel knowledge without claiming current internal facts
+
 ### Requirement: Complete write denial
 
 The Hotel Agent SHALL reject requested business writes and SHALL NOT load or call a write-capable MCP
@@ -132,6 +144,13 @@ scope, period, required metric coverage, filtering and available freshness metad
 - **WHEN** data is empty, mismatched or still incomplete after one bounded follow-up
 - **THEN** the system states what cannot be concluded and why
 - **AND** does not fabricate a business conclusion or generated result UI
+
+#### Scenario: A valid hotel query returns no rows
+
+- **WHEN** the constrained hotel query succeeds but contains no records for the resolved hotel and
+  date range
+- **THEN** the execution completes normally with a friendly text-only no-data message
+- **AND** does not expose DMS, MCP, SQL or an internal service-failure label to the user
 
 ### Requirement: Deterministic dedicated collection
 

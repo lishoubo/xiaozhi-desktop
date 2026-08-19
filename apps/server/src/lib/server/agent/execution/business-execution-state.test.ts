@@ -118,6 +118,22 @@ describe('business execution state machine', () => {
 		});
 	});
 
+	it('answers a confirmed no-data result without another collection pass', () => {
+		const validating: BusinessExecutionState = {
+			status: 'validating_evidence',
+			request,
+			evidence: [],
+			followUpUsed: false
+		};
+
+		expect(
+			transitionBusinessExecution(validating, {
+				type: 'evidence_validated',
+				assessment: { status: 'no_data' }
+			})
+		).toMatchObject({ status: 'answering', mode: 'no_data', limitations: [] });
+	});
+
 	it('rejects a clarification value outside the server-owned choices', () => {
 		const waiting: BusinessExecutionState = {
 			status: 'awaiting_clarification',

@@ -1,6 +1,6 @@
 # 酒店 Agent 接入与调用链
 
-本文描述 desktop、server、Kimi K3、受限 MCP、执行状态机、json-render 与 PostgreSQL 的端到端接入。Agent 保持单实例编排，不启用子 Agent。
+本文描述 desktop、server、Kimi 分层模型、受限 MCP、执行状态机、json-render 与 PostgreSQL 的端到端接入。Agent 保持单实例编排，不启用子 Agent。
 
 ## 配置
 
@@ -9,6 +9,9 @@
 ```dotenv
 AI_KIMI_API_KEY="replace-with-kimi-api-key"
 AI_KIMI_BASE_URL="https://api.moonshot.cn/v1"
+# 分类、摘要、取证和常规回答；K2.6 请求会由服务端关闭思考。
+AI_KIMI_FAST_MODEL="kimi-k2.6"
+# 仅用于验证数据后的复杂经营分析；K3 请求使用 low 推理强度。
 AI_KIMI_MODEL="kimi-k3"
 
 # 新通用 DMS MCP 先按名称发现数据库；ID 可作为额外的上线校验。
@@ -36,7 +39,7 @@ XIAOZHI_RMS_SERVER_URL="https://rms.example.com"
 
 API Key 和 MCP header 只存在于 server 环境，不能使用 `PUBLIC_` 前缀，也不会进入 renderer、tRPC payload 或日志。生产环境建议改用部署平台 secret manager 或加密的 dotenvx 流程。
 
-国内站 API Key 使用默认的 `https://api.moonshot.cn/v1`；Global Kimi Open Platform API Key 则把 `AI_KIMI_BASE_URL` 改为 `https://api.moonshot.ai/v1`。Key 与域名必须属于同一平台。
+国内站 API Key 使用默认的 `https://api.moonshot.cn/v1`；Global Kimi Open Platform API Key 则把 `AI_KIMI_BASE_URL` 改为 `https://api.moonshot.ai/v1`。Key 与域名必须属于同一平台，部署前还应通过该端点的 `/models` 确认两个模型 ID 都可用。
 
 ## 完整调用链
 
@@ -56,7 +59,7 @@ flowchart LR
   E --> PG[(PostgreSQL Agent tables)]
   E --> R[受限 HotelAgentRuntime]
   R --> V[Evidence Validator]
-  R --> K[Kimi K3 Chat Completions]
+  R --> K[Kimi K2.6 快速层<br/>Kimi K3 分析层]
   R --> M[@langchain/mcp-adapters]
   M --> SD[searchDatabase 精确发现]
   SD --> MS[固定 DatabaseId 的酒店 MCP 查询]

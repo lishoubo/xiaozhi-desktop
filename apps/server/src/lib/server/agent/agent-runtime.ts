@@ -2,6 +2,12 @@ import type { AgentMessage, AgentPrincipal, GenerativeUiSpec } from '@hotel-butl
 import type { EvidenceRecord, ResolvedBusinessRequest } from './execution/business-execution-state';
 import type { McpResultSummary } from './mcp-observability';
 
+export type AgentRuntimeMemory = Readonly<{
+	key: string;
+	content: string;
+	importance: number;
+}>;
+
 export type PublishableRuntimeEvent =
 	| Readonly<{ type: 'text_delta'; delta: string }>
 	| Readonly<{ type: 'tool_started'; toolCallId: string; toolName: string }>
@@ -47,6 +53,7 @@ export type AgentRuntimeRunOptions = Readonly<{
 	principal: AgentPrincipal;
 	conversationSummary: string | null;
 	history: readonly AgentMessage[];
+	memories?: readonly AgentRuntimeMemory[];
 	signal: AbortSignal;
 	emit(event: RuntimeEvent): Promise<void>;
 	workflowRequest?: ResolvedBusinessRequest;

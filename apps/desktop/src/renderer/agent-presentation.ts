@@ -4,6 +4,12 @@ import type {
   AgentMessage,
 } from '@hotel-butler/api';
 
+export const AGENT_CHAT_DISPLAY_NAME = '小智酒店AI';
+
+export function chatUserDisplayName(name: string | null): string {
+  return name?.trim() || '用户';
+}
+
 export function messageOwnsPendingClarification(
   execution: AgentBusinessExecutionSummary | null,
   message: AgentMessage,
@@ -40,6 +46,10 @@ export function executionForDisplayedMessage(
 
 export function shouldDisplayExecutionTrace(trace: AgentExecutionTrace): boolean {
   return trace.steps.length > 0 || trace.status === 'failed' || trace.status === 'cancelled';
+}
+
+export function usesWideGenerativeUiLayout(message: Pick<AgentMessage, 'role' | 'ui'>): boolean {
+  return message.role === 'assistant' && message.ui !== null;
 }
 
 export function isPendingBusinessExecutionConflict(error: unknown): boolean {

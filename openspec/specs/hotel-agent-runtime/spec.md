@@ -74,6 +74,26 @@ allow an authenticated employee to cancel an owned active run.
 - **WHEN** cancellation is requested for an already terminal owned run
 - **THEN** the server returns its existing terminal status without publishing a duplicate event
 
+### Requirement: Latency-aware Kimi model tiers
+
+The runtime SHALL use the configured fast Kimi tier for routing, context summarization, ordinary
+conversation and conversation-title generation. Explicit evidence-grounded business analysis SHALL
+use the configured analysis Kimi tier. Kimi K2.6 fast calls SHALL disable thinking, while Kimi K3
+analysis SHALL use low reasoning effort.
+
+#### Scenario: Run a fast model phase
+
+- **WHEN** the system classifies a prompt, summarizes context, answers an ordinary question or
+  generates a conversation title
+- **THEN** it uses `AI_KIMI_FAST_MODEL`, defaulting to `kimi-k2.6`
+- **AND** does not enable Kimi thinking for K2.6
+
+#### Scenario: Analyze validated business evidence
+
+- **WHEN** a resolved business request asks for analysis after evidence validation
+- **THEN** the runtime uses the primary analysis model, defaulting to `kimi-k3`
+- **AND** configures low reasoning effort
+
 ### Requirement: Explicit conversation selection
 
 The desktop SHALL start on a new-conversation state and SHALL allow the employee to select,
@@ -129,6 +149,13 @@ an active Run; only an explicit Stop action SHALL request cancellation.
 - **THEN** every conversation owned by that employee and its dependent records are deleted
 - **AND** no other employee's conversation or memory is affected
 
+#### Scenario: Label a new conversation
+
+- **WHEN** the first Run starts in a default-named conversation
+- **THEN** the server immediately derives a bounded fallback topic from the first prompt
+- **AND** asks the fast Kimi tier in parallel for a semantic topic without delaying or failing the Run
+- **AND** replaces only the unchanged fallback title
+
 ### Requirement: Session-derived ownership
 
 Agent ownership SHALL be derived from the authenticated phone cookie or validated staff Bearer session and SHALL NOT be accepted from client input.
@@ -163,13 +190,21 @@ The client SHALL NOT be authoritative for historical context.
 - **AND** prepares it from persisted context without restoring the cancelled Run's hidden state,
   partial draft or tool stack
 
+#### Scenario: Continue after an earlier failed Run
+
+- **WHEN** an employee says `继续` or otherwise refers to the previous request after routing,
+  collection or analysis failed
+- **THEN** bounded recent messages include the failed Run's persisted original user message
+- **AND** the router may recover its intent and slots without replaying hidden execution state
+
 ### Requirement: Incremental context compression
 
 Context compression SHALL preserve all original messages and SHALL store only an incremental
 summary plus the last summarized message ID on the conversation.
 
-For `kimi-k3`, the policy SHALL use the configured 1,048,576-token context capacity, trigger at an
-estimated 262,144 tokens, retain approximately 32,768 recent tokens and at least eight recent
+For `kimi-k3`, the policy SHALL use the configured 1,048,576-token context capacity. For
+`kimi-k2.6`, it SHALL use 262,144 tokens. Each known-model policy SHALL trigger compression at one
+quarter of capacity, retain approximately one eighth as recent context and at least eight recent
 messages, and bound a generated summary to 4,096 tokens. Unknown models SHALL use a conservative
 131,072-token fallback window with the same proportional trigger policy.
 
@@ -294,9 +329,12 @@ Conversation messages SHALL survive process restarts, and employee-scoped long-t
 
 #### Scenario: Prepare memory for a Run
 
-- **WHEN** the runtime prepares a Run
-- **THEN** it loads employee memory once into the guarded system context
+- **WHEN** the gateway prepares a Run
+- **THEN** it loads employee memory once and supplies it to model-driven routing, ordinary
+  conversation, evidence-grounded presentation and analysis
 - **AND** does not offer the model a redundant memory-recall tool
+- **AND** deterministic authorization, slot validation, evidence assessment and state transitions do
+  not treat memory as trusted control input
 
 ### Requirement: Controlled extensibility
 
@@ -391,6 +429,12 @@ readable within the conversation width.
 - **THEN** the server rejects that UI candidate
 - **AND** the Agent may finish with a text answer without displaying the rejected view
 
+#### Scenario: Display a generated result view
+
+- **WHEN** an assistant message contains validated generative UI
+- **THEN** its message row may use the wider conversation canvas
+- **AND** ordinary assistant text, user bubbles and the composer retain bounded reading widths
+
 ### Requirement: Proportional execution presentation
 
 The desktop SHALL keep persisted Runs for audit and recovery while hiding empty successful execution
@@ -402,6 +446,13 @@ traces that add no useful information to an ordinary answer.
 - **THEN** the assistant answer is displayed without an empty execution-plan panel
 - **AND** the Run remains persisted for conversation and audit consistency
 
+#### Scenario: Identify chat participants and present the plan
+
+- **WHEN** the desktop renders a user or assistant message
+- **THEN** it shows a name and avatar, using `小智酒店AI` plus the project Agent icon for the Agent
+- **AND** uses the signed-in employee name with a default user avatar when no avatar is available
+- **AND** any visible execution plan is rendered above the Agent's answer text and result UI
+
 ### Requirement: Safe Markdown presentation
 
 The desktop SHALL render ordinary assistant text as Markdown after sanitizing executable and
@@ -412,6 +463,13 @@ separate constrained renderer.
 
 - **WHEN** an ordinary assistant answer contains headings, lists, tables, links or code
 - **THEN** the desktop presents their Markdown structure within the conversation hierarchy
+
+#### Scenario: Present a business analysis
+
+- **WHEN** the analysis model explains validated operating evidence
+- **THEN** it leads with a concise core conclusion, groups non-redundant findings and prioritized
+  actions, and ends with the data scope and limitations
+- **AND** avoids long undifferentiated paragraphs, unsupported filler and unnecessary tables
 
 #### Scenario: Reject dangerous assistant markup
 

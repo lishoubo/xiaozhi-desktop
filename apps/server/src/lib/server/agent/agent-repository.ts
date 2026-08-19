@@ -33,6 +33,7 @@ import {
 	type BusinessExecutionEvent,
 	type BusinessExecutionState
 } from './execution/business-execution-state';
+import { summarizeConversationTitle } from './conversation-title';
 
 const toIso = (value: Date): string => value.toISOString();
 
@@ -234,6 +235,24 @@ export class AgentRepository {
 		};
 		await this.database.insert(agentConversation).values(record);
 		return toConversationSummary(record);
+	}
+
+	async updateConversationTitle(
+		principal: AgentPrincipal,
+		input: Readonly<{ conversationId: string; expectedTitle: string; title: string }>
+	): Promise<boolean> {
+		const updated = await this.database
+			.update(agentConversation)
+			.set({ title: input.title })
+			.where(
+				and(
+					eq(agentConversation.id, input.conversationId),
+					eq(agentConversation.ownerEmployeeId, principal.employeeId),
+					eq(agentConversation.title, input.expectedTitle)
+				)
+			)
+			.returning({ id: agentConversation.id });
+		return updated.length === 1;
 	}
 
 	async deleteConversation(
@@ -494,7 +513,8 @@ export class AgentRepository {
 			await transaction
 				.update(agentConversation)
 				.set({
-					title: owned[0].title === '新对话' ? input.prompt.slice(0, 40) : owned[0].title,
+					title:
+						owned[0].title === '新对话' ? summarizeConversationTitle(input.prompt) : owned[0].title,
 					updatedAt: now
 				})
 				.where(eq(agentConversation.id, input.conversationId));
@@ -996,9 +1016,10 @@ export class AgentRepository {
 
 	async getRunContext(principal: AgentPrincipal, runId: string) {
 		const rows = await this.database
-			.select({ run: agentRun, conversation: agentConversation })
+			.select({ run: agentRun, conversation: agentConversation, userMessage: agentMessage })
 			.from(agentRun)
 			.innerJoin(agentConversation, eq(agentRun.conversationId, agentConversation.id))
+			.innerJoin(agentMessage, eq(agentRun.userMessageId, agentMessage.id))
 			.where(and(eq(agentRun.id, runId), eq(agentRun.ownerEmployeeId, principal.employeeId)))
 			.limit(1);
 		if (!rows[0]) throw new AgentAccessDeniedError('Agent run was not found');

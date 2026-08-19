@@ -58,6 +58,7 @@ export type AgentEnvironment = Readonly<{
 	apiKey: string;
 	baseUrl: string;
 	model: string;
+	fastModel: string;
 	dmsDatabaseId: string | null;
 	dmsDatabaseName: string | null;
 	mcpServers: Readonly<Record<string, McpServerConfig>>;
@@ -126,6 +127,7 @@ export function readAgentEnvironment(environment: NodeJS.ProcessEnv): AgentEnvir
 		apiKey: environment.AI_KIMI_API_KEY?.trim() ?? '',
 		baseUrl: parseKimiBaseUrl(environment.AI_KIMI_BASE_URL),
 		model: environment.AI_KIMI_MODEL?.trim() || 'kimi-k3',
+		fastModel: environment.AI_KIMI_FAST_MODEL?.trim() || 'kimi-k2.6',
 		dmsDatabaseId,
 		dmsDatabaseName,
 		mcpServers: bundledServers

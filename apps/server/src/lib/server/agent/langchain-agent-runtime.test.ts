@@ -4,6 +4,7 @@ import {
 	analysisCompletionIssue,
 	DuplicateUiRenderError,
 	completeGroundedAnswerAfterUi,
+	groundedAnalysisWritingInstructions,
 	recoverCompletedUiAfterRenderLimit,
 	selectWorkflowToolNames,
 	shouldCaptureToolEvidence,
@@ -59,6 +60,19 @@ describe('analysisCompletionIssue', () => {
 		expect(analysisCompletionIssue('未完成的分析', 'length')).toBe('output_limit');
 		expect(analysisCompletionIssue('   ', 'stop')).toBe('empty');
 		expect(analysisCompletionIssue('经营趋势整体上升。', 'stop')).toBeNull();
+	});
+});
+
+describe('groundedAnalysisWritingInstructions', () => {
+	it('requires a concise conclusion-first professional Markdown structure', () => {
+		const instructions = groundedAnalysisWritingInstructions();
+
+		expect(instructions).toContain('## 核心结论');
+		expect(instructions).toContain('## 关键发现');
+		expect(instructions).toContain('## 经营建议');
+		expect(instructions).toContain('## 数据口径');
+		expect(instructions).toContain('避免连续大段文字');
+		expect(instructions).toContain('没有证据的维度不要补齐');
 	});
 });
 

@@ -240,4 +240,63 @@ describe('BusinessIntentRouter', () => {
 			intent: null
 		});
 	});
+
+	it('corrects standalone weather to general conversation without hotel slots', async () => {
+		const router = new BusinessIntentRouter({
+			classify: vi.fn().mockResolvedValue({
+				category: 'business_read',
+				intentCandidate: 'generic_hotel_data_query',
+				requestedEffect: 'read',
+				responseMode: 'data_only',
+				confidence: 0.7,
+				slots: { hotelReference: '当前酒店' }
+			})
+		});
+
+		await expect(router.route({ kind: 'prompt', text: '今天天气如何？' })).resolves.toEqual({
+			routeKind: 'general_conversation',
+			intent: null,
+			slots: {},
+			confidence: 0.95,
+			responseMode: 'analysis'
+		});
+	});
+
+	it('keeps weather-informed operating advice in the business workflow', async () => {
+		const router = new BusinessIntentRouter({
+			classify: vi.fn().mockResolvedValue({
+				category: 'business_read',
+				intentCandidate: 'weather_operations_advice',
+				requestedEffect: 'read',
+				responseMode: 'analysis',
+				confidence: 0.9,
+				slots: { location: '杭州' }
+			})
+		});
+
+		await expect(
+			router.route({ kind: 'prompt', text: '结合杭州今天的天气给酒店经营和排班建议' })
+		).resolves.toMatchObject({
+			routeKind: 'business_read',
+			intent: 'weather_operations_advice',
+			slots: { location: { status: 'candidate', raw: '杭州' } }
+		});
+	});
+
+	it('honors an explicit request not to query internal hotel data', async () => {
+		const router = new BusinessIntentRouter({
+			classify: vi.fn().mockResolvedValue({
+				category: 'business_read',
+				intentCandidate: 'generic_hotel_data_query',
+				requestedEffect: 'read',
+				responseMode: 'analysis',
+				confidence: 0.88,
+				slots: {}
+			})
+		});
+
+		await expect(
+			router.route({ kind: 'prompt', text: '不要查询系统数据，只说说酒店提升入住率的一般方法' })
+		).resolves.toMatchObject({ routeKind: 'hotel_knowledge', intent: null, slots: {} });
+	});
 });

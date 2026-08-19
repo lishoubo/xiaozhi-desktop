@@ -26,6 +26,7 @@
   import AgentExecutionTimeline from '../components/agent/AgentExecutionTimeline.svelte';
   import AgentMarkdown from '../components/agent/AgentMarkdown.svelte';
   import HotelGenerativeUi from '../components/agent/HotelGenerativeUi.svelte';
+  import UserAvatar from '../components/agent/UserAvatar.svelte';
   import {
     addStartedRun,
     applyRunEvent,
@@ -35,12 +36,16 @@
     type AgentConversationViewState,
   } from '../agent-conversation-state';
   import {
+    AGENT_CHAT_DISPLAY_NAME,
+    chatUserDisplayName,
     executionForDisplayedMessage,
     formatConversationUpdatedAt,
     isPendingBusinessExecutionConflict,
     messageOwnsPendingClarification,
     shouldDisplayExecutionTrace,
+    usesWideGenerativeUiLayout,
   } from '../agent-presentation';
+  import { greetingName } from '../session-greeting.svelte';
   import { isAgentViewportNearBottom } from '../agent-scroll';
   import { LAYOUT_ANIMATION_OPTIONS, PAGE_ENTER_OPTIONS, enter } from '../motion';
   import { Button } from '$lib/components/ui/button';
@@ -70,6 +75,7 @@
     };
 
   let prompt = $state('');
+  let currentUserDisplayName = $derived(chatUserDisplayName(greetingName()));
   let conversations = $state.raw<AgentConversationSummary[]>([]);
   let quickActions = $state.raw<AgentQuickAction[]>([]);
   let activeConversationId = $state<string | null>(null);
@@ -509,7 +515,14 @@
       bufferRunEvent(event);
       return;
     }
+    const shouldFollowAfterRender = followLatestContent;
     conversationViews.set(event.conversationId, applyRunEvent(view, event));
+    if (shouldFollowAfterRender) {
+      void tick().then(() => {
+        followLatestContent = true;
+        scrollConversationToBottom();
+      });
+    }
     if (
       event.type === 'run_completed' ||
       event.type === 'run_failed' ||
@@ -521,6 +534,9 @@
           : conversation,
       );
       void refreshConversations();
+      if (event.type === 'run_completed') {
+        setTimeout(() => void refreshConversations(), 1_500);
+      }
       if (event.type === 'run_failed') void loadConversationState(event.conversationId);
     }
   }
@@ -668,7 +684,7 @@
       aria-live="polite"
       onscroll={handleConversationScroll}
     >
-      <div bind:this={conversationContent} class="mx-auto w-full max-w-3xl px-7 py-8">
+      <div bind:this={conversationContent} class="mx-auto w-full max-w-5xl px-7 py-8">
         {#if loading}
           <div class="flex items-center justify-center gap-2 py-20 text-sm text-muted-foreground">
             <LoaderCircle class="animate-spin" size={18} />正在读取会话
@@ -717,9 +733,27 @@
             data-agent-message-role={message.role}
           >
             {#if message.role === 'assistant'}<AgentAvatar size="sm" />{/if}
-            <div class="min-w-0 max-w-[82%]">
+            <div
+              class={[
+                'min-w-0',
+                usesWideGenerativeUiLayout(message) ? 'w-full max-w-none' : 'max-w-[82%]',
+              ]}
+            >
+              <p
+                class={[
+                  'mt-0 mb-2 text-xs font-semibold text-muted-foreground',
+                  message.role === 'user' ? 'text-right' : 'text-left',
+                ]}
+              >
+                {message.role === 'assistant' ? AGENT_CHAT_DISPLAY_NAME : currentUserDisplayName}
+              </p>
+              {#if execution && message.role === 'assistant' && shouldDisplayExecutionTrace(execution)}
+                <AgentExecutionTimeline trace={execution} />
+              {/if}
               {#if message.content && message.role === 'assistant'}
-                <AgentMarkdown content={message.content} />
+                <div class:max-w-3xl={usesWideGenerativeUiLayout(message)}>
+                  <AgentMarkdown content={message.content} />
+                </div>
               {:else if message.content}
                 <p
                   class="m-0 whitespace-pre-wrap rounded-xl bg-secondary px-4 py-3 text-sm leading-7 transition-colors duration-200 ease-out"
@@ -738,15 +772,16 @@
                   oncancel={() => void cancelPendingBusinessExecution()}
                 />
               {/if}
-              {#if execution && message.role === 'assistant' && shouldDisplayExecutionTrace(execution)}
-                <AgentExecutionTimeline trace={execution} />
-              {/if}
             </div>
+            {#if message.role === 'user'}<UserAvatar name={currentUserDisplayName} />{/if}
           </article>
           {#if execution && message.role === 'user' && shouldDisplayExecutionTrace(execution)}
             <article class="mt-3 flex gap-3" data-agent-execution-for-message={message.id}>
               <AgentAvatar size="sm" />
               <div class="min-w-0 flex-1">
+                <p class="mt-0 mb-2 text-xs font-semibold text-muted-foreground">
+                  {AGENT_CHAT_DISPLAY_NAME}
+                </p>
                 <AgentExecutionTimeline trace={execution} />
               </div>
             </article>
@@ -758,6 +793,12 @@
           <article class="mt-6 flex gap-3">
             <AgentAvatar size="sm" />
             <div class="min-w-0 flex-1">
+              <p class="mt-0 mb-2 text-xs font-semibold text-muted-foreground">
+                {AGENT_CHAT_DISPLAY_NAME}
+              </p>
+              {#if execution && shouldDisplayExecutionTrace(execution)}
+                <AgentExecutionTimeline trace={execution} />
+              {/if}
               {#if draftContent}
                 <AgentMarkdown content={draftContent} />
               {:else}
@@ -767,9 +808,6 @@
               {/if}
               {#if draftUi}
                 <div class="mt-3"><HotelGenerativeUi spec={draftUi} /></div>
-              {/if}
-              {#if execution && shouldDisplayExecutionTrace(execution)}
-                <AgentExecutionTimeline trace={execution} />
               {/if}
             </div>
           </article>

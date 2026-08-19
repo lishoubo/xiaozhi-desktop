@@ -16,6 +16,7 @@ import { summarizeMcpResult } from './mcp-observability';
 import { buildHotelAgentSystemPrompt } from './hotel-agent-prompt';
 import { HotelAgentToolHandlers } from './hotel-agent-tool-handlers';
 import type { SkillProvider } from './skill-provider';
+import { modelForTier, modelKwargsForTier } from './model-tier';
 import { getIntentDefinition } from './execution/intent-registry';
 import {
 	agentPromise,
@@ -147,6 +148,19 @@ export function completeGroundedAnswerAfterUi(
 	};
 }
 
+export function groundedAnalysisWritingInstructions(): string {
+	return `使用专业、易扫读的 Markdown 输出，并按证据充分程度组织以下层次：
+## 核心结论
+用 1–3 句话先回答最重要的经营判断，优先写清方向、幅度和影响，不写空泛开场。
+## 关键发现
+列出 2–4 条互不重复的发现；每条先给判断，再紧跟支持该判断的指标、对比或趋势。没有证据的维度不要补齐。
+## 经营建议
+按优先级给出 1–3 条可执行建议，写清动作、原因和建议观察的指标；不要把常识性口号当建议。
+## 数据口径
+用简短文字说明酒店/日期范围、数据来源和重要限制。
+避免连续大段文字、重复同一结论、深层嵌套列表和无必要表格；单段不超过 3 句。若证据很少，可以合并或省略不适用的小节，但仍须先给结论、后给依据。`;
+}
+
 export class LangChainAgentRuntime implements AgentRuntime {
 	private readonly localToolHandlers: HotelAgentToolHandlers;
 	private readonly model: ChatOpenAI;
@@ -159,9 +173,12 @@ export class LangChainAgentRuntime implements AgentRuntime {
 		private readonly skills: SkillProvider
 	) {
 		this.localToolHandlers = new HotelAgentToolHandlers(repository);
+		const fastModel = modelForTier(this.environment, 'fast');
+		const analysisModel = modelForTier(this.environment, 'analysis');
 		this.model = new ChatOpenAI({
-			model: this.environment.model,
+			model: fastModel,
 			apiKey: this.environment.apiKey,
+			modelKwargs: modelKwargsForTier(fastModel, 'fast'),
 			streaming: true,
 			maxTokens: 8192,
 			maxRetries: 1,
@@ -169,8 +186,9 @@ export class LangChainAgentRuntime implements AgentRuntime {
 			configuration: { baseURL: this.environment.baseUrl }
 		});
 		this.analysisModel = new ChatOpenAI({
-			model: this.environment.model,
+			model: analysisModel,
 			apiKey: this.environment.apiKey,
+			modelKwargs: modelKwargsForTier(analysisModel, 'analysis'),
 			streaming: true,
 			maxRetries: 0,
 			timeout: 120_000,
@@ -187,27 +205,40 @@ export class LangChainAgentRuntime implements AgentRuntime {
 		const answerOnly = options.validatedEvidence !== undefined;
 		const analysisOnly = answerOnly && options.analysisOnly === true;
 		const [memories, skills] = answerOnly
-			? [[], []]
-			: await runAgentEffect(
-					Effect.all(
-						[
-							agentPromise({
-								service: 'persistence',
-								operation: 'load_agent_memories',
-								timeoutMs: 10_000,
-								try: () => this.repository.listMemories(options.principal)
-							}),
+			? [options.memories ?? [], []]
+			: options.memories
+				? [
+						options.memories,
+						await runAgentEffect(
 							agentPromise({
 								service: 'persistence',
 								operation: 'load_agent_skills',
 								timeoutMs: 10_000,
 								try: () => this.skills.list()
-							})
-						],
-						{ concurrency: 'unbounded' }
-					),
-					options.signal
-				);
+							}),
+							options.signal
+						)
+					]
+				: await runAgentEffect(
+						Effect.all(
+							[
+								agentPromise({
+									service: 'persistence',
+									operation: 'load_agent_memories',
+									timeoutMs: 10_000,
+									try: () => this.repository.listMemories(options.principal)
+								}),
+								agentPromise({
+									service: 'persistence',
+									operation: 'load_agent_skills',
+									timeoutMs: 10_000,
+									try: () => this.skills.list()
+								})
+							],
+							{ concurrency: 'unbounded' }
+						),
+						options.signal
+					);
 		options.signal.throwIfAborted();
 		const localTools =
 			analysisOnly || (options.workflowRequest && !answerOnly)
@@ -251,7 +282,7 @@ export class LangChainAgentRuntime implements AgentRuntime {
 			: loadedMcpTools.some((candidate) => isHotelDataToolName(candidate.name));
 		const workflowConstraint =
 			analysisOnly && options.workflowRequest
-				? `\n\n当前是已验证经营数据的分析阶段。不可变请求：${JSON.stringify(options.workflowRequest)}。已验证证据：${JSON.stringify(options.validatedEvidence)}。可靠数据摘要和图表已经展示给用户；不得调用任何工具，不要重复输出原始表格，直接给出简洁、有业务价值的趋势解读、异常提示和可执行建议。不得补造证据中没有的事实，必须说明重要限制。`
+				? `\n\n当前是已验证经营数据的分析阶段。不可变请求：${JSON.stringify(options.workflowRequest)}。已验证证据：${JSON.stringify(options.validatedEvidence)}。可靠数据摘要和图表已经展示给用户；不得调用任何工具，不要重复输出原始表格，直接给出简洁、有业务价值的趋势解读、异常提示和可执行建议。不得补造证据中没有的事实，必须说明重要限制。\n\n${groundedAnalysisWritingInstructions()}`
 				: answerOnly && options.workflowRequest
 					? `\n\n当前是证据校验后的回答阶段。不可变请求：${JSON.stringify(options.workflowRequest)}。已验证证据：${JSON.stringify(options.validatedEvidence)}。不得调用数据工具，不得补造证据中没有的事实；必须写明范围、来源和重要限制。可按需要调用一次 render_hotel_ui。`
 					: options.workflowRequest

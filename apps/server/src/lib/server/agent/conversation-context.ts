@@ -51,9 +51,16 @@ export type PreparedConversationContext = Readonly<{
 
 // The configured Moonshot /v1/models endpoint reports a 1M-token context for kimi-k3.
 const KIMI_K3_CONTEXT_TOKENS = 1_048_576;
+const KIMI_K2_6_CONTEXT_TOKENS = 262_144;
 
 export function contextPolicyForModel(model: string): ConversationContextPolicy {
-	const contextWindowTokens = model.toLowerCase() === 'kimi-k3' ? KIMI_K3_CONTEXT_TOKENS : 131_072;
+	const normalized = model.toLowerCase();
+	const contextWindowTokens =
+		normalized === 'kimi-k3'
+			? KIMI_K3_CONTEXT_TOKENS
+			: normalized === 'kimi-k2.6'
+				? KIMI_K2_6_CONTEXT_TOKENS
+				: 131_072;
 	return {
 		contextWindowTokens,
 		triggerTokens: Math.floor(contextWindowTokens / 4),

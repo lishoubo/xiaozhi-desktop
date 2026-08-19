@@ -3,9 +3,11 @@ import type { AgentBusinessIntent } from '@hotel-butler/api';
 import { compactHotelDataResult } from '../hotel-data-mcp';
 import type { JsonValue, ResolvedBusinessRequest } from './business-execution-state';
 import {
+	isEmptyHotelDataTable,
 	operatingRowsMatchRequest,
 	parseOperatingEvidenceRows
 } from './deterministic-operating-answer';
+import { HOTEL_DATA_SQL_TOOL_NAME } from '../hotel-data-mcp';
 
 export type EvidenceEnvelope = Readonly<{
 	evidenceId: string;
@@ -32,6 +34,7 @@ export type ParsedEvidenceResult = Readonly<{
 
 export type EvidenceAssessment =
 	| Readonly<{ status: 'sufficient'; limitations: readonly string[] }>
+	| Readonly<{ status: 'no_data' }>
 	| Readonly<{ status: 'needs_more_data'; limitation: string }>
 	| Readonly<{ status: 'inconclusive'; limitations: readonly string[] }>
 	| Readonly<{ status: 'rejected'; reasonCode: string }>;
@@ -197,7 +200,9 @@ function structuredHotelReferences(value: unknown, depth = 0): readonly string[]
 		return candidate === undefined ? [] : [candidate];
 	});
 	if (collections.length > 0) {
-		const scopes = collections.map((collection) => structuredHotelReferences(collection, depth + 1));
+		const scopes = collections.map((collection) =>
+			structuredHotelReferences(collection, depth + 1)
+		);
 		if (scopes.some((scope) => scope === null)) return null;
 		return [...new Set(scopes.flatMap((scope) => scope ?? []))];
 	}
@@ -277,6 +282,15 @@ export function assessEvidence(
 	evidence: readonly EvidenceEnvelope[],
 	followUpUsed: boolean
 ): EvidenceAssessment {
+	const hotelQueryEvidence = evidence.filter(
+		(item) => item.source === 'aliyun_dms_mcp' && item.toolName === HOTEL_DATA_SQL_TOOL_NAME
+	);
+	if (
+		hotelQueryEvidence.length > 0 &&
+		hotelQueryEvidence.every((item) => emptyData(item.data) || isEmptyHotelDataTable(item.data))
+	) {
+		return { status: 'no_data' };
+	}
 	if (evidence.length === 0 || evidence.every((item) => emptyData(item.data))) {
 		return followUpUsed
 			? { status: 'inconclusive', limitations: ['数据源未返回可验证数据。'] }

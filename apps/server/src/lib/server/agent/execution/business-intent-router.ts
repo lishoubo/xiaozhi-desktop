@@ -20,7 +20,7 @@ export const routeClassifierOutputSchema = z.strictObject({
 export type RouteClassifierOutput = Readonly<z.infer<typeof routeClassifierOutputSchema>>;
 
 export interface RouteClassifier {
-	classify(input: Readonly<{ text: string }>): Promise<RouteClassifierOutput>;
+	classify(input: Readonly<{ text: string; context?: string }>): Promise<RouteClassifierOutput>;
 }
 
 export type RouteDecision = Readonly<{
@@ -42,6 +42,15 @@ const recentDataLookup = /(?:最新|最近|近期|近来)/i;
 const explicitDateLookup =
 	/(?:最近7天|近7天|过去7天|本月至今|上个月|昨天|今天|今日|\d{4}-\d{2}-\d{2})/i;
 const allHotelsLookup = /(?:(?:所有|全部|全量|各个|各家|每家)酒店|酒店(?:全部|全量))/i;
+const weatherLookup = /(?:天气|气温|温度|下雨|降雨|暴雨|台风|下雪|降雪|晴天|阴天)/i;
+const hotelOperationsContext =
+	/(?:经营|运营|入住|出租率|房价|收益|营收|订单|预订|房态|库存|渠道|排班|客流|营销|RevPAR|ADR|GMV)/i;
+const internalLookupDeclined =
+	/(?:不要|不用|无需|别).{0,10}(?:查询|查找|读取|调用).{0,10}(?:系统|内部|酒店|经营)?(?:信息|数据)?|(?:不查询|不查|不读取)(?:系统|内部|酒店|经营)?(?:信息|数据)?/i;
+
+function isStandaloneWeatherPrompt(text: string): boolean {
+	return weatherLookup.test(text) && !hotelOperationsContext.test(text);
+}
 
 function responseModeForPrompt(
 	text: string,
@@ -109,7 +118,7 @@ export class BusinessIntentRouter {
 	async route(
 		input:
 			| Readonly<{ kind: 'quick_action'; quickActionId: AgentQuickActionId }>
-			| Readonly<{ kind: 'prompt'; text: string }>
+			| Readonly<{ kind: 'prompt'; text: string; context?: string }>
 	): Promise<RouteDecision> {
 		if (input.kind === 'quick_action') {
 			const dateRange =
@@ -151,7 +160,10 @@ export class BusinessIntentRouter {
 		}
 
 		const proposed = routeClassifierOutputSchema.parse(
-			await this.classifier.classify({ text: input.text })
+			await this.classifier.classify({
+				text: input.text,
+				...(input.context ? { context: input.context } : {})
+			})
 		);
 		if (proposed.requestedEffect === 'write' || directWriteRequest.test(input.text)) {
 			return {
@@ -159,6 +171,24 @@ export class BusinessIntentRouter {
 				intent: null,
 				slots: {},
 				confidence: 1,
+				responseMode: 'analysis'
+			};
+		}
+		if (isStandaloneWeatherPrompt(input.text)) {
+			return {
+				routeKind: 'general_conversation',
+				intent: null,
+				slots: {},
+				confidence: Math.max(proposed.confidence, 0.95),
+				responseMode: 'analysis'
+			};
+		}
+		if (proposed.category === 'business_read' && internalLookupDeclined.test(input.text)) {
+			return {
+				routeKind: 'hotel_knowledge',
+				intent: null,
+				slots: {},
+				confidence: Math.max(proposed.confidence, 0.95),
 				responseMode: 'analysis'
 			};
 		}

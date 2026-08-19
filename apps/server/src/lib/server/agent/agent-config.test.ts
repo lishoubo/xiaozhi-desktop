@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { parseMcpServers, readAgentEnvironment } from './agent-config';
 
 describe('agent configuration', () => {
-	it('defaults to Kimi K3 and keeps MCP writes disabled', () => {
+	it('defaults to fast Kimi K2.6 plus analysis K3 and keeps MCP writes disabled', () => {
 		expect(
 			readAgentEnvironment({
 				AI_KIMI_API_KEY: 'secret',
@@ -12,10 +12,23 @@ describe('agent configuration', () => {
 			apiKey: 'secret',
 			baseUrl: 'https://api.moonshot.cn/v1',
 			model: 'kimi-k3',
+			fastModel: 'kimi-k2.6',
 			dmsDatabaseId: null,
 			dmsDatabaseName: null,
 			mcpServers: {}
 		});
+	});
+
+	it('overrides the fast and analysis model tiers independently', () => {
+		const environment = readAgentEnvironment({
+			AI_KIMI_API_KEY: 'secret',
+			AI_KIMI_FAST_MODEL: 'custom-fast',
+			AI_KIMI_MODEL: 'custom-analysis',
+			AI_PUBLIC_WEATHER_MCP_ENABLED: 'false'
+		});
+
+		expect(environment.fastModel).toBe('custom-fast');
+		expect(environment.model).toBe('custom-analysis');
 	});
 
 	it('enables the pinned public weather MCP with metric units by default', () => {

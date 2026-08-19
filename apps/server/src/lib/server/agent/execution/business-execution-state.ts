@@ -169,7 +169,7 @@ export type BusinessExecutionState =
 	  }>
 	| Readonly<{
 			status: 'answering';
-			mode: 'general' | 'write_denied' | 'grounded' | 'limited';
+			mode: 'general' | 'write_denied' | 'grounded' | 'limited' | 'no_data';
 			request: ResolvedBusinessRequest | null;
 			evidence: readonly EvidenceRecord[];
 			limitations: readonly string[];
@@ -221,7 +221,7 @@ export const businessExecutionStateSchema: z.ZodType<BusinessExecutionState> = z
 		}),
 		z.strictObject({
 			status: z.literal('answering'),
-			mode: z.enum(['general', 'write_denied', 'grounded', 'limited']),
+			mode: z.enum(['general', 'write_denied', 'grounded', 'limited', 'no_data']),
 			request: resolvedBusinessRequestSchema.nullable(),
 			evidence: z.array(evidenceRecordSchema),
 			limitations: z.array(z.string().min(1).max(500)).max(10)
@@ -249,6 +249,7 @@ export type RouteProposal = Readonly<{
 
 export type EvidenceAssessment =
 	| Readonly<{ status: 'sufficient'; limitations: readonly string[] }>
+	| Readonly<{ status: 'no_data' }>
 	| Readonly<{ status: 'needs_more_data'; limitation: string }>
 	| Readonly<{ status: 'inconclusive'; limitations: readonly string[] }>
 	| Readonly<{ status: 'rejected'; reasonCode: string }>;
@@ -573,13 +574,20 @@ export function transitionBusinessExecution(
 			}
 			return {
 				status: 'answering',
-				mode: event.assessment.status === 'sufficient' ? 'grounded' : 'limited',
+				mode:
+					event.assessment.status === 'sufficient'
+						? 'grounded'
+						: event.assessment.status === 'no_data'
+							? 'no_data'
+							: 'limited',
 				request: state.request,
 				evidence: state.evidence,
 				limitations:
-					event.assessment.status === 'needs_more_data'
-						? [event.assessment.limitation]
-						: event.assessment.limitations
+					event.assessment.status === 'no_data'
+						? []
+						: event.assessment.status === 'needs_more_data'
+							? [event.assessment.limitation]
+							: event.assessment.limitations
 			};
 		case 'answering':
 			if (event.type !== 'answer_completed') break;

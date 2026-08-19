@@ -96,6 +96,18 @@ describe('business evidence', () => {
 		});
 	});
 
+	it('recognizes a successful header-only hotel SQL table as a final no-data outcome', () => {
+		const evidence = normalizeEvidence({
+			request,
+			toolName: 'query_hotel_operating_data_sql',
+			toolArgs: { database_id: 'server-configured' },
+			result:
+				'[{"type":"text","text":"| hotel_id | data_date |\\n| --- | --- |","structuredContent":{"result":"| hotel_id | data_date |\\n| --- | --- |"}}]'
+		});
+
+		expect(assessEvidence(request, [evidence], false)).toEqual({ status: 'no_data' });
+	});
+
 	it('rejects evidence for another hotel', () => {
 		const evidence = normalizeEvidence({
 			request: { ...request, slots: { ...request.slots, hotelReference: 'hotel-2' } },

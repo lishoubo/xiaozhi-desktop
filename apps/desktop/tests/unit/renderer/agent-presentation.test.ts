@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import type { AgentExecutionTrace, AgentMessage } from '@hotel-butler/api';
 import {
+  AGENT_CHAT_DISPLAY_NAME,
+  chatUserDisplayName,
   compactTrendAxisLabel,
   executionForDisplayedMessage,
   isPendingBusinessExecutionConflict,
@@ -8,6 +10,7 @@ import {
   shouldDisplayExecutionTrace,
   trendAxisTickSpacing,
   trendAxisTicks,
+  usesWideGenerativeUiLayout,
 } from '../../../src/renderer/agent-presentation';
 
 describe('isPendingBusinessExecutionConflict', () => {
@@ -50,6 +53,26 @@ function message(id: string, role: AgentMessage['role']): AgentMessage {
 }
 
 describe('Agent result presentation', () => {
+  it('provides stable participant names with a user fallback', () => {
+    expect(AGENT_CHAT_DISPLAY_NAME).toBe('小智酒店AI');
+    expect(chatUserDisplayName('张经理')).toBe('张经理');
+    expect(chatUserDisplayName(null)).toBe('用户');
+  });
+
+  it('widens only assistant messages that contain generated UI', () => {
+    const generatedUi = {
+      root: 'root',
+      state: {},
+      elements: {
+        root: { type: 'Card', props: {}, children: [], visible: true },
+      },
+    };
+
+    expect(usesWideGenerativeUiLayout({ role: 'assistant', ui: generatedUi })).toBe(true);
+    expect(usesWideGenerativeUiLayout({ role: 'assistant', ui: null })).toBe(false);
+    expect(usesWideGenerativeUiLayout({ role: 'user', ui: generatedUi })).toBe(false);
+  });
+
   it('attaches pending clarification only to its assistant message', () => {
     const businessExecutionId = '50000000-0000-4000-8000-000000000001';
     const execution = {
@@ -85,9 +108,9 @@ describe('Agent result presentation', () => {
       businessExecutionId,
     };
 
-    expect(messageOwnsPendingClarification(execution, userMessage, [userMessage, assistantMessage])).toBe(
-      false,
-    );
+    expect(
+      messageOwnsPendingClarification(execution, userMessage, [userMessage, assistantMessage]),
+    ).toBe(false);
     expect(
       messageOwnsPendingClarification(execution, assistantMessage, [userMessage, assistantMessage]),
     ).toBe(true);

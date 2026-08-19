@@ -21,6 +21,7 @@ import {
 	contextPolicyForModel
 } from '$lib/server/agent/conversation-context';
 import { LangChainConversationSummaryGenerator } from '$lib/server/agent/langchain-conversation-summary-generator';
+import { LangChainConversationTitleGenerator } from '$lib/server/agent/langchain-conversation-title-generator';
 import { HotelAgentGateway } from '$lib/server/agent/agent-gateway';
 import { BusinessIntentRouter } from '$lib/server/agent/execution/business-intent-router';
 import { LangChainRouteClassifier } from '$lib/server/agent/execution/langchain-route-classifier';
@@ -50,7 +51,7 @@ const agentRuntime = new LangChainAgentRuntime(
 const conversationContext = new ConversationContextService(
 	agentRepository,
 	new LangChainConversationSummaryGenerator(agentEnvironment),
-	contextPolicyForModel(agentEnvironment.model)
+	contextPolicyForModel(agentEnvironment.fastModel)
 );
 const agentGateway = new HotelAgentGateway(
 	agentEnvironment,
@@ -62,7 +63,8 @@ const agentGateway = new HotelAgentGateway(
 	serverLogger,
 	new BusinessIntentRouter(new LangChainRouteClassifier(agentEnvironment)),
 	new BusinessSlotResolver(new DmsHotelReferenceResolver(mcpToolProvider)),
-	new DeterministicWorkflowCollector(mcpToolProvider)
+	new DeterministicWorkflowCollector(mcpToolProvider),
+	new LangChainConversationTitleGenerator(agentEnvironment)
 );
 
 function requiresPhoneIdentitySource(request: Request): boolean {

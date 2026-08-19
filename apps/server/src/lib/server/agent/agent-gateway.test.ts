@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { McpCapability } from './agent-config';
 import type { AgentRuntime } from './agent-runtime';
 import { AgentAccessDeniedError } from './agent-repository';
+import type { ConversationTitleGenerator } from './conversation-title';
 import {
 	describeAgentRunFailure,
 	formatClarificationAnswer,
@@ -93,7 +94,8 @@ type ListEvents = (
 
 function createGatewayHarness(
 	listEvents: ListEvents,
-	mcpCapabilities: readonly McpCapability[] = []
+	mcpCapabilities: readonly McpCapability[] = [],
+	conversationTitleGenerator?: ConversationTitleGenerator
 ) {
 	const repository = {
 		listConversations: vi.fn(),
@@ -113,7 +115,9 @@ function createGatewayHarness(
 		finalizeRunSuccess: vi.fn(),
 		appendEvent: vi.fn(),
 		listEvents,
-		completeRun: vi.fn()
+		completeRun: vi.fn(),
+		listMemories: vi.fn().mockResolvedValue([]),
+		updateConversationTitle: vi.fn().mockResolvedValue(true)
 	};
 	const runtime = { run: vi.fn() };
 	const logger = { debug: vi.fn(), info: vi.fn(), warn: vi.fn(), error: vi.fn() };
@@ -122,6 +126,7 @@ function createGatewayHarness(
 			apiKey: '',
 			baseUrl: 'https://api.moonshot.cn/v1',
 			model: 'kimi-k3',
+			fastModel: 'kimi-k2.6',
 			dmsDatabaseId: null,
 			dmsDatabaseName: null,
 			mcpServers: {}
@@ -134,7 +139,11 @@ function createGatewayHarness(
 			capabilities: () => new Set(mcpCapabilities)
 		},
 		{ list: vi.fn().mockResolvedValue([]) },
-		logger
+		logger,
+		undefined,
+		undefined,
+		undefined,
+		conversationTitleGenerator
 	);
 	return { gateway, repository, runtime, logger };
 }
@@ -144,6 +153,64 @@ function createGateway(listEvents: ListEvents) {
 }
 
 describe('HotelAgentGateway session isolation', () => {
+	it('updates the first conversation title on the fast parallel path without blocking completion', async () => {
+		let resolveTitle!: (title: string) => void;
+		const pendingTitle = new Promise<string>((resolve) => {
+			resolveTitle = resolve;
+		});
+		const titleGenerator = {
+			generate: vi.fn(() => pendingTitle)
+		};
+		const { gateway, repository, runtime } = createGatewayHarness(
+			vi.fn(async () => []),
+			[],
+			titleGenerator
+		);
+		const principal = { employeeId: '1001', orgId: '42' } as const;
+		const conversationId = '44444444-4444-4444-8444-444444444444';
+		const runId = '33333333-3333-4333-8333-333333333333';
+		const prompt = '请帮我查询上海酒店最近七天经营趋势';
+		repository.startRun.mockResolvedValue({
+			created: true,
+			response: {
+				runId,
+				userMessage: {
+					id: '22222222-2222-4222-8222-222222222222',
+					conversationId,
+					role: 'user',
+					content: prompt,
+					ui: null,
+					createdAt: '2026-08-19T00:00:00.000Z'
+				}
+			}
+		});
+		repository.getRunContext.mockResolvedValue({
+			run: { id: runId, status: 'running' },
+			conversation: { id: conversationId, title: '查询上海酒店最近七天经营趋势' },
+			userMessage: { content: prompt }
+		});
+		runtime.run.mockResolvedValue({ content: '完成', ui: null });
+		repository.finalizeRunSuccess.mockResolvedValue({ id: 'assistant-message' });
+
+		await gateway.startRun(principal, {
+			conversationId,
+			prompt,
+			clientRequestId: '55555555-5555-4555-8555-555555555555'
+		});
+		await vi.waitFor(() => expect(repository.finalizeRunSuccess).toHaveBeenCalledOnce());
+		expect(titleGenerator.generate).toHaveBeenCalledWith(prompt, expect.any(AbortSignal));
+		expect(repository.updateConversationTitle).not.toHaveBeenCalled();
+
+		resolveTitle('上海酒店近七日经营趋势');
+		await vi.waitFor(() =>
+			expect(repository.updateConversationTitle).toHaveBeenCalledWith(principal, {
+				conversationId,
+				expectedTitle: '查询上海酒店最近七天经营趋势',
+				title: '上海酒店近七日经营趋势'
+			})
+		);
+	});
+
 	it('passes the authenticated principal into event replay', async () => {
 		const listEvents = vi.fn(async () => [event]);
 		const gateway = createGateway(listEvents);
@@ -212,11 +279,12 @@ describe('HotelAgentGateway session isolation', () => {
 		repository.getRunContext.mockImplementation(async (_principal, runId) => {
 			const run = runs.find((candidate) => candidate.runId === runId);
 			if (!run) throw new Error('Unexpected run');
-			return { run: { id: run.runId, status: 'running' }, conversation: { id: run.conversationId } };
+			return {
+				run: { id: run.runId, status: 'running' },
+				conversation: { id: run.conversationId }
+			};
 		});
-		runtime.run.mockImplementation(
-			() => new Promise((resolve) => releases.push(resolve))
-		);
+		runtime.run.mockImplementation(() => new Promise((resolve) => releases.push(resolve)));
 		repository.finalizeRunSuccess.mockResolvedValue({ id: 'assistant-message' });
 
 		await Promise.all(
@@ -717,6 +785,7 @@ describe('HotelAgentGateway deterministic business collection', () => {
 					apiKey: 'configured',
 					baseUrl: 'https://api.moonshot.cn/v1',
 					model: 'kimi-k3',
+					fastModel: 'kimi-k2.6',
 					dmsDatabaseId: null,
 					dmsDatabaseName: null,
 					mcpServers: {}

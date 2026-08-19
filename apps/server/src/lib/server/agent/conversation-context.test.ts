@@ -30,6 +30,16 @@ describe('conversation context policy', () => {
 		});
 	});
 
+	it('uses the documented Kimi K2.6 context window for the fast tier', () => {
+		expect(contextPolicyForModel('kimi-k2.6')).toEqual({
+			contextWindowTokens: 262_144,
+			triggerTokens: 65_536,
+			recentTokenTarget: 16_384,
+			minimumRecentMessages: 8,
+			summaryMaxTokens: 4_096
+		});
+	});
+
 	it('estimates Chinese and ASCII content without depending on an SDK tokenizer', () => {
 		expect(estimateConversationTokens('酒店入住率')).toBe(5);
 		expect(estimateConversationTokens('occupancy rate')).toBe(4);

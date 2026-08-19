@@ -44,12 +44,12 @@ function textFromEvidence(value: unknown, depth = 0): string | null {
 	return textFromEvidence(Reflect.get(value, 'data'), depth + 1);
 }
 
-function markdownRows(text: string): readonly TableRow[] {
+function markdownTable(text: string): Readonly<{ valid: boolean; rows: readonly TableRow[] }> {
 	const tableLines = text
 		.split('\n')
 		.map((line) => line.trim())
 		.filter((line) => line.startsWith('|') && line.endsWith('|'));
-	if (tableLines.length < 3) return [];
+	if (tableLines.length < 2) return { valid: false, rows: [] };
 	const cells = (line: string): string[] =>
 		line
 			.slice(1, -1)
@@ -62,18 +62,28 @@ function markdownRows(text: string): readonly TableRow[] {
 		separator.length !== headers.length ||
 		!separator.every((cell) => /^:?-{3,}:?$/.test(cell))
 	) {
-		return [];
+		return { valid: false, rows: [] };
 	}
-	return tableLines.slice(2).flatMap((line) => {
-		const values = cells(line);
-		if (values.length !== headers.length) return [];
-		return [Object.fromEntries(headers.map((header, index) => [header, values[index] ?? '']))];
-	});
+	return {
+		valid: true,
+		rows: tableLines.slice(2).flatMap((line) => {
+			const values = cells(line);
+			if (values.length !== headers.length) return [];
+			return [Object.fromEntries(headers.map((header, index) => [header, values[index] ?? '']))];
+		})
+	};
 }
 
 export function parseOperatingEvidenceRows(value: unknown): readonly TableRow[] {
 	const text = textFromEvidence(value);
-	return text ? markdownRows(text) : [];
+	return text ? markdownTable(text).rows : [];
+}
+
+export function isEmptyHotelDataTable(value: unknown): boolean {
+	const text = textFromEvidence(value);
+	if (!text) return false;
+	const table = markdownTable(text);
+	return table.valid && table.rows.length === 0;
 }
 
 function requestedRange(

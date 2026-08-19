@@ -37,9 +37,12 @@ import type { BusinessIntentRouter } from './execution/business-intent-router';
 import { resolveRelativeDateRange, type BusinessSlotResolver } from './execution/slot-resolver';
 import { getIntentDefinition } from './execution/intent-registry';
 import { assessEvidence, normalizeEvidence } from './execution/evidence';
+import { buildNoHotelDataAnswer } from './execution/no-data-answer';
+import { buildRoutingContext } from './execution/routing-context';
 import type { JsonValue, ResolvedBusinessRequest } from './execution/business-execution-state';
 import type { DeterministicWorkflowCollector } from './execution/deterministic-workflow-collector';
 import { buildDeterministicDataQueryAnswer } from './execution/deterministic-data-query-answer';
+import { summarizeConversationTitle, type ConversationTitleGenerator } from './conversation-title';
 import { buildDeterministicOperatingAnswer } from './execution/deterministic-operating-answer';
 import {
 	agentErrorType,
@@ -71,6 +74,8 @@ type AgentRepositoryPort = Pick<
 	| 'listEvents'
 	| 'completeRun'
 	| 'cancelRun'
+	| 'listMemories'
+	| 'updateConversationTitle'
 >;
 type McpToolProviderPort = Pick<McpToolProvider, 'serverCount' | 'capabilities'>;
 type ConversationContextPort = Pick<ConversationContextService, 'prepare'>;
@@ -271,7 +276,8 @@ export class HotelAgentGateway implements AgentGateway {
 		private readonly logger: ApiLogger,
 		private readonly intentRouter?: BusinessIntentRouterPort,
 		private readonly slotResolver?: BusinessSlotResolverPort,
-		private readonly workflowCollector?: WorkflowCollectorPort
+		private readonly workflowCollector?: WorkflowCollectorPort,
+		private readonly conversationTitleGenerator?: ConversationTitleGenerator
 	) {
 		this.eventBus.setMaxListeners(100);
 	}
@@ -698,7 +704,8 @@ export class HotelAgentGateway implements AgentGateway {
 					event: 'agent.run.execution.started',
 					runId,
 					conversationId: context.conversation.id,
-					model: this.environment.model
+					fastModel: this.environment.fastModel,
+					analysisModel: this.environment.model
 				},
 				'Agent run execution started'
 			);
@@ -737,6 +744,36 @@ export class HotelAgentGateway implements AgentGateway {
 				},
 				'Agent conversation context prepared'
 			);
+			const memories = await this.repository.listMemories(principal);
+			const promptForTitle = context.userMessage?.content;
+			const fallbackTitle = promptForTitle ? summarizeConversationTitle(promptForTitle) : null;
+			const titleUpdate =
+				this.conversationTitleGenerator &&
+				promptForTitle &&
+				fallbackTitle &&
+				context.conversation.title === fallbackTitle
+					? this.conversationTitleGenerator
+							.generate(promptForTitle, controller.signal)
+							.then((title) =>
+								this.repository.updateConversationTitle(principal, {
+									conversationId: context.conversation.id,
+									expectedTitle: fallbackTitle,
+									title
+								})
+							)
+							.catch((error: unknown) => {
+								if (controller.signal.aborted) return;
+								this.logger.warn(
+									{
+										event: 'agent.conversation.title.failed',
+										conversationId: context.conversation.id,
+										errorType: error instanceof Error ? error.name : 'UnknownError'
+									},
+									'Agent conversation title generation failed; keeping fallback title'
+								);
+							})
+					: Promise.resolve();
+			void titleUpdate;
 			await this.publish(principal, runId, context.conversation.id, { type: 'run_started' });
 			if (this.intentRouter && this.slotResolver && context.run.businessExecutionId) {
 				let execution = await this.repository.getBusinessExecution(
@@ -744,13 +781,27 @@ export class HotelAgentGateway implements AgentGateway {
 					context.run.businessExecutionId
 				);
 				if (execution.state.status === 'routing') {
+					const routingContext =
+						execution.state.inputKind === 'prompt'
+							? buildRoutingContext({
+									prompt: execution.state.inputValue,
+									conversationSummary: prepared.summary,
+									history: prepared.history,
+									currentMessageId: execution.summary.triggerUserMessageId,
+									memories
+								})
+							: null;
 					const decision = await this.intentRouter.route(
 						execution.state.inputKind === 'quick_action'
 							? {
 									kind: 'quick_action',
 									quickActionId: agentQuickActionIdSchema.parse(execution.state.inputValue)
 								}
-							: { kind: 'prompt', text: execution.state.inputValue }
+							: {
+									kind: 'prompt',
+									text: execution.state.inputValue,
+									...(routingContext ? { context: routingContext } : {})
+								}
 					);
 					execution = await this.repository.transitionBusinessExecution(
 						principal,
@@ -873,6 +924,7 @@ export class HotelAgentGateway implements AgentGateway {
 								principal,
 								conversationSummary: prepared.summary,
 								history: prepared.history,
+								memories,
 								signal: controller.signal,
 								workflowRequest,
 								emit: (event) =>
@@ -1060,6 +1112,7 @@ export class HotelAgentGateway implements AgentGateway {
 									principal,
 									conversationSummary: null,
 									history: [],
+									memories,
 									signal: controller.signal,
 									workflowRequest: execution.state.request,
 									validatedEvidence: execution.state.evidence,
@@ -1124,6 +1177,7 @@ export class HotelAgentGateway implements AgentGateway {
 									principal,
 									conversationSummary: null,
 									history: [],
+									memories,
 									signal: controller.signal,
 									workflowRequest: execution.state.request,
 									validatedEvidence: execution.state.evidence,
@@ -1157,8 +1211,8 @@ export class HotelAgentGateway implements AgentGateway {
 							principal,
 							conversationSummary: prepared.summary,
 							history: prepared.history,
+							memories,
 							signal: controller.signal,
-							validatedEvidence: [],
 							emit: (event) =>
 								this.forwardRuntimeEvent(
 									principal,
@@ -1172,10 +1226,12 @@ export class HotelAgentGateway implements AgentGateway {
 					const content =
 						execution.state.mode === 'write_denied'
 							? '当前暂不支持修改订单、价格、库存、房态或其他业务数据。我可以帮助你查询现状、分析原因并给出操作建议。'
-							: execution.state.mode === 'limited'
-								? `本次查询没有获得足够的可验证数据，因此不输出未经证实的业务结论。${execution.state.limitations.join('')}`
-								: controlledResult?.content ||
-									`本次查询没有获得足够的可验证数据。${execution.state.limitations.join('')}`;
+							: execution.state.mode === 'no_data' && execution.state.request
+								? buildNoHotelDataAnswer(execution.state.request)
+								: execution.state.mode === 'limited'
+									? `本次查询没有获得足够的可验证数据，因此不输出未经证实的业务结论。${execution.state.limitations.join('')}`
+									: controlledResult?.content ||
+										`本次查询没有获得足够的可验证数据。${execution.state.limitations.join('')}`;
 					const message = await this.repository.finalizeRunSuccess(
 						runId,
 						context.conversation.id,
@@ -1204,6 +1260,7 @@ export class HotelAgentGateway implements AgentGateway {
 				principal,
 				conversationSummary: prepared.summary,
 				history: prepared.history,
+				memories,
 				signal: controller.signal,
 				emit: (event) =>
 					this.forwardRuntimeEvent(

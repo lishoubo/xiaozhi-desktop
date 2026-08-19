@@ -1,6 +1,7 @@
 import { ChatOpenAI } from '@langchain/openai';
 import { Effect } from 'effect';
 import type { AgentEnvironment } from './agent-config';
+import { modelForTier, modelKwargsForTier } from './model-tier';
 import {
 	agentPromise,
 	AgentConfigurationError,
@@ -32,9 +33,11 @@ export class LangChainConversationSummaryGenerator implements ConversationSummar
 		if (!this.environment.apiKey) {
 			throw new AgentConfigurationError({ setting: 'AI_KIMI_API_KEY' });
 		}
+		const modelName = modelForTier(this.environment, 'fast');
 		const model = new ChatOpenAI({
-			model: this.environment.model,
+			model: modelName,
 			apiKey: this.environment.apiKey,
+			modelKwargs: modelKwargsForTier(modelName, 'fast'),
 			maxTokens: input.maxTokens,
 			maxRetries: 2,
 			timeout: 120_000,
