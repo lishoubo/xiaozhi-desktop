@@ -650,6 +650,16 @@ describe('HotelAgentGateway deterministic business collection', () => {
 			const workflowCollector = {
 				collect: vi.fn().mockImplementation(async (input) => {
 					await input.emit({
+						type: 'mcp_call_failed',
+						toolCallId: 'tool-call-retry-0',
+						toolName: 'query_hotel_operating_data_sql',
+						durationMs: 87,
+						errorType: 'AgentUpstreamError',
+						causeType: 'ToolException',
+						failureKind: 'tool_or_data_source',
+						retryable: true
+					});
+					await input.emit({
 						type: 'mcp_call_started',
 						toolCallId: 'tool-call-1',
 						toolName: 'query_hotel_operating_data_sql'
@@ -898,7 +908,20 @@ describe('HotelAgentGateway deterministic business collection', () => {
 				}),
 				'MCP call completed'
 			);
+			expect(logger.warn).toHaveBeenCalledWith(
+				expect.objectContaining({
+					event: 'agent.mcp.call.failed',
+					toolName: 'query_hotel_operating_data_sql',
+					durationMs: 87,
+					errorType: 'AgentUpstreamError',
+					causeType: 'ToolException',
+					failureKind: 'tool_or_data_source',
+					retryable: true
+				}),
+				'MCP call failed'
+			);
 			expect(JSON.stringify(logger.info.mock.calls)).not.toContain('gmv');
+			expect(JSON.stringify(logger.warn.mock.calls)).not.toContain('SELECT');
 		}
 	);
 });
@@ -971,6 +994,32 @@ describe('describeAgentRunFailure', () => {
 
 		expect(failure).toEqual({
 			message: '经营数据和图表已展示，但分析未完成；可先查看结果或重试。',
+			retryable: true
+		});
+	});
+
+	it('does not label an unscoped workflow stream failure as a hotel-data outage', () => {
+		const failure = describeAgentRunFailure(
+			new AgentUpstreamError({
+				service: 'mcp',
+				operation: 'run_agent_stream',
+				kind: 'unavailable'
+			})
+		);
+
+		expect(failure).toEqual({
+			message: '小智暂时无法完成这次请求，请稍后重试。',
+			retryable: true
+		});
+	});
+
+	it('does not infer an MCP outage from an untyped error message', () => {
+		const failure = describeAgentRunFailure(
+			new Error('executeScript failed with private transport details')
+		);
+
+		expect(failure).toEqual({
+			message: '小智暂时无法完成这次请求，请稍后重试。',
 			retryable: true
 		});
 	});

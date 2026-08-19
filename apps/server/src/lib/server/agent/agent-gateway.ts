@@ -28,7 +28,12 @@ import {
 	StaleBusinessExecutionVersionError
 } from './agent-repository';
 import type { AgentEnvironment } from './agent-config';
-import type { AgentRuntime, PublishableRuntimeEvent, RuntimeEvent } from './agent-runtime';
+import {
+	shouldForwardCollectionRuntimeEvent,
+	type AgentRuntime,
+	type PublishableRuntimeEvent,
+	type RuntimeEvent
+} from './agent-runtime';
 import type { ConversationContextService } from './conversation-context';
 import type { McpToolProvider } from './mcp-tool-provider';
 import type { SkillProvider } from './skill-provider';
@@ -51,6 +56,7 @@ import { summarizeConversationTitle, type ConversationTitleGenerator } from './c
 import { buildDeterministicOperatingAnswer } from './execution/deterministic-operating-answer';
 import {
 	agentErrorType,
+	agentErrorCauseType,
 	agentErrorRetryable,
 	agentFailureKind,
 	AgentConfigurationError,
@@ -121,7 +127,7 @@ export function describeAgentRunFailure(
 	if (error instanceof AgentUpstreamError) {
 		return {
 			message:
-				error.service === 'mcp'
+				error.service === 'mcp' && error.operation !== 'run_agent_stream'
 					? '酒店经营数据服务暂时没有响应，请稍后重试。'
 					: error.kind === 'timeout' && error.operation === 'analyze_grounded_answer'
 						? '经营数据和图表已展示，但分析超时；可先查看结果或稍后重试。'
@@ -134,12 +140,6 @@ export function describeAgentRunFailure(
 	const detail = error instanceof Error ? `${error.name} ${error.message}` : String(error);
 	if (/AI_KIMI_API_KEY|not configured/i.test(detail)) {
 		return { message: 'Agent 模型服务尚未配置，请联系管理员。', retryable: false };
-	}
-	if (/askDatabase|executeScript|aliyun-dms-hotel-data|dms-mcpr/i.test(detail)) {
-		return {
-			message: '酒店经营数据服务暂时没有响应，请稍后重试。',
-			retryable: true
-		};
 	}
 	return { message: '小智暂时无法完成这次请求，请稍后重试。', retryable: true };
 }
@@ -185,6 +185,7 @@ function agentFailureLogFields(error: unknown): Readonly<{
 	upstreamOperation?: string;
 	upstreamFailureKind?: string;
 	analysisCompletionIssue?: 'empty' | 'output_limit';
+	causeType?: string;
 }> {
 	const analysisCompletionIssue =
 		error instanceof AgentUpstreamError &&
@@ -196,6 +197,7 @@ function agentFailureLogFields(error: unknown): Readonly<{
 	return {
 		errorType: agentErrorType(error),
 		failureKind: agentFailureKind(error),
+		...(agentErrorCauseType(error) ? { causeType: agentErrorCauseType(error) } : {}),
 		...(analysisCompletionIssue ? { analysisCompletionIssue } : {}),
 		...(error instanceof AgentUpstreamError
 			? {
@@ -933,8 +935,14 @@ export class HotelAgentGateway implements AgentGateway {
 								signal: controller.signal,
 								workflowRequest,
 								emit: (event) =>
-									event.type === 'tool_started' || event.type === 'tool_completed'
-										? this.publish(principal, runId, context.conversation.id, event)
+									shouldForwardCollectionRuntimeEvent(event)
+										? this.forwardRuntimeEvent(
+												principal,
+												runId,
+												context.conversation.id,
+												event,
+												context.run.businessExecutionId
+											)
 										: Promise.resolve()
 							})
 						);
@@ -1452,6 +1460,7 @@ export class HotelAgentGateway implements AgentGateway {
 					toolName: event.toolName,
 					durationMs: event.durationMs,
 					errorType: event.errorType,
+					...(event.causeType ? { causeType: event.causeType } : {}),
 					failureKind: event.failureKind,
 					retryable: event.retryable
 				},

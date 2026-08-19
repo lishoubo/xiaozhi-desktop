@@ -4,6 +4,7 @@ import { randomUUID } from 'node:crypto';
 import type { RuntimeEvent } from '../agent-runtime';
 import {
 	agentPromise,
+	agentErrorCauseType,
 	agentErrorRetryable,
 	agentErrorType,
 	agentFailureKind,
@@ -263,6 +264,7 @@ export class DeterministicWorkflowCollector {
 				toolName: selected.tool.name,
 				durationMs: Math.max(0, Math.round(performance.now() - callStartedAt)),
 				errorType: agentErrorType(error),
+				...(agentErrorCauseType(error) ? { causeType: agentErrorCauseType(error) } : {}),
 				failureKind: agentFailureKind(error),
 				retryable: agentErrorRetryable(error)
 			});
@@ -280,6 +282,7 @@ export class DeterministicWorkflowCollector {
 				toolName: selected.tool.name,
 				durationMs: Math.max(0, Math.round(performance.now() - callStartedAt)),
 				errorType: agentErrorType(error),
+				...(agentErrorCauseType(error) ? { causeType: agentErrorCauseType(error) } : {}),
 				failureKind: agentFailureKind(error),
 				retryable: agentErrorRetryable(error)
 			});

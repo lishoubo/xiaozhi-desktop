@@ -2,6 +2,7 @@ import { Effect } from 'effect';
 import { describe, expect, it } from 'vitest';
 import {
 	agentErrorType,
+	agentErrorCauseType,
 	agentErrorRetryable,
 	agentFailureKind,
 	agentPromise,
@@ -48,6 +49,20 @@ describe('Agent Effect boundary', () => {
 
 		expect(failure).toBe(inner);
 		expect(failure.operation).toBe('discover_dms_database');
+	});
+
+	it('reports only the safe nested error type without exposing its message', () => {
+		const failure = new AgentUpstreamError({
+			service: 'mcp',
+			operation: 'query_hotel_operating_data_sql',
+			kind: 'unavailable',
+			cause: Object.assign(new Error('SELECT secret FROM private_table'), {
+				name: 'ToolException'
+			})
+		});
+
+		expect(agentErrorCauseType(failure)).toBe('ToolException');
+		expect(agentErrorCauseType(new Error('plain failure'))).toBeUndefined();
 	});
 
 	it('distinguishes configuration and protocol errors from retryable failures', () => {

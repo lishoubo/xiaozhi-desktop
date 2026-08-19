@@ -85,7 +85,7 @@ describe('BusinessIntentRouter', () => {
 			}
 		});
 		expect(classifier.classify).not.toHaveBeenCalled();
-		expect(getIntentDefinition('generic_hotel_data_query').maxToolCalls).toBe(6);
+		expect(getIntentDefinition('generic_hotel_data_query').maxToolCalls).toBe(15);
 	});
 
 	it('seeds yesterday for the daily operating review shortcut', async () => {

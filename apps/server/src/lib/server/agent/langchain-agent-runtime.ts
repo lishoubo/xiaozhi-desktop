@@ -20,6 +20,7 @@ import { modelForTier, modelKwargsForTier } from './model-tier';
 import { getIntentDefinition } from './execution/intent-registry';
 import {
 	agentPromise,
+	agentErrorCauseType,
 	agentErrorRetryable,
 	agentErrorType,
 	agentFailureKind,
@@ -77,6 +78,31 @@ export function shouldStopDuplicateUiRender(
 
 export function shouldCaptureToolEvidence(status: string | undefined): boolean {
 	return status !== 'error';
+}
+
+export function normalizeAgentStreamFailure(
+	error: unknown,
+	outstandingMcpToolName: string | null
+): unknown {
+	if (isAgentExecutionError(error)) return error;
+	if (agentErrorType(error) === 'GraphRecursionError') {
+		return new AgentProtocolError({
+			operation: 'execute_business_workflow',
+			reason: 'Agent graph recursion limit reached',
+			cause: error
+		});
+	}
+	return new AgentUpstreamError({
+		service: outstandingMcpToolName ? 'mcp' : 'model',
+		operation: outstandingMcpToolName ?? 'run_agent_stream',
+		kind: 'unavailable',
+		cause: error
+	});
+}
+
+export function workflowRecursionLimit(request: AgentRuntimeRunOptions['workflowRequest']): number {
+	if (!request) return 16;
+	return Math.max(10, getIntentDefinition(request.intent).maxToolCalls * 2 + 2);
 }
 
 export function shouldSuppressUiRenderCall(
@@ -253,13 +279,10 @@ export class LangChainAgentRuntime implements AgentRuntime {
 		const localTools =
 			analysisOnly || (options.workflowRequest && !answerOnly)
 				? []
-				: this.createLocalTools(
-						options,
-						(spec) => {
-							if (generatedUi) throw new DuplicateUiRenderError();
-							generatedUi = spec;
-						}
-					);
+				: this.createLocalTools(options, (spec) => {
+						if (generatedUi) throw new DuplicateUiRenderError();
+						generatedUi = spec;
+					});
 		const loadedMcpTools = !shouldLoadMcpTools(options)
 			? []
 			: await runAgentEffect(
@@ -344,7 +367,7 @@ export class LangChainAgentRuntime implements AgentRuntime {
 				{
 					streamMode: 'messages',
 					signal: options.signal,
-					recursionLimit: options.workflowRequest ? 10 : 16
+					recursionLimit: workflowRecursionLimit(options.workflowRequest)
 				}
 			);
 			for await (const [message] of stream) {
@@ -494,7 +517,14 @@ export class LangChainAgentRuntime implements AgentRuntime {
 				}
 			}
 		} catch (error) {
-			for (const [toolCallId, startedAt] of mcpCallStartedAt) {
+			const graphRecursionFailed = agentErrorType(error) === 'GraphRecursionError';
+			const outstandingMcpToolName = graphRecursionFailed
+				? null
+				: ([...mcpCallStartedAt.keys()].flatMap((toolCallId) => {
+						if (completedTools.has(toolCallId)) return [];
+						return [toolNamesByCall.get(toolCallId) ?? 'mcp_tool'];
+					})[0] ?? null);
+			for (const [toolCallId, startedAt] of graphRecursionFailed ? [] : mcpCallStartedAt) {
 				if (completedTools.has(toolCallId)) continue;
 				await options.emit({
 					type: 'mcp_call_failed',
@@ -502,6 +532,7 @@ export class LangChainAgentRuntime implements AgentRuntime {
 					toolName: toolNamesByCall.get(toolCallId) ?? 'mcp_tool',
 					durationMs: Math.max(0, Math.round(performance.now() - startedAt)),
 					errorType: agentErrorType(error),
+					...(agentErrorCauseType(error) ? { causeType: agentErrorCauseType(error) } : {}),
 					failureKind: agentFailureKind(error),
 					retryable: agentErrorRetryable(error)
 				});
@@ -511,13 +542,15 @@ export class LangChainAgentRuntime implements AgentRuntime {
 					? completeGroundedAnswerAfterUi(content, generatedUi)
 					: recoverCompletedUiAfterRenderLimit(error, content, generatedUi);
 			if (!recovered) {
-				if (isAgentExecutionError(error)) throw error;
-				throw new AgentUpstreamError({
-					service: answerOnly ? 'model' : options.workflowRequest ? 'mcp' : 'model',
-					operation: answerOnly ? 'generate_grounded_answer' : 'run_agent_stream',
-					kind: 'unavailable',
-					cause: error
-				});
+				if (answerOnly && !isAgentExecutionError(error)) {
+					throw new AgentUpstreamError({
+						service: 'model',
+						operation: 'generate_grounded_answer',
+						kind: 'unavailable',
+						cause: error
+					});
+				}
+				throw normalizeAgentStreamFailure(error, outstandingMcpToolName);
 			}
 			return recovered;
 		}

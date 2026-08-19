@@ -78,7 +78,7 @@ const definitions = [
 			{ name: 'metrics', required: false },
 			{ name: 'resultLimit', required: false, defaultValue: 50 }
 		],
-		maxToolCalls: 6,
+		maxToolCalls: 15,
 		allowSchemaDiscovery: true,
 		allowEvidenceFollowUp: true
 	}

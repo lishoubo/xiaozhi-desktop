@@ -46,11 +46,22 @@ export type RuntimeTelemetryEvent =
 			toolName: string;
 			durationMs: number;
 			errorType: string;
+			causeType?: string;
 			failureKind: string;
 			retryable: boolean;
 	  }>;
 
 export type RuntimeEvent = PublishableRuntimeEvent | RuntimeTelemetryEvent;
+
+export function shouldForwardCollectionRuntimeEvent(event: RuntimeEvent): boolean {
+	return (
+		event.type === 'tool_started' ||
+		event.type === 'tool_completed' ||
+		event.type === 'mcp_call_started' ||
+		event.type === 'mcp_call_completed' ||
+		event.type === 'mcp_call_failed'
+	);
+}
 
 export type AgentRuntimeRunOptions = Readonly<{
 	principal: AgentPrincipal;

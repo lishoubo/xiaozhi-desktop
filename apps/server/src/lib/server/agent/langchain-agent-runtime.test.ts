@@ -6,14 +6,18 @@ import {
 	completeGroundedAnswerAfterUi,
 	groundedAnalysisWritingInstructions,
 	isLocalToolAllowed,
+	normalizeAgentStreamFailure,
 	recoverCompletedUiAfterRenderLimit,
 	selectWorkflowToolNames,
 	shouldLoadMcpTools,
 	shouldLoadSkills,
 	shouldCaptureToolEvidence,
 	shouldSuppressUiRenderCall,
-	shouldStopDuplicateUiRender
+	shouldStopDuplicateUiRender,
+	workflowRecursionLimit
 } from './langchain-agent-runtime';
+import { AgentProtocolError, AgentUpstreamError } from './agent-effect';
+import { shouldForwardCollectionRuntimeEvent } from './agent-runtime';
 
 describe('shouldLoadMcpTools', () => {
 	it('denies MCP by default and only loads an explicit collection-phase allowlist', () => {
@@ -140,5 +144,89 @@ describe('tool evidence capture', () => {
 		expect(shouldSuppressUiRenderCall('render_hotel_ui', 'render-1', 'render-1')).toBe(false);
 		expect(shouldSuppressUiRenderCall('render_hotel_ui', 'render-2', 'render-1')).toBe(true);
 		expect(shouldSuppressUiRenderCall('query_weather', 'weather-1', 'render-1')).toBe(false);
+	});
+});
+
+describe('model-driven collection diagnostics', () => {
+	it('scales graph recursion with the generic hotel-data tool budget', () => {
+		expect(
+			workflowRecursionLimit({
+				routeKind: 'business_read',
+				intent: 'generic_hotel_data_query',
+				slots: {}
+			})
+		).toBe(32);
+		expect(
+			workflowRecursionLimit({
+				routeKind: 'business_read',
+				intent: 'hotel_operating_summary',
+				slots: {}
+			})
+		).toBe(10);
+		expect(workflowRecursionLimit(undefined)).toBe(16);
+	});
+
+	it('forwards MCP lifecycle events without forwarding collection text', () => {
+		expect(
+			shouldForwardCollectionRuntimeEvent({
+				type: 'mcp_call_failed',
+				toolCallId: 'query-1',
+				toolName: 'query_hotel_operating_data_sql',
+				durationMs: 123,
+				errorType: 'McpError',
+				failureKind: 'tool_or_data_source',
+				retryable: true
+			})
+		).toBe(true);
+		expect(shouldForwardCollectionRuntimeEvent({ type: 'text_delta', delta: 'raw result' })).toBe(
+			false
+		);
+	});
+
+	it('attributes a stream failure to the concrete in-flight MCP tool only', () => {
+		const cause = new Error('sensitive SQL diagnostics');
+		const mcpFailure = normalizeAgentStreamFailure(cause, 'query_hotel_operating_data_sql');
+		const modelFailure = normalizeAgentStreamFailure(cause, null);
+
+		expect(mcpFailure).toMatchObject({
+			_tag: 'AgentUpstreamError',
+			service: 'mcp',
+			operation: 'query_hotel_operating_data_sql',
+			kind: 'unavailable'
+		});
+		expect(modelFailure).toMatchObject({
+			_tag: 'AgentUpstreamError',
+			service: 'model',
+			operation: 'run_agent_stream',
+			kind: 'unavailable'
+		});
+	});
+
+	it('preserves an existing typed execution error', () => {
+		const protocol = new AgentProtocolError({
+			operation: 'execute_business_workflow',
+			reason: 'tool-call budget exceeded'
+		});
+
+		expect(normalizeAgentStreamFailure(protocol, 'query_hotel_operating_data_sql')).toBe(protocol);
+		expect(
+			normalizeAgentStreamFailure(
+				new AgentUpstreamError({ service: 'model', operation: 'chat', kind: 'timeout' }),
+				'query_hotel_operating_data_sql'
+			)
+		).toMatchObject({ service: 'model', operation: 'chat', kind: 'timeout' });
+	});
+
+	it('classifies a graph recursion limit as protocol failure rather than MCP failure', () => {
+		const graphLimit = Object.assign(new Error('Recursion limit of 10 reached'), {
+			name: 'GraphRecursionError'
+		});
+
+		expect(normalizeAgentStreamFailure(graphLimit, 'query_hotel_operating_data_sql')).toMatchObject(
+			{
+				_tag: 'AgentProtocolError',
+				operation: 'execute_business_workflow'
+			}
+		);
 	});
 });

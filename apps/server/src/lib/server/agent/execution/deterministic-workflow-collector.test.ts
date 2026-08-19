@@ -253,7 +253,8 @@ describe('deterministic workflow collector', () => {
 			expect.objectContaining({
 				type: 'mcp_call_failed',
 				toolName: 'query_hotel_operating_data_sql',
-				errorType: 'AgentUpstreamError'
+				errorType: 'AgentUpstreamError',
+				causeType: 'Error'
 			})
 		);
 		expect(JSON.stringify(emit.mock.calls)).not.toContain('private payload');

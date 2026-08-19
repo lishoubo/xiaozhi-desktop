@@ -98,3 +98,16 @@ export function agentErrorType(error: unknown): string {
 		? error.name
 		: 'UnknownError';
 }
+
+export function agentErrorCauseType(error: unknown): string | undefined {
+	let current = error;
+	let causeType: string | undefined;
+	for (let depth = 0; depth < 4; depth += 1) {
+		if (typeof current !== 'object' || current === null) break;
+		const cause = Reflect.get(current, 'cause');
+		if (typeof cause !== 'object' || cause === null) break;
+		causeType = agentErrorType(cause);
+		current = cause;
+	}
+	return causeType;
+}
