@@ -1,5 +1,5 @@
 import type { GenerativeUiSpec } from '@hotel-butler/api';
-import { HOTEL_DATA_RESULT_ROW_LIMIT } from '../hotel-data-mcp';
+import { HOTEL_DATA_RESULT_ROW_LIMIT, HOTEL_DATA_SQL_TOOL_NAME } from '../hotel-data-mcp';
 import { validateHotelUi } from '../hotel-ui-validator';
 import type {
 	EvidenceRecord,
@@ -140,7 +140,14 @@ export function buildDeterministicDataQueryAnswer(
 	evidence: readonly EvidenceRecord[]
 ): Readonly<{ content: string; ui: GenerativeUiSpec }> | null {
 	if (request.intent !== 'generic_hotel_data_query') return null;
-	const source = evidence.find((item) => item.source === 'aliyun_dms_mcp');
+	const source = evidence.findLast(
+		(item) =>
+			item.source === 'aliyun_dms_mcp' &&
+			typeof item.data === 'object' &&
+			item.data !== null &&
+			!Array.isArray(item.data) &&
+			Reflect.get(item.data, 'toolName') === HOTEL_DATA_SQL_TOOL_NAME
+	);
 	const table = source ? tableData(source.data) : null;
 	if (!source || !table || table.rows.length === 0) return null;
 	const wasFiltered = filtered(source.data);

@@ -14,7 +14,7 @@ describe('slot resolution', () => {
 			orgId: '42',
 			slots: {
 				hotelReference: { status: 'candidate', raw: '123' },
-				dateRange: { status: 'candidate', raw: '上个月' }
+				dateRange: { status: 'candidate', raw: '2026-07-01/2026-07-31' }
 			},
 			anchorMessageId: '22222222-2222-4222-8222-222222222222',
 			version: 1
@@ -96,7 +96,7 @@ describe('slot resolution', () => {
 				intent: 'generic_hotel_data_query',
 				responseMode: 'data_only',
 				orgId: '42',
-				slots: { dateRange: { status: 'candidate', raw: '最近30天（含今天）' } },
+				slots: { dateRange: { status: 'candidate', raw: '2026-07-15/2026-08-13' } },
 				anchorMessageId: '22222222-2222-4222-8222-222222222222',
 				version: 1
 			})
@@ -207,7 +207,7 @@ describe('slot resolution', () => {
 		await expect(
 			resolver.resolve({
 				...base,
-				slots: { hotelReference: { status: 'candidate', raw: '所有酒店' } },
+				slots: { hotelReference: { status: 'candidate', raw: '*' } },
 				hotelAccess: {
 					kind: 'staff_managed_hotels',
 					currentHotelId: '9',
@@ -241,26 +241,21 @@ describe('slot resolution', () => {
 	});
 
 	it('normalizes relative dates with the explicit application timezone', () => {
-		expect(resolveRelativeDateRange('昨天', now)).toEqual({
+		expect(resolveRelativeDateRange('@date:yesterday', now)).toEqual({
 			start: '2026-08-12',
 			end: '2026-08-12',
 			timezone: 'Asia/Shanghai',
-			original: '昨天'
+			original: '@date:yesterday'
 		});
-		expect(resolveRelativeDateRange('上周', now)).toMatchObject({
-			start: '2026-08-03',
-			end: '2026-08-09',
-			timezone: 'Asia/Shanghai'
-		});
-		expect(resolveRelativeDateRange('最近7天', now)).toMatchObject({
+		expect(resolveRelativeDateRange('@date:complete-days:7', now)).toMatchObject({
 			start: '2026-08-06',
 			end: '2026-08-12'
 		});
-		expect(resolveRelativeDateRange('最近30天（含今天）', now)).toMatchObject({
-			start: '2026-07-15',
-			end: '2026-08-13'
+		expect(resolveRelativeDateRange('2026-08-10/2026-08-12', now)).toMatchObject({
+			start: '2026-08-10',
+			end: '2026-08-12'
 		});
-		expect(resolveRelativeDateRange('本月至今', now)).toMatchObject({
+		expect(resolveRelativeDateRange('@date:month-to-date', now)).toMatchObject({
 			start: '2026-08-01',
 			end: '2026-08-13'
 		});
@@ -319,7 +314,7 @@ describe('slot resolution', () => {
 			orgId: '42',
 			slots: {
 				hotelReference: { status: 'candidate', raw: '杭州西湖店' },
-				checkIn: { status: 'candidate', raw: '明天' },
+				checkIn: { status: 'candidate', raw: '2026-08-14' },
 				checkOut: { status: 'candidate', raw: '2026-08-16' }
 			},
 			anchorMessageId: '22222222-2222-4222-8222-222222222222',
@@ -353,7 +348,7 @@ describe('slot resolution', () => {
 			orgId: '42',
 			slots: {
 				hotelReference: { status: 'candidate', raw: '未同步的酒店' },
-				dateRange: { status: 'candidate', raw: '昨天' }
+				dateRange: { status: 'candidate', raw: '@date:yesterday' }
 			},
 			anchorMessageId: '22222222-2222-4222-8222-222222222222',
 			version: 1

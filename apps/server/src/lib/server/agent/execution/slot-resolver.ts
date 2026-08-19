@@ -58,29 +58,28 @@ export function resolveRelativeDateRange(
 	timezone = 'Asia/Shanghai'
 ): DateRange | null {
 	const today = formatDate(now, timezone);
-	if (/^(今天|today)$/i.test(raw)) return { start: today, end: today, timezone, original: raw };
-	if (/^昨天$/.test(raw)) {
+	const isoRange = raw.match(/^(\d{4}-\d{2}-\d{2})\/(\d{4}-\d{2}-\d{2})$/);
+	if (isoRange?.[1] && isoRange[2]) {
+		return { start: isoRange[1], end: isoRange[2], timezone, original: raw };
+	}
+	if (raw === '@date:today') return { start: today, end: today, timezone, original: raw };
+	if (raw === '@date:yesterday') {
 		const yesterday = shiftIsoDate(today, -1);
 		return { start: yesterday, end: yesterday, timezone, original: raw };
 	}
-	if (/^最近7天$/.test(raw)) {
+	const relativeDays = raw.match(/^@date:complete-days:([1-9]\d{0,2})$/)?.[1];
+	if (relativeDays) {
+		const dayCount = Number(relativeDays);
+		if (dayCount > 366) return null;
 		const yesterday = shiftIsoDate(today, -1);
 		return {
-			start: shiftIsoDate(yesterday, -6),
+			start: shiftIsoDate(yesterday, 1 - dayCount),
 			end: yesterday,
 			timezone,
 			original: raw
 		};
 	}
-	if (/^最近30天（含今天）$/.test(raw)) {
-		return {
-			start: shiftIsoDate(today, -29),
-			end: today,
-			timezone,
-			original: raw
-		};
-	}
-	if (/^本月至今$/.test(raw)) {
+	if (raw === '@date:month-to-date') {
 		const [year, month] = today.split('-');
 		return {
 			start: `${year}-${month}-01`,
@@ -89,33 +88,7 @@ export function resolveRelativeDateRange(
 			original: raw
 		};
 	}
-	if (/^明天$/.test(raw)) {
-		const tomorrow = shiftIsoDate(today, 1);
-		return { start: tomorrow, end: tomorrow, timezone, original: raw };
-	}
 	if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return { start: raw, end: raw, timezone, original: raw };
-	if (/^上周$/.test(raw)) {
-		const noonUtc = new Date(`${today}T12:00:00.000Z`);
-		const weekday = noonUtc.getUTCDay() || 7;
-		const thisMonday = shiftIsoDate(today, 1 - weekday);
-		return {
-			start: shiftIsoDate(thisMonday, -7),
-			end: shiftIsoDate(thisMonday, -1),
-			timezone,
-			original: raw
-		};
-	}
-	if (/^上个月$/.test(raw)) {
-		const [year, month] = today.split('-').map(Number);
-		const start = new Date(Date.UTC(year ?? 0, (month ?? 1) - 2, 1));
-		const end = new Date(Date.UTC(year ?? 0, (month ?? 1) - 1, 0));
-		return {
-			start: start.toISOString().slice(0, 10),
-			end: end.toISOString().slice(0, 10),
-			timezone,
-			original: raw
-		};
-	}
 	return null;
 }
 
@@ -163,7 +136,7 @@ function splitHotelReferences(reference: string): readonly string[] {
 }
 
 function allHotelsRequested(reference: string): boolean {
-	return /^(?:所有|全部|全量|各个|各家|每家)酒店$|^酒店(?:全部|全量)$/.test(reference.trim());
+	return reference.trim() === '*';
 }
 
 function unresolvedFields(

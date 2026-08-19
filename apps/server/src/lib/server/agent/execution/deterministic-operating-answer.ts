@@ -199,7 +199,7 @@ export function buildDeterministicOperatingAnswer(
 			}
 		];
 	});
-	const showTrend = request.slots.metrics === '按日经营趋势' && trendData.length >= 2;
+	const showTrend = request.slots.metrics === '@metrics:daily-trend' && trendData.length >= 2;
 	const elements: GenerativeUiSpec['elements'] = {
 		root: {
 			type: showTrend ? 'Stack' : 'Card',

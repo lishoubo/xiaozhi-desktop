@@ -205,7 +205,7 @@ describe('HotelAgentGateway session isolation', () => {
 		});
 		repository.getRunContext.mockResolvedValue({
 			run: { id: runId, status: 'running' },
-			conversation: { id: conversationId, title: '查询上海酒店最近七天经营趋势' },
+			conversation: { id: conversationId, title: '请帮我查询上海酒店最近七天经营趋势' },
 			userMessage: { content: prompt }
 		});
 		runtime.run.mockResolvedValue({ content: '完成', ui: null });
@@ -234,7 +234,7 @@ describe('HotelAgentGateway session isolation', () => {
 		await vi.waitFor(() =>
 			expect(repository.updateConversationTitle).toHaveBeenCalledWith(principal, {
 				conversationId,
-				expectedTitle: '查询上海酒店最近七天经营趋势',
+				expectedTitle: '请帮我查询上海酒店最近七天经营趋势',
 				title: '上海酒店近七日经营趋势'
 			})
 		);

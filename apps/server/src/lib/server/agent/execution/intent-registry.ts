@@ -29,7 +29,7 @@ const definitions = [
 		workflowId: 'weather_operations_advice.v1',
 		slots: [
 			{ name: 'location', required: true },
-			{ name: 'date', required: true, defaultValue: 'today' }
+			{ name: 'date', required: true, defaultValue: '@date:today' }
 		],
 		maxToolCalls: 2,
 		allowSchemaDiscovery: false,

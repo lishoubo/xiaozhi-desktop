@@ -163,7 +163,7 @@ describe('deterministic workflow collector', () => {
 				slots: {
 					hotelReference: '123',
 					dateRange: { start: '2026-08-06', end: '2026-08-12' },
-					metrics: '按日经营趋势'
+					metrics: '@metrics:daily-trend'
 				}
 			},
 			signal: new AbortController().signal,
@@ -242,7 +242,7 @@ describe('deterministic workflow collector', () => {
 					slots: {
 						hotelReference: '123',
 						dateRange: { start: '2026-08-08', end: '2026-08-14' },
-						metrics: '按日经营趋势'
+						metrics: '@metrics:daily-trend'
 					}
 				},
 				signal: new AbortController().signal,

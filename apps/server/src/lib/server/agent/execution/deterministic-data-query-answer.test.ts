@@ -10,7 +10,13 @@ const request: ResolvedBusinessRequest = {
 };
 
 function evidence(data: EvidenceRecord['data']): EvidenceRecord[] {
-	return [{ evidenceId: '11111111-1111-4111-8111-111111111111', source: 'aliyun_dms_mcp', data }];
+	return [
+		{
+			evidenceId: '11111111-1111-4111-8111-111111111111',
+			source: 'aliyun_dms_mcp',
+			data: { toolName: 'query_hotel_operating_data_sql', data }
+		}
+	];
 }
 
 describe('buildDeterministicDataQueryAnswer', () => {
@@ -65,5 +71,32 @@ describe('buildDeterministicDataQueryAnswer', () => {
 			columns: ['查询结果'],
 			rows: [['查询完成']]
 		});
+	});
+
+	it('renders only SQL query evidence when schema discovery evidence appears first', () => {
+		const result = buildDeterministicDataQueryAnswer(request, [
+			{
+				evidenceId: '11111111-1111-4111-8111-111111111111',
+				source: 'aliyun_dms_mcp',
+				data: {
+					toolName: 'list_hotel_data_tables',
+					data: { TableList: { Table: [{ TableName: 'ota_order' }] } }
+				}
+			},
+			{
+				evidenceId: '22222222-2222-4222-8222-222222222222',
+				source: 'aliyun_dms_mcp',
+				data: {
+					toolName: 'query_hotel_operating_data_sql',
+					data: { data: [{ order_id: 'O-100', channel: '携程' }] }
+				}
+			}
+		]);
+
+		expect(result?.ui.elements.result.props).toEqual({
+			columns: ['order_id', 'channel'],
+			rows: [['O-100', '携程']]
+		});
+		expect(JSON.stringify(result)).not.toContain('TableList');
 	});
 });

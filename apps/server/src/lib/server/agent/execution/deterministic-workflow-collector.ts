@@ -117,7 +117,7 @@ function operatingSummaryArgs(
 		) {
 			return null;
 		}
-		const dailyTrend = metrics === '按日经营趋势';
+		const dailyTrend = metrics === '@metrics:daily-trend';
 		return {
 			database_id: 'server-configured',
 			script: dailyTrend

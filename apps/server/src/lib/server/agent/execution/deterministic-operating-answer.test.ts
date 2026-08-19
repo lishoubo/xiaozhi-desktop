@@ -14,7 +14,7 @@ describe('buildDeterministicOperatingAnswer', () => {
 				intent: 'hotel_operating_summary',
 				slots: {
 					hotelReference: '4',
-					metrics: '按日经营趋势',
+					metrics: '@metrics:daily-trend',
 					dateRange: { start: '2026-08-10', end: '2026-08-16' }
 				}
 			},

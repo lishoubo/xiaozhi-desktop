@@ -22,7 +22,9 @@ const runResponseSchema = z.object({
 const conversationMessagesResponseSchema = z.object({
 	result: z.object({
 		data: z.object({
-			messages: z.array(z.object({ role: z.string(), content: z.string() })),
+			messages: z.array(
+				z.object({ role: z.string(), content: z.string(), ui: z.unknown().nullable().optional() })
+			),
 			activeBusinessExecution: z
 				.object({
 					id: z.string().uuid(),
@@ -274,6 +276,11 @@ test('completes a latest hotel orders query through the real DMS MCP', async ({ 
 			(message) => message.role === 'assistant'
 		);
 		expect(assistant?.content).not.toContain('暂时没有响应');
+		const renderedUi = JSON.stringify(assistant?.ui);
+		expect(renderedUi).not.toContain('TableList');
+		expect(renderedUi).not.toContain('structuredContent');
+		expect(renderedUi).not.toContain('TableName');
+		expect(renderedUi).toMatch(/order|订单/i);
 	} finally {
 		await database.end();
 	}
