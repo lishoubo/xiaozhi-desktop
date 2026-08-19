@@ -5,7 +5,7 @@
   const html = $derived(renderAgentMarkdown(content));
 </script>
 
-<div class="agent-markdown min-w-0 text-sm leading-7">
+<div class="agent-markdown min-w-0 max-w-full text-sm leading-7 [overflow-wrap:anywhere]">
   {@html html}
 </div>
 
@@ -87,6 +87,8 @@
   }
 
   .agent-markdown :global(code) {
+    max-width: 100%;
+    overflow-wrap: anywhere;
     border-radius: 0.3rem;
     background: var(--muted);
     padding: 0.12rem 0.3rem;
@@ -95,6 +97,7 @@
   }
 
   .agent-markdown :global(pre) {
+    max-width: 100%;
     overflow-x: auto;
     border: 1px solid var(--border);
     border-radius: 0.65rem;
@@ -104,11 +107,16 @@
   }
 
   .agent-markdown :global(pre code) {
+    overflow-wrap: normal;
     background: transparent;
     padding: 0;
   }
 
   .agent-markdown :global(table) {
+    display: block;
+    max-width: 100%;
+    overflow-x: auto;
+    overscroll-behavior-inline: contain;
     width: 100%;
     border-collapse: collapse;
     font-size: 0.82rem;

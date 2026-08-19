@@ -45,7 +45,7 @@
     shouldDisplayExecutionTrace,
   } from '../agent-presentation';
   import { greetingName } from '../session-greeting.svelte';
-  import { isAgentViewportNearBottom } from '../agent-scroll';
+  import { shouldFollowAgentViewport } from '../agent-scroll';
   import { LAYOUT_ANIMATION_OPTIONS, PAGE_ENTER_OPTIONS, enter } from '../motion';
   import { Button } from '$lib/components/ui/button';
   import * as AlertDialog from '$lib/components/ui/alert-dialog';
@@ -94,6 +94,7 @@
   let conversationContent = $state<HTMLElement | null>(null);
   let conversationBottomAnchor = $state<HTMLElement | null>(null);
   let followLatestContent = true;
+  let lastConversationScrollTop = 0;
   const pendingRunEvents = new SvelteMap<string, AgentRunEvent[]>();
 
   const activeView = $derived(
@@ -139,7 +140,7 @@
       if (!followLatestContent || pendingFrame !== null) return;
       pendingFrame = requestAnimationFrame(() => {
         pendingFrame = null;
-        if (followLatestContent) scrollConversationToBottom();
+        scrollConversationToBottom();
       });
     });
     observer.observe(content);
@@ -155,15 +156,23 @@
     if (!viewport || !anchor) return;
     anchor.scrollIntoView({ block: 'end' });
     viewport.scrollTop = viewport.scrollHeight;
+    lastConversationScrollTop = viewport.scrollTop;
   }
 
   function handleConversationScroll(): void {
     const viewport = conversationViewport;
-    if (viewport) followLatestContent = isAgentViewportNearBottom(viewport);
+    if (!viewport) return;
+    followLatestContent = shouldFollowAgentViewport(
+      viewport,
+      lastConversationScrollTop,
+      followLatestContent,
+    );
+    lastConversationScrollTop = viewport.scrollTop;
   }
 
   async function activateConversation(conversationId: string): Promise<void> {
     followLatestContent = true;
+    lastConversationScrollTop = 0;
     activeConversationId = conversationId;
     await tick();
     if (activeConversationId === conversationId) scrollConversationToBottom();
@@ -199,6 +208,8 @@
     pageErrorMessage = '';
     pendingConversationId = null;
     activeConversationId = null;
+    followLatestContent = true;
+    lastConversationScrollTop = 0;
     composer?.focus();
   }
 
@@ -206,6 +217,8 @@
     pageErrorMessage = '';
     pendingConversationId = null;
     activeConversationId = null;
+    followLatestContent = true;
+    lastConversationScrollTop = 0;
   }
 
   async function confirmDeleteConversation(): Promise<void> {
@@ -658,19 +671,19 @@
     <header
       class="flex h-[64px] shrink-0 items-center justify-between border-b border-border/70 bg-background px-6"
     >
-      <div class="group/agent flex items-center gap-3">
+      <div class="group/agent flex min-w-0 flex-1 items-center gap-3">
         <AgentAvatar online />
-        <div>
+        <div class="min-w-0">
           <p class="m-0 text-[10px] font-medium tracking-[0.08em] text-muted-foreground">
             小智 AI 管家
           </p>
-          <h1 class="m-0 mt-0.5 max-w-xl truncate text-sm font-semibold">
+          <h1 class="m-0 mt-0.5 max-w-full truncate text-sm font-semibold">
             {activeConversation?.title ?? '新会话'}
           </h1>
         </div>
       </div>
       {#if sending}
-        <span class="inline-flex items-center gap-2 text-xs text-muted-foreground">
+        <span class="ml-3 inline-flex shrink-0 items-center gap-2 text-xs text-muted-foreground">
           <LoaderCircle class="animate-spin" size={14} />正在处理
         </span>
       {/if}
@@ -740,7 +753,12 @@
               ]}
             >
               {#if message.role === 'assistant'}<AgentAvatar size="sm" />{/if}
-              <div class={['min-w-0', message.role === 'assistant' ? 'flex-1' : 'max-w-[82%]']}>
+              <div
+                class={[
+                  'min-w-0',
+                  message.role === 'assistant' ? 'flex-1' : 'max-w-[82%] overflow-hidden',
+                ]}
+              >
                 <p
                   class={[
                     'mt-0 mb-2 text-xs font-semibold text-muted-foreground',
@@ -765,7 +783,7 @@
                   </div>
                 {:else if message.content}
                   <p
-                    class="m-0 whitespace-pre-wrap rounded-xl bg-secondary px-4 py-3 text-sm leading-7 transition-colors duration-200 ease-out"
+                    class="m-0 break-words whitespace-pre-wrap rounded-xl bg-secondary px-4 py-3 text-sm leading-7 transition-colors duration-200 ease-out [overflow-wrap:anywhere]"
                   >
                     {message.content}
                   </p>
@@ -850,12 +868,13 @@
 
         {#if errorMessage}
           <div
-            class="mt-6 flex items-center gap-2 rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive"
+            class="mx-auto mt-6 flex w-full max-w-4xl flex-wrap items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive sm:flex-nowrap sm:items-center"
           >
-            <TriangleAlert class="shrink-0" size={16} />
-            <span class="min-w-0 flex-1">{errorMessage}</span>
+            <TriangleAlert class="mt-0.5 shrink-0 sm:mt-0" size={16} />
+            <span class="min-w-0 flex-1 break-words [overflow-wrap:anywhere]">{errorMessage}</span>
             {#if !pageErrorMessage && latestFailure?.failure?.retryable && !activeRunId}
               <Button
+                class="ml-auto shrink-0"
                 size="sm"
                 variant="outline"
                 disabled={retryingRunId !== null}
@@ -872,7 +891,7 @@
     </section>
 
     <footer class="shrink-0 border-t border-border/60 bg-background/95 px-6 pt-3 pb-4">
-      <div class="mx-auto max-w-3xl">
+      <div class="mx-auto w-full max-w-4xl">
         {#if quickActionCards.length > 0 && messages.length > 0}
           <div class="mb-2 flex flex-wrap items-center gap-1.5" aria-label="酒店快捷操作">
             {#each quickActionCards as action (action.id)}
@@ -909,8 +928,10 @@
             disabled={sending}
             onkeydown={handleComposerKeydown}
           />
-          <div class="flex items-center justify-between px-1">
-            <span class="text-[10px] text-muted-foreground">Enter 发送 · Shift+Enter 换行</span>
+          <div class="flex min-w-0 items-center justify-between gap-2 px-1">
+            <span class="min-w-0 truncate text-[10px] text-muted-foreground"
+              >Enter 发送 · Shift+Enter 换行</span
+            >
             {#if sending}
               <Button
                 size="icon-sm"

@@ -39,7 +39,7 @@
 </script>
 
 <div
-  class="mt-3 overflow-hidden rounded-xl border border-border/70 bg-background/75 shadow-[0_8px_24px_-20px_rgba(15,23,42,0.45)]"
+  class="mt-3 w-full min-w-0 overflow-hidden rounded-xl border border-border/70 bg-background/75 shadow-[0_8px_24px_-20px_rgba(15,23,42,0.45)]"
   data-agent-execution-id={trace.runId}
   data-agent-execution-status={trace.status}
   in:enter={{ ...SURFACE_TRANSITION_OPTIONS, y: 4 }}
@@ -91,7 +91,7 @@
           {:else}
             <Wrench size={14} class="mt-0.5 shrink-0 text-primary" />
           {/if}
-          <span class="min-w-0 leading-5">
+          <span class="min-w-0 break-words leading-5 [overflow-wrap:anywhere]">
             <strong class="break-all font-medium text-foreground"
               >{stepLabel(step.toolName, step.status, trace.status)}</strong
             >

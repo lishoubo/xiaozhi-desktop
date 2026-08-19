@@ -124,9 +124,9 @@ export function describeAgentRunFailure(
 				error.service === 'mcp'
 					? '酒店经营数据服务暂时没有响应，请稍后重试。'
 					: error.kind === 'timeout' && error.operation === 'analyze_grounded_answer'
-						? '经营数据和图表已展示，但上游大模型分析超时。你可以先查看现有结果，或稍后重试分析。'
+						? '经营数据和图表已展示，但分析超时；可先查看结果或稍后重试。'
 						: error.kind === 'invalid_response' && error.operation === 'analyze_grounded_answer'
-							? '经营数据和图表已展示，但上游大模型没有返回完整分析。你可以先查看现有结果，或重试分析。'
+							? '经营数据和图表已展示，但分析未完成；可先查看结果或重试。'
 							: '小智暂时无法完成这次请求，请稍后重试。',
 			retryable: agentErrorRetryable(error)
 		};
@@ -789,7 +789,6 @@ export class HotelAgentGateway implements AgentGateway {
 					const routingContext =
 						execution.state.inputKind === 'prompt'
 							? buildRoutingContext({
-									prompt: execution.state.inputValue,
 									conversationSummary: prepared.summary,
 									history: prepared.history,
 									currentMessageId: execution.summary.triggerUserMessageId,

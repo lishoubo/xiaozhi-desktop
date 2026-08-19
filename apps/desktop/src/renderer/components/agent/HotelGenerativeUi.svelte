@@ -6,7 +6,10 @@
   let { spec }: { spec: Spec } = $props();
 </script>
 
-<div class="hotel-generative-ui w-full min-w-0" data-generative-ui="hotel">
+<div
+  class="hotel-generative-ui w-full min-w-0 max-w-full overflow-hidden"
+  data-generative-ui="hotel"
+>
   <JsonUIProvider initialState={spec.state ?? {}} registry={hotelGenerativeUiRegistry}>
     <Renderer {spec} registry={hotelGenerativeUiRegistry} />
   </JsonUIProvider>

@@ -54,11 +54,13 @@
 </script>
 
 <form
-  class="mt-3 rounded-xl border border-primary/25 bg-card p-4 shadow-sm"
+  class="mt-3 w-full min-w-0 overflow-hidden rounded-xl border border-primary/25 bg-card p-4 shadow-sm"
   aria-label="补充任务信息"
   onsubmit={submit}
 >
-  <p class="m-0 text-sm font-medium text-foreground">{clarification.prompt}</p>
+  <p class="m-0 break-words text-sm font-medium text-foreground [overflow-wrap:anywhere]">
+    {clarification.prompt}
+  </p>
   {#if redirectsToHotelManagement}
     <Button class="mt-3" type="button" onclick={openHotelManagement}>
       <Building2 size={16} />
@@ -74,7 +76,7 @@
           <span>{field.label}</span>
           {#if field.kind === 'single_choice'}
             <select
-              class="h-10 rounded-md border border-input bg-background px-3 text-sm text-foreground"
+              class="h-10 w-full min-w-0 rounded-md border border-input bg-background px-3 text-sm text-foreground"
               required={field.required}
               disabled={submitting || expired}
               bind:value={values[field.slot]}
@@ -85,9 +87,9 @@
               {/each}
             </select>
           {:else if field.kind === 'date_range'}
-            <span class="grid grid-cols-2 gap-2">
+            <span class="grid min-w-0 grid-cols-1 gap-2 sm:grid-cols-2">
               <input
-                class="h-10 min-w-0 rounded-md border border-input bg-background px-3 text-sm text-foreground"
+                class="h-10 w-full min-w-0 rounded-md border border-input bg-background px-3 text-sm text-foreground"
                 type="date"
                 aria-label={`${field.label}开始日期`}
                 required={field.required}
@@ -97,7 +99,7 @@
                 bind:value={values[answerKey(field.slot, 'start')]}
               />
               <input
-                class="h-10 min-w-0 rounded-md border border-input bg-background px-3 text-sm text-foreground"
+                class="h-10 w-full min-w-0 rounded-md border border-input bg-background px-3 text-sm text-foreground"
                 type="date"
                 aria-label={`${field.label}结束日期`}
                 required={field.required}
@@ -109,7 +111,7 @@
             </span>
           {:else}
             <input
-              class="h-10 rounded-md border border-input bg-background px-3 text-sm text-foreground"
+              class="h-10 w-full min-w-0 rounded-md border border-input bg-background px-3 text-sm text-foreground"
               type={field.kind === 'number' ? 'number' : field.kind === 'date' ? 'date' : 'text'}
               required={field.required}
               min={field.kind === 'number' || field.kind === 'date' ? field.min : undefined}
@@ -123,7 +125,7 @@
         </label>
       {/each}
     </div>
-    <div class="mt-4 flex justify-end gap-2">
+    <div class="mt-4 flex flex-wrap justify-end gap-2">
       <Button type="button" variant="ghost" disabled={submitting} onclick={oncancel}>取消</Button>
       <Button type="submit" disabled={submitting || expired}>
         {#if submitting}<LoaderCircle class="animate-spin" />{/if}

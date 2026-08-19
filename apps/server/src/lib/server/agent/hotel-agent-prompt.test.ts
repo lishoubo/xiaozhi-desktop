@@ -21,6 +21,8 @@ describe('buildHotelAgentSystemPrompt', () => {
 		expect(prompt).toContain('不得声称业务操作已经执行');
 		expect(prompt).toContain('调用一次 render_hotel_ui');
 		expect(prompt).toContain('成功后不得');
+		expect(prompt).toContain('代词和省略的主语');
+		expect(prompt).toContain('最近的用户与助手消息');
 	});
 
 	it('states that hotel data is unavailable when no data tool is loaded', () => {

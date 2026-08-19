@@ -12,3 +12,12 @@ export function isAgentViewportNearBottom(
 ): boolean {
   return viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight <= threshold;
 }
+
+export function shouldFollowAgentViewport(
+  viewport: AgentScrollViewport,
+  previousScrollTop: number,
+  wasFollowing: boolean,
+): boolean {
+  if (viewport.scrollTop < previousScrollTop - 1) return false;
+  return isAgentViewportNearBottom(viewport) ? true : wasFollowing;
+}
