@@ -243,6 +243,7 @@ function buildClarification(
 	const unmatchedHotel = slots.hotelReference?.status === 'invalid';
 	const requiresHotelBinding =
 		hotelAccess?.kind === 'staff_managed_hotels' && hotelAccess.hotels.length === 0;
+	const requestsOnlyHotel = fields.length === 1 && fields[0]?.slot === 'hotelReference';
 	return {
 		interactionId: randomUUID(),
 		anchorMessageId,
@@ -251,7 +252,9 @@ function buildClarification(
 			? '当前账号还没有可管理的酒店。请先前往酒店管理完成绑定，再返回这里继续。'
 			: unmatchedHotel
 				? '未从酒店数据中匹配到该名称，请输入 OTA 后台显示的完整酒店名称。'
-				: `请补充${fields.map((field) => field.label).join('、')}。`,
+				: requestsOnlyHotel
+					? '请选择酒店。'
+					: `请补充${fields.map((field) => field.label).join('、')}。`,
 		fields,
 		...(requiresHotelBinding
 			? {

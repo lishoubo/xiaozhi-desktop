@@ -250,7 +250,7 @@ test('persists a visible transcript when a clarification is cancelled', async ({
 			interactionId,
 			anchorMessageId: triggerMessageId,
 			version: 2,
-			prompt: '请补充酒店。',
+			prompt: '请选择酒店。',
 			fields: [
 				{
 					kind: 'text',
@@ -290,7 +290,7 @@ test('persists a visible transcript when a clarification is cancelled', async ({
 				(id, conversation_id, business_execution_id, role, content, ui, created_at)
 			VALUES
 				(${promptMessageId}, ${conversationId}, ${executionId}, 'assistant',
-				 '请补充酒店。', NULL, NOW())
+				 '请选择酒店。', NULL, NOW())
 		`;
 
 		const cancelled = await request.post('/api/trpc/agent.cancelBusinessExecution', {
@@ -312,7 +312,7 @@ test('persists a visible transcript when a clarification is cancelled', async ({
 		expect(snapshot.activeBusinessExecution).toBeNull();
 		expect(snapshot.messages.map((message: { content: string }) => message.content)).toEqual([
 			'查看经营数据',
-			'请补充酒店。',
+			'请选择酒店。',
 			'取消本次任务',
 			'好的，本次任务已取消。'
 		]);

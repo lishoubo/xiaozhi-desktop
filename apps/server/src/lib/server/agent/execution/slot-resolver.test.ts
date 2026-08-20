@@ -103,7 +103,7 @@ describe('slot resolution', () => {
 		).resolves.toMatchObject({
 			status: 'needs_clarification',
 			clarification: {
-				prompt: '请补充酒店。',
+				prompt: '请选择酒店。',
 				fields: [{ slot: 'hotelReference', label: '酒店' }]
 			},
 			slots: {
