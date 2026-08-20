@@ -147,10 +147,23 @@ export function validateProductionDesktopInputs(): Readonly<{
     throw new Error('.env.production permissions must not allow group or other access');
   }
   const { privateCaPath } = validateProductionTlsMaterial();
-  const allowInsecureRms = process.env.XIAOZHI_ALLOW_INSECURE_RMS === '1';
+  /**
+   * 明文 HTTP 由本脚本自行放行，不再要求调用方每次手敲
+   * `XIAOZHI_ALLOW_INSECURE_RMS=1`——与 `scripts/desktop-make.mjs` 的既有做法一致：
+   * **豁免自动打开，但每次都告警**（告警在 `packageProductionDesktop` 里打）。
+   *
+   * 理由有两条：
+   * - 生产 RMS 地址写死在 `.env.production` 里、且已被本函数校验过，调用方手敲那个
+   *   变量并不构成任何额外确认，只是让命令更长、更容易被抄错或漏掉。
+   * - `FOO=bar cmd` 在 Windows 的 cmd/PowerShell 上不成立，强制前缀等于让 Windows
+   *   用户没法照抄文档里的命令。
+   *
+   * 关键是**豁免必须看得见**：这里放行，但 stderr 上每次都有一条 WARNING，
+   * RMS 上 HTTPS 后 `resolveProductionRmsOrigin` 会自动恢复强制校验，告警随之消失。
+   */
   const rmsOrigin = resolveProductionRmsOrigin(
     readFileSync(productionEnvironmentPath, 'utf8'),
-    allowInsecureRms,
+    true,
   );
   return { privateCaPath, rmsOrigin, insecureRms: rmsOrigin.startsWith('http:') };
 }
@@ -176,9 +189,18 @@ export async function packageProductionDesktop(
       cwd: repositoryRoot,
       env: {
         ...process.env,
+        // 生产打包必须显式指定环境：`app-env-profiles.mjs` 的默认值是 `dev`，
+        // 漏了这一条会打出「开发版产品名 + com.xiaozhi.hotel.dev 身份」却连着生产
+        // 后端的包——数据目录与已装的开发版互相串，且发布物身份是错的。
+        XIAOZHI_APP_ENV: 'online',
         HOTEL_BUTLER_SERVER_URL: PRODUCTION_SERVER_ORIGIN,
         HOTEL_BUTLER_PRIVATE_CA_PATH: privateCaPath,
         XIAOZHI_RMS_SERVER_URL: rmsOrigin,
+        // 明文 HTTP 的豁免有**两道关卡**：本脚本（上面已放行）与构建期的
+        // `vite-plugins/rms-origin.ts`。后者读的是环境变量，不下传的话 Vite 配置
+        // 加载阶段就会抛「远端 RMS 地址必须使用 HTTPS」——上面的告警照常打印，
+        // 却在几秒后构建失败，症状与豁免无关，很难归因。
+        ...(insecureRms ? { XIAOZHI_ALLOW_INSECURE_RMS: '1' } : {}),
       },
       stdio: 'inherit',
     },

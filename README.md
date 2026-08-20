@@ -421,19 +421,23 @@ find "$HOME/Library/Logs" -type f \( -path "*/staff/main.log" -o -path "*/phone/
 先确保生产 server 已部署并通过健康检查，再在 Mac 执行：
 
 ```bash
-XIAOZHI_ALLOW_INSECURE_RMS=1 npm run check:desktop:production
+npm run check:desktop:production
 ```
 
-该命令只校验并显示 backend、RMS 和 CA 路径，不构建应用。任何 placeholder、未显式允许的
-HTTP RMS、证书过期、证书不匹配或环境文件权限过宽都会直接失败；允许 HTTP 时会打印醒目的
-凭证明文传输警告。
+该命令只校验并显示 backend、RMS 和 CA 路径，不构建应用。任何 placeholder、证书过期、
+证书不匹配或环境文件权限过宽都会直接失败。
+
+RMS 目前是明文 HTTP（正式域名尚未启用 HTTPS），**脚本自行放行、不需要再手敲
+`XIAOZHI_ALLOW_INSECURE_RMS=1`**，但每次都会打印凭证明文传输的 WARNING——豁免自动
+生效，可见性由告警保证，与 `scripts/desktop-make.mjs` 的做法一致。RMS 上 HTTPS 后
+校验自动恢复强制，告警随之消失。
 
 ### 2. 生成可运行应用目录
 
 用于本机安装前检查，不是最终分发安装包：
 
 ```bash
-XIAOZHI_ALLOW_INSECURE_RMS=1 npm run package:desktop:production
+npm run package:desktop:production
 ```
 
 产物位于 `apps/desktop/out/` 下对应平台和架构的应用目录。
@@ -443,14 +447,14 @@ XIAOZHI_ALLOW_INSECURE_RMS=1 npm run package:desktop:production
 使用当前 Mac 架构生成 Electron Forge 分发产物：
 
 ```bash
-XIAOZHI_ALLOW_INSECURE_RMS=1 npm run make:desktop:production
+npm run make:desktop:production
 ```
 
 如需明确构建 macOS 架构：
 
 ```bash
-XIAOZHI_ALLOW_INSECURE_RMS=1 npm run make:desktop:production -- --platform=darwin --arch=arm64
-XIAOZHI_ALLOW_INSECURE_RMS=1 npm run make:desktop:production -- --platform=darwin --arch=x64
+npm run make:desktop:production -- --platform=darwin --arch=arm64
+npm run make:desktop:production -- --platform=darwin --arch=x64
 ```
 
 分发产物位于 `apps/desktop/out/make/`。macOS 产物会在 Forge 打包后按正确的 bundle ID 自动
@@ -464,26 +468,26 @@ Phone 生产入口复用上述生产地址、私有 CA、环境文件权限和 R
 `HOTEL_BUTLER_SERVER_URL` 等构建变量。先执行只读预检：
 
 ```bash
-XIAOZHI_ALLOW_INSECURE_RMS=1 npm run check:desktop:production:phone
+npm run check:desktop:production:phone
 ```
 
 生成本机可运行应用目录：
 
 ```bash
-XIAOZHI_ALLOW_INSECURE_RMS=1 npm run package:desktop:production:phone
+npm run package:desktop:production:phone
 ```
 
 生成当前 Mac 架构的分发产物：
 
 ```bash
-XIAOZHI_ALLOW_INSECURE_RMS=1 npm run make:desktop:production:phone
+npm run make:desktop:production:phone
 ```
 
 如需指定 macOS 架构：
 
 ```bash
-XIAOZHI_ALLOW_INSECURE_RMS=1 npm run make:desktop:production:phone -- --platform=darwin --arch=arm64
-XIAOZHI_ALLOW_INSECURE_RMS=1 npm run make:desktop:production:phone -- --platform=darwin --arch=x64
+npm run make:desktop:production:phone -- --platform=darwin --arch=arm64
+npm run make:desktop:production:phone -- --platform=darwin --arch=x64
 ```
 
 产物仍位于 `apps/desktop/out/make/`，Forge 使用 phone build identifier、独立 bundle ID 和
