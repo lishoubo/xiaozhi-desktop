@@ -16,6 +16,7 @@ import { readAgentEnvironment } from '$lib/server/agent/agent-config';
 import { EmptySkillProvider } from '$lib/server/agent/skill-provider';
 import { McpToolProvider } from '$lib/server/agent/mcp-tool-provider';
 import { LangChainAgentRuntime } from '$lib/server/agent/langchain-agent-runtime';
+import { LangChainModelGateway } from '$lib/server/agent/model-gateway';
 import {
 	ConversationContextService,
 	contextPolicyForModel
@@ -36,6 +37,7 @@ const desktopSessionRepository = new DrizzleDesktopSessionRepository(db);
 const agentEnvironment = readAgentEnvironment(env);
 const agentRepository = new AgentRepository(db);
 const skillProvider = new EmptySkillProvider();
+const modelGateway = new LangChainModelGateway(agentEnvironment, serverLogger);
 const mcpToolProvider = new McpToolProvider(
 	agentEnvironment.mcpServers,
 	agentEnvironment.dmsDatabaseId,
@@ -43,14 +45,14 @@ const mcpToolProvider = new McpToolProvider(
 	serverLogger
 );
 const agentRuntime = new LangChainAgentRuntime(
-	agentEnvironment,
+	modelGateway,
 	agentRepository,
 	mcpToolProvider,
 	skillProvider
 );
 const conversationContext = new ConversationContextService(
 	agentRepository,
-	new LangChainConversationSummaryGenerator(agentEnvironment),
+	new LangChainConversationSummaryGenerator(modelGateway),
 	contextPolicyForModel(agentEnvironment.fastModel)
 );
 const agentGateway = new HotelAgentGateway(
@@ -61,10 +63,10 @@ const agentGateway = new HotelAgentGateway(
 	mcpToolProvider,
 	skillProvider,
 	serverLogger,
-	new BusinessIntentRouter(new LangChainRouteClassifier(agentEnvironment)),
+	new BusinessIntentRouter(new LangChainRouteClassifier(modelGateway)),
 	new BusinessSlotResolver(new DmsHotelReferenceResolver(mcpToolProvider)),
 	new DeterministicWorkflowCollector(mcpToolProvider),
-	new LangChainConversationTitleGenerator(agentEnvironment)
+	new LangChainConversationTitleGenerator(modelGateway)
 );
 
 function requiresPhoneIdentitySource(request: Request): boolean {

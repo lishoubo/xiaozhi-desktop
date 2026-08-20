@@ -2,13 +2,12 @@ import { generativeUiSpecSchema } from '@hotel-butler/api';
 import type { GenerativeUiSpec } from '@hotel-butler/api';
 import { AIMessage, AIMessageChunk, ToolMessage } from '@langchain/core/messages';
 import type { BaseMessageLike } from '@langchain/core/messages';
+import type { BaseChatModel } from '@langchain/core/language_models/chat_models';
 import { tool, type StructuredToolInterface } from '@langchain/core/tools';
-import { ChatOpenAI } from '@langchain/openai';
 import { createAgent, createMiddleware } from 'langchain';
 import { Effect } from 'effect';
 import { z } from 'zod';
 import type { AgentRepository } from './agent-repository';
-import type { AgentEnvironment } from './agent-config';
 import type { AgentRuntime, AgentRuntimeRunOptions } from './agent-runtime';
 import type { McpToolProvider } from './mcp-tool-provider';
 import { isHotelDataToolName } from './hotel-data-mcp';
@@ -16,7 +15,7 @@ import { summarizeMcpResult } from './mcp-observability';
 import { buildHotelAgentSystemPrompt } from './hotel-agent-prompt';
 import { HotelAgentToolHandlers } from './hotel-agent-tool-handlers';
 import type { AgentSkill, SkillProvider } from './skill-provider';
-import { modelForTier, modelKwargsForTier } from './model-tier';
+import type { AgentModelGateway } from './model-gateway';
 import { getIntentDefinition } from './execution/intent-registry';
 import {
 	agentPromise,
@@ -24,7 +23,6 @@ import {
 	agentErrorRetryable,
 	agentErrorType,
 	agentFailureKind,
-	AgentConfigurationError,
 	AgentProtocolError,
 	AgentUpstreamError,
 	isAgentExecutionError,
@@ -208,43 +206,22 @@ export function groundedAnalysisWritingInstructions(): string {
 
 export class LangChainAgentRuntime implements AgentRuntime {
 	private readonly localToolHandlers: HotelAgentToolHandlers;
-	private readonly model: ChatOpenAI;
-	private readonly analysisModel: ChatOpenAI;
+	private readonly model: BaseChatModel;
+	private readonly analysisModel: BaseChatModel;
 
 	constructor(
-		private readonly environment: AgentEnvironment,
+		private readonly modelGateway: AgentModelGateway,
 		private readonly repository: AgentRepository,
 		private readonly mcpTools: McpToolProvider,
 		private readonly skills: SkillProvider
 	) {
 		this.localToolHandlers = new HotelAgentToolHandlers(repository);
-		const fastModel = modelForTier(this.environment, 'fast');
-		const analysisModel = modelForTier(this.environment, 'analysis');
-		this.model = new ChatOpenAI({
-			model: fastModel,
-			apiKey: this.environment.apiKey,
-			modelKwargs: modelKwargsForTier(fastModel, 'fast'),
-			streaming: true,
-			maxTokens: 8192,
-			maxRetries: 1,
-			timeout: 60_000,
-			configuration: { baseURL: this.environment.baseUrl }
-		});
-		this.analysisModel = new ChatOpenAI({
-			model: analysisModel,
-			apiKey: this.environment.apiKey,
-			modelKwargs: modelKwargsForTier(analysisModel, 'analysis'),
-			streaming: true,
-			maxRetries: 0,
-			timeout: 120_000,
-			configuration: { baseURL: this.environment.baseUrl }
-		});
+		this.model = modelGateway.createModel('workflow');
+		this.analysisModel = modelGateway.createModel('analysis');
 	}
 
 	async run(options: AgentRuntimeRunOptions) {
-		if (!this.environment.apiKey) {
-			throw new AgentConfigurationError({ setting: 'AI_KIMI_API_KEY' });
-		}
+		this.modelGateway.assertConfigured();
 		options.signal.throwIfAborted();
 		let generatedUi: GenerativeUiSpec | null = null;
 		const answerOnly = options.validatedEvidence !== undefined;

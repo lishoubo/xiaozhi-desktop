@@ -1,13 +1,7 @@
-import { ChatOpenAI } from '@langchain/openai';
+import type { BaseChatModel } from '@langchain/core/language_models/chat_models';
 import { Effect } from 'effect';
-import type { AgentEnvironment } from '../agent-config';
-import { modelForTier, modelKwargsForTier } from '../model-tier';
-import {
-	agentPromise,
-	AgentConfigurationError,
-	AgentProtocolError,
-	runAgentEffect
-} from '../agent-effect';
+import type { AgentModelGateway } from '../model-gateway';
+import { agentPromise, AgentProtocolError, runAgentEffect } from '../agent-effect';
 import {
 	routeClassifierOutputSchema,
 	type RouteClassifier,
@@ -36,27 +30,16 @@ export const routeStructuredOutputConfig = {
 } as const;
 
 export class LangChainRouteClassifier implements RouteClassifier {
-	private readonly model: ChatOpenAI;
-	private readonly configured: boolean;
+	private readonly model: BaseChatModel;
 
-	constructor(environment: AgentEnvironment) {
-		this.configured = Boolean(environment.apiKey);
-		const model = modelForTier(environment, 'fast');
-		this.model = new ChatOpenAI({
-			model,
-			apiKey: environment.apiKey,
-			modelKwargs: modelKwargsForTier(model, 'fast'),
-			maxTokens: 1_024,
-			maxRetries: 2,
-			timeout: 30_000,
-			configuration: { baseURL: environment.baseUrl }
-		});
+	constructor(private readonly modelGateway: AgentModelGateway) {
+		this.model = modelGateway.createModel('routing');
 	}
 
 	async classify(
 		input: Readonly<{ text: string; context?: string }>
 	): Promise<RouteClassifierOutput> {
-		if (!this.configured) throw new AgentConfigurationError({ setting: 'AI_KIMI_API_KEY' });
+		this.modelGateway.assertConfigured();
 		const structured = this.model.withStructuredOutput(
 			routeClassifierOutputSchema,
 			routeStructuredOutputConfig

@@ -1,10 +1,8 @@
-import { ChatOpenAI } from '@langchain/openai';
-import type { AgentEnvironment } from './agent-config';
 import {
 	normalizeGeneratedConversationTitle,
 	type ConversationTitleGenerator
 } from './conversation-title';
-import { modelForTier, modelKwargsForTier } from './model-tier';
+import type { AgentModelGateway } from './model-gateway';
 
 function textContent(value: unknown): string {
 	if (typeof value === 'string') return value;
@@ -19,20 +17,11 @@ function textContent(value: unknown): string {
 }
 
 export class LangChainConversationTitleGenerator implements ConversationTitleGenerator {
-	constructor(private readonly environment: AgentEnvironment) {}
+	constructor(private readonly modelGateway: AgentModelGateway) {}
 
 	async generate(prompt: string, signal: AbortSignal): Promise<string> {
-		if (!this.environment.apiKey) return normalizeGeneratedConversationTitle('', prompt);
-		const modelName = modelForTier(this.environment, 'fast');
-		const model = new ChatOpenAI({
-			model: modelName,
-			apiKey: this.environment.apiKey,
-			modelKwargs: modelKwargsForTier(modelName, 'fast'),
-			maxTokens: 40,
-			maxRetries: 1,
-			timeout: 20_000,
-			configuration: { baseURL: this.environment.baseUrl }
-		});
+		if (!this.modelGateway.configured) return normalizeGeneratedConversationTitle('', prompt);
+		const model = this.modelGateway.createModel('conversation_title');
 		const response = await model.invoke(
 			[
 				{

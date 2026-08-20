@@ -16,6 +16,12 @@ authenticated employee before delegating to `HotelAgentGateway`.
 generative-UI validation and conversation-context policy remain independent modules rather than
 SDK-owned application logic.
 
+All LangChain model consumers obtain chat models from one injected, in-process
+`AgentModelGateway`. Its `LangChainModelGateway` adapter is the only module that constructs the
+configured provider client and owns purpose-specific model tiers, output-token ceilings, retries,
+timeouts, streaming settings and content-free model lifecycle logs. It is an internal module, not
+a separately deployed service.
+
 PostgreSQL is the source of truth for conversations, complete messages, runs, replayable events,
 business executions, incremental summaries and employee-scoped memory. A business execution may
 span several Runs while its versioned state machine persists routing, clarification, workflow,
@@ -46,6 +52,30 @@ message-stream and tool-call behavior SHALL remain in an adapter implementation.
 - **THEN** it implements `AgentRuntime.run` and emits normalized runtime events
 - **AND** conversation persistence, context compression, prompt construction, tool handlers, UI
   validation, tRPC/SSE delivery and desktop rendering do not require a rewrite
+
+### Requirement: Centralized model-provider gateway
+
+Agent model consumers SHALL obtain LangChain-compatible chat models through one injected,
+in-process model gateway. Only the current provider adapter SHALL construct provider clients and
+apply provider-specific tuning. The gateway SHALL enforce named-purpose token, retry, timeout and
+streaming policies and SHALL log model-call lifecycle metadata without prompts, outputs,
+credentials or hotel business results.
+
+#### Scenario: Execute a model-backed Agent phase
+
+- **WHEN** the Agent runs workflow generation, grounded analysis, route classification, context
+  summarization or conversation-title generation
+- **THEN** the consumer requests the corresponding named purpose from the model gateway
+- **AND** the configured tier and bounded request policy are applied centrally
+- **AND** start, completion or failure logs include model run identifiers, purpose, model and
+  duration without recording request or response content
+
+#### Scenario: Change the model provider integration
+
+- **WHEN** the current OpenAI-compatible provider adapter is replaced
+- **THEN** provider construction and request tuning change behind the model-gateway boundary
+- **AND** business routing, workflows, API contracts, persistence and data permissions remain
+  unchanged
 
 ### Requirement: Authenticated single-Agent execution
 

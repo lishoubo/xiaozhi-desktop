@@ -1,13 +1,6 @@
-import { ChatOpenAI } from '@langchain/openai';
 import { Effect } from 'effect';
-import type { AgentEnvironment } from './agent-config';
-import { modelForTier, modelKwargsForTier } from './model-tier';
-import {
-	agentPromise,
-	AgentConfigurationError,
-	AgentProtocolError,
-	runAgentEffect
-} from './agent-effect';
+import type { AgentModelGateway } from './model-gateway';
+import { agentPromise, AgentProtocolError, runAgentEffect } from './agent-effect';
 import type { ConversationSummaryGenerator } from './conversation-context';
 
 function textContent(value: unknown): string {
@@ -25,23 +18,14 @@ function textContent(value: unknown): string {
 }
 
 export class LangChainConversationSummaryGenerator implements ConversationSummaryGenerator {
-	constructor(private readonly environment: AgentEnvironment) {}
+	constructor(private readonly modelGateway: AgentModelGateway) {}
 
 	async summarize(
 		input: Parameters<ConversationSummaryGenerator['summarize']>[0]
 	): Promise<string> {
-		if (!this.environment.apiKey) {
-			throw new AgentConfigurationError({ setting: 'AI_KIMI_API_KEY' });
-		}
-		const modelName = modelForTier(this.environment, 'fast');
-		const model = new ChatOpenAI({
-			model: modelName,
-			apiKey: this.environment.apiKey,
-			modelKwargs: modelKwargsForTier(modelName, 'fast'),
-			maxTokens: input.maxTokens,
-			maxRetries: 2,
-			timeout: 120_000,
-			configuration: { baseURL: this.environment.baseUrl }
+		this.modelGateway.assertConfigured();
+		const model = this.modelGateway.createModel('conversation_summary', {
+			maxTokens: input.maxTokens
 		});
 		const program = Effect.gen(function* () {
 			const response = yield* agentPromise({
