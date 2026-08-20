@@ -42,12 +42,19 @@ export const staffIdentitySchema = z.strictObject({
   /** 服务商员工可能没有手机号；该字段也可能整个不返回，故 nullable + optional。 */
   phone: z.string().nullable().optional(),
   /**
-   * `'STAFF' | 'HOTEL'`。当前只接收保存，不据它做界面分流。
+   * `'STAFF'` 服务商员工 / `'HOTEL'` 酒店用户。**模块可见性的判据**——决定某个功能
+   * 模块对这类用户开不开放（写操作能否执行另看 `permissions`，两者不可互相替代）。
    *
-   * 将来要区分两类用户的界面形态时按本字段判断，**不要用 `role`**——
-   * `HOTEL_STAFF` 这个角色在服务商侧也在用，按 role 判断会把两类用户混在一起。
+   * **不要用 `role` 判断**：`HOTEL_STAFF` 这个角色在服务商侧也在用，两类用户会因此
+   * 混在一起。也不要用 `hotel:view` 之类的权限码——那是四个角色都有的。
+   *
+   * `.catch(undefined)` 不是可有可无的防御：本 schema 是 `strictObject`，任一字段
+   * 解析失败都会让 `me()` 整体抛错并清掉 token，表现为「登录不上」而非局部降级。
+   * 取值集合由服务端单方扩展，真加了第三种类型时，裸 `z.enum` 会把全体用户锁在门外。
+   * 未知值与缺失一律降级为 `undefined`，由消费方按 `STAFF` 处置——宁可多显示一个
+   * 员工才用的模块，也不能让人进不来。
    */
-  userType: z.string().min(1).optional(),
+  userType: z.enum(['STAFF', 'HOTEL']).optional().catch(undefined),
   fullName: z.string().nullable(),
   role: z.string().min(1),
   orgId: z.number().int().positive(),

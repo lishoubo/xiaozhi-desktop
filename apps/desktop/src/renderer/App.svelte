@@ -86,7 +86,7 @@
     <p class="text-sm text-muted-foreground">正在验证登录状态…</p>
   </main>
 {:else if session}
-  <AppFrame>
+  <AppFrame {session}>
     <Router {routes} />
   </AppFrame>
 {:else}

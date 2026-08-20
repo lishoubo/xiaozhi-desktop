@@ -4,12 +4,11 @@
   import ChevronRight from '@lucide/svelte/icons/chevron-right';
   import Plus from '@lucide/svelte/icons/plus';
   import RefreshCw from '@lucide/svelte/icons/refresh-cw';
-  import Trash2 from '@lucide/svelte/icons/trash-2';
   import log from 'electron-log/renderer';
   import { onMount } from 'svelte';
+  import { replace } from 'svelte-spa-router';
   import { Button } from '$lib/components/ui/button';
   import { Spinner } from '$lib/components/ui/spinner';
-  import * as Dialog from '$lib/components/ui/dialog';
   import * as AlertDialog from '$lib/components/ui/alert-dialog';
   import AddOtaBindingDialog from '../components/hotel/AddOtaBindingDialog.svelte';
   import BoundOtaAccountCard from '../components/hotel/BoundOtaAccountCard.svelte';
@@ -30,22 +29,25 @@
   import { IS_STAFF_AUTH } from '../../shared/auth-variant';
 
   /**
-   * 写操作入口的开关。会话在一次页面生命周期内不会变——变了必然经过登出、整页重建，
+   * 界面能力。会话在一次页面生命周期内不会变——变了必然经过登出、整页重建，
    * 所以读一次就够，不需要响应式 store。
    *
    * 两个登录变体各有各的会话存放处，这里按编译期变体取对应的那个；`capabilitiesOf`
    * 对两种身份形状都做默认拒绝。
    */
-  const canManage = capabilitiesOf(
-    IS_STAFF_AUTH ? readStaffSession() : readAuthSession(),
-  ).manageHotel;
+  const capabilities = capabilitiesOf(IS_STAFF_AUTH ? readStaffSession() : readAuthSession());
+  /** 写操作入口的开关（按权限码）。 */
+  const canManage = capabilities.manageHotel;
 
   /**
    * 表头与数据行必须用同一份列定义，否则两者错位。无写权限时第三列（操作）整列
-   * 没有内容，留着 88px 会在每行右侧空出一段。
+   * 没有内容，留着宽度会在每行右侧空出一段。
+   *
+   * 56px 是按当前仅剩的一个 `icon-sm`（32px）按钮量的；原先 88px 对应的是「新增
+   * 绑定账号 + 删除酒店」两个按钮，删除酒店入口下线后不缩回来会右侧留白。
    */
   const gridColumns = canManage
-    ? 'grid-cols-[minmax(180px,0.8fr)_minmax(360px,2fr)_88px]'
+    ? 'grid-cols-[minmax(180px,0.8fr)_minmax(360px,2fr)_56px]'
     : 'grid-cols-[minmax(180px,0.8fr)_minmax(360px,2fr)]';
 
   let loading = $state(true);
@@ -76,13 +78,6 @@
   function goToPage(page: number): void {
     currentPage = Math.min(Math.max(1, page), totalPages);
   }
-
-  let createOpen = $state(false);
-  let createName = $state('');
-  let creating = $state(false);
-
-  let deleteTarget = $state<RmsHotelDto | null>(null);
-  let deleting = $state(false);
 
   let unbindTarget = $state<{ account: RmsOtaAccountDto; channelName: string } | null>(null);
   let unbinding = $state(false);
@@ -125,6 +120,20 @@
   }
 
   onMount(() => {
+    /**
+     * 兜底：菜单入口已按用户类型隐藏，但路由表是编译期静态的，跨路由跳转、历史地址、
+     * 手敲地址仍能到这里。
+     *
+     * 重定向必须**先于** `loadHotelManagement()`：服务端的 `hotel:view` 对酒店用户是
+     * 放行的，晚一步就会白发一次请求——拿得到数据，纯属浪费加日志噪音。
+     *
+     * 这是界面收口，不是访问控制。真正的防线在服务端。
+     */
+    if (!capabilities.showHotelManagement) {
+      replace('/');
+      return;
+    }
+
     void loadHotelManagement();
 
     const timer = setInterval(() => {
@@ -132,58 +141,6 @@
     }, 60_000);
     return () => clearInterval(timer);
   });
-
-  function openCreateDialog(): void {
-    createName = '';
-    createOpen = true;
-  }
-
-  async function submitCreateHotel(): Promise<void> {
-    if (!createName.trim() || creating) return;
-    creating = true;
-    try {
-      await window.hotelButler.hotelManagement.createHotel({ name: createName.trim() });
-      createOpen = false;
-      await loadHotelManagement();
-      // 新酒店追加在末尾，不跳过去用户就看不见自己刚建的那家。
-      currentPage = Math.max(1, Math.ceil(hotels.length / PAGE_SIZE));
-    } catch (reason) {
-      log.warn('Hotel creation failed', {
-        errorName: reason instanceof Error ? reason.name : 'UnknownError',
-      });
-      showAppNotification({
-        id: 'hotel-create-error',
-        title: '新增酒店失败',
-        message: '未能创建酒店，请检查后重试。',
-        tone: 'error',
-      });
-    } finally {
-      creating = false;
-    }
-  }
-
-  async function confirmDeleteHotel(): Promise<void> {
-    const target = deleteTarget;
-    if (!target || deleting) return;
-    deleting = true;
-    try {
-      await window.hotelButler.hotelManagement.deleteHotel(target.id);
-      deleteTarget = null;
-      await loadHotelManagement();
-    } catch (reason) {
-      log.warn('Hotel deletion failed', {
-        errorName: reason instanceof Error ? reason.name : 'UnknownError',
-      });
-      showAppNotification({
-        id: 'hotel-delete-error',
-        title: '删除酒店失败',
-        message: '远端拒绝了此次删除，请稍后重试。',
-        tone: 'error',
-      });
-    } finally {
-      deleting = false;
-    }
-  }
 
   async function confirmUnbind(): Promise<void> {
     const target = unbindTarget;
@@ -278,12 +235,14 @@
             {/if}
           </div>
         {/if}
-        {#if canManage}
-          <Button size="sm" onclick={openCreateDialog}>
-            <Plus />
-            新增酒店
-          </Button>
-        {/if}
+        <!--
+          「新增酒店」「删除酒店」两个入口已下线：它们打到服务端的
+          `AppHotelCrudController`，该 Bean 受 `rms.app.hotel-crud.enabled` 控制，
+          生产环境不注册，调用返回 404 而非 403。
+
+          preload → IPC → service → gateway 五层调用链**有意保留**（连同它们的测试）
+          ——服务端能力是「未开放」而不是「已废弃」，开关一开即可恢复界面入口。
+        -->
       </div>
     </header>
 
@@ -379,15 +338,6 @@
                 >
                   <Plus />
                 </Button>
-                <Button
-                  size="icon-sm"
-                  variant="ghost"
-                  title="删除酒店"
-                  aria-label={`删除酒店 - ${hotel.name}`}
-                  onclick={() => (deleteTarget = hotel)}
-                >
-                  <Trash2 />
-                </Button>
               </div>
             {/if}
           </section>
@@ -440,60 +390,6 @@
   mode="backfill-hotel"
   onClose={() => (backfillTarget = null)}
 />
-
-<Dialog.Root bind:open={createOpen}>
-  <Dialog.Content class="sm:max-w-md">
-    <Dialog.Header>
-      <Dialog.Title class="text-lg">新增酒店</Dialog.Title>
-      <Dialog.Description>创建成功后将自动刷新酒店列表。</Dialog.Description>
-    </Dialog.Header>
-    <label class="grid gap-1.5 text-sm">
-      <span class="font-medium">酒店名称</span>
-      <input
-        class="rounded-md border border-border bg-background px-3 py-2 text-sm"
-        bind:value={createName}
-        disabled={creating}
-        placeholder="请输入酒店名称"
-      />
-    </label>
-    <Dialog.Footer>
-      <Button variant="ghost" disabled={creating} onclick={() => (createOpen = false)}>取消</Button>
-      <Button disabled={!createName.trim() || creating} onclick={() => void submitCreateHotel()}>
-        {#if creating}
-          <Spinner aria-label="正在创建" />
-          正在创建
-        {:else}
-          创建
-        {/if}
-      </Button>
-    </Dialog.Footer>
-  </Dialog.Content>
-</Dialog.Root>
-
-<AlertDialog.Root
-  open={deleteTarget !== null}
-  onOpenChange={(next) => !next && (deleteTarget = null)}
->
-  <AlertDialog.Content>
-    <AlertDialog.Header>
-      <AlertDialog.Title>删除酒店</AlertDialog.Title>
-      <AlertDialog.Description>
-        确认删除「{deleteTarget?.name}」？此操作依赖远端结果，删除后无法在此撤销。
-      </AlertDialog.Description>
-    </AlertDialog.Header>
-    <AlertDialog.Footer>
-      <AlertDialog.Cancel disabled={deleting}>取消</AlertDialog.Cancel>
-      <AlertDialog.Action disabled={deleting} onclick={() => void confirmDeleteHotel()}>
-        {#if deleting}
-          <Spinner aria-label="正在删除" />
-          正在删除
-        {:else}
-          确认删除
-        {/if}
-      </AlertDialog.Action>
-    </AlertDialog.Footer>
-  </AlertDialog.Content>
-</AlertDialog.Root>
 
 <AlertDialog.Root
   open={unbindTarget !== null}

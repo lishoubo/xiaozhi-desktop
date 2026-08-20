@@ -198,4 +198,50 @@ describe('staffIdentitySchema 对手机号登录用户的兼容性', () => {
 
     await expect(client.me('access-1')).resolves.toEqual(identity);
   });
+
+  // userType 的取值集合由服务端单方扩展。schema 是 strictObject，任一字段解析失败都会
+  // 让 me() 整体抛 RmsAuthError 并清 token——表现为登录不上，而不是某个模块少显示。
+  // 所以未知值必须降级，不能拒绝。
+  it('把未知的 userType 降级为 undefined，而不是让整个身份解析失败', async () => {
+    const identity = {
+      userId: 7,
+      username: 'partner-user',
+      phone: null,
+      userType: 'PARTNER',
+      fullName: '渠道合作方',
+      role: 'OPERATOR',
+      orgId: 1,
+      currentHotelId: null,
+      accessibleHotelIds: [],
+      permissions: ['hotel:view'],
+    };
+    const { client } = setup({ code: 0, message: 'ok', data: identity });
+
+    const parsed = await client.me('access-1');
+
+    expect(parsed.userType).toBeUndefined();
+    // 其余字段必须原样留存——降级只针对 userType 一个字段。
+    expect(parsed.userId).toBe(7);
+    expect(parsed.permissions).toEqual(['hotel:view']);
+  });
+
+  it('接受整个缺少 userType 键的身份响应', async () => {
+    const identity = {
+      userId: 8,
+      username: 'legacy-admin',
+      phone: null,
+      fullName: '存量账号',
+      role: 'ADMIN',
+      orgId: 1,
+      currentHotelId: null,
+      accessibleHotelIds: [1],
+      permissions: ['hotel:manage'],
+    };
+    const { client } = setup({ code: 0, message: 'ok', data: identity });
+
+    const parsed = await client.me('access-1');
+
+    expect(parsed.userType).toBeUndefined();
+    expect(parsed.userId).toBe(8);
+  });
 });

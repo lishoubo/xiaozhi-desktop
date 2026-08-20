@@ -13,10 +13,15 @@
   import AppNotificationCenter from './AppNotificationCenter.svelte';
   import { weekdayLabel } from '../../session-greeting';
   import { greetingName } from '../../session-greeting.svelte';
+  import { capabilitiesOf, type SessionLike } from '../../permissions';
   import { Button } from '$lib/components/ui/button';
 
-  let { children }: { children: Snippet } = $props();
+  // session 设为必填 prop：漏传即编译失败，不会静默退化成「全部隐藏」或「全部显示」。
+  let { children, session }: { children: Snippet; session: SessionLike } = $props();
   let sidebarOpen = $state(true);
+
+  // 会话在一次页面生命周期内不会变——变了必然经过登出、整页重建。
+  const capabilities = $derived(capabilitiesOf(session));
 
   const welcomeName = $derived(greetingName());
   // 取一次即可：应用不会跨天常驻，为此挂个定时器不划算。
@@ -93,15 +98,18 @@
           <CalendarDays size={22} strokeWidth={1.9} />
         </a>
 
-        <a
-          class={navigationClass}
-          href="/hotels"
-          use:link
-          use:active={{ className: 'active' }}
-          aria-label="酒店管理"
-        >
-          <Building2 size={22} strokeWidth={1.9} />
-        </a>
+        <!-- 酒店管理只对服务商员工开放；酒店用户在浏览器工作区作业，不碰这个模块。 -->
+        {#if capabilities.showHotelManagement}
+          <a
+            class={navigationClass}
+            href="/hotels"
+            use:link
+            use:active={{ className: 'active' }}
+            aria-label="酒店管理"
+          >
+            <Building2 size={22} strokeWidth={1.9} />
+          </a>
+        {/if}
 
         <a
           class={navigationClass}
