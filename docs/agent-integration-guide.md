@@ -15,7 +15,7 @@ AI_KIMI_FAST_MODEL="kimi-k2.6"
 AI_KIMI_MODEL="kimi-k3"
 
 # 新通用 DMS MCP 先按名称发现数据库；ID 可作为额外的上线校验。
-AI_DMS_MCP_URL="https://dms-mcpver-vjne-ndunixfhxl.cn-hangzhou.fcapp.run/sse"
+AI_DMS_MCP_URL="https://dms-mcpr-bfobse-vcyndjbctk.cn-hangzhou.fcapp.run/sse"
 AI_DMS_MCP_BEARER_TOKEN="replace-with-server-token"
 AI_DMS_DATABASE_NAME="rms_data"
 AI_DMS_DATABASE_ID="replace-with-reviewed-database-id"

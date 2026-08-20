@@ -8,7 +8,7 @@ Define how authenticated hotel employees query real operating data through the s
 
 ### Requirement: Server-managed hotel data MCP
 
-The server SHALL provide the designated DMS MCP as a fixed hotel-data capability using a server-only bearer token.
+The server SHALL provide the designated DMS MCP as a fixed hotel-data capability using a server-only bearer token. Unless overridden by server configuration, it SHALL connect to `https://dms-mcpr-bfobse-vcyndjbctk.cn-hangzhou.fcapp.run/sse`.
 
 #### Scenario: Query operating data
 

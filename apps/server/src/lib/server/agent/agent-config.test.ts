@@ -104,7 +104,7 @@ describe('agent configuration', () => {
 		expect(withoutToken.mcpServers).toEqual({});
 		expect(withToken.mcpServers['aliyun-dms-hotel-data']).toEqual({
 			transport: 'sse',
-			url: 'https://dms-mcpver-vjne-ndunixfhxl.cn-hangzhou.fcapp.run/sse',
+			url: 'https://dms-mcpr-bfobse-vcyndjbctk.cn-hangzhou.fcapp.run/sse',
 			headers: { Authorization: 'Bearer rotated-token' },
 			capabilities: ['hotel_data']
 		});

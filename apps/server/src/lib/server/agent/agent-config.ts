@@ -5,7 +5,7 @@ export const mcpCapabilitySchema = z.enum(['weather', 'hotel_rates', 'hotel_data
 export type McpCapability = z.infer<typeof mcpCapabilitySchema>;
 
 export const HOTEL_DATA_MCP_SERVER_NAME = 'aliyun-dms-hotel-data';
-const DEFAULT_HOTEL_DATA_MCP_URL = 'https://dms-mcpver-vjne-ndunixfhxl.cn-hangzhou.fcapp.run/sse';
+const DEFAULT_HOTEL_DATA_MCP_URL = 'https://dms-mcpr-bfobse-vcyndjbctk.cn-hangzhou.fcapp.run/sse';
 
 const mcpMetadataSchema = z.object({
 	capabilities: z.array(mcpCapabilitySchema).default([])
