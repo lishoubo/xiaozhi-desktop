@@ -260,6 +260,67 @@ describe('deterministic workflow collector', () => {
 		expect(JSON.stringify(emit.mock.calls)).not.toContain('private payload');
 	});
 
+	it('reconnects once and retries a read-only MCP call when the cached connection is unavailable', async () => {
+		const staleError = new Error('stale SSE session');
+		staleError.name = 'ToolException';
+		const staleInvoke = vi.fn().mockRejectedValue(staleError);
+		const freshInvoke = vi.fn().mockResolvedValue({ hotel_id: 123, gmv: 888 });
+		const staleTool = {
+			name: 'query_hotel_operating_data_sql',
+			schema: { safeParse: () => ({ success: true }) },
+			invoke: staleInvoke
+		};
+		const freshTool = { ...staleTool, invoke: freshInvoke };
+		const refreshTools = vi.fn().mockResolvedValue([freshTool]);
+		const collector = new DeterministicWorkflowCollector({
+			getTools: vi.fn().mockResolvedValue([staleTool]),
+			refreshTools
+		});
+
+		const result = await collector.collect(
+			request('hotel_operating_summary', {
+				hotelReference: '123',
+				dateRange: { start: '2026-08-19', end: '2026-08-19' }
+			})
+		);
+
+		expect(refreshTools).toHaveBeenCalledOnce();
+		expect(refreshTools).toHaveBeenCalledWith(['hotel_data']);
+		expect(staleInvoke).toHaveBeenCalledOnce();
+		expect(freshInvoke).toHaveBeenCalledOnce();
+		expect(result).toMatchObject({
+			status: 'collected',
+			toolEvidence: [{ toolName: 'query_hotel_operating_data_sql', result: { gmv: 888 } }]
+		});
+	});
+
+	it('stops after one reconnect when the replacement MCP connection also fails', async () => {
+		const staleError = new Error('stale SSE session');
+		staleError.name = 'ToolException';
+		const invoke = vi.fn().mockRejectedValue(staleError);
+		const mcpTool = {
+			name: 'query_hotel_operating_data_sql',
+			schema: { safeParse: () => ({ success: true }) },
+			invoke
+		};
+		const refreshTools = vi.fn().mockResolvedValue([mcpTool]);
+		const collector = new DeterministicWorkflowCollector({
+			getTools: vi.fn().mockResolvedValue([mcpTool]),
+			refreshTools
+		});
+
+		await expect(
+			collector.collect(
+				request('hotel_operating_summary', {
+					hotelReference: '123',
+					dateRange: { start: '2026-08-19', end: '2026-08-19' }
+				})
+			)
+		).rejects.toMatchObject({ _tag: 'AgentUpstreamError', service: 'mcp' });
+		expect(refreshTools).toHaveBeenCalledOnce();
+		expect(invoke).toHaveBeenCalledTimes(2);
+	});
+
 	it('does not accept an MCP error result as business evidence', async () => {
 		const rates = tool(async () => ({ isError: true, content: 'upstream failed' }), {
 			name: 'search_public_rates',

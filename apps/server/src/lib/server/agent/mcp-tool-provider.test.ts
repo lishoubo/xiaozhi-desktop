@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import {
 	isReadOnlyMcpToolName,
 	loadMcpServerToolsInOrder,
+	McpToolProvider,
 	selectMcpServersByCapabilities
 } from './mcp-tool-provider';
 import { summarizeMcpResult } from './mcp-observability';
@@ -15,6 +16,31 @@ import {
 	resolveDmsDatabaseId,
 	selectDmsDatabaseId
 } from './hotel-data-mcp';
+
+type MockMcpClient = {
+	getTools: ReturnType<typeof vi.fn>;
+	close: ReturnType<typeof vi.fn>;
+};
+
+const mcpClientState = vi.hoisted<{ instances: MockMcpClient[] }>(() => ({ instances: [] }));
+
+vi.mock('@langchain/mcp-adapters', () => ({
+	MultiServerMCPClient: class {
+		readonly getTools = vi.fn().mockResolvedValue([
+			{
+				name: 'executeScript',
+				description: 'execute SQL',
+				schema: {},
+				invoke: vi.fn()
+			}
+		]);
+		readonly close = vi.fn().mockResolvedValue(undefined);
+
+		constructor() {
+			mcpClientState.instances.push(this);
+		}
+	}
+}));
 
 describe('isReadOnlyMcpToolName', () => {
 	it('allows explicit read operations', () => {
@@ -67,6 +93,35 @@ describe('selectMcpServersByCapabilities', () => {
 
 		expect(Object.keys(selectMcpServersByCapabilities(servers, []))).toEqual([]);
 		expect(Object.keys(selectMcpServersByCapabilities(servers, ['hotel_data']))).toEqual(['dms']);
+	});
+});
+
+describe('McpToolProvider connection refresh', () => {
+	it('closes the cached client and reloads tools for the requested capabilities', async () => {
+		mcpClientState.instances.length = 0;
+		const provider = new McpToolProvider(
+			{
+				'aliyun-dms-hotel-data': {
+					transport: 'sse',
+					url: 'https://example.com/dms',
+					capabilities: ['hotel_data']
+				}
+			},
+			'81918192'
+		);
+
+		const cached = await provider.getTools(['hotel_data']);
+		await expect(provider.getTools(['hotel_data'])).resolves.toBe(cached);
+		const refreshed = await provider.refreshTools(['hotel_data']);
+
+		expect(mcpClientState.instances).toHaveLength(2);
+		expect(mcpClientState.instances[0]?.close).toHaveBeenCalledOnce();
+		expect(refreshed).not.toBe(cached);
+		expect(refreshed.map((candidate) => candidate.name)).toContain(
+			'query_hotel_operating_data_sql'
+		);
+		await provider.close();
+		expect(mcpClientState.instances[1]?.close).toHaveBeenCalledOnce();
 	});
 });
 

@@ -18,7 +18,8 @@ import type { McpToolProvider } from '../mcp-tool-provider';
 import type { JsonValue, ResolvedBusinessRequest } from './business-execution-state';
 import { executionPolicyForIntent } from './intent-registry';
 
-type ToolProviderPort = Pick<McpToolProvider, 'getTools'>;
+type ToolProviderPort = Pick<McpToolProvider, 'getTools'> &
+	Partial<Pick<McpToolProvider, 'refreshTools'>>;
 
 export type WorkflowCollectionRequest = Readonly<{
 	principal: AgentPrincipal;
@@ -197,6 +198,15 @@ function toolResultIsError(result: unknown): boolean {
 	);
 }
 
+function shouldRefreshMcpTools(error: unknown): boolean {
+	return (
+		error instanceof AgentUpstreamError &&
+		error.service === 'mcp' &&
+		error.kind === 'unavailable' &&
+		agentErrorCauseType(error) === 'ToolException'
+	);
+}
+
 export class DeterministicWorkflowCollector {
 	constructor(private readonly tools: ToolProviderPort) {}
 
@@ -221,8 +231,8 @@ export class DeterministicWorkflowCollector {
 			}),
 			input.signal
 		);
-		const selected = selectTool(tools, input.request);
-		if (!selected) {
+		const initialSelection = selectTool(tools, input.request);
+		if (!initialSelection) {
 			if (input.request.intent === 'hotel_operating_summary') {
 				throw new AgentProtocolError({
 					operation: 'select_hotel_operating_tool',
@@ -234,6 +244,7 @@ export class DeterministicWorkflowCollector {
 				reason: tools.length === 0 ? 'tool_unavailable' : 'incompatible_tool_schema'
 			};
 		}
+		let selected = initialSelection;
 		const toolCallId = `${selected.tool.name}_${randomUUID()}`;
 		await runAgentEffect(
 			agentPromise({
@@ -248,15 +259,35 @@ export class DeterministicWorkflowCollector {
 		const callStartedAt = performance.now();
 		let result: unknown;
 		try {
-			result = await runAgentEffect(
-				agentPromise({
-					service: 'mcp',
-					operation: selected.tool.name,
-					timeoutMs: 50_000,
-					try: (signal) => selected.tool.invoke(selected.args, { signal })
-				}),
-				input.signal
-			);
+			const invoke = () =>
+				runAgentEffect(
+					agentPromise({
+						service: 'mcp',
+						operation: selected.tool.name,
+						timeoutMs: 50_000,
+						try: (signal) => selected.tool.invoke(selected.args, { signal })
+					}),
+					input.signal
+				);
+			try {
+				result = await invoke();
+			} catch (error) {
+				const refreshTools = this.tools.refreshTools;
+				if (!shouldRefreshMcpTools(error) || !refreshTools) throw error;
+				const refreshedTools = await runAgentEffect(
+					agentPromise({
+						service: 'mcp',
+						operation: 'refresh_tool_catalog',
+						timeoutMs: 55_000,
+						try: () => refreshTools.call(this.tools, allowedMcpCapabilities)
+					}),
+					input.signal
+				);
+				const refreshedSelection = selectTool(refreshedTools, input.request);
+				if (!refreshedSelection) throw error;
+				selected = refreshedSelection;
+				result = await invoke();
+			}
 		} catch (error) {
 			await input.emit({
 				type: 'mcp_call_failed',

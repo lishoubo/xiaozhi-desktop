@@ -92,6 +92,8 @@ function configureHotelDataTool(tool: DynamicStructuredTool): DynamicStructuredT
 export class McpToolProvider {
 	private readonly clients = new Set<MultiServerMCPClient>();
 	private readonly toolsPromises = new Map<string, Promise<readonly DynamicStructuredTool[]>>();
+	private readonly clientsByCacheKey = new Map<string, MultiServerMCPClient>();
+	private readonly refreshPromises = new Map<string, Promise<readonly DynamicStructuredTool[]>>();
 
 	constructor(
 		private readonly servers: Readonly<Record<string, McpServerConfig>>,
@@ -122,7 +124,7 @@ export class McpToolProvider {
 				{ event: 'agent.mcp.catalog.load.started', serverCount: selectedServerCount, cacheKey },
 				'MCP tool catalog load started'
 			);
-			const loading = this.loadTools(selectedServers)
+			const loading = this.loadTools(selectedServers, cacheKey)
 				.then((tools) => {
 					this.logger?.info?.(
 						{
@@ -155,8 +157,69 @@ export class McpToolProvider {
 		}
 	}
 
+	refreshTools(capabilities: readonly McpCapability[]): Promise<readonly DynamicStructuredTool[]> {
+		const normalizedCapabilities = [...new Set(capabilities)].sort();
+		const cacheKey = normalizedCapabilities.join(',') || 'none';
+		const refreshing = this.refreshPromises.get(cacheKey);
+		if (refreshing) return refreshing;
+		const startedAt = performance.now();
+		this.logger?.warn(
+			{ event: 'agent.mcp.catalog.refresh.started', cacheKey },
+			'MCP tool catalog refresh started'
+		);
+		const refresh = (async () => {
+			this.toolsPromises.delete(cacheKey);
+			const staleClient = this.clientsByCacheKey.get(cacheKey);
+			this.clientsByCacheKey.delete(cacheKey);
+			if (staleClient) {
+				this.clients.delete(staleClient);
+				try {
+					await staleClient.close();
+				} catch (error) {
+					this.logger?.warn(
+						{
+							event: 'agent.mcp.connection.close.failed',
+							cacheKey,
+							errorType: error instanceof Error ? error.name : 'UnknownError'
+						},
+						'Stale MCP connection could not be closed cleanly'
+					);
+				}
+			}
+			const tools = await this.getTools(normalizedCapabilities);
+			this.logger?.info?.(
+				{
+					event: 'agent.mcp.catalog.refresh.completed',
+					cacheKey,
+					toolCount: tools.length,
+					durationMs: Math.max(0, Math.round(performance.now() - startedAt))
+				},
+				'MCP tool catalog refresh completed'
+			);
+			return tools;
+		})().catch((error: unknown) => {
+			this.logger?.error?.(
+				{
+					event: 'agent.mcp.catalog.refresh.failed',
+					cacheKey,
+					durationMs: Math.max(0, Math.round(performance.now() - startedAt)),
+					errorType: error instanceof Error ? error.name : 'UnknownError'
+				},
+				'MCP tool catalog refresh failed'
+			);
+			throw error;
+		});
+		this.refreshPromises.set(cacheKey, refresh);
+		const clearRefresh = () => {
+			if (this.refreshPromises.get(cacheKey) === refresh) this.refreshPromises.delete(cacheKey);
+		};
+		void refresh.then(clearRefresh, clearRefresh);
+		return refresh;
+	}
+
 	private async loadTools(
-		servers: Readonly<Record<string, McpServerConfig>>
+		servers: Readonly<Record<string, McpServerConfig>>,
+		cacheKey: string
 	): Promise<readonly DynamicStructuredTool[]> {
 		let resolvedDmsDatabaseId = this.dmsDatabaseId;
 		let resolvedDmsDatabaseName = this.dmsDatabaseName;
@@ -223,6 +286,7 @@ export class McpToolProvider {
 			}
 		});
 		this.clients.add(client);
+		this.clientsByCacheKey.set(cacheKey, client);
 
 		const serverNames = Object.keys(servers);
 		const loadedByServer = await loadMcpServerToolsInOrder(serverNames, (name) =>
@@ -372,7 +436,9 @@ export class McpToolProvider {
 			);
 		} finally {
 			this.clients.clear();
+			this.clientsByCacheKey.clear();
 			this.toolsPromises.clear();
+			this.refreshPromises.clear();
 		}
 	}
 }
