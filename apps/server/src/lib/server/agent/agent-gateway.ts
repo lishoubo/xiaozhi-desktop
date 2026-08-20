@@ -46,14 +46,12 @@ import {
 	getIntentDefinition,
 	presentationPolicyForIntent
 } from './execution/intent-registry';
-import { assessEvidence, normalizeEvidence } from './execution/evidence';
+import { normalizeEvidence } from './execution/evidence';
 import { buildNoHotelDataAnswer } from './execution/no-data-answer';
 import { buildRoutingContext } from './execution/routing-context';
 import type { JsonValue, ResolvedBusinessRequest } from './execution/business-execution-state';
 import type { DeterministicWorkflowCollector } from './execution/deterministic-workflow-collector';
-import { buildDeterministicDataQueryAnswer } from './execution/deterministic-data-query-answer';
 import { summarizeConversationTitle, type ConversationTitleGenerator } from './conversation-title';
-import { buildDeterministicOperatingAnswer } from './execution/deterministic-operating-answer';
 import {
 	agentErrorType,
 	agentErrorCauseType,
@@ -90,7 +88,10 @@ type AgentRepositoryPort = Pick<
 >;
 type McpToolProviderPort = Pick<McpToolProvider, 'serverCount' | 'capabilities'>;
 type ConversationContextPort = Pick<ConversationContextService, 'prepare'>;
-type WorkflowCollectorPort = Pick<DeterministicWorkflowCollector, 'collect'>;
+type WorkflowCollectorPort = Pick<
+	DeterministicWorkflowCollector,
+	'collect' | 'assessEvidence' | 'present'
+>;
 type BusinessIntentRouterPort = Pick<BusinessIntentRouter, 'route'>;
 type BusinessSlotResolverPort = Pick<BusinessSlotResolver, 'resolve'>;
 
@@ -988,7 +989,13 @@ export class HotelAgentGateway implements AgentGateway {
 					);
 					if (execution.state.status !== 'validating_evidence') break;
 					const evidenceAssessmentStartedAt = performance.now();
-					const assessment = assessEvidence(
+					if (!workflowCollector) {
+						throw new AgentProtocolError({
+							operation: 'assess_business_workflow_evidence',
+							reason: 'Business workflow collector is unavailable'
+						});
+					}
+					const assessment = workflowCollector.assessEvidence(
 						// Evidence assessment is deterministic and intentionally separate from the model.
 						execution.state.request,
 						envelopes,
@@ -1032,12 +1039,16 @@ export class HotelAgentGateway implements AgentGateway {
 
 				if (execution.state.status === 'answering') {
 					if (execution.state.mode === 'grounded' && execution.state.request) {
-						const deterministicAnswer =
-							buildDeterministicOperatingAnswer(
-								execution.state.request,
-								execution.state.evidence
-							) ??
-							buildDeterministicDataQueryAnswer(execution.state.request, execution.state.evidence);
+						if (!this.workflowCollector) {
+							throw new AgentProtocolError({
+								operation: 'present_business_workflow_answer',
+								reason: 'Business workflow collector is unavailable'
+							});
+						}
+						const deterministicAnswer = this.workflowCollector.present(
+							execution.state.request,
+							execution.state.evidence
+						);
 						if (deterministicAnswer) {
 							const toolCallId = `render_hotel_ui_${randomUUID()}`;
 							await this.forwardRuntimeEvent(

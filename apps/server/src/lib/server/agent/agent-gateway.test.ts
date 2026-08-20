@@ -12,6 +12,7 @@ import {
 } from './agent-gateway';
 import { AgentUpstreamError } from './agent-effect';
 import type { EvidenceRecord } from './execution/business-execution-state';
+import { createBusinessWorkflowRegistry } from './execution/registered-business-workflows';
 
 const event: AgentRunEvent = {
 	id: '22222222-2222-4222-8222-222222222222',
@@ -647,7 +648,10 @@ describe('HotelAgentGateway deterministic business collection', () => {
 					.fn()
 					.mockResolvedValue({ content: '入住表现稳定，建议继续关注核销转化。', ui: null })
 			};
+			const operatingWorkflow = createBusinessWorkflowRegistry().resolve('hotel_operating_summary');
 			const workflowCollector = {
+				assessEvidence: operatingWorkflow.assessEvidence,
+				present: operatingWorkflow.present,
 				collect: vi.fn().mockImplementation(async (input) => {
 					await input.emit({
 						type: 'mcp_call_failed',
