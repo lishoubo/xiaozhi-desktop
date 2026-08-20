@@ -122,10 +122,13 @@ server。
 - 已配置时，server 创建 RMS MySQL 连接池，为 staff 与 phone 两种客户端提供身份能力。
 
 server 还会通过 `XIAOZHI_RMS_SERVER_URL` 访问 RMS API。该地址与 RMS MySQL 连接
-用途不同，不应混用。生产 desktop 的 staff 登录也会在构建期读取
-`apps/server/.env.production` 中的同一个地址，避免 server 与 desktop 指向不同 RMS。生产门禁
-默认要求 HTTPS 且不得携带 URL 凭证；当前 RMS 只能提供 HTTP 时，必须为每次生产构建显式设置
-`XIAOZHI_ALLOW_INSECURE_RMS=1`，不得把该开关写入环境文件长期放宽门禁。
+用途不同，不应混用。
+
+生产 desktop 的 RMS 地址**不读环境文件**，而是写死在
+`apps/desktop/scripts/package-production.ts` 的 `PRODUCTION_RMS_ORIGIN` 常量里，与同文件的
+`PRODUCTION_SERVER_ORIGIN` 一致。`.env.production` 被 gitignore（含数据库密码等），
+让同一个地址散落在每台机器的私有文件里，只会导致谁也不知道哪份是对的。改地址改常量即可，
+它随仓库走、进 code review、有测试固化。
 
 ## HTTPS 证书
 
@@ -191,8 +194,11 @@ chmod 600 apps/server/.env.production
 补全 `apps/server/.env.production` 中的 RMS、AI 和初始管理员配置。生产证书位于
 `output/production-tls/121.199.29.74/`。生产环境文件、server 私钥和最终离线部署包都包含
 敏感材料，必须保持为 `0600`，不得提交或转发。`XIAOZHI_RMS_SERVER_URL` 必须是生产 server
-和 staff desktop 均可访问的 origin，且不得在 URL 中携带用户名或密码。HTTPS 是默认要求；若
-当前 RMS 只能使用 HTTP，按下述命令逐次显式确认风险。
+可访问的 origin，且不得在 URL 中携带用户名或密码。HTTPS 是默认要求；若当前 RMS 只能使用
+HTTP，按下述命令逐次显式确认风险。
+
+> desktop 打包**不读这个文件**，其 RMS 地址来自 `package-production.ts` 的
+> `PRODUCTION_RMS_ORIGIN` 常量。两处若要指向不同 RMS，改各自的来源。
 
 ### 3. 在 Mac 构建离线镜像包
 
@@ -408,7 +414,7 @@ find "$HOME/Library/Logs" -type f \( -path "*/staff/main.log" -o -path "*/phone/
 | 构建输入 | 生产值来源 |
 |---|---|
 | Backend API | 固定为 `https://121.199.29.74:35443` |
-| RMS API | `apps/server/.env.production` 的 `XIAOZHI_RMS_SERVER_URL` |
+| RMS API | 固定为 `http://47.96.144.176`（`package-production.ts` 的 `PRODUCTION_RMS_ORIGIN`） |
 | Backend 私有 CA | `output/production-tls/121.199.29.74/desktop/private-ca.pem` |
 | 认证 Profile | 默认 `staff`，phone 快捷命令显式选择 `phone` |
 

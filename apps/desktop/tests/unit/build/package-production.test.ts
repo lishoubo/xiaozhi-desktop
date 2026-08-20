@@ -1,42 +1,33 @@
 import { describe, expect, it } from 'vitest';
 import {
   parseProductionDesktopCommand,
+  PRODUCTION_RMS_ORIGIN,
   resolveProductionRmsOrigin,
 } from '../../../scripts/package-production';
 
 describe('production desktop packaging', () => {
-  it('reads and normalizes the production RMS origin from the server environment', () => {
-    expect(
-      resolveProductionRmsOrigin('XIAOZHI_RMS_SERVER_URL="https://rms.example.com/api"\n'),
-    ).toBe('https://rms.example.com');
-  });
-
-  it('rejects missing, placeholder, insecure, and credential-bearing RMS endpoints', () => {
-    expect(() => resolveProductionRmsOrigin('POSTGRES_DB="hotel_butler"\n')).toThrow(
-      'XIAOZHI_RMS_SERVER_URL',
+  it('normalizes the production RMS origin, dropping any path', () => {
+    expect(resolveProductionRmsOrigin('https://rms.example.com/api')).toBe(
+      'https://rms.example.com',
     );
-    expect(() =>
-      resolveProductionRmsOrigin(
-        'XIAOZHI_RMS_SERVER_URL="https://replace-with-rms-api-domain"\n',
-      ),
-    ).toThrow('placeholder');
-    expect(() =>
-      resolveProductionRmsOrigin('XIAOZHI_RMS_SERVER_URL="http://rms.example.com"\n'),
-    ).toThrow('HTTPS');
-    expect(() =>
-      resolveProductionRmsOrigin(
-        'XIAOZHI_RMS_SERVER_URL="https://user:password@rms.example.com"\n',
-      ),
-    ).toThrow('credentials');
   });
 
-  it('allows HTTP only with the explicit insecure production override', () => {
-    expect(
-      resolveProductionRmsOrigin(
-        'XIAOZHI_RMS_SERVER_URL="http://rms.example.com/api"\n',
-        true,
-      ),
-    ).toBe('http://rms.example.com');
+  it('accepts plain HTTP: RMS has no HTTPS domain yet', () => {
+    // 允许而非拒绝——可见性由调用方每次打印的 WARNING 保证，不靠这里抛错。
+    expect(resolveProductionRmsOrigin('http://47.96.144.176')).toBe('http://47.96.144.176');
+  });
+
+  it('rejects non-HTTP protocols and credential-bearing URLs', () => {
+    // 防的是将来把顶部常量改错，而不是运行期输入。
+    expect(() => resolveProductionRmsOrigin('ftp://rms.example.com')).toThrow('HTTP(S)');
+    expect(() => resolveProductionRmsOrigin('https://user:password@rms.example.com')).toThrow(
+      'credentials',
+    );
+  });
+
+  it('keeps the production RMS constant a valid, credential-free origin', () => {
+    // 常量本身也要过这道校验，改错了测试就红。
+    expect(resolveProductionRmsOrigin(PRODUCTION_RMS_ORIGIN)).toBe(PRODUCTION_RMS_ORIGIN);
   });
 
   it('accepts only check, package, and make while forwarding Forge arguments', () => {

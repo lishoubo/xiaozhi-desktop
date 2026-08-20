@@ -1,16 +1,24 @@
 import { spawn } from 'node:child_process';
 import { createPublicKey, X509Certificate } from 'node:crypto';
-import { existsSync, lstatSync, readFileSync, readdirSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 type ProductionAuthVariant = 'staff' | 'phone';
 
 export const PRODUCTION_SERVER_ORIGIN = 'https://121.199.29.74:35443';
+/**
+ * 生产 RMS 地址。与上面的 backend 地址一样直接写死在这里——它是仓库自有的事实，
+ * 不该从 `apps/server/.env.production` 去读：那个文件被 gitignore（含数据库密码、
+ * BETTER_AUTH_SECRET 等），每台机器各写一份，同一个地址会散成 N 份且互相不知道对错。
+ *
+ * ⚠️ 明文 HTTP：RMS 正式域名尚未启用 HTTPS，当前与 pre 指向同一台机器（数据不隔离）。
+ * 因此打包时会每次打印 WARNING。上了 HTTPS 后改成 https 地址即可，告警自动消失。
+ */
+export const PRODUCTION_RMS_ORIGIN = 'http://47.96.144.176';
 const PRODUCTION_IP = new URL(PRODUCTION_SERVER_ORIGIN).hostname;
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
 const tlsDirectory = path.join(repositoryRoot, 'output', 'production-tls', PRODUCTION_IP);
-const productionEnvironmentPath = path.join(repositoryRoot, 'apps', 'server', '.env.production');
 const productionActions = ['check', 'package', 'make'] as const;
 
 export type ProductionDesktopAction = (typeof productionActions)[number];
@@ -49,25 +57,16 @@ export function parseProductionDesktopCommand(argv: readonly string[]): Readonly
   return { action, authVariant, forwardedArguments };
 }
 
-export function resolveProductionRmsOrigin(
-  environmentText: string,
-  allowInsecureRms = false,
-): string {
-  const matches = [...environmentText.matchAll(/^XIAOZHI_RMS_SERVER_URL="([^"\r\n]+)"\s*$/gm)];
-  if (matches.length !== 1) {
-    throw new Error(
-      'Production environment must contain exactly one quoted XIAOZHI_RMS_SERVER_URL',
-    );
-  }
-  const raw = matches[0]?.[1] ?? '';
-  if (/replace[-_]with/i.test(raw)) {
-    throw new Error('Production RMS URL still contains a placeholder');
-  }
-  const url = new URL(raw);
-  if (url.protocol !== 'https:' && !(allowInsecureRms && url.protocol === 'http:')) {
-    throw new Error(
-      'Production RMS URL must use HTTPS; set XIAOZHI_ALLOW_INSECURE_RMS=1 to explicitly allow HTTP',
-    );
+/**
+ * 归一化并校验生产 RMS 地址。入参是本文件顶部的常量，不再解析 `.env.production`。
+ *
+ * 常量已经是仓库自有的事实，这里的校验防的是**将来改错**：改成非 http(s) 协议、
+ * 或把凭证写进 URL。明文 http 允许（当前就是），由调用方打印 WARNING 保证可见。
+ */
+export function resolveProductionRmsOrigin(rawUrl: string): string {
+  const url = new URL(rawUrl);
+  if (url.protocol !== 'https:' && url.protocol !== 'http:') {
+    throw new Error(`Production RMS URL must use HTTP(S): ${rawUrl}`);
   }
   if (url.username || url.password)
     throw new Error('Production RMS URL must not contain credentials');
@@ -136,35 +135,18 @@ export function validateProductionDesktopInputs(): Readonly<{
   rmsOrigin: string;
   insecureRms: boolean;
 }> {
-  if (!existsSync(productionEnvironmentPath)) {
-    throw new Error(`Missing production environment: ${productionEnvironmentPath}`);
-  }
-  const environmentStat = lstatSync(productionEnvironmentPath);
-  if (!environmentStat.isFile() || environmentStat.isSymbolicLink()) {
-    throw new Error('apps/server/.env.production must be a regular file, not a symbolic link');
-  }
-  if ((environmentStat.mode & 0o077) !== 0) {
-    throw new Error('.env.production permissions must not allow group or other access');
-  }
   const { privateCaPath } = validateProductionTlsMaterial();
   /**
-   * 明文 HTTP 由本脚本自行放行，不再要求调用方每次手敲
+   * 地址取自本文件顶部的常量，不读 `.env.production`，因而也不需要调用方手敲
    * `XIAOZHI_ALLOW_INSECURE_RMS=1`——与 `scripts/desktop-make.mjs` 的既有做法一致：
    * **豁免自动打开，但每次都告警**（告警在 `packageProductionDesktop` 里打）。
    *
-   * 理由有两条：
-   * - 生产 RMS 地址写死在 `.env.production` 里、且已被本函数校验过，调用方手敲那个
-   *   变量并不构成任何额外确认，只是让命令更长、更容易被抄错或漏掉。
-   * - `FOO=bar cmd` 在 Windows 的 cmd/PowerShell 上不成立，强制前缀等于让 Windows
-   *   用户没法照抄文档里的命令。
-   *
-   * 关键是**豁免必须看得见**：这里放行，但 stderr 上每次都有一条 WARNING，
-   * RMS 上 HTTPS 后 `resolveProductionRmsOrigin` 会自动恢复强制校验，告警随之消失。
+   * 豁免必须看得见，但可见性应由 WARNING 保证，而不是由「手敲一遍变量」保证：
+   * 地址是仓库自有的常量，再敲一遍不构成任何额外确认，只是让命令更长、更容易被
+   * 抄错；且 `FOO=bar cmd` 在 Windows 的 cmd/PowerShell 上不成立，强制前缀等于让
+   * Windows 用户没法照抄文档命令。
    */
-  const rmsOrigin = resolveProductionRmsOrigin(
-    readFileSync(productionEnvironmentPath, 'utf8'),
-    true,
-  );
+  const rmsOrigin = resolveProductionRmsOrigin(PRODUCTION_RMS_ORIGIN);
   return { privateCaPath, rmsOrigin, insecureRms: rmsOrigin.startsWith('http:') };
 }
 
