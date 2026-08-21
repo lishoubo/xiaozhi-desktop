@@ -234,7 +234,7 @@
     </ul>
 
     {#if requiresUnbindFirst}
-      <p class="m-0 rounded-md bg-[#fde9e7] px-3 py-2 text-xs text-[#a8342d]" role="alert">
+      <p class="m-0 rounded-md bg-destructive/10 px-3 py-2 text-xs text-destructive" role="alert">
         「{rmsHotelName}」在该渠道已绑定另一家门店，需要先解绑才能改绑。请回到酒店管理页解绑后重试。
       </p>
     {/if}

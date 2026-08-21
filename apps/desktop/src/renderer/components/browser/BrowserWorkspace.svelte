@@ -18,11 +18,7 @@
     PAGE_ENTER_OPTIONS,
     SURFACE_TRANSITION_OPTIONS,
   } from '../../motion';
-  import {
-    OTA_CHANNELS,
-    WORKSPACE_CHANNEL_IDS,
-    type OtaChannel,
-  } from '../../data/ota-channels';
+  import { OTA_CHANNELS, WORKSPACE_CHANNEL_IDS, type OtaChannel } from '../../data/ota-channels';
   import { dismissAppNotification, showAppNotification } from '../../notifications';
   import { browserOtaTabs } from './browser-ota-tabs.svelte';
   import { cookieListAutoOpen, tabActivation } from './cross-route-intents';
@@ -393,7 +389,7 @@
   in:enter={{ ...PAGE_ENTER_OPTIONS, y: 0 }}
 >
   <nav
-    class="flex min-w-0 items-center gap-1 overflow-x-auto border-b border-[#e5e7eb] bg-[#f4f6fa] px-4"
+    class="flex min-w-0 items-center gap-1 overflow-x-auto border-b border-border bg-muted px-4"
     aria-label="OTA 快捷入口"
   >
     {#each workspaceChannels as channel (channel.id)}
@@ -401,8 +397,8 @@
         class={[
           'flex h-10 shrink-0 items-center justify-center gap-[7px] rounded-lg border px-2.5 text-sm font-medium whitespace-nowrap transition-[background-color,border-color,color,box-shadow] duration-150 ease-out motion-reduce:transition-none',
           activeChannelId === channel.id
-            ? 'border-[#e2e6ec] bg-white text-[#242936] shadow-sm'
-            : 'border-transparent text-[#5f6673] hover:bg-[#eaedf3] hover:text-[#242936]',
+            ? 'border-border bg-card text-foreground shadow-sm'
+            : 'border-transparent text-muted-foreground hover:bg-background hover:text-foreground',
         ]}
         type="button"
         aria-label={channel.name}
@@ -417,13 +413,13 @@
   </nav>
 
   <div
-    class="grid min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 border-b border-[#e5e7eb] bg-[#fafbfc] px-4"
+    class="grid min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 border-b border-border bg-background px-4"
   >
     <nav class="flex shrink-0 items-center gap-1" aria-label="页面控制">
       <Button
         variant="ghost"
         size="icon-sm"
-        class="text-[#5f6673] hover:bg-[#eef1f5]"
+        class="text-muted-foreground hover:bg-muted"
         aria-label="后退"
         disabled={!activeTab?.canGoBack}
         onclick={() =>
@@ -437,7 +433,7 @@
       <Button
         variant="ghost"
         size="icon-sm"
-        class="text-[#5f6673] hover:bg-[#eef1f5]"
+        class="text-muted-foreground hover:bg-muted"
         aria-label="前进"
         disabled={!activeTab?.canGoForward}
         onclick={() =>
@@ -451,7 +447,7 @@
       <Button
         variant="ghost"
         size="icon-sm"
-        class="text-[#5f6673] hover:bg-[#eef1f5]"
+        class="text-muted-foreground hover:bg-muted"
         aria-label="刷新"
         disabled={!activeTab}
         onclick={() =>
@@ -466,11 +462,11 @@
           <RotateCw size={16} strokeWidth={1.8} />
         {/if}
       </Button>
-      <span class="ml-2 h-6 w-px bg-[#e1e4e9]" aria-hidden="true"></span>
+      <span class="ml-2 h-6 w-px bg-border" aria-hidden="true"></span>
     </nav>
 
     <div
-      class="flex h-10 min-w-0 items-center rounded-xl bg-[#f0f2f5] p-1"
+      class="flex h-10 min-w-0 items-center rounded-lg bg-muted p-1"
       role="group"
       aria-label="页面标签区"
     >
@@ -485,8 +481,8 @@
             class={[
               'group flex h-8 min-w-[132px] max-w-[200px] items-center rounded-lg border text-xs transition-[background-color,border-color,color,box-shadow] duration-150 ease-out motion-reduce:transition-none',
               activeTab?.id === tab.id
-                ? 'border-[#e2e6ec] bg-white text-[#242936] shadow-sm'
-                : 'border-transparent text-[#5f6673] hover:bg-[#e8ebef] hover:text-[#242936]',
+                ? 'border-border bg-card text-foreground shadow-sm'
+                : 'border-transparent text-muted-foreground hover:bg-background/70 hover:text-foreground',
             ]}
           >
             <button
@@ -516,7 +512,7 @@
       <Button
         variant="ghost"
         size="icon-sm"
-        class="ml-1 shrink-0 text-[#5f6673] hover:bg-[#e3e7ec]"
+        class="ml-1 shrink-0 text-muted-foreground hover:bg-background"
         aria-label="新建标签页"
         title={activeCredential ? '新建标签页' : '请先选择登录账号'}
         disabled={!activeCredential || openingSessionTab}
@@ -532,7 +528,7 @@
 
     <div class="flex min-w-0 shrink-0 items-center gap-2" aria-label="当前登录账号">
       <div
-        class="grid h-9 w-[clamp(136px,15vw,196px)] grid-cols-[28px_minmax(0,1fr)_28px] items-center rounded-[10px] border border-primary bg-white px-1.5 text-sm text-[#242936]"
+        class="grid h-9 w-[clamp(136px,15vw,196px)] grid-cols-[28px_minmax(0,1fr)_28px] items-center rounded-md border border-[var(--brand-green-deep)] bg-card px-1.5 text-sm text-foreground shadow-xs"
         title={activeCredential?.label ?? activeChannel?.name ?? '未选择渠道'}
       >
         <span aria-hidden="true"></span>
@@ -540,7 +536,7 @@
           {activeCredential?.label ?? activeChannel?.name ?? '未选择渠道'}
         </span>
         <button
-          class="grid size-7 place-items-center justify-self-end rounded-md text-[#69707d] hover:bg-[#eef1f5] hover:text-[#242936] disabled:opacity-50"
+          class="grid size-7 place-items-center justify-self-end rounded-md text-muted-foreground hover:bg-muted hover:text-foreground disabled:opacity-50"
           type="button"
           aria-label={audioMuted ? '开启网页声音' : '关闭网页声音'}
           aria-pressed={audioMuted}
@@ -592,7 +588,7 @@
     transition:enter={SURFACE_TRANSITION_OPTIONS}
   >
     <div class="flex gap-3">
-      <Import class="mt-0.5 shrink-0 text-primary" size={20} strokeWidth={1.8} />
+      <Import class="mt-0.5 shrink-0 text-[var(--brand-green-deep)]" size={20} strokeWidth={1.8} />
       <div>
         <h2 class="m-0 text-sm font-semibold">导入已有浏览器 Cookie</h2>
         <p class="mt-2 mb-0 text-xs leading-5 text-muted-foreground">

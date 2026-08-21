@@ -54,7 +54,7 @@
 </script>
 
 <form
-  class="mt-3 w-full min-w-0 overflow-hidden rounded-xl border border-primary/25 bg-card p-4 shadow-sm"
+  class="mt-3 w-full min-w-0 overflow-hidden rounded-lg border border-[var(--brand-green-deep)] bg-card p-4 shadow-sm"
   aria-label="补充任务信息"
   onsubmit={submit}
 >

@@ -148,7 +148,9 @@
           <label
             class={[
               'flex items-center gap-3 rounded-md border px-4 py-3 transition-colors duration-150 ease-out motion-reduce:transition-none',
-              selectedSourceId === browser.id ? 'border-primary bg-accent/60' : 'border-border',
+              selectedSourceId === browser.id
+                ? 'border-[var(--brand-green-deep)] bg-accent/60'
+                : 'border-border',
               available ? 'cursor-pointer hover:bg-muted' : 'cursor-not-allowed opacity-55',
             ]}
           >

@@ -41,7 +41,7 @@
   {#if online}
     <span
       data-agent-status="breathing"
-      class="agent-status absolute right-0 bottom-0 size-2.5 rounded-full bg-[#1aae39] ring-2 ring-background"
+      class="agent-status absolute right-0 bottom-0 size-2.5 rounded-full bg-[var(--brand-green-deep)] ring-2 ring-background"
     ></span>
   {/if}
 </span>

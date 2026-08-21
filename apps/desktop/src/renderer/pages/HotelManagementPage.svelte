@@ -229,7 +229,7 @@
             <span aria-hidden="true">·</span>
             <span>{totalAccounts} 个账号</span>
             {#if attentionAccounts > 0}
-              <span class="rounded-full bg-[#fde9e7] px-2 py-0.5 font-medium text-[#a8342d]">
+              <span class="rounded-full bg-destructive/10 px-2 py-0.5 font-medium text-destructive">
                 {attentionAccounts} 个待处理
               </span>
             {/if}

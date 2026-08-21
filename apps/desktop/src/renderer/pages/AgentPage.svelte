@@ -61,17 +61,17 @@
       },
       last_7_days_operating_trend: {
         icon: ChartSpline,
-        tone: 'bg-[#dcecfa] text-[#24557a]',
+        tone: 'bg-[#3772cf]/10 text-[#285ba8]',
       },
       month_to_date_operating_progress: {
         icon: CalendarRange,
-        tone: 'bg-[#fde0ec] text-[#863a5f]',
+        tone: 'bg-[#f55a3c]/10 text-[#b43c27]',
       },
       channel_operating_comparison: {
         icon: Columns3,
-        tone: 'bg-[#d9f3e1] text-[#176548]',
+        tone: 'bg-[#00d4a4]/12 text-[#08765f]',
       },
-      public_hotel_rates: { icon: Hotel, tone: 'bg-[#e6e0f5] text-[#3a2a99]' },
+      public_hotel_rates: { icon: Hotel, tone: 'bg-muted text-foreground' },
       hotel_operating_data: { icon: Hotel, tone: 'bg-[#dff2eb] text-[#176548]' },
     };
 
@@ -635,7 +635,8 @@
           ]}
         >
           {#if conversation.id === activeConversationId}
-            <span class="absolute top-2 bottom-2 left-0 w-0.5 rounded-full bg-primary"></span>
+            <span class="absolute top-2 bottom-2 left-0 w-0.5 rounded-full bg-[var(--brand-green)]"
+            ></span>
           {/if}
           <button
             class="w-full rounded-lg py-2 pr-8 pl-2.5 text-left focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
@@ -649,12 +650,17 @@
               class="mt-0.5 flex items-center gap-1.5 text-[10px] leading-4 text-muted-foreground/70"
             >
               {#if conversation.id === pendingConversationId}
-                <span class="inline-flex items-center gap-1 font-medium text-primary">
+                <span
+                  class="inline-flex items-center gap-1 font-medium text-[var(--brand-green-deep)]"
+                >
                   <LoaderCircle class="animate-spin" size={11} />正在读取
                 </span>
               {:else if conversation.activeRunId}
-                <span class="inline-flex items-center gap-1 font-medium text-primary">
-                  <span class="size-1.5 animate-pulse rounded-full bg-primary"></span>运行中
+                <span
+                  class="inline-flex items-center gap-1 font-medium text-[var(--brand-green-deep)]"
+                >
+                  <span class="size-1.5 animate-pulse rounded-full bg-[var(--brand-green)]"
+                  ></span>运行中
                 </span>
               {:else}
                 {formatConversationUpdatedAt(conversation.updatedAt)}
@@ -723,7 +729,7 @@
               {#each quickActionCards.slice(0, 6) as action (action.id)}
                 <button
                   class={[
-                    'group rounded-xl border border-border/80 bg-card px-3.5 py-3 text-left transition-[background-color,border-color,box-shadow,transform] duration-200 ease-out focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none motion-reduce:transform-none',
+                    'group rounded-lg border border-border bg-card px-3.5 py-3 text-left transition-[background-color,border-color,box-shadow,transform] duration-200 ease-out focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none motion-reduce:transform-none',
                     action.available
                       ? 'hover:-translate-y-0.5 hover:border-input hover:shadow-md'
                       : 'cursor-not-allowed opacity-60',
@@ -931,7 +937,7 @@
           </div>
         {/if}
         <div
-          class="rounded-xl border border-input bg-background p-2 shadow-md focus-within:border-primary focus-within:ring-3 focus-within:ring-ring/20"
+          class="rounded-lg border border-input bg-background p-2 shadow-md focus-within:border-ring focus-within:ring-3 focus-within:ring-ring/20"
         >
           <Textarea
             class="min-h-14 resize-none border-0 px-2 py-2.5 shadow-none focus-visible:ring-0"

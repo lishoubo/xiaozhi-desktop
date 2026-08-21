@@ -45,10 +45,10 @@
   );
 
   function dotClass(tone: OtaAccountTone): string {
-    if (tone === 'healthy') return 'bg-[#2d9d50]';
-    if (tone === 'warning') return 'bg-[#d59b20]';
-    if (tone === 'progress') return 'bg-[#4e78c4]';
-    if (tone === 'error') return 'bg-[#d64b42]';
+    if (tone === 'healthy') return 'bg-[var(--brand-green-deep)]';
+    if (tone === 'warning') return 'bg-[#c37d0d]';
+    if (tone === 'progress') return 'bg-[#3772cf]';
+    if (tone === 'error') return 'bg-destructive';
     return 'bg-muted-foreground';
   }
 
@@ -57,10 +57,10 @@
    * 根本抓不住。取值比圆点深一档，保证浅色背景上的对比度。
    */
   function statusTextClass(tone: OtaAccountTone): string {
-    if (tone === 'healthy') return 'text-[#1f7a3d]';
-    if (tone === 'warning') return 'text-[#9a6b0f]';
-    if (tone === 'progress') return 'text-[#3a5f9e]';
-    if (tone === 'error') return 'text-[#b3352d]';
+    if (tone === 'healthy') return 'text-[#08765f]';
+    if (tone === 'warning') return 'text-[#805600]';
+    if (tone === 'progress') return 'text-[#285ba8]';
+    if (tone === 'error') return 'text-destructive';
     return 'text-muted-foreground';
   }
 

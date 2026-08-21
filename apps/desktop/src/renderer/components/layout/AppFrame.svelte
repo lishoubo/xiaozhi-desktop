@@ -28,7 +28,7 @@
   const weekday = weekdayLabel(new Date());
 
   const navigationClass =
-    'grid size-11 place-items-center rounded-md text-muted-foreground no-underline transition-colors duration-150 ease-out hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2 focus-visible:ring-sidebar-ring focus-visible:outline-none motion-reduce:transition-none [&.active]:bg-sidebar-accent [&.active]:text-sidebar-accent-foreground';
+    'relative grid size-11 place-items-center rounded-md border-l-2 border-transparent text-muted-foreground no-underline transition-colors duration-150 ease-out before:absolute before:left-[-2px] before:h-5 before:w-0.5 before:rounded-full before:bg-transparent hover:bg-sidebar-accent hover:text-sidebar-accent-foreground focus-visible:ring-2 focus-visible:ring-sidebar-ring focus-visible:outline-none motion-reduce:transition-none [&.active]:bg-sidebar-accent [&.active]:text-sidebar-accent-foreground [&.active]:before:bg-[var(--brand-green)]';
 </script>
 
 <div
@@ -55,7 +55,7 @@
 
     {#if sidebarOpen}
       <div
-        class="grid size-10 shrink-0 select-none place-items-center rounded-lg bg-sidebar-primary text-sm font-semibold text-sidebar-primary-foreground"
+        class="relative grid size-10 shrink-0 select-none place-items-center rounded-lg bg-sidebar-primary text-sm font-semibold text-sidebar-primary-foreground after:absolute after:right-1 after:bottom-1 after:size-1.5 after:rounded-full after:bg-[var(--brand-green)]"
         aria-label="小智酒店管家"
         in:enter={{ duration: 150, y: 0 }}
       >
@@ -139,8 +139,8 @@
     各页面自己的顶部（小智页的 68px header、浏览器页的标签栏）保持原样，这条
     只是在它们之上多一行。
   -->
-  <section class="grid min-h-0 min-w-0 grid-rows-[36px_minmax(0,1fr)] overflow-hidden">
-    <div class="flex min-w-0 items-center justify-end border-b border-border px-5">
+  <section class="grid min-h-0 min-w-0 grid-rows-[40px_minmax(0,1fr)] overflow-hidden">
+    <div class="flex min-w-0 items-center justify-end border-b border-border bg-background px-5">
       {#if welcomeName}
         <p class="m-0 min-w-0 truncate text-xs text-muted-foreground">
           欢迎您，<span class="font-medium text-foreground">{welcomeName}</span>

@@ -92,23 +92,26 @@
   data-motion="page"
   in:enter={PAGE_ENTER_OPTIONS}
 >
-  <section class="relative overflow-hidden bg-[#0a1530]" aria-label="小智AI 管家">
+  <section
+    class="relative overflow-hidden bg-gradient-to-br from-[#1a3d4a] via-[#244f4d] to-[#2d5a4f]"
+    aria-label="小智AI 管家"
+  >
     <div
-      class="absolute -top-20 -left-24 size-80 rounded-full bg-[#5645d4]/20 blur-3xl"
+      class="absolute -top-20 -left-24 size-80 rounded-full bg-[#00d4a4]/20 blur-3xl"
       aria-hidden="true"
     ></div>
     <div
-      class="absolute top-20 right-14 size-16 rotate-6 rounded-xl bg-[#f5d75e]/85 shadow-lg"
+      class="absolute top-20 right-14 size-16 rotate-6 rounded-xl border border-white/15 bg-[#7cebcb]/65 shadow-lg"
       aria-hidden="true"
     ></div>
     <div
-      class="absolute right-20 bottom-20 size-11 -rotate-6 rounded-lg bg-[#ff64c8]/70 shadow-lg"
+      class="absolute right-20 bottom-20 size-11 -rotate-6 rounded-lg bg-[#f55a3c]/75 shadow-lg"
       aria-hidden="true"
     ></div>
 
     <div class="relative z-10 flex h-full flex-col px-12 py-10 text-white">
       <div class="flex items-center gap-3 text-sm font-semibold">
-        <span class="grid size-9 place-items-center rounded-lg bg-primary">智</span>
+        <span class="grid size-9 place-items-center rounded-lg bg-white text-[#0a0a0a]">智</span>
         小智酒店管家
       </div>
 
@@ -129,19 +132,19 @@
   </section>
 
   <section
-    class="relative grid place-items-center overflow-hidden overflow-y-auto bg-[#fafaf9] px-12 py-10"
+    class="relative grid place-items-center overflow-hidden overflow-y-auto bg-muted/40 px-12 py-10"
     aria-label="登录区域"
   >
     <div
-      class="absolute -top-28 -right-24 size-80 rounded-full bg-primary/8 blur-3xl"
+      class="absolute -top-28 -right-24 size-80 rounded-full bg-[#00d4a4]/8 blur-3xl"
       aria-hidden="true"
     ></div>
     <div
-      class="absolute -bottom-24 left-8 size-64 rounded-full bg-[#ff64c8]/6 blur-3xl"
+      class="absolute -bottom-24 left-8 size-64 rounded-full bg-[#87a8c8]/10 blur-3xl"
       aria-hidden="true"
     ></div>
     <form
-      class="relative z-10 w-full max-w-[440px] rounded-2xl border border-border bg-card p-9 shadow-xl"
+      class="relative z-10 w-full max-w-[440px] rounded-lg border border-border bg-card p-9 shadow-[var(--shadow-float)]"
       onsubmit={(event) => {
         event.preventDefault();
         void submit();
@@ -173,7 +176,7 @@
           />
           <button
             class={[
-              'rounded-md border border-input bg-background px-3 font-medium transition-colors duration-150 ease-out hover:bg-muted motion-reduce:transition-none disabled:text-muted-foreground',
+              'rounded-full border border-input bg-background px-4 font-medium transition-colors duration-150 ease-out hover:bg-muted motion-reduce:transition-none disabled:text-muted-foreground',
               remainingSeconds > 0 ? 'text-[11px]' : 'text-sm',
             ]}
             type="button"
@@ -191,7 +194,7 @@
 
       <label class="flex items-start gap-2.5 text-sm leading-5 text-muted-foreground">
         <input
-          class="mt-1 accent-primary"
+          class="mt-1 accent-[#00b48a]"
           type="checkbox"
           bind:checked={agreed}
           aria-label="我已阅读并同意用户协议与隐私政策"
@@ -199,13 +202,13 @@
         <span>
           我已阅读并同意
           <button
-            class="text-primary hover:underline"
+            class="text-foreground underline decoration-border underline-offset-4 hover:decoration-foreground"
             type="button"
             onclick={() => openPolicy('agreement')}>《用户协议》</button
           >
           和
           <button
-            class="text-primary hover:underline"
+            class="text-foreground underline decoration-border underline-offset-4 hover:decoration-foreground"
             type="button"
             onclick={() => openPolicy('privacy')}>《隐私政策》</button
           >
@@ -213,7 +216,7 @@
       </label>
 
       <button
-        class="mt-6 h-11 w-full rounded-md bg-primary text-sm font-medium text-primary-foreground transition-colors duration-150 ease-out hover:bg-[#4534b3] motion-reduce:transition-none"
+        class="mt-6 h-11 w-full rounded-full bg-primary text-sm font-medium text-primary-foreground shadow-xs transition-colors duration-150 ease-out hover:bg-[#1c1c1e] motion-reduce:transition-none"
         type="submit"
         disabled={loggingIn}
       >

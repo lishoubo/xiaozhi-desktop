@@ -7,6 +7,7 @@
 
 :root {
   font-family:
+    Inter,
     ui-sans-serif,
     system-ui,
     -apple-system,
@@ -16,37 +17,42 @@
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   --background: #ffffff;
-  --foreground: #1a1a1a;
+  --foreground: #0a0a0a;
   --card: #ffffff;
-  --card-foreground: #1a1a1a;
+  --card-foreground: #0a0a0a;
   --popover: #ffffff;
-  --popover-foreground: #1a1a1a;
-  --primary: #5645d4;
+  --popover-foreground: #0a0a0a;
+  --primary: #0a0a0a;
   --primary-foreground: #ffffff;
-  --secondary: #f6f5f4;
-  --secondary-foreground: #37352f;
-  --muted: #f6f5f4;
-  --muted-foreground: #787671;
-  --accent: #e6e0f5;
-  --accent-foreground: #3a2a99;
-  --destructive: #e03131;
-  --border: #e5e3df;
-  --input: #c8c4be;
-  --ring: #5645d4;
-  --chart-1: #0075de;
-  --chart-2: #2a9d99;
-  --chart-3: #dd5b00;
-  --chart-4: #a02e6d;
-  --chart-5: #0a1530;
-  --radius: 0.5rem;
-  --sidebar: #fafaf9;
-  --sidebar-foreground: #37352f;
-  --sidebar-primary: #5645d4;
+  --secondary: #f7f7f7;
+  --secondary-foreground: #1c1c1e;
+  --muted: #f7f7f7;
+  --muted-foreground: #5a5a5c;
+  --accent: #e8fbf6;
+  --accent-foreground: #0a0a0a;
+  --destructive: #d45656;
+  --border: #e5e5e5;
+  --input: #d4d4d4;
+  --ring: #00d4a4;
+  --chart-1: #00b48a;
+  --chart-2: #3772cf;
+  --chart-3: #c37d0d;
+  --chart-4: #f55a3c;
+  --chart-5: #5a5a5c;
+  --radius: 0.75rem;
+  --sidebar: #fafafa;
+  --sidebar-foreground: #3a3a3c;
+  --sidebar-primary: #0a0a0a;
   --sidebar-primary-foreground: #ffffff;
-  --sidebar-accent: #e6e0f5;
-  --sidebar-accent-foreground: #3a2a99;
-  --sidebar-border: #e5e3df;
-  --sidebar-ring: #5645d4;
+  --sidebar-accent: #f0f0f0;
+  --sidebar-accent-foreground: #0a0a0a;
+  --sidebar-border: #e5e5e5;
+  --sidebar-ring: #00d4a4;
+  --brand-green: #00d4a4;
+  --brand-green-deep: #00b48a;
+  --brand-green-soft: #7cebcb;
+  --surface-code: #1c1c1e;
+  --shadow-float: 0 16px 48px -20px rgb(10 10 10 / 0.28);
 }
 
 * {
@@ -65,7 +71,9 @@ body {
 }
 
 button,
-input {
+input,
+textarea,
+select {
   font: inherit;
 }
 
@@ -74,7 +82,9 @@ input {
 }
 
 @theme inline {
-  --font-sans: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-sans:
+    Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-mono: 'Geist Mono', 'SFMono-Regular', Consolas, 'Liberation Mono', monospace;
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);

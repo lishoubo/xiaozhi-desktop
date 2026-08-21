@@ -604,8 +604,8 @@
 
 <style>
   :global(.hotel-calendar .wx-willow-theme) {
-    --wx-color-primary: #5645d4;
-    --wx-color-primary-hover: #4534b3;
+    --wx-color-primary: #0a0a0a;
+    --wx-color-primary-hover: #1c1c1e;
     --wx-font-family: inherit;
     height: 100%;
   }
@@ -623,37 +623,37 @@
 
   :global(.hotel-calendar .cal-holiday.wx-bar-event),
   :global(.hotel-calendar .cal-holiday.wx-box-event) {
-    background: #ffe8d4;
+    background: rgb(195 125 13 / 0.12);
     color: #793400;
-    border-color: #dd5b00;
+    border-color: #c37d0d;
   }
 
   :global(.hotel-calendar .cal-personal.wx-bar-event),
   :global(.hotel-calendar .cal-personal.wx-box-event) {
-    background: #e6e0f5;
-    color: #3a2a99;
-    border-color: #5645d4;
+    background: rgb(55 114 207 / 0.1);
+    color: #285ba8;
+    border-color: #3772cf;
   }
 
   :global(.hotel-calendar .cal-mock.wx-bar-event),
   :global(.hotel-calendar .cal-mock.wx-box-event) {
-    background: #d9f3e1;
+    background: rgb(0 212 164 / 0.12);
     color: #165f43;
-    border-color: #2a9d99;
+    border-color: #00b48a;
   }
 
   :global(.hotel-calendar .wx-calendar-name.cal-holiday) {
-    background: #ffe8d4;
+    background: rgb(195 125 13 / 0.12);
     color: #793400;
   }
 
   :global(.hotel-calendar .wx-calendar-name.cal-personal) {
-    background: #e6e0f5;
-    color: #3a2a99;
+    background: rgb(55 114 207 / 0.1);
+    color: #285ba8;
   }
 
   :global(.hotel-calendar .wx-calendar-name.cal-mock) {
-    background: #d9f3e1;
+    background: rgb(0 212 164 / 0.12);
     color: #165f43;
   }
 </style>

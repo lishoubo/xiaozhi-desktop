@@ -54,7 +54,7 @@
 </script>
 
 <main
-  class="h-full overflow-auto bg-secondary px-9 py-10"
+  class="h-full overflow-auto bg-muted/40 px-9 py-10"
   data-motion="page"
   in:enter={PAGE_ENTER_OPTIONS}
 >
@@ -63,7 +63,9 @@
       <h1 class="m-0 text-[28px] font-semibold tracking-[-0.02em]">设置</h1>
     </header>
 
-    <section class="mt-6 overflow-hidden rounded-lg border border-border bg-card">
+    <section
+      class="mt-6 overflow-hidden rounded-lg border border-border bg-card shadow-[0_1px_3px_rgba(10,10,10,0.04)]"
+    >
       <div class="flex items-center gap-3 border-b border-border px-6 py-4">
         <Settings2 size={18} class="text-muted-foreground" />
         <h2 class="m-0 text-sm font-semibold">常规</h2>
@@ -76,7 +78,7 @@
             开机自动启动
           </span>
           <input
-            class="size-4 accent-primary"
+            class="size-4 accent-[#00b48a]"
             type="checkbox"
             checked={preferences?.autoLaunch ?? false}
             disabled={!preferences || savingAutoLaunch}
@@ -93,7 +95,9 @@
       </div>
     </section>
 
-    <section class="mt-5 rounded-lg border border-border bg-card px-6 py-5">
+    <section
+      class="mt-5 rounded-lg border border-border bg-card px-6 py-5 shadow-[0_1px_3px_rgba(10,10,10,0.04)]"
+    >
       <div class="flex items-center justify-between gap-6">
         <div>
           <h2 class="m-0 text-sm font-semibold">客户端版本</h2>

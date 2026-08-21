@@ -125,7 +125,7 @@
 <Button
   variant="outline"
   size="icon"
-  class="size-9 rounded-[10px] border-[#d9dee7] bg-white shadow-none hover:bg-[#eef1f5]"
+  class="size-9 border-border bg-card shadow-none hover:bg-muted"
   aria-label="切换登录账号"
   title="切换登录账号"
   onclick={() => void handleOpenChange(true)}
@@ -140,7 +140,7 @@
     <Dialog.Header class="pr-10">
       <div class="flex items-center justify-between gap-6">
         <div class="flex min-w-0 items-center gap-3">
-          <span class="grid size-11 shrink-0 place-items-center rounded-xl bg-[#f4f6fa]">
+          <span class="grid size-11 shrink-0 place-items-center rounded-lg bg-muted">
             <img class="size-7 object-contain" src={channel.iconUrl} alt="" />
           </span>
           <Dialog.Title class="truncate text-xl">已登录账号列表</Dialog.Title>
@@ -168,7 +168,7 @@
 
     {#if credentials.length === 0}
       <div
-        class="grid min-h-40 place-items-center rounded-xl bg-[#f7f8fa] px-6 text-sm text-[#747b89]"
+        class="grid min-h-40 place-items-center rounded-lg bg-muted px-6 text-sm text-muted-foreground"
       >
         当前渠道暂无登录凭据
       </div>
@@ -180,10 +180,10 @@
           <button
             type="button"
             class={[
-              'group flex w-full items-center gap-5 rounded-xl border px-6 py-4 text-left transition-[border-color,background-color,box-shadow] duration-150 ease-out outline-none motion-reduce:transition-none',
+              'group flex w-full items-center gap-5 rounded-lg border px-6 py-4 text-left transition-[border-color,background-color,box-shadow] duration-150 ease-out outline-none focus-visible:ring-3 focus-visible:ring-ring/25 motion-reduce:transition-none',
               isActive
-                ? 'border-primary/35 bg-primary/[0.035] shadow-sm'
-                : 'border-[#e5e8ed] bg-[#f7f8fa] hover:border-[#cfd4dc] hover:bg-[#f2f4f7]',
+                ? 'border-[var(--brand-green-deep)] bg-accent shadow-sm'
+                : 'border-border bg-muted/60 hover:border-input hover:bg-muted',
             ]}
             disabled={startingLogin || busyPartition !== null}
             aria-pressed={isActive}
@@ -192,7 +192,9 @@
             <span
               class={[
                 'inline-flex h-7 w-[68px] shrink-0 items-center justify-center gap-1 rounded-full text-sm font-medium',
-                isActive ? 'bg-[#58aa16] text-white' : 'bg-[#777d8d] text-white',
+                isActive
+                  ? 'bg-[var(--brand-green-deep)] text-white'
+                  : 'bg-muted-foreground text-white',
               ]}
             >
               {#if isActive}<Check size={15} strokeWidth={2.2} />{/if}
@@ -200,11 +202,11 @@
             </span>
 
             <span class="min-w-0 flex-1">
-              <span class="block truncate text-base font-semibold text-[#292e3a]">
+              <span class="block truncate text-base font-semibold text-foreground">
                 {presentation.title}
               </span>
               {#if presentation.details.length > 0}
-                <span class="mt-1 flex flex-wrap gap-x-4 gap-y-0.5 text-xs text-[#747b89]">
+                <span class="mt-1 flex flex-wrap gap-x-4 gap-y-0.5 text-xs text-muted-foreground">
                   {#each presentation.details as detail (detail.label)}
                     <span class="truncate">{detail.label} {detail.value}</span>
                   {/each}
