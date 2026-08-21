@@ -18,6 +18,7 @@ export interface BrowserTabController {
   reload(tabId: string): void;
   setBounds(bounds: BrowserBounds): void;
   setAudioMuted(muted: boolean): boolean;
+  setViewportVisible(visible: boolean): void;
 }
 
 type RegisterBrowserHandlersOptions = Readonly<{
@@ -62,6 +63,12 @@ export function registerBrowserHandlers({
   );
   handle(IPC_CHANNELS.browser.setAudioMuted, z.tuple([z.boolean()]), '声音状态无效', (muted) =>
     manager.setAudioMuted(muted),
+  );
+  handle(
+    IPC_CHANNELS.browser.setViewportVisible,
+    z.tuple([z.boolean()]),
+    '可见状态无效',
+    (visible) => manager.setViewportVisible(visible),
   );
 
   return () => registry.dispose();

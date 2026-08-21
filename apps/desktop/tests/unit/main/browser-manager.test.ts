@@ -62,6 +62,8 @@ const electron = vi.hoisted(() => {
       }),
     };
     readonly setBounds = vi.fn();
+    readonly setVisible = vi.fn();
+    readonly setBackgroundColor = vi.fn();
 
     constructor(readonly options: unknown) {
       views.push(this);
@@ -331,5 +333,273 @@ describe('BrowserManager', () => {
     );
 
     expect(preventDefault).not.toHaveBeenCalled();
+  });
+});
+
+describe('BrowserManager viewport visibility', () => {
+  const CTRIP = 'https://ebooking.ctrip.com/';
+
+  /**
+   * 🔴 回归：让位与尺寸同步曾共用 `setBounds` 一个通道，靠渲染进程的一个布尔量
+   * 互斥。两者是并发异步链，守卫读取与 IPC 落地之间存在窗口，零尺寸最后落地时
+   * 视图就此不可见——标题照常更新，内容区却空白，且不可稳定复现。
+   *
+   * 现在可见性独立表达：让位**不得**改动尺寸。
+   */
+  it('hides the active view without touching its bounds', () => {
+    const manager = new BrowserManager(createWindow() as never, createLogger());
+    manager.createWithAlreadyPartition('persist:xiaozhi:prod:ctrip:a', 'ctrip', CTRIP);
+    manager.setBounds({ x: 0, y: 64, width: 1200, height: 700 });
+    const view = electron.views[0];
+    view.setBounds.mockClear();
+
+    manager.setViewportVisible(false);
+
+    expect(view.setVisible).toHaveBeenLastCalledWith(false);
+    expect(view.setBounds).not.toHaveBeenCalled();
+  });
+
+  /**
+   * 🔴 回归：让位期间打开的标签页若默认可见，会直接盖在弹窗上——绑定流程正是
+   * 这个形状（弹窗先让位，再在弹窗里开标签页）。
+   */
+  it('makes a tab activated while suspended inherit the hidden state', () => {
+    const manager = new BrowserManager(createWindow() as never, createLogger());
+    manager.setViewportVisible(false);
+
+    manager.createWithAlreadyPartition('persist:xiaozhi:prod:ctrip:a', 'ctrip', CTRIP);
+
+    expect(electron.views[0].setVisible).toHaveBeenLastCalledWith(false);
+  });
+
+  /**
+   * 🔴 让位状态的泄漏路径：弹窗开着时用户从侧边栏跳走，组件树连同弹窗一起卸载，
+   * `closeDialog()`（唯一的 resume 出口）永远不会跑。不在 `hide()` 里复位的话，
+   * 下次回到工作区内容区一片空白，且用户无法自行恢复。
+   */
+  it('clears the suspended state when leaving the workspace', () => {
+    const manager = new BrowserManager(createWindow() as never, createLogger());
+    manager.createWithAlreadyPartition('persist:xiaozhi:prod:ctrip:a', 'ctrip', CTRIP);
+    manager.setViewportVisible(false);
+
+    manager.hide();
+    manager.activate(manager.list()[0].id);
+
+    expect(electron.views[0].setVisible).toHaveBeenLastCalledWith(true);
+  });
+
+  it('restores visibility on resume', () => {
+    const manager = new BrowserManager(createWindow() as never, createLogger());
+    manager.createWithAlreadyPartition('persist:xiaozhi:prod:ctrip:a', 'ctrip', CTRIP);
+
+    manager.setViewportVisible(false);
+    manager.setViewportVisible(true);
+
+    expect(electron.views[0].setVisible).toHaveBeenLastCalledWith(true);
+  });
+});
+
+describe('BrowserManager page-opened tabs', () => {
+  const CTRIP = 'https://ebooking.ctrip.com/';
+
+  /**
+   * 🔴 回归：网页 `window.open` 开的标签页此前由主进程直接激活，界面不知情，
+   * 无人为它同步视口尺寸——新视图拿到主进程当时的 bounds（让位期间就是零）。
+   * 现在只建不激活，改为广播给界面走统一收尾。
+   */
+  it('creates the tab without activating it and notifies the renderer', () => {
+    const window = createWindow();
+    const manager = new BrowserManager(window as never, createLogger());
+    manager.createWithAlreadyPartition('persist:xiaozhi:prod:ctrip:a', 'ctrip', CTRIP);
+    window.contentView.addChildView.mockClear();
+    window.webContents.send.mockClear();
+
+    const result = electron.views[0].windowOpenHandler({ url: 'https://ebooking.ctrip.com/order' });
+
+    expect(result).toEqual({ action: 'deny' });
+    expect(electron.views).toHaveLength(2);
+    // 没有激活：内容区仍是原来那个视图。
+    expect(window.contentView.addChildView).not.toHaveBeenCalled();
+    const sent = window.webContents.send.mock.calls.find(
+      ([channel]) => channel === 'browser:tab-opened',
+    );
+    expect(sent?.[1]).toMatchObject({ channelId: 'ctrip', failure: null });
+  });
+
+  it('keeps the opener partition so popups stay in the same login session', () => {
+    const manager = new BrowserManager(createWindow() as never, createLogger());
+    manager.createWithAlreadyPartition('persist:xiaozhi:prod:ctrip:a', 'ctrip', CTRIP);
+
+    electron.views[0].windowOpenHandler({ url: 'https://ebooking.ctrip.com/order' });
+
+    expect(manager.list()[1].partitionName).toBe('persist:xiaozhi:prod:ctrip:a');
+  });
+
+  it('throttles a page that opens windows in a tight loop', () => {
+    const logger = createLogger();
+    const manager = new BrowserManager(createWindow() as never, logger);
+    manager.createWithAlreadyPartition('persist:xiaozhi:prod:ctrip:a', 'ctrip', CTRIP);
+
+    for (let index = 0; index < 6; index += 1) {
+      electron.views[0].windowOpenHandler({ url: `https://ebooking.ctrip.com/p/${index}` });
+    }
+
+    // 1 个原始标签 + 阈值 3 个，其余被节流拦掉。
+    expect(manager.list()).toHaveLength(4);
+    expect(logger.warn).toHaveBeenCalledWith('Browser popup throttled', expect.anything());
+  });
+});
+
+describe('BrowserManager tab limit', () => {
+  it('refuses to exceed the tab ceiling on every creation path', () => {
+    const manager = new BrowserManager(createWindow() as never, createLogger());
+    for (let index = 0; index < 12; index += 1) {
+      manager.createWithAlreadyPartition(
+        `persist:xiaozhi:prod:ctrip:a${index}`,
+        'ctrip',
+        `https://ebooking.ctrip.com/p/${index}`,
+      );
+    }
+
+    expect(() =>
+      manager.createWithAlreadyPartition(
+        'persist:xiaozhi:prod:ctrip:overflow',
+        'ctrip',
+        'https://ebooking.ctrip.com/',
+      ),
+    ).toThrow('最多同时打开');
+    expect(manager.list()).toHaveLength(12);
+  });
+});
+
+describe('BrowserManager failure state', () => {
+  const CTRIP = 'https://ebooking.ctrip.com/';
+
+  function openTab() {
+    const window = createWindow();
+    const manager = new BrowserManager(window as never, createLogger());
+    manager.createWithAlreadyPartition('persist:xiaozhi:prod:ctrip:a', 'ctrip', CTRIP);
+    return { manager, view: electron.views[0] };
+  }
+
+  it('marks a crashed renderer and stops the loading state', () => {
+    const { manager, view } = openTab();
+
+    view.handlers.get('render-process-gone')?.({}, { reason: 'crashed' });
+
+    expect(manager.list()[0]).toMatchObject({ failure: 'crashed', loading: false });
+  });
+
+  it('marks a failed main-frame load', () => {
+    const { manager, view } = openTab();
+
+    view.handlers.get('did-fail-load')?.({}, -105, 'ERR_NAME_NOT_RESOLVED', CTRIP, true);
+
+    expect(manager.list()[0]).toMatchObject({ failure: 'load-failed', loading: false });
+  });
+
+  /**
+   * 🔴 ERR_ABORTED 是单页应用内部导航的常态——渠道后台每切一次路由就报一次。
+   * 把它算作故障会让故障提示彻底失去意义。
+   */
+  it('ignores aborted loads and subframe failures', () => {
+    const { manager, view } = openTab();
+
+    view.handlers.get('did-fail-load')?.({}, -3, 'ERR_ABORTED', CTRIP, true);
+    view.handlers.get('did-fail-load')?.({}, -105, 'ERR_NAME_NOT_RESOLVED', CTRIP, false);
+
+    expect(manager.list()[0].failure).toBeNull();
+  });
+
+  it('clears the unresponsive flag when the page recovers', () => {
+    const { manager, view } = openTab();
+
+    view.handlers.get('unresponsive')?.();
+    expect(manager.list()[0].failure).toBe('unresponsive');
+
+    view.handlers.get('responsive')?.();
+    expect(manager.list()[0].failure).toBeNull();
+  });
+
+  it('does not let a responsive event clear a crash', () => {
+    const { manager, view } = openTab();
+
+    view.handlers.get('render-process-gone')?.({}, { reason: 'crashed' });
+    view.handlers.get('responsive')?.();
+
+    expect(manager.list()[0].failure).toBe('crashed');
+  });
+
+  it('leaves the failure state when the tab starts loading again', () => {
+    const { manager, view } = openTab();
+    view.handlers.get('render-process-gone')?.({}, { reason: 'crashed' });
+
+    view.handlers.get('did-start-loading')?.();
+
+    expect(manager.list()[0]).toMatchObject({ failure: null, loading: true });
+  });
+});
+
+describe('BrowserManager close hand-off', () => {
+  const CTRIP = 'https://ebooking.ctrip.com/';
+
+  /**
+   * 🔴 关掉活动标签页后主进程曾停在「无活动标签页」，等界面再发一次 activate。
+   * 那是一次额外的 IPC 往返（中间一帧空白）；而从别处发起的关闭（切换账号时
+   * 收尾旧标签页）根本没有第二次请求，内容区会一直空着。
+   */
+  it('activates a same-channel neighbour when the active tab closes', () => {
+    const window = createWindow();
+    const manager = new BrowserManager(window as never, createLogger());
+    manager.createWithAlreadyPartition('persist:xiaozhi:prod:ctrip:a', 'ctrip', CTRIP);
+    const second = manager.createWithAlreadyPartition(
+      'persist:xiaozhi:prod:ctrip:b',
+      'ctrip',
+      CTRIP,
+    );
+    const third = manager.createWithAlreadyPartition(
+      'persist:xiaozhi:prod:ctrip:c',
+      'ctrip',
+      CTRIP,
+    );
+    window.contentView.addChildView.mockClear();
+
+    manager.close(third.id);
+
+    expect(window.contentView.addChildView).toHaveBeenCalledWith(electron.views[1]);
+    expect(manager.list().map((tab) => tab.id)).not.toContain(third.id);
+    expect(second.id).toBeDefined();
+  });
+
+  it('does not hand off when the closed tab was not active', () => {
+    const window = createWindow();
+    const manager = new BrowserManager(window as never, createLogger());
+    const first = manager.createWithAlreadyPartition(
+      'persist:xiaozhi:prod:ctrip:a',
+      'ctrip',
+      CTRIP,
+    );
+    manager.createWithAlreadyPartition('persist:xiaozhi:prod:ctrip:b', 'ctrip', CTRIP);
+    window.contentView.addChildView.mockClear();
+
+    manager.close(first.id);
+
+    expect(window.contentView.addChildView).not.toHaveBeenCalled();
+  });
+
+  it('leaves the content area empty when the last tab of a channel closes', () => {
+    const window = createWindow();
+    const manager = new BrowserManager(window as never, createLogger());
+    const only = manager.createWithAlreadyPartition(
+      'persist:xiaozhi:prod:ctrip:a',
+      'ctrip',
+      CTRIP,
+    );
+    window.contentView.addChildView.mockClear();
+
+    manager.close(only.id);
+
+    expect(window.contentView.addChildView).not.toHaveBeenCalled();
+    expect(manager.list()).toHaveLength(0);
   });
 });

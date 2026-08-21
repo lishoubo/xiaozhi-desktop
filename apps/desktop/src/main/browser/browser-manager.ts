@@ -12,7 +12,11 @@ import { EventEmitter } from 'node:events';
 import { randomUUID } from 'node:crypto';
 import type { ChannelId } from '../ids';
 import { IPC_CHANNELS } from '../../shared/ipc-channels';
-import { browserWebUrlSchema, type BrowserTab } from '../../shared/browser';
+import {
+  browserWebUrlSchema,
+  type BrowserTab,
+  type BrowserTabFailure,
+} from '../../shared/browser';
 import type { AppLogger } from '../../shared/logging';
 import { SessionFactory } from './session-factory';
 
@@ -42,6 +46,22 @@ export type BrowserManagerOptions = Readonly<{
   isPartitionClaimed?: (partitionName: string) => boolean;
 }>;
 
+/**
+ * 同时打开的标签页上限。每个标签页背后是一个独立的渲染进程（约 80–150MB），
+ * 12 个约 1–1.8GB —— 在 8GB 内存的机器上仍留有余量。
+ */
+const MAX_TABS = 12;
+
+/**
+ * Chromium 的 `net::ERR_ABORTED`。单页应用内部导航会大量产生，不是故障。
+ * 见 https://source.chromium.org/chromium/chromium/src/+/main:net/base/net_error_list.h
+ */
+const ABORTED_ERROR_CODE = -3;
+
+/** 网页自开新窗口的节流窗口与阈值：正常点击达不到，失控循环第一秒就被拦住。 */
+const POPUP_THROTTLE_WINDOW_MS = 1_000;
+const POPUP_THROTTLE_MAX = 3;
+
 type ManagedTab = {
   id: string;
   channelId: string;
@@ -50,6 +70,11 @@ type ManagedTab = {
   loading: boolean;
   view: WebContentsView;
   partitionName: string;
+  /** 当前故障状态，`null` 表示正常。语义见 `shared/browser.ts`。 */
+  failure: BrowserTabFailure | null;
+  /** 本标签页最近一次开窗节流窗口的起点与计数。 */
+  popupWindowStartedAt?: number;
+  popupCountInWindow?: number;
 };
 
 function isReloadShortcut(
@@ -78,6 +103,17 @@ export class BrowserManager extends EventEmitter {
   private audioMuted = false;
   private activeTabId: string | null = null;
   private bounds: Rectangle = { x: 0, y: 0, width: 0, height: 0 };
+  /**
+   * 内容区当前是否该显示网页。应用内弹窗占用内容区期间为 false。
+   *
+   * ⚠️ **与 `bounds` 是两个正交的状态**，这是一次真机故障的教训：此前「让位给弹窗」
+   * 靠把尺寸设成零来表达，于是让位与尺寸同步共用同一个通道，两条并发的异步链谁最后
+   * 落地谁说了算。零尺寸视图照常上报标题与加载状态，故障表现为「标签页标题变了、
+   * 内容区却什么都看不见」，且不可稳定复现。
+   *
+   * 分开之后，尺寸同步在让位期间照常发生也无害——它改不了可见性。
+   */
+  private viewportVisible = true;
   private readonly handleShellInput = (event: ElectronEvent, input: Input): void => {
     if (!isReloadShortcut(input)) return;
 
@@ -138,9 +174,15 @@ export class BrowserManager extends EventEmitter {
     url: string,
     partitionName: string,
     tabSession: Session,
+    options: Readonly<{ activate?: boolean }> = {},
   ): ManagedTab {
     assertWebUrl(url);
     if (!channelId.trim()) throw new Error('渠道标识不能为空');
+    // 上限对**所有**创建路径生效，含用户主动新建：只拦网页自开的话，用户照样能把
+    // 内存耗尽。每个标签页背后是一个独立的渲染进程（80–150MB）。
+    if (this.tabs.size >= MAX_TABS) {
+      throw new Error(`最多同时打开 ${MAX_TABS} 个标签页，请先关闭一些`);
+    }
 
     const id = randomUUID();
     const view = new WebContentsView({
@@ -149,8 +191,14 @@ export class BrowserManager extends EventEmitter {
         nodeIntegration: false,
         sandbox: true,
         session: tabSession,
+        // OTA 后台是纯浏览与表单操作，拼写检查用不上，每个标签页省一点内存。
+        spellcheck: false,
+        // 同一个渠道后台会被反复打开，缓存编译结果省下重复的 JS 编译开销。
+        v8CacheOptions: 'code',
       },
     });
+    // 不设背景色时，视图在首帧绘制前是透明的，切换标签页会闪一下黑。
+    view.setBackgroundColor('#ffffff');
     this.managedWebContentsIds.add(view.webContents.id);
     const tab: ManagedTab = {
       id,
@@ -160,15 +208,19 @@ export class BrowserManager extends EventEmitter {
       loading: true,
       view,
       partitionName,
+      failure: null,
     };
     this.tabs.set(id, tab);
     view.webContents.setAudioMuted(this.audioMuted);
     this.bindTabEvents(tab);
-    this.activate(id);
+    // 网页自开的标签页传 false：由界面收到 `tab:opened` 后走标准收尾流程激活。
+    // 主进程代劳激活的话，界面不知情、无人同步视口尺寸，新视图会拿到过期的
+    // `this.bounds`（让位期间就是零），表现为「标题变了但看不见内容」。
+    if (options.activate ?? true) this.activate(id);
     this.logger.info('Browser tab created', { channelId, partitionName });
     void view.webContents.loadURL(url).catch((error: unknown) => {
       tab.loading = false;
-      tab.title = '页面加载失败';
+      tab.failure = 'load-failed';
       this.logger.error('Browser page load failed', {
         channelId,
         errorName: error instanceof Error ? error.name : 'UnknownError',
@@ -187,18 +239,28 @@ export class BrowserManager extends EventEmitter {
       this.activeTabId = tabId;
     }
     tab.view.setBounds(this.bounds);
+    // 必须继承当前让位状态：视图默认可见，让位期间打开的标签页会直接盖在弹窗上。
+    // 绑定流程正是这个形状——弹窗先让位，随后在弹窗里开标签页。
+    tab.view.setVisible(this.viewportVisible);
     return this.snapshot(tab);
   }
 
   close(tabId: string): void {
     const tab = this.getTab(tabId);
-    if (this.activeTabId === tabId) {
+    const wasActive = this.activeTabId === tabId;
+    // 接班人必须在摘除之前挑：位置信息（「它的邻居是谁」）只在原顺序里存在。
+    const successor = wasActive ? this.pickSuccessor(tab) : undefined;
+    if (wasActive) {
       this.window.contentView.removeChildView(tab.view);
       this.activeTabId = null;
     }
     this.tabs.delete(tabId);
     this.managedWebContentsIds.delete(tab.view.webContents.id);
     tab.view.webContents.close();
+    // 关掉的是活动标签页时，主进程自己接管，不等界面发第二次请求：那是一次额外的
+    // IPC 往返（中间一帧内容区空白）；而从别处发起的关闭（如切换账号时收尾旧标签
+    // 页）根本不会有第二次请求，内容区会一直空着。
+    if (successor) this.activate(successor.id);
     this.logger.info('Browser tab closed', { channelId: tab.channelId });
     this.emit('tab:closed', { tabId } satisfies TabClosedEvent);
     // 只重试**这个 tab 自己的** partition：本次关闭唯一新增的事实是「它少了一个
@@ -270,6 +332,35 @@ export class BrowserManager extends EventEmitter {
     const active = this.activeTabId ? this.tabs.get(this.activeTabId) : undefined;
     if (active) this.window.contentView.removeChildView(active.view);
     this.activeTabId = null;
+    // 离开浏览器工作区 = 任何弹窗对内容区的占用都结束了。
+    //
+    // ⚠️ 必须在这里复位，否则让位状态会泄漏：弹窗开着时用户从侧边栏跳走，
+    // 组件树连同弹窗一起卸载，`closeDialog()`（唯一的 resume 出口）永远不会跑。
+    // `viewportVisible` 就此停在 false，下次回到工作区时 `activate()` 会照着它
+    // 把视图设为不可见——内容区一片空白，且用户无法自行恢复。
+    this.viewportVisible = true;
+  }
+
+  /*
+   * 关于后台标签页的节流：**无需额外配置，现状已经正确**。
+   *
+   * 非活动标签页在 `activate()` 里就被 `removeChildView` 移出了视图树，Chromium
+   * 因此天然按后台处理（降帧、限流计时器），`webPreferences.backgroundThrottling`
+   * 保持默认 true 即可。查过一轮，记在这里免得后人重复排查。
+   */
+
+  /**
+   * 让出/收回内容区。**与 `hide()` 不是一回事**：`hide()` 把视图移出视图树并清空
+   * `activeTabId`（离开浏览器工作区时用），恢复需要重新 activate；这里只切换可见性，
+   * 活动标签页是谁、尺寸是多少都原样保留，用于弹窗短暂占用内容区。
+   *
+   * 原生 `WebContentsView` 永远浮在 HTML 之上（CSS 的 z-index 管不到它），不让位
+   * 弹窗就会被网页整个盖住。
+   */
+  setViewportVisible(visible: boolean): void {
+    this.viewportVisible = visible;
+    const active = this.activeTabId ? this.tabs.get(this.activeTabId) : undefined;
+    active?.view.setVisible(visible);
   }
 
   list(): BrowserTab[] {
@@ -342,15 +433,73 @@ export class BrowserManager extends EventEmitter {
     }
   }
 
+  /**
+   * 网页自开新窗口的节流。**按发起标签页各自计数**：一个页面失控不该牵连其他标签页。
+   *
+   * 上限（`MAX_TABS`）拦的是「总量」，这里拦的是「速率」—— 用户手动关掉几个再被
+   * 循环开满，总量守卫会反复放行，节流才能真正止住。
+   */
+  private allowPopup(tab: ManagedTab): boolean {
+    const now = Date.now();
+    const startedAt = tab.popupWindowStartedAt ?? 0;
+    if (now - startedAt > POPUP_THROTTLE_WINDOW_MS) {
+      tab.popupWindowStartedAt = now;
+      tab.popupCountInWindow = 1;
+      return true;
+    }
+    const count = (tab.popupCountInWindow ?? 0) + 1;
+    tab.popupCountInWindow = count;
+    if (count > POPUP_THROTTLE_MAX) {
+      this.logger.warn('Browser popup throttled', {
+        channelId: tab.channelId,
+        countInWindow: count,
+      });
+      return false;
+    }
+    return true;
+  }
+
+  /**
+   * 活动标签页关闭后由谁接管内容区 —— **同渠道里相邻的那个**（优先右侧，没有则
+   * 左侧），与渲染进程 `browserOtaTabs.close()` 的取法一致。
+   *
+   * 两侧必须用同一条规则：主进程挑 A、界面挑 B 的话，内容区会先落到 A 再跳到 B，
+   * 用户看到一次莫名其妙的闪跳。
+   */
+  private pickSuccessor(closing: ManagedTab): ManagedTab | undefined {
+    const siblings = [...this.tabs.values()].filter(
+      (item) => item.channelId === closing.channelId,
+    );
+    const index = siblings.findIndex((item) => item.id === closing.id);
+    if (index === -1) return undefined;
+    const remaining = siblings.filter((item) => item.id !== closing.id);
+    return remaining[Math.min(index, remaining.length - 1)];
+  }
+
   private bindTabEvents(tab: ManagedTab): void {
     const { webContents } = tab.view;
     webContents.setWindowOpenHandler(({ url }) => {
+      if (!this.allowPopup(tab)) return { action: 'deny' };
       try {
         // 弹窗继承发起方的 partition：同一账号打开的新窗口不应掉进共享 session。
-        this.createWithAlreadyPartition(tab.partitionName, tab.channelId, url);
-      } catch {
-        // Invalid and non-web popup targets stay blocked.
-        this.logger.warn('Blocked invalid browser popup', { channelId: tab.channelId });
+        //
+        // **不在这里激活**：界面还不知道这个标签页存在，代劳激活会让新视图拿到
+        // 主进程当前的 `bounds`（让位期间就是零尺寸），表现为「标题变了但看不见
+        // 内容」。改为广播 `tab:opened`，由界面走与其他入口相同的收尾流程。
+        const created = this.createTab(
+          tab.channelId,
+          url,
+          tab.partitionName,
+          this.sessionFactory.sessionForAccount(tab.partitionName),
+          { activate: false },
+        );
+        this.emitTabOpened(created);
+      } catch (error) {
+        // 无效地址、非 web 协议、以及达到标签页上限，都在这里被挡住。
+        this.logger.warn('Blocked browser popup', {
+          channelId: tab.channelId,
+          errorName: error instanceof Error ? error.name : 'UnknownError',
+        });
       }
       return { action: 'deny' };
     });
@@ -370,6 +519,42 @@ export class BrowserManager extends EventEmitter {
     });
     webContents.on('did-start-loading', () => {
       tab.loading = true;
+      // 重新加载即离开故障态——用户点「重新加载」后必须看到故障提示消失，
+      // 否则无从判断这次重试有没有生效。
+      tab.failure = null;
+      this.emitStateChanged(tab);
+    });
+    webContents.on('render-process-gone', (_event, details) => {
+      tab.loading = false;
+      tab.failure = 'crashed';
+      this.logger.error('Browser tab renderer gone', {
+        channelId: tab.channelId,
+        reason: details.reason,
+      });
+      this.emitStateChanged(tab);
+    });
+    webContents.on('did-fail-load', (_event, errorCode, _description, _url, isMainFrame) => {
+      // 只认主框架的真实失败：子框架（广告位、内嵌 iframe）失败不影响用户看的页面；
+      // `ERR_ABORTED` (-3) 是单页应用内部导航的常态，把它算作故障会让提示彻底失去
+      // 意义——渠道后台每切换一次路由就会报一次。
+      if (!isMainFrame || errorCode === ABORTED_ERROR_CODE) return;
+      tab.loading = false;
+      tab.failure = 'load-failed';
+      this.logger.warn('Browser tab main frame failed to load', {
+        channelId: tab.channelId,
+        errorCode,
+      });
+      this.emitStateChanged(tab);
+    });
+    webContents.on('unresponsive', () => {
+      tab.failure = 'unresponsive';
+      this.logger.warn('Browser tab became unresponsive', { channelId: tab.channelId });
+      this.emitStateChanged(tab);
+    });
+    webContents.on('responsive', () => {
+      // 只清「无响应」：页面恢复响应不代表崩溃或加载失败已经解决。
+      if (tab.failure !== 'unresponsive') return;
+      tab.failure = null;
       this.emitStateChanged(tab);
     });
     webContents.on('did-stop-loading', () => {
@@ -404,6 +589,19 @@ export class BrowserManager extends EventEmitter {
     } satisfies TabNavigatedEvent);
   }
 
+  /**
+   * 告诉界面「主进程刚建了一个你还不知道的标签页」。
+   *
+   * 走 `window.webContents.send` 而不是 EventEmitter + `ota-tab/` 中继：这是一条
+   * 纯视图事实（与登录判定、credential 归并无关），与既有的 `stateChanged` 同类，
+   * 沿用同一条路。`TabEventBus` 承载的是 credential 语义，不该混进视图事件。
+   */
+  private emitTabOpened(tab: ManagedTab): void {
+    if (!this.window.isDestroyed()) {
+      this.window.webContents.send(IPC_CHANNELS.browser.tabOpened, this.snapshot(tab));
+    }
+  }
+
   private emitStateChanged(tab: ManagedTab): void {
     if (!this.window.isDestroyed()) {
       this.window.webContents.send(IPC_CHANNELS.browser.stateChanged, this.snapshot(tab));
@@ -427,6 +625,7 @@ export class BrowserManager extends EventEmitter {
       canGoForward: navigation.canGoForward(),
       loading: tab.loading,
       partitionName: tab.partitionName,
+      failure: tab.failure,
     };
   }
 }

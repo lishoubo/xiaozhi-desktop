@@ -58,6 +58,7 @@ function baseManager() {
     reload: vi.fn(),
     setBounds: vi.fn(),
     setAudioMuted: vi.fn((muted: boolean) => muted),
+    setViewportVisible: vi.fn(),
   };
 }
 
@@ -71,6 +72,23 @@ describe('browser audio handlers', () => {
     expect(invoke(IPC_CHANNELS.browser.setAudioMuted, sender, true)).toBe(true);
     expect(manager.setAudioMuted).toHaveBeenCalledWith(true);
     expect(() => invoke(IPC_CHANNELS.browser.setAudioMuted, sender, 'yes')).toThrow('声音状态无效');
+  });
+});
+
+describe('browser viewport visibility handler', () => {
+  it('forwards the boolean and rejects anything else', () => {
+    const sender = {};
+    const manager = baseManager();
+    registerBrowserHandlers({ window: { webContents: sender }, manager, logger: createLogger() });
+
+    invoke(IPC_CHANNELS.browser.setViewportVisible, sender, false);
+    expect(manager.setViewportVisible).toHaveBeenCalledWith(false);
+
+    // 可见性必须是布尔量：让位是靠它表达的，接受 truthy 值会让「0 尺寸时代」的
+    // 那类歧义换个地方重现。
+    expect(() => invoke(IPC_CHANNELS.browser.setViewportVisible, sender, 'no')).toThrow(
+      '可见状态无效',
+    );
   });
 });
 

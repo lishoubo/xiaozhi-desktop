@@ -26,6 +26,8 @@ const electron = vi.hoisted(() => {
       setWindowOpenHandler: vi.fn(),
     };
     readonly setBounds = vi.fn();
+    readonly setVisible = vi.fn();
+    readonly setBackgroundColor = vi.fn();
 
     constructor(readonly options: { webPreferences: { session: unknown } }) {
       views.push(this);

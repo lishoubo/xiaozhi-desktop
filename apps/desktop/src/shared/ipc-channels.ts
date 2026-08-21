@@ -39,7 +39,14 @@ export const IPC_CHANNELS = {
     reload: 'browser:reload',
     setBounds: 'browser:set-bounds',
     setAudioMuted: 'browser:set-audio-muted',
+    setViewportVisible: 'browser:set-viewport-visible',
     stateChanged: 'browser:state-changed',
+    /**
+     * 主进程创建了一个界面尚不知情的标签页（网页自身 `window.open`）。
+     * 界面收到后走与其他入口相同的收尾流程，主进程不代劳激活——代劳会让新视图
+     * 拿不到当前视口尺寸，表现为「标题变了但看不见内容」。
+     */
+    tabOpened: 'browser:tab-opened',
   },
   calendar: {
     load: 'calendar:load',
