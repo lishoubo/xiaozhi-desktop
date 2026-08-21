@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { describeAgentFailure, describeToolFailure } from './agent-failure';
-import { AgentConfigurationError, AgentUpstreamError } from './agent-effect';
+import { AgentConfigurationError, AgentProtocolError, AgentUpstreamError } from './agent-effect';
 import { AgentQueryRejectedError } from './agent-query-error';
 
 describe('agent failure presentation', () => {
@@ -43,8 +43,37 @@ describe('agent failure presentation', () => {
 				})
 			)
 		).toMatchObject({ code: 'data_source_timeout', recovery: 'retry', retryable: true });
-		expect(describeAgentFailure(new AgentConfigurationError({ setting: 'HOTEL_DATA_MCP_URL' }))).toMatchObject({
+		expect(
+			describeAgentFailure(new AgentConfigurationError({ setting: 'HOTEL_DATA_MCP_URL' }))
+		).toMatchObject({
 			code: 'configuration_error',
+			recovery: 'contact_admin',
+			retryable: false
+		});
+	});
+
+	it('preserves configuration and protocol failures through wrapper causes', () => {
+		expect(
+			describeAgentFailure(
+				new AgentUpstreamError({
+					service: 'mcp',
+					operation: 'load_tool_catalog',
+					kind: 'unavailable',
+					cause: new AgentConfigurationError({ setting: 'HOTEL_DATA_MCP_URL' })
+				})
+			)
+		).toMatchObject({ code: 'configuration_error', recovery: 'contact_admin', retryable: false });
+		expect(
+			describeAgentFailure(
+				new AgentUpstreamError({
+					service: 'model',
+					operation: 'run_agent_stream',
+					kind: 'invalid_response',
+					cause: new AgentProtocolError({ operation: 'workflow', reason: 'invalid state' })
+				})
+			)
+		).toMatchObject({
+			code: 'execution_protocol_error',
 			recovery: 'contact_admin',
 			retryable: false
 		});

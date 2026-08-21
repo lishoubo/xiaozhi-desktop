@@ -534,11 +534,56 @@ export class AgentRepository {
 			if (interrupted.length === 0) return 0;
 			const now = this.now();
 			for (const run of interrupted) {
-				const runEventId = this.generateId();
-				await transaction
+				const recovered = await transaction
 					.update(agentRun)
 					.set({ status: 'failed', completedAt: now })
-					.where(and(eq(agentRun.id, run.id), eq(agentRun.status, 'running')));
+					.where(and(eq(agentRun.id, run.id), eq(agentRun.status, 'running')))
+					.returning({ id: agentRun.id });
+				if (!recovered[0]) continue;
+				let retryable = false;
+				if (run.businessExecutionId) {
+					const executions = await transaction
+						.select()
+						.from(agentBusinessExecution)
+						.where(eq(agentBusinessExecution.id, run.businessExecutionId))
+						.limit(1);
+					const current = executions[0];
+					if (current && !isTerminalBusinessExecutionStatus(current.status)) {
+						const previous = businessExecutionStateSchema.parse(current.state);
+						const next = transitionBusinessExecution(previous, {
+							type: 'execution_failed',
+							reasonCode: 'server_restart',
+							retryable: true
+						});
+						retryable = next.status === 'failed' && next.retryable;
+						await transaction
+							.update(agentBusinessExecution)
+							.set({
+								status: next.status,
+								state: next,
+								version: current.version + 1,
+								updatedAt: now,
+								completedAt: now,
+								expiresAt: null
+							})
+							.where(eq(agentBusinessExecution.id, current.id));
+						await transaction.insert(agentBusinessExecutionEvent).values({
+							id: this.generateId(),
+							businessExecutionId: current.id,
+							conversationId: current.conversationId,
+							ownerEmployeeId: current.ownerEmployeeId,
+							type: 'execution_failed',
+							payload: {
+								type: 'execution_failed',
+								previousStatus: previous.status,
+								nextStatus: next.status,
+								version: current.version + 1
+							},
+							createdAt: now
+						});
+					}
+				}
+				const runEventId = this.generateId();
 				await transaction.insert(agentRunEvent).values({
 					id: runEventId,
 					runId: run.id,
@@ -552,48 +597,11 @@ export class AgentRepository {
 						createdAt: now.toISOString(),
 						type: 'run_failed',
 						code: 'execution_protocol_error',
-						message: '服务重启中断了上次执行，请重试。',
-						recovery: 'retry',
-						retryable: true
-					},
-					createdAt: now
-				});
-				if (!run.businessExecutionId) continue;
-				const executions = await transaction
-					.select()
-					.from(agentBusinessExecution)
-					.where(eq(agentBusinessExecution.id, run.businessExecutionId))
-					.limit(1);
-				const current = executions[0];
-				if (!current || isTerminalBusinessExecutionStatus(current.status)) continue;
-				const previous = businessExecutionStateSchema.parse(current.state);
-				const next = transitionBusinessExecution(previous, {
-					type: 'execution_failed',
-					reasonCode: 'server_restart',
-					retryable: true
-				});
-				await transaction
-					.update(agentBusinessExecution)
-					.set({
-						status: next.status,
-						state: next,
-						version: current.version + 1,
-						updatedAt: now,
-						completedAt: now,
-						expiresAt: null
-					})
-					.where(eq(agentBusinessExecution.id, current.id));
-				await transaction.insert(agentBusinessExecutionEvent).values({
-					id: this.generateId(),
-					businessExecutionId: current.id,
-					conversationId: current.conversationId,
-					ownerEmployeeId: current.ownerEmployeeId,
-					type: 'execution_failed',
-					payload: {
-						type: 'execution_failed',
-						previousStatus: previous.status,
-						nextStatus: next.status,
-						version: current.version + 1
+						message: retryable
+							? '服务重启中断了上次执行，请重试。'
+							: '服务重启中断了上次执行，请重新发起请求。',
+						recovery: retryable ? 'retry' : 'none',
+						retryable
 					},
 					createdAt: now
 				});
@@ -1220,10 +1228,7 @@ export class AgentRepository {
 	async completeRun(
 		runId: string,
 		status: 'failed' | 'cancelled',
-		failure: Readonly<{ reasonCode: string; retryable: boolean }> = {
-			reasonCode: 'run_failed',
-			retryable: true
-		}
+		failure: Readonly<{ reasonCode: string; retryable: boolean }>
 	): Promise<boolean> {
 		return this.database.transaction(async (transaction) => {
 			const now = this.now();

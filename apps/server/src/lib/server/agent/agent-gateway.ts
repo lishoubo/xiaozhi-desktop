@@ -370,17 +370,7 @@ export class HotelAgentGateway implements AgentGateway {
 						? { kind: 'prompt', value: input.prompt }
 						: { kind: 'quick_action', value: input.quickActionId }
 			});
-			if (result.created && !this.activeRuns.has(result.response.runId)) {
-				const controller = new AbortController();
-				this.activeRuns.set(result.response.runId, {
-					ownerEmployeeId: principal.employeeId,
-					controller
-				});
-				void this.executeRun(principal, result.response.runId, controller).finally(() => {
-					const active = this.activeRuns.get(result.response.runId);
-					if (active?.controller === controller) this.activeRuns.delete(result.response.runId);
-				});
-			}
+			if (result.created) this.launchRun(principal, result.response.runId);
 			this.logger.info(
 				{
 					event: result.created ? 'agent.run.accepted' : 'agent.run.reused',
@@ -505,10 +495,21 @@ export class HotelAgentGateway implements AgentGateway {
 		if (this.activeRuns.has(runId)) return;
 		const controller = new AbortController();
 		this.activeRuns.set(runId, { ownerEmployeeId: principal.employeeId, controller });
-		void this.executeRun(principal, runId, controller).finally(() => {
-			const active = this.activeRuns.get(runId);
-			if (active?.controller === controller) this.activeRuns.delete(runId);
-		});
+		void this.executeRun(principal, runId, controller)
+			.catch((error: unknown) => {
+				this.logger.error(
+					{
+						event: 'agent.run.execution.unhandled_failure',
+						runId,
+						...agentFailureLogFields(error)
+					},
+					'Agent run failure handling did not complete'
+				);
+			})
+			.finally(() => {
+				const active = this.activeRuns.get(runId);
+				if (active?.controller === controller) this.activeRuns.delete(runId);
+			});
 	}
 
 	private ensureRecovered(): Promise<void> {
@@ -994,7 +995,10 @@ export class HotelAgentGateway implements AgentGateway {
 
 				if (execution.state.status === 'failed') {
 					const failure = describeEvidenceRejection(execution.state.reasonCode);
-					const transitioned = await this.repository.completeRun(runId, 'failed');
+					const transitioned = await this.repository.completeRun(runId, 'failed', {
+						reasonCode: execution.state.reasonCode,
+						retryable: failure.retryable
+					});
 					if (transitioned) {
 						await this.publish(principal, runId, context.conversation.id, {
 							type: 'run_failed',
@@ -1332,7 +1336,7 @@ export class HotelAgentGateway implements AgentGateway {
 			const context = await this.repository.getRunContext(principal, runId);
 			const failure = describeAgentRunFailure(error);
 			const transitioned = await this.repository.completeRun(runId, 'failed', {
-				reasonCode: 'run_failed',
+				reasonCode: failure.code,
 				retryable: failure.retryable
 			});
 			if (transitioned) {

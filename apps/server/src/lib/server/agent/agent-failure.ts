@@ -50,14 +50,14 @@ export function describeAgentFailure(error: unknown): AgentFailureDescriptor {
 			'revise_request'
 		);
 	}
-	if (error instanceof AgentConfigurationError) {
+	if (causeChain(error).some((cause) => cause instanceof AgentConfigurationError)) {
 		return descriptor(
 			'configuration_error',
 			'Agent 所需服务尚未配置完成，请联系管理员处理。',
 			'contact_admin'
 		);
 	}
-	if (error instanceof AgentProtocolError) {
+	if (causeChain(error).some((cause) => cause instanceof AgentProtocolError)) {
 		return descriptor(
 			'execution_protocol_error',
 			'本次任务的执行步骤出现异常，已安全停止。如再次出现，请联系管理员。',

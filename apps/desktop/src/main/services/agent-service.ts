@@ -215,14 +215,24 @@ export class AgentService {
       {
         onData: (trackedEvent) => {
           const event = trackedEvent.data;
-          if (event.type === 'tool_started' || event.type === 'tool_completed') {
-            this.logger.info('Agent client tool state changed', {
+          if (
+            event.type === 'tool_started' ||
+            event.type === 'tool_completed' ||
+            event.type === 'tool_failed'
+          ) {
+            const fields = {
               event: `agent.client.${event.type}`,
               runId: event.runId,
               conversationId: event.conversationId,
               toolCallId: event.toolCallId,
               toolName: event.toolName,
-            });
+              ...(event.type === 'tool_failed' ? { failureCode: event.code } : {}),
+            };
+            if (event.type === 'tool_failed') {
+              this.logger.warn('Agent client tool state changed', fields);
+            } else {
+              this.logger.info('Agent client tool state changed', fields);
+            }
           } else if (
             event.type === 'run_completed' ||
             event.type === 'run_failed' ||

@@ -10,11 +10,7 @@ import {
 	HotelAgentGateway,
 	runGroundedAnalysis
 } from './agent-gateway';
-import {
-	AgentConfigurationError,
-	AgentProtocolError,
-	AgentUpstreamError
-} from './agent-effect';
+import { AgentConfigurationError, AgentProtocolError, AgentUpstreamError } from './agent-effect';
 import { AgentQueryRejectedError } from './agent-query-error';
 import type { EvidenceRecord } from './execution/business-execution-state';
 import { createBusinessWorkflowRegistry } from './execution/registered-business-workflows';
@@ -633,6 +629,43 @@ describe('HotelAgentGateway retry', () => {
 	});
 });
 
+describe('HotelAgentGateway execution containment', () => {
+	it('contains a secondary failure while persisting the primary run failure', async () => {
+		const { gateway, repository, logger } = createGatewayHarness(vi.fn(async () => []));
+		const principal = { employeeId: '1001', orgId: '42' } as const;
+		const runId = '33333333-3333-4333-8333-333333333333';
+		const conversationId = '44444444-4444-4444-8444-444444444444';
+		repository.startRun.mockResolvedValue({
+			created: true,
+			response: {
+				runId,
+				userMessage: {
+					id: '22222222-2222-4222-8222-222222222222',
+					conversationId,
+					role: 'user',
+					content: '分析经营情况',
+					ui: null,
+					createdAt: '2026-08-10T00:00:00.000Z'
+				}
+			}
+		});
+		repository.getRunContext.mockRejectedValue(new Error('database unavailable'));
+
+		await gateway.startRun(principal, {
+			conversationId,
+			prompt: '分析经营情况',
+			clientRequestId: '55555555-5555-4555-8555-555555555555'
+		});
+
+		await vi.waitFor(() =>
+			expect(logger.error).toHaveBeenCalledWith(
+				expect.objectContaining({ event: 'agent.run.execution.unhandled_failure', runId }),
+				'Agent run failure handling did not complete'
+			)
+		);
+	});
+});
+
 describe('HotelAgentGateway deterministic business collection', () => {
 	it.each([
 		{ responseMode: 'analysis' as const, runsAnalysis: true },
@@ -1067,9 +1100,9 @@ describe('describeAgentRunFailure', () => {
 				new AgentUpstreamError({ service: 'model', operation: 'chat', kind: 'timeout' })
 			)
 		).toMatchObject({ code: 'model_timeout', recovery: 'retry' });
-		expect(describeAgentRunFailure(new AgentConfigurationError({ setting: 'model' }))).toMatchObject(
-			{ code: 'configuration_error', recovery: 'contact_admin', retryable: false }
-		);
+		expect(
+			describeAgentRunFailure(new AgentConfigurationError({ setting: 'model' }))
+		).toMatchObject({ code: 'configuration_error', recovery: 'contact_admin', retryable: false });
 		expect(
 			describeAgentRunFailure(
 				new AgentProtocolError({ operation: 'workflow', reason: 'invalid transition' })

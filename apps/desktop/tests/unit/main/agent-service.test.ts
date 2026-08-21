@@ -142,4 +142,76 @@ describe('AgentService', () => {
     service.dispose();
     expect(secondUnsubscribe).toHaveBeenCalledOnce();
   });
+
+  it('records failed tool events without logging their user-facing summary', async () => {
+    const callbacks: { onData?: (event: { id: string; data: AgentRunEvent }) => void } = {};
+    const runId = '11111111-1111-4111-8111-111111111111';
+    const conversationId = '22222222-2222-4222-8222-222222222222';
+    const client = {
+      agent: {
+        capabilities: { query: vi.fn() },
+        quickActions: { query: vi.fn() },
+        listConversations: { query: vi.fn() },
+        createConversation: { mutate: vi.fn() },
+        getConversation: { query: vi.fn() },
+        deleteConversation: { mutate: vi.fn() },
+        clearConversations: { mutate: vi.fn() },
+        startRun: {
+          mutate: vi.fn().mockResolvedValue({
+            runId,
+            userMessage: {
+              id: '33333333-3333-4333-8333-333333333333',
+              conversationId,
+              role: 'user',
+              content: '查询经营数据',
+              ui: null,
+              createdAt: '2026-08-10T00:00:00.000Z',
+            },
+          }),
+        },
+        retryRun: { mutate: vi.fn() },
+        submitClarification: { mutate: vi.fn() },
+        cancelBusinessExecution: { mutate: vi.fn() },
+        cancelRun: { mutate: vi.fn() },
+        events: {
+          subscribe: vi.fn((_input, handlers) => {
+            callbacks.onData = handlers.onData;
+            return { unsubscribe: vi.fn() };
+          }),
+        },
+      },
+    } satisfies AgentClient;
+    const warn = vi.fn();
+    const service = new AgentService(client, vi.fn(), {
+      info: vi.fn(),
+      warn,
+      error: vi.fn(),
+    });
+    await service.startRun({ conversationId, prompt: '查询经营数据', clientRequestId: runId });
+    const failedEvent: AgentRunEvent = {
+      id: '44444444-4444-4444-8444-444444444444',
+      runId,
+      conversationId,
+      type: 'tool_failed',
+      toolCallId: 'query-1',
+      toolName: 'query_hotel_operating_data_sql',
+      code: 'query_rejected',
+      summary: '不应进入日志的业务提示',
+      createdAt: '2026-08-10T00:00:01.000Z',
+    };
+
+    callbacks.onData?.({ id: failedEvent.id, data: failedEvent });
+
+    expect(warn).toHaveBeenCalledWith(
+      'Agent client tool state changed',
+      expect.objectContaining({
+        event: 'agent.client.tool_failed',
+        runId,
+        toolCallId: 'query-1',
+        toolName: 'query_hotel_operating_data_sql',
+        failureCode: 'query_rejected',
+      }),
+    );
+    expect(JSON.stringify(warn.mock.calls)).not.toContain('不应进入日志的业务提示');
+  });
 });

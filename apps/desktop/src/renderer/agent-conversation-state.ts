@@ -241,6 +241,7 @@ function clearActiveRun(
     draftUi: preserveDraft ? state.draftUi : null,
     preparingUi: false,
     retainedContentOnFailure: null,
+    errorMessage: '',
   };
 }
 

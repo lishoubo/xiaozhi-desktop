@@ -5,6 +5,7 @@ import {
   applyRunEvent,
   createEmptyConversationView,
   hydrateConversationView,
+  withConversationError,
 } from '../../../src/renderer/agent-conversation-state';
 
 const conversationId = '11111111-1111-4111-8111-111111111111';
@@ -75,6 +76,43 @@ describe('Agent conversation view state', () => {
     expect(cancelled.activeRunId).toBeNull();
     expect(cancelled.messages).toEqual([running.messages[0]]);
     expect(cancelled.executions[0]).toMatchObject({ runId, status: 'cancelled' });
+  });
+
+  it('clears a transient stream error when the run reaches a terminal state', () => {
+    const started = addStartedRun(
+      createEmptyConversationView(conversationId),
+      {
+        runId,
+        userMessage: {
+          id: userMessageId,
+          conversationId,
+          role: 'user',
+          content: '查询经营数据',
+          ui: null,
+          createdAt: '2026-08-12T03:00:00.000Z',
+        },
+      },
+      '2026-08-12T03:00:00.000Z',
+    );
+    const disconnected = withConversationError(started, '实时连接暂时中断');
+    const completed = applyRunEvent(disconnected, {
+      id: '77777777-7777-4777-8777-777777777777',
+      runId,
+      conversationId,
+      type: 'run_completed',
+      message: {
+        id: '88888888-8888-4888-8888-888888888888',
+        conversationId,
+        role: 'assistant',
+        content: '查询完成',
+        ui: null,
+        createdAt: '2026-08-12T03:00:01.000Z',
+      },
+      createdAt: '2026-08-12T03:00:01.000Z',
+    });
+
+    expect(completed.errorMessage).toBe('');
+    expect(completed.executions[0]).toMatchObject({ status: 'completed' });
   });
 
   it('tracks a pending clarification independently of the Run draft', () => {
