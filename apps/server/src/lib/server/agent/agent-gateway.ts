@@ -967,6 +967,9 @@ export class HotelAgentGateway implements AgentGateway {
 							strategy: collectionStrategy,
 							toolCount: collectedToolEvidence.length,
 							toolNames: collectedToolEvidence.map((item) => item.toolName),
+							unresolvedToolArgumentCount: collectedToolEvidence.filter(
+								(item) => item.toolName === HOTEL_DATA_SQL_TOOL_NAME && item.toolArgs === null
+							).length,
 							durationMs: Math.max(0, Math.round(performance.now() - collectionStartedAt))
 						},
 						'Agent workflow collection completed'
@@ -979,6 +982,7 @@ export class HotelAgentGateway implements AgentGateway {
 								toolName: item.toolName,
 								toolArgs: item.toolArgs,
 								result: item.result,
+								verifiedHotelScope: workflowHotelIds,
 								observedAt: new Date().toISOString()
 							})
 						);

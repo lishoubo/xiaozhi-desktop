@@ -20,6 +20,7 @@ import {
 	shouldSuppressUiRenderCall,
 	shouldStopHotelDataCollection,
 	shouldStopDuplicateUiRender,
+	ToolCallChunkAccumulator,
 	workflowRecursionLimit
 } from './langchain-agent-runtime';
 import { AgentProtocolError, AgentUpstreamError } from './agent-effect';
@@ -224,6 +225,45 @@ describe('hotel data collection convergence', () => {
 });
 
 describe('tool evidence capture', () => {
+	it('reassembles streamed tool arguments across chunks before evidence capture', () => {
+		const accumulator = new ToolCallChunkAccumulator();
+
+		accumulator.add({
+			id: 'call-1',
+			name: 'query_hotel_operating_data_sql',
+			args: '{"script":"SELECT ',
+			index: 0
+		});
+		accumulator.add({ args: 'hotel_id, exposure_cnt ', index: 0 });
+		accumulator.add({ args: 'FROM fact_traffic_scene"}', index: 0 });
+
+		expect(accumulator.take('call-1')).toEqual({
+			name: 'query_hotel_operating_data_sql',
+			args: { script: 'SELECT hotel_id, exposure_cnt FROM fact_traffic_scene' }
+		});
+	});
+
+	it('keeps parallel streamed tool calls isolated by call index', () => {
+		const accumulator = new ToolCallChunkAccumulator();
+
+		accumulator.add({ id: 'call-1', name: 'query', args: '{"script":"A', index: 0 });
+		accumulator.add({ id: 'call-2', name: 'query', args: '{"script":"B', index: 1 });
+		accumulator.add({ args: '"}', index: 1 });
+		accumulator.add({ args: '"}', index: 0 });
+
+		expect(accumulator.take('call-1')?.args).toEqual({ script: 'A' });
+		expect(accumulator.take('call-2')?.args).toEqual({ script: 'B' });
+	});
+
+	it('does not duplicate cumulative argument chunks', () => {
+		const accumulator = new ToolCallChunkAccumulator();
+
+		accumulator.add({ id: 'call-1', name: 'query', args: '{"script":"A', index: 0 });
+		accumulator.add({ args: '{"script":"A"}', index: 0 });
+
+		expect(accumulator.take('call-1')?.args).toEqual({ script: 'A' });
+	});
+
 	it('does not treat an error ToolMessage as business evidence', () => {
 		expect(shouldCaptureToolEvidence('error')).toBe(false);
 		expect(shouldCaptureToolEvidence('success')).toBe(true);

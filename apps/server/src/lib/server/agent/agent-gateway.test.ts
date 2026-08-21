@@ -981,7 +981,8 @@ describe('HotelAgentGateway deterministic business collection', () => {
 			expect(logger.info).toHaveBeenCalledWith(
 				expect.objectContaining({
 					event: 'agent.workflow.collection.completed',
-					strategy: 'deterministic'
+					strategy: 'deterministic',
+					unresolvedToolArgumentCount: 0
 				}),
 				'Agent workflow collection completed'
 			);

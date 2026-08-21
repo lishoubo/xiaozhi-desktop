@@ -111,6 +111,64 @@ describe('business evidence', () => {
 		expect(Array.isArray(evidence.data) && evidence.data).toHaveLength(75);
 	});
 
+	it('keeps different results distinct when streamed tool arguments are unavailable', () => {
+		const first = normalizeEvidence({
+			request,
+			toolName: 'query_hotel_operating_data_sql',
+			toolArgs: null,
+			result: [{ hotel_id: 'hotel-1', data_date: '2026-07-01', exposure_cnt: 10 }]
+		});
+		const second = normalizeEvidence({
+			request,
+			toolName: 'query_hotel_operating_data_sql',
+			toolArgs: null,
+			result: [{ hotel_id: 'hotel-1', data_date: '2026-07-01', visit_cnt: 5 }]
+		});
+		const repeated = normalizeEvidence({
+			request,
+			toolName: 'query_hotel_operating_data_sql',
+			toolArgs: null,
+			result: [{ hotel_id: 'hotel-1', data_date: '2026-07-01', exposure_cnt: 10 }]
+		});
+
+		expect(first.queryFingerprint).not.toBe(second.queryFingerprint);
+		expect(first.queryFingerprint).toBe(repeated.queryFingerprint);
+	});
+
+	it('uses result identity when a streamed SQL call only captured non-query arguments', () => {
+		const first = normalizeEvidence({
+			request,
+			toolName: 'query_hotel_operating_data_sql',
+			toolArgs: { database_id: 'db' },
+			result: [{ hotel_id: 'hotel-1', exposure_cnt: 10 }]
+		});
+		const second = normalizeEvidence({
+			request,
+			toolName: 'query_hotel_operating_data_sql',
+			toolArgs: { database_id: 'db' },
+			result: [{ hotel_id: 'hotel-1', visit_cnt: 5 }]
+		});
+
+		expect(first.queryFingerprint).not.toBe(second.queryFingerprint);
+	});
+
+	it('canonicalizes tool argument key order for stable query deduplication', () => {
+		const first = normalizeEvidence({
+			request,
+			toolName: 'query_hotel_operating_data_sql',
+			toolArgs: { database_id: 'db', script: 'SELECT 1' },
+			result: [{ value: 1 }]
+		});
+		const repeated = normalizeEvidence({
+			request,
+			toolName: 'query_hotel_operating_data_sql',
+			toolArgs: { script: 'SELECT 1', database_id: 'db' },
+			result: [{ value: 1 }]
+		});
+
+		expect(first.queryFingerprint).toBe(repeated.queryFingerprint);
+	});
+
 	it('does not treat requested hotel or date as observed scope', () => {
 		const evidence = normalizeEvidence({
 			request,
@@ -123,6 +181,69 @@ describe('business evidence', () => {
 		expect(assessEvidence(request, [evidence], false)).toEqual({
 			status: 'needs_more_data',
 			limitation: '查询结果未返回可验证的酒店范围。'
+		});
+	});
+
+	it('accepts a server-enforced hotel scope when an aggregate result omits hotel_id', () => {
+		const evidence = normalizeEvidence({
+			request,
+			toolName: 'query_hotel_operating_data_sql',
+			toolArgs: { script: 'SELECT SUM(exposure_cnt) FROM fact_traffic_scene' },
+			result: [{ exposure_cnt: 100 }],
+			verifiedHotelScope: ['hotel-1']
+		});
+
+		expect(evidence.scope.hotelReference).toBe('hotel-1');
+		expect(assessEvidence(request, [evidence], false)).toEqual({
+			status: 'needs_more_data',
+			limitation: '查询结果未返回可验证的业务日期范围。'
+		});
+	});
+
+	it('keeps scoped current data visible when the result proves freshness but omits hotel_id', () => {
+		const currentRequest = {
+			...request,
+			responseMode: 'data_only' as const,
+			slots: { hotelReference: 'hotel-1', metrics: ['流量'] }
+		};
+		const evidence = normalizeEvidence({
+			request: currentRequest,
+			toolName: 'query_hotel_operating_data_sql',
+			toolArgs: { script: 'SELECT MAX(data_date), SUM(exposure_cnt) FROM fact_traffic_scene' },
+			result: [{ latest_data_date: '2026-08-20', exposure_cnt: 100 }],
+			verifiedHotelScope: ['hotel-1']
+		});
+
+		expect(assessEvidence(currentRequest, [evidence], false)).toMatchObject({
+			status: 'sufficient'
+		});
+	});
+
+	it('does not let an execution-scope attestation override a conflicting result hotel', () => {
+		const evidence = normalizeEvidence({
+			request,
+			toolName: 'query_hotel_operating_data_sql',
+			toolArgs: { script: 'SELECT hotel_id, data_date FROM fact_traffic_scene' },
+			result: [{ hotel_id: 'hotel-2', data_date: '2026-07-01' }],
+			verifiedHotelScope: ['hotel-1']
+		});
+
+		expect(evidence.scope.hotelReference).toBe('hotel-2');
+		expect(assessEvidence(request, [evidence], false)).toEqual({
+			status: 'rejected',
+			reasonCode: 'evidence_scope_mismatch'
+		});
+
+		const partiallyUnscoped = normalizeEvidence({
+			request,
+			toolName: 'query_hotel_operating_data_sql',
+			toolArgs: { script: 'SELECT hotel_id, data_date FROM fact_traffic_scene' },
+			result: [{ hotel_id: 'hotel-2', data_date: '2026-07-01' }, { data_date: '2026-07-01' }],
+			verifiedHotelScope: ['hotel-1']
+		});
+		expect(assessEvidence(request, [partiallyUnscoped], false)).toEqual({
+			status: 'rejected',
+			reasonCode: 'evidence_scope_mismatch'
 		});
 	});
 

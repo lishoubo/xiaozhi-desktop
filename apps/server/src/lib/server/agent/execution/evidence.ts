@@ -409,12 +409,42 @@ function inclusiveDayCount(period: Readonly<{ start: string; end: string }>): nu
 	return Math.floor((end - start) / 86_400_000) + 1;
 }
 
+function canonicalJsonValue(value: unknown): unknown {
+	if (Array.isArray(value)) return value.map(canonicalJsonValue);
+	if (typeof value !== 'object' || value === null) return value;
+	return Object.fromEntries(
+		Object.keys(value)
+			.sort()
+			.map((key) => [key, canonicalJsonValue(Reflect.get(value, key))])
+	);
+}
+
+function hasUsableToolArgs(value: unknown): boolean {
+	if (value === null || value === undefined) return false;
+	if (typeof value === 'string') return value.trim().length > 0;
+	if (Array.isArray(value)) return value.length > 0;
+	if (typeof value === 'object') return Object.keys(value).length > 0;
+	return true;
+}
+
+function evidenceQueryFingerprint(toolName: string, toolArgs: unknown, data: unknown): string {
+	const hasStableQueryIdentity =
+		toolName === HOTEL_DATA_SQL_TOOL_NAME
+			? scriptFromToolArgs(toolArgs) !== null
+			: hasUsableToolArgs(toolArgs);
+	const identity = hasStableQueryIdentity
+		? { toolName, args: canonicalJsonValue(toolArgs) }
+		: { toolName, args: null, result: canonicalJsonValue(data) };
+	return createHash('sha256').update(JSON.stringify(identity)).digest('hex');
+}
+
 export function normalizeEvidence(
 	input: Readonly<{
 		request: ResolvedBusinessRequest;
 		toolName: string;
 		toolArgs: unknown;
 		result: unknown;
+		verifiedHotelScope?: readonly string[];
 		observedAt?: string | null;
 	}>
 ): EvidenceEnvelope {
@@ -428,15 +458,18 @@ export function normalizeEvidence(
 	}
 	const metrics = valueAt(input.request.slots, 'metrics');
 	const requestedHotel = valueAt(input.request.slots, 'hotelReference');
-	const observedHotel = verifiedHotelReferences(data)?.join(',') || null;
+	const rowHotelScope = verifiedHotelReferences(data);
+	const explicitHotels = anyExplicitHotelReferences(data);
+	const observedHotel =
+		rowHotelScope?.join(',') ||
+		(explicitHotels.length === 0 ? input.verifiedHotelScope?.join(',') : null) ||
+		null;
 	const dateFacts = evidenceDateFacts(data);
 	return {
 		evidenceId: randomUUID(),
 		source: sourceForIntent(input.request.intent),
 		toolName: input.toolName,
-		queryFingerprint: createHash('sha256')
-			.update(JSON.stringify({ toolName: input.toolName, args: input.toolArgs }))
-			.digest('hex'),
+		queryFingerprint: evidenceQueryFingerprint(input.toolName, input.toolArgs, data),
 		scope: {
 			hotelReference: observedHotel,
 			period: dateFacts.period
