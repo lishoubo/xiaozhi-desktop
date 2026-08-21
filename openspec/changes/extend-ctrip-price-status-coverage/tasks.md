@@ -17,6 +17,7 @@
 - [x] 2.3 补用例：请求体只有 `relationRoomProducts` 而 `roomProductId` 全空时，**不被丢弃**（修复前会误丢）
 - [x] 2.4 补回归用例：`excludedRelationRoomProductIds` 中的房型 **不被**当作改动房型收进定位依据
 - [x] 2.5 用 `房价维护菜单踩点.md` 前两例（逐项设价）的真实请求体验证：修复后联动房型 ID 出现在定位依据中
+- [x] 2.6 B 块真机验证**不再要求**（2026-08-21 用户确认）：单测已覆盖正常路径与反向回归（收 `relationRoomProducts`、不收 `excludedRelationRoomProductIds`），且做过移除修复即变红的有效性验证
 
 ## 3. A+B 交付
 
@@ -52,7 +53,7 @@
 
 - [x] 6.1 写服务端对接说明 `server-integration.md`（C 块工作清单 + 完整 `changeRaw` 样本 + 逐字段含义表）
 - [x] 6.1b 服务端已能处理新端点：`batchUpdateRoomStatusAndQuantity` 3 次上报均返回正常终态
-- [ ] 6.1c ⚠️ **服务端缺陷待修**：`adjustmentPriceOperationsType: "multiply"`（按比例调价）解析失败返回 `PARSE_FAILED`，`add`/`subtract` 正常。注意 multiply 时 `adjustmentPriceValue` 是倍率非金额（见 verification.md）
+- [x] 6.1c 服务端 `multiply`（按比例调价）解析缺陷**已修复**（2026-08-21 经用户确认）。缺陷记录与量纲说明保留在 verification.md / server-integration.md 备查
 - [x] 6.2 与 RMS 侧对齐 `roomStatus` 的 `1` 开 / `2` 关 —— 真机三次上报验证通过
 - [x] 6.3 跑受影响单测，全绿
 - [x] 6.4 真机验证 ✅ 开房/关房/开房三次，`roomStatus` 的 `1` 与 `2` 均原样透传未归一化

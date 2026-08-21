@@ -73,7 +73,7 @@ Ctrip room status/quantity: no hotelID in body, RMS will resolve by room product
 | `DISPATCHED` | 已派发处理 | 否 |
 | `PARSE_FAILED` | **解析失败** | ⚠️ 见下 |
 
-## ⚠️ 待服务端处理：按比例调价解析失败
+## 按比例调价解析失败 —— ✅ 服务端已修复
 
 **现象**：`adjustmentPriceOperationsType` 为 `multiply` 时，服务端两次都返回 `PARSE_FAILED`；
 `subtract` / `add` 三次均正常。
@@ -92,13 +92,23 @@ add       → SKIPPED       ×1   （20:40:56）
 
 **影响**：用户用「按比例」方式调价时，RMS 收得到但解析不了，等同于跟价失效。
 
+**处置**：✅ 服务端已修复（2026-08-21 经用户确认）。上述记录保留备查 —— 量纲差异
+（`multiply` 是倍率、`add`/`subtract` 是绝对金额）是后续维护该解析分支时的必要背景。
+
 ## 未完成项
 
 | 项 | 状态 |
 |---|---|
 | `setRCRoomPrice`（逐项设价）真机 | ⚠️ 本轮未操作该入口。属既有端点、本次未改动其解析路径，风险低 |
-| B 块（联动房型）真机 | ⚠️ 本轮样本 `relationRoomProducts` 均为空数组，未触发。需挑一个**有联动房型**的房型改价才能验证 |
+| B 块（联动房型）真机 | **不再要求**（2026-08-21 用户确认）。本轮样本 `relationRoomProducts` 均为空数组未触发；判定依据为单测覆盖，见下 |
 | 房量字段 | 本次不采集，按 design D9 透传不解析 |
+
+**B 块的证据来源是单测而非真机**，如实记录如下：
+- 正向：只有 `relationRoomProducts` 时不被丢弃（修复前会误丢）
+- 反向：`excludedRelationRoomProductIds` 中的房型不被当作定位依据
+- 有效性：移除修复代码后正向用例确实变红，恢复后变绿
+
+该缺陷只影响「改价被误判丢弃」的边界情况，不影响本次已真机验证的正常路径。
 
 ## 自动化测试
 
