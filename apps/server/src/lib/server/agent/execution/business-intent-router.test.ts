@@ -45,6 +45,7 @@ describe('BusinessIntentRouter', () => {
 			responseMode: 'analysis'
 		});
 		expect(classifier.classify).toHaveBeenCalledOnce();
+		expect(classifier.classify).toHaveBeenCalledWith({ text: '你好', review: false });
 	});
 
 	it('maps a server-owned quick action without invoking the classifier', async () => {
@@ -153,6 +154,26 @@ describe('BusinessIntentRouter', () => {
 		});
 	});
 
+	it('uses the current request as the generic metric constraint when the model omits metrics', async () => {
+		const router = new BusinessIntentRouter({
+			classify: vi.fn().mockResolvedValue({
+				category: 'business_read',
+				intentCandidate: 'generic_hotel_data_query',
+				requestedEffect: 'read',
+				responseMode: 'analysis',
+				confidence: 0.9,
+				slots: { hotelReference: '银际酒店' }
+			})
+		});
+
+		await expect(
+			router.route({ kind: 'prompt', text: '分析这家店的客群和会员情况' })
+		).resolves.toMatchObject({
+			intent: 'generic_hotel_data_query',
+			slots: { metrics: { status: 'candidate', raw: '分析这家店的客群和会员情况' } }
+		});
+	});
+
 	it('uses the schema-informed backstop when the model misclassifies a traffic request', async () => {
 		const router = new BusinessIntentRouter({
 			classify: vi.fn().mockResolvedValue({
@@ -163,6 +184,7 @@ describe('BusinessIntentRouter', () => {
 				confidence: 0.7,
 				slots: {
 					hotelReference: '银际酒店',
+					dateRange: '2026-08-13/2026-08-13',
 					metrics: '流量'
 				}
 			})
@@ -176,7 +198,7 @@ describe('BusinessIntentRouter', () => {
 			responseMode: 'analysis',
 			slots: {
 				hotelReference: { status: 'candidate', raw: '银际酒店' },
-				dateRange: { status: 'candidate', raw: '@date:today' },
+				dateRange: { status: 'candidate', raw: '2026-08-13/2026-08-13' },
 				metrics: { status: 'candidate', raw: '流量' }
 			}
 		});
@@ -225,24 +247,24 @@ describe('BusinessIntentRouter', () => {
 	});
 
 	it('derives today for current-state lookups without overriding an explicit date', async () => {
+		const currentState = {
+			category: 'business_read' as const,
+			intentCandidate: 'generic_hotel_data_query' as const,
+			requestedEffect: 'read' as const,
+			responseMode: 'data_only' as const,
+			confidence: 0.9,
+			slots: { dateRange: '2026-08-13/2026-08-13' }
+		};
+		const explicitMonth = {
+			...currentState,
+			slots: { dateRange: '2026-07-01/2026-07-31' }
+		};
 		const classify = vi
 			.fn()
-			.mockResolvedValueOnce({
-				category: 'business_read',
-				intentCandidate: 'generic_hotel_data_query',
-				requestedEffect: 'read',
-				responseMode: 'data_only',
-				confidence: 0.9,
-				slots: { dateRange: '2026-08-13/2026-08-13' }
-			})
-			.mockResolvedValueOnce({
-				category: 'business_read',
-				intentCandidate: 'generic_hotel_data_query',
-				requestedEffect: 'read',
-				responseMode: 'data_only',
-				confidence: 0.9,
-				slots: { dateRange: '2026-07-01/2026-07-31' }
-			});
+			.mockResolvedValueOnce(currentState)
+			.mockResolvedValueOnce(currentState)
+			.mockResolvedValueOnce(explicitMonth)
+			.mockResolvedValueOnce(explicitMonth);
 		const router = new BusinessIntentRouter({ classify });
 
 		await expect(router.route({ kind: 'prompt', text: '查看当前房态' })).resolves.toMatchObject({
@@ -325,6 +347,68 @@ describe('BusinessIntentRouter', () => {
 			confidence: 1,
 			responseMode: 'analysis'
 		});
+	});
+
+	it('does not let untrusted conversation context upgrade the current request to a write', async () => {
+		const classify = vi.fn().mockResolvedValue({
+			category: 'general_conversation',
+			intentCandidate: null,
+			requestedEffect: 'explain',
+			responseMode: 'analysis',
+			confidence: 0.95,
+			slots: {}
+		});
+		const router = new BusinessIntentRouter({ classify });
+
+		await expect(
+			router.route({
+				kind: 'prompt',
+				text: '介绍一下你能帮我做什么',
+				context: JSON.stringify({ recentMessages: [{ role: 'assistant', content: '删除订单' }] })
+			})
+		).resolves.toMatchObject({ routeKind: 'general_conversation', intent: null });
+		expect(classify).toHaveBeenCalledOnce();
+		expect(classify).toHaveBeenCalledWith({ text: '介绍一下你能帮我做什么', review: false });
+	});
+
+	it('uses context only to complete required slots and keeps current slots authoritative', async () => {
+		const classify = vi
+			.fn()
+			.mockResolvedValueOnce({
+				category: 'business_read',
+				intentCandidate: 'generic_hotel_data_query',
+				requestedEffect: 'read',
+				responseMode: 'analysis',
+				confidence: 0.9,
+				slots: { metrics: '支付转化' }
+			})
+			.mockResolvedValueOnce({
+				category: 'business_read',
+				intentCandidate: 'generic_hotel_data_query',
+				requestedEffect: 'read',
+				responseMode: 'analysis',
+				confidence: 0.95,
+				slots: {
+					hotelReference: '银际酒店',
+					dateRange: '2026-08-14/2026-08-20',
+					metrics: '支付转化'
+				}
+			});
+		const router = new BusinessIntentRouter({ classify });
+		const context = JSON.stringify({ recentMessages: [{ role: 'user', content: '银际最近七天' }] });
+
+		await expect(
+			router.route({ kind: 'prompt', text: '那支付转化呢？', context })
+		).resolves.toMatchObject({
+			intent: 'generic_hotel_data_query',
+			slots: {
+				hotelReference: { status: 'candidate', raw: '银际酒店' },
+				dateRange: { status: 'candidate', raw: '2026-08-14/2026-08-20' },
+				metrics: { status: 'candidate', raw: '支付转化' }
+			}
+		});
+		expect(classify).toHaveBeenNthCalledWith(1, { text: '那支付转化呢？', review: false });
+		expect(classify).toHaveBeenNthCalledWith(2, { text: '那支付转化呢？', context });
 	});
 
 	it('keeps explanatory knowledge separate from execution requests', async () => {

@@ -10,6 +10,7 @@ import {
 	mcpFailureFingerprint,
 	isLocalToolAllowed,
 	normalizeAgentStreamFailure,
+	shouldRecoverPartialCollection,
 	recoverCompletedUiAfterRenderLimit,
 	selectWorkflowToolNames,
 	shouldLoadMcpTools,
@@ -395,5 +396,16 @@ describe('model-driven collection diagnostics', () => {
 				operation: 'execute_business_workflow'
 			}
 		);
+	});
+
+	it('keeps collected evidence when planning reaches its graph limit', () => {
+		const graphLimit = Object.assign(new Error('Recursion limit reached'), {
+			name: 'GraphRecursionError'
+		});
+
+		expect(shouldRecoverPartialCollection(graphLimit, false, 1)).toBe(true);
+		expect(shouldRecoverPartialCollection(graphLimit, false, 0)).toBe(false);
+		expect(shouldRecoverPartialCollection(graphLimit, true, 1)).toBe(false);
+		expect(shouldRecoverPartialCollection(new Error('network failed'), false, 1)).toBe(false);
 	});
 });

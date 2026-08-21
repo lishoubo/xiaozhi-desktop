@@ -19,12 +19,18 @@ export const routeClassifierOutputSchema = z.strictObject({
 	requestedEffect: z.enum(['explain', 'read', 'write', 'unclear']),
 	responseMode: z.enum(['analysis', 'data_only']),
 	confidence: z.number().min(0).max(1),
-	slots: z.record(z.string().min(1).max(80), z.string().min(1).max(2_000))
+	slots: z
+		.record(z.string().min(1).max(80), z.string().min(1).max(2_000))
+		.describe(
+			'Only explicitly requested or context-inherited candidates. Re-check hotelReference, date/dateRange and metrics before returning.'
+		)
 });
 export type RouteClassifierOutput = Readonly<z.infer<typeof routeClassifierOutputSchema>>;
 
 export interface RouteClassifier {
-	classify(input: Readonly<{ text: string; context?: string }>): Promise<RouteClassifierOutput>;
+	classify(
+		input: Readonly<{ text: string; context?: string; review?: boolean }>
+	): Promise<RouteClassifierOutput>;
 }
 
 export type RouteDecision = Readonly<{
@@ -55,11 +61,27 @@ function inferredHotelDataSlots(
 	text: string,
 	values: Readonly<Record<string, string>>
 ): Readonly<Record<string, string>> {
-	const withMetrics = values.metrics ? values : { ...values, metrics: text };
-	if (withMetrics.dateRange) return withMetrics;
-	if (/(今日|今天)/.test(text)) return { ...withMetrics, dateRange: '@date:today' };
-	if (/(昨日|昨天)/.test(text)) return { ...withMetrics, dateRange: '@date:yesterday' };
-	return withMetrics;
+	return values.metrics ? values : { ...values, metrics: text };
+}
+
+function shouldResolveFromContext(proposal: RouteClassifierOutput): boolean {
+	return proposal.category === 'unclear' || proposal.category === 'business_read';
+}
+
+function mergeContextualProposal(
+	current: RouteClassifierOutput,
+	contextual: RouteClassifierOutput
+): RouteClassifierOutput {
+	if (current.category === 'unclear') {
+		return contextual.requestedEffect === 'write' ? current : contextual;
+	}
+	if (current.category !== 'business_read' || contextual.category !== 'business_read')
+		return current;
+	return {
+		...current,
+		intentCandidate: contextual.intentCandidate ?? current.intentCandidate,
+		slots: contextual.slots
+	};
 }
 
 export class BusinessIntentRouter {
@@ -119,13 +141,22 @@ export class BusinessIntentRouter {
 				responseMode: 'analysis'
 			};
 		}
-		const proposed = routeClassifierOutputSchema.parse(
-			await this.classifier.classify({
-				text: input.text,
-				...(input.context ? { context: input.context } : {})
-			})
+		const currentProposal = routeClassifierOutputSchema.parse(
+			await this.classifier.classify({ text: input.text, review: false })
 		);
-		if (proposed.requestedEffect === 'write') {
+		const safeProposal =
+			input.context && shouldResolveFromContext(currentProposal)
+				? mergeContextualProposal(
+						currentProposal,
+						routeClassifierOutputSchema.parse(
+							await this.classifier.classify({ text: input.text, context: input.context })
+						)
+					)
+				: currentProposal.category === 'business_read' ||
+					  currentProposal.requestedEffect === 'write'
+					? routeClassifierOutputSchema.parse(await this.classifier.classify({ text: input.text }))
+					: currentProposal;
+		if (safeProposal.requestedEffect === 'write') {
 			return {
 				routeKind: 'business_write',
 				intent: null,
@@ -135,28 +166,30 @@ export class BusinessIntentRouter {
 			};
 		}
 		const likelyHotelDataRequest = isLikelyHotelDataRequest(input.text);
-		if (proposed.category === 'business_read' || likelyHotelDataRequest) {
+		if (safeProposal.category === 'business_read' || likelyHotelDataRequest) {
 			const intent = isGenericHotelDataDomainRequest(input.text)
 				? 'generic_hotel_data_query'
-				: (proposed.intentCandidate ?? 'generic_hotel_data_query');
+				: (safeProposal.intentCandidate ?? 'generic_hotel_data_query');
+			const proposedSlots =
+				intent === 'generic_hotel_data_query' && !safeProposal.slots.metrics
+					? { ...safeProposal.slots, metrics: input.text }
+					: safeProposal.slots;
 			return {
 				routeKind: 'business_read',
 				intent,
 				slots: registeredCandidateSlots(
 					intent,
-					likelyHotelDataRequest
-						? inferredHotelDataSlots(input.text, proposed.slots)
-						: proposed.slots
+					likelyHotelDataRequest ? inferredHotelDataSlots(input.text, proposedSlots) : proposedSlots
 				),
-				confidence: proposed.confidence,
-				responseMode: proposed.responseMode
+				confidence: safeProposal.confidence,
+				responseMode: safeProposal.responseMode
 			};
 		}
 		return {
-			routeKind: proposed.category,
+			routeKind: safeProposal.category,
 			intent: null,
 			slots: {},
-			confidence: proposed.confidence,
+			confidence: safeProposal.confidence,
 			responseMode: 'analysis'
 		};
 	}

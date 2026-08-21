@@ -3,7 +3,8 @@ import { z } from 'zod';
 import { describe, expect, it, vi } from 'vitest';
 import {
 	DmsHotelReferenceResolver,
-	FallbackHotelReferenceResolver
+	FallbackHotelReferenceResolver,
+	hotelDirectoryQuery
 } from './dms-hotel-reference-resolver';
 
 function queryTool(result: unknown): DynamicStructuredTool {
@@ -22,8 +23,7 @@ describe('DMS hotel reference resolver', () => {
 				queryTool([
 					{
 						type: 'text',
-						text:
-							'| hotel_id | ota_hotel_name |\n| --- | --- |\n| 4 | 包头璞禾咖啡酒店(禧瑞都店) |\n| 4 | 璞禾咖啡酒店禧瑞都店 |\n| 5 | 另一家酒店 |'
+						text: '| hotel_id | ota_hotel_name |\n| --- | --- |\n| 4 | 包头璞禾咖啡酒店(禧瑞都店) |\n| 4 | 璞禾咖啡酒店禧瑞都店 |\n| 5 | 另一家酒店 |'
 					}
 				])
 			])
@@ -41,12 +41,66 @@ describe('DMS hotel reference resolver', () => {
 
 	it('does not offer unrelated bare hotel IDs when the MCP name directory has no match', async () => {
 		const resolver = new DmsHotelReferenceResolver({
-			getTools: vi.fn().mockResolvedValue([
-				queryTool('| hotel_id | ota_hotel_name |\n| --- | --- |\n| 4 | 另一家酒店 |')
-			])
+			getTools: vi
+				.fn()
+				.mockResolvedValue([
+					queryTool('| hotel_id | ota_hotel_name |\n| --- | --- |\n| 4 | 另一家酒店 |')
+				])
 		});
 
 		await expect(resolver.resolve('西湖店', '42')).resolves.toEqual([]);
+	});
+
+	it('resolves structured DMS rows instead of requiring Markdown output', async () => {
+		const resolver = new DmsHotelReferenceResolver({
+			getTools: vi.fn().mockResolvedValue([
+				queryTool({
+					content: [
+						{
+							type: 'text',
+							text: JSON.stringify({
+								columnNames: ['hotel_id', 'ota_hotel_name'],
+								rows: [[4, '银际酒店(包头青山王府井文化路店)']]
+							})
+						}
+					]
+				})
+			])
+		});
+
+		await expect(resolver.resolve('银际酒店（包头青山王府井文化路店）', '42')).resolves.toEqual([
+			{
+				id: '4',
+				label: '银际酒店(包头青山王府井文化路店)',
+				match: 'exact',
+				accessScope: 'shared_dms_token'
+			}
+		]);
+	});
+
+	it('resolves object-shaped DMS rows nested in an envelope', async () => {
+		const resolver = new DmsHotelReferenceResolver({
+			getTools: vi
+				.fn()
+				.mockResolvedValue([
+					queryTool({ result: { data: [{ hotel_id: 4, ota_hotel_name: '银际酒店' }] } })
+				])
+		});
+
+		await expect(resolver.resolve('银际酒店', '42')).resolves.toMatchObject([
+			{ id: '4', label: '银际酒店', match: 'exact' }
+		]);
+	});
+
+	it('pushes the normalized hotel candidate into the bounded directory query without SQL text injection', () => {
+		const script = hotelDirectoryQuery("银际酒店'); DROP TABLE ota_order; --");
+
+		expect(script).toMatch(/^SELECT DISTINCT hotel_id, ota_hotel_name FROM ota_order WHERE /);
+		expect(script).toContain('CONVERT(0x');
+		expect(script).toContain('COLLATE utf8mb4_unicode_ci');
+		expect(script).toContain('LIMIT 20');
+		expect(script).not.toContain('DROP TABLE');
+		expect(script).not.toContain("银际酒店'");
 	});
 
 	it('uses DMS only when the organization hotel directory has no match', async () => {

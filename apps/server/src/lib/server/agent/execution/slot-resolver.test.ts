@@ -25,7 +25,10 @@ describe('slot resolution', () => {
 	});
 
 	it('keeps a submitted managed-hotel choice and rejects partially matched multi-hotel input', async () => {
-		const resolver = new BusinessSlotResolver({ resolve: vi.fn() }, () => now);
+		const resolver = new BusinessSlotResolver(
+			{ resolve: vi.fn().mockResolvedValue([]) },
+			() => now
+		);
 		const hotelAccess = {
 			kind: 'staff_managed_hotels' as const,
 			currentHotelId: '9',
@@ -84,6 +87,52 @@ describe('slot resolution', () => {
 			status: 'needs_clarification',
 			slots: { hotelReference: { status: 'invalid', reasonCode: 'hotel_not_managed' } }
 		});
+	});
+
+	it('uses DMS aliases only when they resolve to a hotel already in the staff access scope', async () => {
+		const hotels = {
+			resolve: vi.fn().mockResolvedValue([
+				{
+					id: '4',
+					label: '银际酒店(包头青山王府井文化路店)',
+					match: 'exact',
+					accessScope: 'shared_dms_token'
+				},
+				{
+					id: '99',
+					label: '同名未授权酒店',
+					match: 'alias',
+					accessScope: 'shared_dms_token'
+				}
+			])
+		};
+		const resolver = new BusinessSlotResolver(hotels, () => now);
+
+		await expect(
+			resolver.resolve({
+				definition: getIntentDefinition('hotel_operating_summary'),
+				intent: 'hotel_operating_summary',
+				orgId: '42',
+				hotelAccess: {
+					kind: 'staff_managed_hotels',
+					currentHotelId: '4',
+					hotels: [{ id: '4', label: '银际酒店（包头青山文化路王府井店）' }]
+				},
+				slots: {
+					hotelReference: {
+						status: 'candidate',
+						raw: '银际酒店(包头青山王府井文化路店)'
+					},
+					dateRange: { status: 'candidate', raw: '2026-08-01/2026-08-13' }
+				},
+				anchorMessageId: '22222222-2222-4222-8222-222222222222',
+				version: 1
+			})
+		).resolves.toMatchObject({
+			status: 'ready',
+			request: { slots: { hotelReference: '4' } }
+		});
+		expect(hotels.resolve).toHaveBeenCalledOnce();
 	});
 
 	it('asks only for the hotel when a generic latest-data lookup already has its default date', async () => {

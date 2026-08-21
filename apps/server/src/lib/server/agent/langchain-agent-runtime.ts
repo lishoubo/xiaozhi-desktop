@@ -190,6 +190,14 @@ export function normalizeAgentStreamFailure(
 	});
 }
 
+export function shouldRecoverPartialCollection(
+	error: unknown,
+	answerOnly: boolean,
+	toolEvidenceCount: number
+): boolean {
+	return !answerOnly && agentErrorType(error) === 'GraphRecursionError' && toolEvidenceCount > 0;
+}
+
 export function workflowRecursionLimit(request: AgentRuntimeRunOptions['workflowRequest']): number {
 	if (!request) return 16;
 	return Math.max(10, getIntentDefinition(request.intent).maxToolCalls * 2 + 2);
@@ -778,6 +786,9 @@ export class LangChainAgentRuntime implements AgentRuntime {
 			}
 		} catch (error) {
 			const graphRecursionFailed = agentErrorType(error) === 'GraphRecursionError';
+			if (shouldRecoverPartialCollection(error, answerOnly, toolEvidence.length)) {
+				return { content, ui: generatedUi, toolEvidence };
+			}
 			const outstandingMcpToolName = graphRecursionFailed
 				? null
 				: ([...mcpCallStartedAt.keys()].flatMap((toolCallId) => {

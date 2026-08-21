@@ -347,8 +347,14 @@ export class BusinessSlotResolver {
 			} else if (input.hotelAccess) {
 				const hotelAccess = input.hotelAccess;
 				const references = splitHotelReferences(hotelRaw);
-				const matches = references.map((reference) =>
-					managedHotelCandidates(hotelAccess, reference)
+				const allowedHotelIds = new Set(hotelAccess.hotels.map((hotel) => hotel.id));
+				const matches = await Promise.all(
+					references.map(async (reference) => {
+						const managed = managedHotelCandidates(hotelAccess, reference);
+						if (managed.length > 0) return managed;
+						const aliases = await this.hotels.resolve(reference, input.orgId);
+						return aliases.filter((candidate) => allowedHotelIds.has(candidate.id));
+					})
 				);
 				if (references.length > 1) {
 					if (matches.every((candidates) => candidates.length === 1)) {
