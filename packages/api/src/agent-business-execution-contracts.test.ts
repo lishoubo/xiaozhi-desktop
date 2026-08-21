@@ -186,4 +186,61 @@ describe('Agent business execution contracts', () => {
       }).success,
     ).toBe(true);
   });
+
+  it('distinguishes failed tools and categorized run failures without public technical details', () => {
+    expect(
+      contracts.agentRunEventSchema.safeParse({
+        id: ID.event,
+        runId: ID.run,
+        conversationId: ID.conversation,
+        createdAt: '2026-08-13T00:01:00.000Z',
+        type: 'tool_failed',
+        toolCallId: 'query-1',
+        toolName: 'query_hotel_operating_data_sql',
+        code: 'query_rejected',
+        summary: '查询未通过安全校验',
+      }).success,
+    ).toBe(true);
+    expect(
+      contracts.agentRunEventSchema.safeParse({
+        id: ID.event,
+        runId: ID.run,
+        conversationId: ID.conversation,
+        createdAt: '2026-08-13T00:01:00.000Z',
+        type: 'run_failed',
+        code: 'data_source_timeout',
+        message: '经营数据查询超时，请缩小查询范围后重试。',
+        recovery: 'retry',
+        retryable: true,
+      }).success,
+    ).toBe(true);
+    expect(
+      contracts.agentRunEventSchema.safeParse({
+        id: ID.event,
+        runId: ID.run,
+        conversationId: ID.conversation,
+        createdAt: '2026-08-13T00:01:00.000Z',
+        type: 'tool_failed',
+        toolCallId: 'query-1',
+        toolName: 'query_hotel_operating_data_sql',
+        code: 'query_rejected',
+        summary: '查询未通过安全校验',
+        sql: 'DELETE FROM hotel',
+      }).success,
+    ).toBe(false);
+  });
+
+  it('keeps legacy persisted run failures readable', () => {
+    expect(
+      contracts.agentRunEventSchema.safeParse({
+        id: ID.event,
+        runId: ID.run,
+        conversationId: ID.conversation,
+        createdAt: '2026-08-13T00:01:00.000Z',
+        type: 'run_failed',
+        message: '历史失败信息',
+        retryable: true,
+      }).success,
+    ).toBe(true);
+  });
 });

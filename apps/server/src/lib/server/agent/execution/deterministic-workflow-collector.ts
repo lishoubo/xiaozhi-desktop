@@ -4,14 +4,20 @@ import type { RuntimeEvent } from '../agent-runtime';
 import {
 	agentPromise,
 	agentErrorCauseType,
-	agentErrorRetryable,
 	agentErrorType,
 	agentFailureKind,
 	AgentProtocolError,
 	AgentUpstreamError,
 	runAgentEffect
 } from '../agent-effect';
-import { summarizeMcpResult } from '../mcp-observability';
+import { mcpResultIsError, summarizeMcpResult } from '../mcp-observability';
+import {
+	describeAgentFailure,
+	describeToolFailure,
+	toolFailureCause,
+	toolFailureSummary,
+	toolFailureUpstreamKind
+} from '../agent-failure';
 import type { McpToolProvider } from '../mcp-tool-provider';
 import type { EvidenceEnvelope } from './evidence';
 import type {
@@ -48,14 +54,6 @@ export type WorkflowCollectionResult =
 			status: 'fallback';
 			reason: 'agent_required' | 'tool_unavailable' | 'incompatible_tool_schema';
 	  }>;
-
-function toolResultIsError(result: unknown): boolean {
-	return (
-		typeof result === 'object' &&
-		result !== null &&
-		(Reflect.get(result, 'isError') === true || Reflect.get(result, 'status') === 'error')
-	);
-}
 
 function shouldRefreshMcpTools(error: unknown): boolean {
 	return (
@@ -156,6 +154,7 @@ export class DeterministicWorkflowCollector {
 				result = await invoke();
 			}
 		} catch (error) {
+			const failure = describeAgentFailure(error);
 			await input.emit({
 				type: 'mcp_call_failed',
 				toolCallId,
@@ -164,15 +163,25 @@ export class DeterministicWorkflowCollector {
 				errorType: agentErrorType(error),
 				...(agentErrorCauseType(error) ? { causeType: agentErrorCauseType(error) } : {}),
 				failureKind: agentFailureKind(error),
-				retryable: agentErrorRetryable(error)
+				retryable: failure.retryable
+			});
+			await input.emit({
+				type: 'tool_failed',
+				toolCallId,
+				toolName: selected.tool.name,
+				code: failure.code,
+				summary: toolFailureSummary(failure)
 			});
 			throw error;
 		}
-		if (toolResultIsError(result)) {
+		if (mcpResultIsError(result)) {
+			const failure = describeToolFailure(selected.tool.name, result);
+			const failureCause = toolFailureCause(failure);
 			const error = new AgentUpstreamError({
 				service: 'mcp',
 				operation: selected.tool.name,
-				kind: 'invalid_response'
+				kind: toolFailureUpstreamKind(failure),
+				...(failureCause ? { cause: failureCause } : {})
 			});
 			await input.emit({
 				type: 'mcp_call_failed',
@@ -182,7 +191,14 @@ export class DeterministicWorkflowCollector {
 				errorType: agentErrorType(error),
 				...(agentErrorCauseType(error) ? { causeType: agentErrorCauseType(error) } : {}),
 				failureKind: agentFailureKind(error),
-				retryable: agentErrorRetryable(error)
+				retryable: failure.retryable
+			});
+			await input.emit({
+				type: 'tool_failed',
+				toolCallId,
+				toolName: selected.tool.name,
+				code: failure.code,
+				summary: toolFailureSummary(failure)
 			});
 			throw error;
 		}

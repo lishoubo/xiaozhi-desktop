@@ -337,6 +337,16 @@ export function assessEvidence(
 	) {
 		return { status: 'rejected', reasonCode: 'evidence_scope_mismatch' };
 	}
+	if (
+		(request.intent === 'generic_hotel_data_query' ||
+			request.intent === 'hotel_operating_summary') &&
+		hotelQueryEvidence.length === 0
+	) {
+		const limitation = '尚未成功执行酒店经营数据查询。';
+		return followUpUsed
+			? { status: 'inconclusive', limitations: [limitation] }
+			: { status: 'needs_more_data', limitation };
+	}
 	const limitations = [
 		...(evidence.some((item) => item.filtered)
 			? ['结果经过行数、字段或长度裁剪，不代表完整明细。']

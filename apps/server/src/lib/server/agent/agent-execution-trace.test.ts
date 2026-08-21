@@ -110,13 +110,64 @@ describe('buildAgentExecutionTraces', () => {
 					completedAt: new Date('2026-08-12T03:00:01.000Z')
 				}
 			],
-			[event({ type: 'run_failed', message: '数据服务暂时不可用。', retryable: true })]
+			[
+				event({
+					type: 'run_failed',
+					code: 'data_source_unavailable',
+					message: '经营数据暂时无法连接。',
+					recovery: 'retry',
+					retryable: true
+				})
+			]
 		);
 
 		expect(trace).toMatchObject({
 			status: 'failed',
-			failure: { message: '数据服务暂时不可用。', retryable: true }
+			failure: {
+				code: 'data_source_unavailable',
+				message: '经营数据暂时无法连接。',
+				recovery: 'retry',
+				retryable: true
+			}
 		});
+	});
+
+	it('projects a failed tool separately from a completed tool', () => {
+		const [trace] = buildAgentExecutionTraces(
+			[
+				{
+					id: runId,
+					userMessageId,
+					status: 'failed',
+					createdAt: new Date('2026-08-12T03:00:00.000Z'),
+					completedAt: new Date('2026-08-12T03:00:01.000Z')
+				}
+			],
+			[
+				event({
+					type: 'tool_started',
+					toolCallId: 'query-1',
+					toolName: 'query_hotel_operating_data_sql'
+				}),
+				event({
+					type: 'tool_failed',
+					toolCallId: 'query-1',
+					toolName: 'query_hotel_operating_data_sql',
+					code: 'query_rejected',
+					summary: '查询未通过安全校验'
+				})
+			]
+		);
+
+		expect(trace.steps).toEqual([
+			{
+				toolCallId: 'query-1',
+				toolName: 'query_hotel_operating_data_sql',
+				status: 'failed',
+				failureCode: 'query_rejected',
+				summary: '查询未通过安全校验'
+			}
+		]);
 	});
 });
 

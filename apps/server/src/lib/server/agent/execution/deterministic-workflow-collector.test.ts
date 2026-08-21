@@ -257,6 +257,13 @@ describe('deterministic workflow collector', () => {
 				causeType: 'Error'
 			})
 		);
+		expect(emit).toHaveBeenCalledWith(
+			expect.objectContaining({
+				type: 'tool_failed',
+				toolName: 'query_hotel_operating_data_sql',
+				code: 'data_source_unavailable'
+			})
+		);
 		expect(JSON.stringify(emit.mock.calls)).not.toContain('private payload');
 	});
 
@@ -351,7 +358,7 @@ describe('deterministic workflow collector', () => {
 			_tag: 'AgentUpstreamError',
 			service: 'mcp',
 			operation: 'search_public_rates',
-			kind: 'invalid_response'
+			kind: 'unavailable'
 		} satisfies Partial<AgentUpstreamError>);
 	});
 });

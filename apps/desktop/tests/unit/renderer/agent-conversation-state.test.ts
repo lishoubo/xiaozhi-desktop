@@ -178,7 +178,9 @@ describe('Agent conversation view state', () => {
       runId,
       conversationId,
       type: 'run_failed',
+      code: 'model_unavailable',
       message: '普通模型调用失败。',
+      recovery: 'retry',
       retryable: true,
       createdAt: '2026-08-12T03:00:00.780Z',
     });
@@ -208,14 +210,21 @@ describe('Agent conversation view state', () => {
       runId,
       conversationId,
       type: 'run_failed',
+      code: 'data_source_unavailable',
       message: '天气服务暂时不可用。',
+      recovery: 'retry',
       retryable: true,
       createdAt: '2026-08-12T03:00:01.000Z',
     });
 
     expect(failed.executions[0]).toMatchObject({
       status: 'failed',
-      failure: { message: '天气服务暂时不可用。', retryable: true },
+      failure: {
+        code: 'data_source_unavailable',
+        message: '天气服务暂时不可用。',
+        recovery: 'retry',
+        retryable: true,
+      },
     });
     expect(failed).toMatchObject({
       activeRunId: null,
@@ -225,5 +234,53 @@ describe('Agent conversation view state', () => {
       preparingUi: false,
       errorMessage: '天气服务暂时不可用。',
     });
+  });
+
+  it('marks a failed tool as failed instead of completed', () => {
+    const started = addStartedRun(
+      createEmptyConversationView(conversationId),
+      {
+        runId,
+        userMessage: {
+          id: userMessageId,
+          conversationId,
+          role: 'user',
+          content: '查询经营数据',
+          ui: null,
+          createdAt: '2026-08-12T03:00:00.000Z',
+        },
+      },
+      '2026-08-12T03:00:00.000Z',
+    );
+    const running = applyRunEvent(started, {
+      id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1',
+      runId,
+      conversationId,
+      type: 'tool_started',
+      toolCallId: 'query-1',
+      toolName: 'query_hotel_operating_data_sql',
+      createdAt: '2026-08-12T03:00:00.500Z',
+    });
+    const failed = applyRunEvent(running, {
+      id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa2',
+      runId,
+      conversationId,
+      type: 'tool_failed',
+      toolCallId: 'query-1',
+      toolName: 'query_hotel_operating_data_sql',
+      code: 'query_rejected',
+      summary: '查询未通过安全校验',
+      createdAt: '2026-08-12T03:00:00.750Z',
+    });
+
+    expect(failed.executions[0]?.steps).toEqual([
+      {
+        toolCallId: 'query-1',
+        toolName: 'query_hotel_operating_data_sql',
+        status: 'failed',
+        failureCode: 'query_rejected',
+        summary: '查询未通过安全校验',
+      },
+    ]);
   });
 });

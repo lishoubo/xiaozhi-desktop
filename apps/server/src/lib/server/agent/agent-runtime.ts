@@ -20,6 +20,13 @@ export type PublishableRuntimeEvent =
 			toolName: string;
 			summary: string;
 	  }>
+	| Readonly<{
+			type: 'tool_failed';
+			toolCallId: string;
+			toolName: string;
+			code: import('@hotel-butler/api').AgentFailureCode;
+			summary: string;
+	  }>
 	| Readonly<{ type: 'ui_spec'; spec: GenerativeUiSpec }>;
 
 export type RuntimeTelemetryEvent =
@@ -57,6 +64,7 @@ export function shouldForwardCollectionRuntimeEvent(event: RuntimeEvent): boolea
 	return (
 		event.type === 'tool_started' ||
 		event.type === 'tool_completed' ||
+		event.type === 'tool_failed' ||
 		event.type === 'mcp_call_started' ||
 		event.type === 'mcp_call_completed' ||
 		event.type === 'mcp_call_failed'

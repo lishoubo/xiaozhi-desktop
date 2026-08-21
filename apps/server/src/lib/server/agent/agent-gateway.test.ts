@@ -10,7 +10,12 @@ import {
 	HotelAgentGateway,
 	runGroundedAnalysis
 } from './agent-gateway';
-import { AgentUpstreamError } from './agent-effect';
+import {
+	AgentConfigurationError,
+	AgentProtocolError,
+	AgentUpstreamError
+} from './agent-effect';
+import { AgentQueryRejectedError } from './agent-query-error';
 import type { EvidenceRecord } from './execution/business-execution-state';
 import { createBusinessWorkflowRegistry } from './execution/registered-business-workflows';
 
@@ -20,7 +25,9 @@ const event: AgentRunEvent = {
 	conversationId: '44444444-4444-4444-8444-444444444444',
 	createdAt: '2026-08-10T00:00:00.000Z',
 	type: 'run_failed',
+	code: 'unexpected_error',
 	message: 'test terminal',
+	recovery: 'retry',
 	retryable: true
 };
 
@@ -981,7 +988,9 @@ describe('describeAgentRunFailure', () => {
 		);
 
 		expect(failure).toEqual({
-			message: '酒店经营数据服务暂时没有响应，请稍后重试。',
+			code: 'data_source_timeout',
+			message: '经营数据查询超时。请稍后重试，或缩小日期范围和查询范围。',
+			recovery: 'retry',
 			retryable: true
 		});
 		expect(failure.message).not.toContain('secret.internal.example');
@@ -997,7 +1006,9 @@ describe('describeAgentRunFailure', () => {
 		);
 
 		expect(failure).toEqual({
+			code: 'model_output_invalid',
 			message: '经营数据和图表已展示，但分析未完成；可先查看结果或重试。',
+			recovery: 'retry',
 			retryable: true
 		});
 	});
@@ -1012,7 +1023,9 @@ describe('describeAgentRunFailure', () => {
 		);
 
 		expect(failure).toEqual({
-			message: '小智暂时无法完成这次请求，请稍后重试。',
+			code: 'data_source_unavailable',
+			message: '暂时无法连接酒店经营数据，请稍后重试。',
+			recovery: 'retry',
 			retryable: true
 		});
 	});
@@ -1023,8 +1036,44 @@ describe('describeAgentRunFailure', () => {
 		);
 
 		expect(failure).toEqual({
-			message: '小智暂时无法完成这次请求，请稍后重试。',
+			code: 'unexpected_error',
+			message: '小智暂时无法完成这次任务，请稍后重试。',
+			recovery: 'retry',
 			retryable: true
 		});
+	});
+
+	it('separates query rejection from a data-source outage', () => {
+		const failure = describeAgentRunFailure(
+			new AgentUpstreamError({
+				service: 'mcp',
+				operation: 'query_hotel_operating_data_sql',
+				kind: 'invalid_response',
+				cause: new AgentQueryRejectedError('经营数据 SQL 只允许 SELECT 或 CTE 查询')
+			})
+		);
+
+		expect(failure).toEqual({
+			code: 'query_rejected',
+			message: '生成的数据查询未通过安全校验，已停止执行。请换一种说法或缩小查询范围后再试。',
+			recovery: 'revise_request',
+			retryable: false
+		});
+	});
+
+	it('separates model, configuration and protocol failures', () => {
+		expect(
+			describeAgentRunFailure(
+				new AgentUpstreamError({ service: 'model', operation: 'chat', kind: 'timeout' })
+			)
+		).toMatchObject({ code: 'model_timeout', recovery: 'retry' });
+		expect(describeAgentRunFailure(new AgentConfigurationError({ setting: 'model' }))).toMatchObject(
+			{ code: 'configuration_error', recovery: 'contact_admin', retryable: false }
+		);
+		expect(
+			describeAgentRunFailure(
+				new AgentProtocolError({ operation: 'workflow', reason: 'invalid transition' })
+			)
+		).toMatchObject({ code: 'execution_protocol_error', recovery: 'contact_admin' });
 	});
 });

@@ -78,7 +78,7 @@ function configureHotelDataTool(tool: DynamicStructuredTool): DynamicStructuredT
 			'根据自然语言和已配置的酒店数据库生成只读 SELECT。生成结果仍须交给受限 SQL 工具执行。';
 	} else if (tool.name === DMS_SQL_TOOL_NAME) {
 		tool.name = HOTEL_DATA_SQL_TOOL_NAME;
-		tool.description = `执行一条酒店经营数据 SELECT/CTE 查询。系统会拒绝写操作、多语句、注释、文件操作、锁和高风险函数，并将结果限制为 ${HOTEL_DATA_RESULT_ROW_LIMIT} 行。`;
+		tool.description = `执行一条酒店经营数据只读查询，支持 JOIN、子查询、CTE 和 UNION。SQL 必须使用不带数据库名前缀的表名；复杂查询必须用 hotel_id 显式限制在当前账号的授权酒店内。系统会固定目标 DatabaseId，拒绝写操作、多语句、注释、笛卡尔连接、文件操作、锁和高风险函数，并将结果限制为 ${HOTEL_DATA_RESULT_ROW_LIMIT} 行。`;
 	} else if (tool.name === DMS_LIST_TABLES_TOOL_NAME) {
 		tool.name = HOTEL_DATA_LIST_TABLES_TOOL_NAME;
 		tool.description = '列出或搜索 DMS 当前数据库中的业务表。只读。';

@@ -55,12 +55,11 @@ import { summarizeConversationTitle, type ConversationTitleGenerator } from './c
 import {
 	agentErrorType,
 	agentErrorCauseType,
-	agentErrorRetryable,
 	agentFailureKind,
-	AgentConfigurationError,
 	AgentProtocolError,
 	AgentUpstreamError
 } from './agent-effect';
+import { describeAgentFailure, evidenceFailure, toolFailureSummary } from './agent-failure';
 import { runWithHotelDataAccessScope } from './hotel-data-access-scope';
 
 type AgentRepositoryPort = Pick<
@@ -116,49 +115,17 @@ function requestHotelDataScope(
 const terminal = (event: AgentRunEvent): boolean =>
 	event.type === 'run_completed' || event.type === 'run_failed' || event.type === 'run_cancelled';
 
-export function describeAgentRunFailure(
-	error: unknown
-): Readonly<{ message: string; retryable: boolean }> {
-	if (error instanceof AgentConfigurationError) {
-		return { message: 'Agent 模型服务尚未配置，请联系管理员。', retryable: false };
-	}
-	if (error instanceof AgentProtocolError) {
-		return { message: '本次请求未通过执行协议校验，请调整查询条件后重试。', retryable: false };
-	}
-	if (error instanceof AgentUpstreamError) {
-		return {
-			message:
-				error.service === 'mcp' && error.operation !== 'run_agent_stream'
-					? '酒店经营数据服务暂时没有响应，请稍后重试。'
-					: error.kind === 'timeout' && error.operation === 'analyze_grounded_answer'
-						? '经营数据和图表已展示，但分析超时；可先查看结果或稍后重试。'
-						: error.kind === 'invalid_response' && error.operation === 'analyze_grounded_answer'
-							? '经营数据和图表已展示，但分析未完成；可先查看结果或重试。'
-							: '小智暂时无法完成这次请求，请稍后重试。',
-			retryable: agentErrorRetryable(error)
-		};
-	}
-	const detail = error instanceof Error ? `${error.name} ${error.message}` : String(error);
-	if (/AI_KIMI_API_KEY|not configured/i.test(detail)) {
-		return { message: 'Agent 模型服务尚未配置，请联系管理员。', retryable: false };
-	}
-	return { message: '小智暂时无法完成这次请求，请稍后重试。', retryable: true };
+export function describeAgentRunFailure(error: unknown): ReturnType<typeof describeAgentFailure> {
+	return describeAgentFailure(error);
 }
 
 function describeEvidenceRejection(reasonCode: string): Readonly<{
+	code: import('@hotel-butler/api').AgentFailureCode;
 	message: string;
+	recovery: import('@hotel-butler/api').AgentFailureRecovery;
 	retryable: boolean;
 }> {
-	if (reasonCode === 'evidence_scope_mismatch') {
-		return {
-			message: '数据源返回的酒店范围与本次请求不一致，已停止生成结论。请确认酒店后重试。',
-			retryable: false
-		};
-	}
-	return {
-		message: '数据证据未通过安全校验，已停止生成结论。请调整查询条件后重试。',
-		retryable: false
-	};
+	return evidenceFailure(reasonCode);
 }
 
 export function formatClarificationAnswer(
@@ -1132,25 +1099,44 @@ export class HotelAgentGateway implements AgentGateway {
 									},
 									'Agent answer model started'
 								);
-								const analysisResult = await runGroundedAnalysis(this.runtime, {
-									principal,
-									conversationSummary: null,
-									history: [],
-									memories,
-									...presentationPolicyForIntent(execution.state.request.intent),
-									signal: controller.signal,
-									workflowRequest: execution.state.request,
-									validatedEvidence: execution.state.evidence,
-									analysisOnly: true,
-									emit: (event) =>
-										this.forwardRuntimeEvent(
-											principal,
-											runId,
-											context.conversation.id,
-											event,
-											context.run.businessExecutionId
-										)
-								});
+								let analysisResult: Awaited<ReturnType<typeof runGroundedAnalysis>>;
+								try {
+									analysisResult = await runGroundedAnalysis(this.runtime, {
+										principal,
+										conversationSummary: null,
+										history: [],
+										memories,
+										...presentationPolicyForIntent(execution.state.request.intent),
+										signal: controller.signal,
+										workflowRequest: execution.state.request,
+										validatedEvidence: execution.state.evidence,
+										analysisOnly: true,
+										emit: (event) =>
+											this.forwardRuntimeEvent(
+												principal,
+												runId,
+												context.conversation.id,
+												event,
+												context.run.businessExecutionId
+											)
+									});
+								} catch (error) {
+									const failure = describeAgentRunFailure(error);
+									await this.forwardRuntimeEvent(
+										principal,
+										runId,
+										context.conversation.id,
+										{
+											type: 'tool_failed',
+											toolCallId: analysisToolCallId,
+											toolName: 'upstream_llm_analysis',
+											code: failure.code,
+											summary: toolFailureSummary(failure)
+										},
+										context.run.businessExecutionId
+									);
+									throw error;
+								}
 								await this.forwardRuntimeEvent(
 									principal,
 									runId,
@@ -1370,7 +1356,13 @@ export class HotelAgentGateway implements AgentGateway {
 			  }>
 			| Readonly<{ type: 'run_started' }>
 			| Readonly<{ type: 'run_completed'; message: AgentMessage }>
-			| Readonly<{ type: 'run_failed'; message: string; retryable: boolean }>
+			| Readonly<{
+					type: 'run_failed';
+					code: import('@hotel-butler/api').AgentFailureCode;
+					message: string;
+					recovery: import('@hotel-butler/api').AgentFailureRecovery;
+					retryable: boolean;
+			  }>
 			| Readonly<{ type: 'run_cancelled' }>
 	): Promise<void> {
 		const value = agentRunEventSchema.parse({
@@ -1381,16 +1373,29 @@ export class HotelAgentGateway implements AgentGateway {
 			createdAt: new Date().toISOString()
 		});
 		await this.repository.appendEvent(value, principal);
-		if (value.type === 'tool_started' || value.type === 'tool_completed') {
-			this.logger.debug(
+		if (
+			value.type === 'tool_started' ||
+			value.type === 'tool_completed' ||
+			value.type === 'tool_failed'
+		) {
+			const log =
+				value.type === 'tool_failed'
+					? this.logger.warn.bind(this.logger)
+					: this.logger.debug.bind(this.logger);
+			log(
 				{
 					event: `agent.${value.type}`,
 					runId,
 					conversationId,
 					toolCallId: value.toolCallId,
-					toolName: value.toolName
+					toolName: value.toolName,
+					...(value.type === 'tool_failed' ? { failureCode: value.code } : {})
 				},
-				value.type === 'tool_started' ? 'Agent tool started' : 'Agent tool completed'
+				value.type === 'tool_started'
+					? 'Agent tool started'
+					: value.type === 'tool_failed'
+						? 'Agent tool failed'
+						: 'Agent tool completed'
 			);
 		}
 		if (value.type === 'business_execution_updated') {

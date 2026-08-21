@@ -108,6 +108,24 @@ describe('business evidence', () => {
 		expect(assessEvidence(request, [evidence], false)).toEqual({ status: 'no_data' });
 	});
 
+	it('does not accept hotel metadata as a completed business-data query', () => {
+		const metadata = normalizeEvidence({
+			request,
+			toolName: 'list_hotel_data_tables',
+			toolArgs: {},
+			result: [{ table_name: 'fact_business_daily' }]
+		});
+
+		expect(assessEvidence(request, [metadata], false)).toEqual({
+			status: 'needs_more_data',
+			limitation: '尚未成功执行酒店经营数据查询。'
+		});
+		expect(assessEvidence(request, [metadata], true)).toEqual({
+			status: 'inconclusive',
+			limitations: ['尚未成功执行酒店经营数据查询。']
+		});
+	});
+
 	it('rejects evidence for another hotel', () => {
 		const evidence = normalizeEvidence({
 			request: { ...request, slots: { ...request.slots, hotelReference: 'hotel-2' } },

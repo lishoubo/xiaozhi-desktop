@@ -551,7 +551,9 @@ export class AgentRepository {
 						conversationId: run.conversationId,
 						createdAt: now.toISOString(),
 						type: 'run_failed',
+						code: 'execution_protocol_error',
 						message: '服务重启中断了上次执行，请重试。',
+						recovery: 'retry',
 						retryable: true
 					},
 					createdAt: now

@@ -10,8 +10,21 @@ import { z } from 'zod';
 import type { AgentRepository } from './agent-repository';
 import type { AgentRuntime, AgentRuntimeRunOptions } from './agent-runtime';
 import type { McpToolProvider } from './mcp-tool-provider';
-import { isHotelDataToolName } from './hotel-data-mcp';
-import { summarizeMcpResult } from './mcp-observability';
+import {
+	HOTEL_DATA_DESCRIBE_TABLE_TOOL_NAME,
+	HOTEL_DATA_GENERATE_SQL_TOOL_NAME,
+	HOTEL_DATA_LIST_TABLES_TOOL_NAME,
+	HOTEL_DATA_SQL_TOOL_NAME,
+	isHotelDataToolName
+} from './hotel-data-mcp';
+import { mcpResultIsError, summarizeMcpResult } from './mcp-observability';
+import {
+	describeAgentFailure,
+	describeToolFailure,
+	toolFailureCause,
+	toolFailureSummary,
+	toolFailureUpstreamKind
+} from './agent-failure';
 import { buildHotelAgentSystemPrompt } from './hotel-agent-prompt';
 import { HotelAgentToolHandlers } from './hotel-agent-tool-handlers';
 import type { AgentSkill, SkillProvider } from './skill-provider';
@@ -20,7 +33,6 @@ import { getIntentDefinition } from './execution/intent-registry';
 import {
 	agentPromise,
 	agentErrorCauseType,
-	agentErrorRetryable,
 	agentErrorType,
 	agentFailureKind,
 	AgentProtocolError,
@@ -74,8 +86,12 @@ export function shouldStopDuplicateUiRender(
 	return hasGeneratedUi && toolNames.includes('render_hotel_ui');
 }
 
-export function shouldCaptureToolEvidence(status: string | undefined): boolean {
-	return status !== 'error';
+export function shouldCaptureToolEvidence(status: string | undefined, result?: unknown): boolean {
+	return status !== 'error' && !mcpResultIsError(result);
+}
+
+export function shouldAbortRepeatedMcpFailure(attempts: number): boolean {
+	return attempts >= 2;
 }
 
 export function normalizeAgentStreamFailure(
@@ -142,7 +158,9 @@ export function selectWorkflowToolNames(
 		request.workflowRequest.intent === 'hotel_operating_summary' ||
 		request.workflowRequest.intent === 'generic_hotel_data_query'
 	) {
-		return availableNames.filter(isHotelDataToolName);
+		return availableNames.filter(
+			(name) => isHotelDataToolName(name) && name !== HOTEL_DATA_GENERATE_SQL_TOOL_NAME
+		);
 	}
 	if (request.workflowRequest.intent === 'weather_operations_advice') {
 		return availableNames.filter((name) =>
@@ -162,6 +180,65 @@ export function shouldLoadSkills(
 	request: Pick<AgentRuntimeRunOptions, 'allowedSkillNames'>
 ): boolean {
 	return request.allowedSkillNames.length > 0;
+}
+
+export function shouldRequireHotelDataQuery(
+	request: AgentRuntimeRunOptions['workflowRequest'],
+	completedToolNames: readonly string[]
+): boolean {
+	return hotelDataCollectionToolChoice(request, completedToolNames) !== 'auto';
+}
+
+type HotelDataCollectionToolChoice =
+	'auto' | 'required' | Readonly<{ type: 'function'; function: Readonly<{ name: string }> }>;
+
+export function hotelDataCollectionToolChoice(
+	request: AgentRuntimeRunOptions['workflowRequest'],
+	completedToolNames: readonly string[]
+): HotelDataCollectionToolChoice {
+	if (
+		request?.intent !== 'generic_hotel_data_query' &&
+		request?.intent !== 'hotel_operating_summary'
+	) {
+		return 'auto';
+	}
+	if (completedToolNames.includes(HOTEL_DATA_SQL_TOOL_NAME)) return 'auto';
+	if (completedToolNames.includes(HOTEL_DATA_DESCRIBE_TABLE_TOOL_NAME)) {
+		return {
+			type: 'function',
+			function: { name: HOTEL_DATA_SQL_TOOL_NAME }
+		};
+	}
+	if (completedToolNames.includes(HOTEL_DATA_LIST_TABLES_TOOL_NAME)) {
+		return {
+			type: 'function',
+			function: { name: HOTEL_DATA_DESCRIBE_TABLE_TOOL_NAME }
+		};
+	}
+	return {
+		type: 'function',
+		function: { name: HOTEL_DATA_LIST_TABLES_TOOL_NAME }
+	};
+}
+
+function requireHotelDataQueryMiddleware(request: AgentRuntimeRunOptions['workflowRequest']) {
+	return createMiddleware({
+		name: 'RequireHotelDataQuery',
+		wrapModelCall: (modelRequest, handler) => {
+			const completedToolNames = modelRequest.state.messages.flatMap((message) =>
+				ToolMessage.isInstance(message) &&
+				message.status !== 'error' &&
+				!mcpResultIsError(message.content) &&
+				message.name
+					? [message.name]
+					: []
+			);
+			return handler({
+				...modelRequest,
+				toolChoice: hotelDataCollectionToolChoice(request, completedToolNames)
+			});
+		}
+	});
 }
 
 export function isLocalToolAllowed(
@@ -295,12 +372,15 @@ export class LangChainAgentRuntime implements AgentRuntime {
 				: answerOnly && options.workflowRequest
 					? `\n\n当前是证据校验后的回答阶段。不可变请求：${JSON.stringify(options.workflowRequest)}。已验证证据：${JSON.stringify(options.validatedEvidence)}。不得调用数据工具，不得补造证据中没有的事实；必须写明范围、来源和重要限制。可按需要调用一次 render_hotel_ui。`
 					: options.workflowRequest
-						? `\n\n当前是受限业务取证阶段。意图：${options.workflowRequest.intent}。已解析参数：${JSON.stringify(options.workflowRequest.slots)}。只能使用已提供的只读工具，不得调用、建议或模拟任何写操作。只完成数据获取，最终文字不会直接展示给用户。仅检查回答所必需的表结构，避免重复描述同一张表；generate_hotel_operating_data_sql 只生成 SQL、不是数据证据，调用后必须继续调用 query_hotel_operating_data_sql 执行。`
+						? `\n\n当前是受限业务取证阶段。意图：${options.workflowRequest.intent}。已解析参数：${JSON.stringify(options.workflowRequest.slots)}。只能使用已提供的只读工具，不得调用、建议或模拟任何写操作。只完成数据获取，最终文字不会直接展示给用户。必须依次确认目标业务表、读取相关表字段，再调用 query_hotel_operating_data_sql 执行只读查询；问题需要跨表分析时可以使用 JOIN、子查询、CTE 或 UNION。SQL 中使用不带数据库名前缀的表名，复杂查询必须对 hotel_id 明确限定为已解析酒店，并包含完成问题所需的日期、排序和数量约束。目录和字段结果不是业务数据证据。`
 						: '';
 		const agent = createAgent({
 			model: analysisOnly ? this.analysisModel : this.model,
 			tools,
-			middleware: [singleSuccessfulUiRenderMiddleware(() => generatedUi !== null)],
+			middleware: [
+				requireHotelDataQueryMiddleware(answerOnly ? undefined : options.workflowRequest),
+				singleSuccessfulUiRenderMiddleware(() => generatedUi !== null)
+			],
 			systemPrompt: `${buildHotelAgentSystemPrompt({
 				date: new Date().toISOString().slice(0, 10),
 				conversationSummary: options.conversationSummary,
@@ -333,6 +413,7 @@ export class LangChainAgentRuntime implements AgentRuntime {
 		const toolArgs = new Map<string, unknown>();
 		const toolNamesByCall = new Map<string, string>();
 		const mcpCallStartedAt = new Map<string, number>();
+		const mcpFailureCounts = new Map<string, number>();
 		const toolEvidence: Array<{ toolName: string; toolArgs: unknown; result: unknown }> = [];
 		let completedGroundedUi = false;
 		const modelStartedAt = performance.now();
@@ -445,12 +526,16 @@ export class LangChainAgentRuntime implements AgentRuntime {
 					if (completedTools.has(callId)) continue;
 					completedTools.add(callId);
 					const toolName = message.name ?? toolNamesByCall.get(callId) ?? 'tool';
+					const failed = message.status === 'error' || mcpResultIsError(message.content);
+					const toolFailure = failed ? describeToolFailure(toolName, message.content) : null;
+					const failureCount = failed ? (mcpFailureCounts.get(toolName) ?? 0) + 1 : 0;
+					if (failed) mcpFailureCounts.set(toolName, failureCount);
 					if (mcpCallStartedAt.has(callId)) {
 						const durationMs = Math.max(
 							0,
 							Math.round(performance.now() - (mcpCallStartedAt.get(callId) ?? performance.now()))
 						);
-						if (message.status === 'error') {
+						if (failed) {
 							await options.emit({
 								type: 'mcp_call_failed',
 								toolCallId: callId,
@@ -458,7 +543,7 @@ export class LangChainAgentRuntime implements AgentRuntime {
 								durationMs,
 								errorType: 'McpToolErrorResult',
 								failureKind: 'tool_or_data_source',
-								retryable: true
+								retryable: toolFailure?.retryable ?? true
 							});
 						} else {
 							await options.emit({
@@ -470,23 +555,42 @@ export class LangChainAgentRuntime implements AgentRuntime {
 							});
 						}
 					}
-					if (shouldCaptureToolEvidence(message.status)) {
+					if (shouldCaptureToolEvidence(message.status, message.content)) {
 						toolEvidence.push({
 							toolName,
 							toolArgs: toolArgs.get(callId) ?? null,
 							result: message.content
 						});
 					}
-					await options.emit({
-						type: 'tool_completed',
-						toolCallId: callId,
-						toolName,
-						summary: isHotelDataToolName(toolName)
-							? message.status === 'error'
-								? '经营数据查询未成功，正在调整查询条件'
-								: '酒店经营数据查询完成'
-							: '工具调用已完成'
-					});
+					await options.emit(
+						toolFailure
+							? {
+									type: 'tool_failed',
+									toolCallId: callId,
+									toolName,
+									code: toolFailure.code,
+									summary: toolFailureSummary(toolFailure)
+								}
+							: {
+									type: 'tool_completed',
+									toolCallId: callId,
+									toolName,
+									summary: isHotelDataToolName(toolName) ? '酒店经营数据查询完成' : '工具调用已完成'
+								}
+					);
+					if (
+						toolFailure &&
+						mcpToolNames.has(toolName) &&
+						shouldAbortRepeatedMcpFailure(failureCount)
+					) {
+						const failureCause = toolFailureCause(toolFailure);
+						throw new AgentUpstreamError({
+							service: 'mcp',
+							operation: toolName,
+							kind: toolFailureUpstreamKind(toolFailure),
+							...(failureCause ? { cause: failureCause } : {})
+						});
+					}
 					if (answerOnly && toolName === 'render_hotel_ui' && generatedUi) {
 						completedGroundedUi = true;
 						return completeGroundedAnswerAfterUi(content, generatedUi);
@@ -501,17 +605,27 @@ export class LangChainAgentRuntime implements AgentRuntime {
 						if (completedTools.has(toolCallId)) return [];
 						return [toolNamesByCall.get(toolCallId) ?? 'mcp_tool'];
 					})[0] ?? null);
+			const normalizedFailure = normalizeAgentStreamFailure(error, outstandingMcpToolName);
+			const failure = describeAgentFailure(normalizedFailure);
 			for (const [toolCallId, startedAt] of graphRecursionFailed ? [] : mcpCallStartedAt) {
 				if (completedTools.has(toolCallId)) continue;
+				const toolName = toolNamesByCall.get(toolCallId) ?? 'mcp_tool';
 				await options.emit({
 					type: 'mcp_call_failed',
 					toolCallId,
-					toolName: toolNamesByCall.get(toolCallId) ?? 'mcp_tool',
+					toolName,
 					durationMs: Math.max(0, Math.round(performance.now() - startedAt)),
 					errorType: agentErrorType(error),
 					...(agentErrorCauseType(error) ? { causeType: agentErrorCauseType(error) } : {}),
 					failureKind: agentFailureKind(error),
-					retryable: agentErrorRetryable(error)
+					retryable: failure.retryable
+				});
+				await options.emit({
+					type: 'tool_failed',
+					toolCallId,
+					toolName,
+					code: failure.code,
+					summary: toolFailureSummary(failure)
 				});
 			}
 			const recovered =
@@ -527,7 +641,7 @@ export class LangChainAgentRuntime implements AgentRuntime {
 						cause: error
 					});
 				}
-				throw normalizeAgentStreamFailure(error, outstandingMcpToolName);
+				throw normalizedFailure;
 			}
 			return recovered;
 		}

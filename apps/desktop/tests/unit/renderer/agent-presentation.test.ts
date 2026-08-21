@@ -2,12 +2,15 @@ import { describe, expect, it } from 'vitest';
 import type { AgentExecutionTrace, AgentMessage } from '@hotel-butler/api';
 import {
   AGENT_CHAT_DISPLAY_NAME,
+  agentFailureTitle,
+  agentToolStepLabel,
   chatUserDisplayName,
   compactTrendAxisLabel,
   executionForDisplayedMessage,
   isPendingBusinessExecutionConflict,
   messageOwnsPendingClarification,
   shouldDisplayExecutionTrace,
+  shouldOfferFailureRetry,
   trendAxisTickSpacing,
   trendAxisTicks,
   usesWideGenerativeUiLayout,
@@ -177,6 +180,34 @@ describe('Agent result presentation', () => {
       }),
     ).toBe(true);
     expect(shouldDisplayExecutionTrace({ ...completed, status: 'failed' })).toBe(true);
+  });
+
+  it('presents distinct business-friendly failure categories and only retries recoverable failures', () => {
+    expect(agentFailureTitle('query_rejected')).toBe('查询已被安全拦截');
+    expect(agentFailureTitle('data_source_timeout')).toBe('经营数据查询超时');
+    expect(agentFailureTitle('configuration_error')).toBe('服务尚未配置完成');
+    expect(
+      shouldOfferFailureRetry({
+        code: 'data_source_timeout',
+        message: '经营数据查询超时。',
+        recovery: 'retry',
+        retryable: true,
+      }),
+    ).toBe(true);
+    expect(
+      shouldOfferFailureRetry({
+        code: 'query_rejected',
+        message: '查询未通过安全校验。',
+        recovery: 'revise_request',
+        retryable: false,
+      }),
+    ).toBe(false);
+  });
+
+  it('replaces technical tool names with business-readable execution labels', () => {
+    expect(agentToolStepLabel('query_hotel_operating_data_sql')).toBe('查询酒店经营数据');
+    expect(agentToolStepLabel('upstream_llm_analysis')).toBe('分析经营数据');
+    expect(agentToolStepLabel('unknown_internal_tool')).toBe('执行辅助工具');
   });
 
   it('compacts common date labels and increases spacing for long labels', () => {

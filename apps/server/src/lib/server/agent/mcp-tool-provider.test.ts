@@ -288,11 +288,47 @@ describe('hotel data MCP guardrails', () => {
 			"SELECT 'from ota_order where' AS marker, s.secret FROM (SELECT * FROM secret_table WHERE hotel_id IN (9)) AS s"
 		);
 		for (const script of [
-			'SELECT s.secret FROM secret_table s, fact_business_daily f WHERE f.hotel_id = 9 AND s.active = 1',
 			'SELECT o.hotel_id, h.name FROM ota_order o JOIN hotel h ON h.id = o.hotel_id WHERE o.hotel_id = 9',
-			'SELECT * FROM (SELECT * FROM ota_order) rows WHERE hotel_id = 9'
+			'SELECT * FROM (SELECT * FROM ota_order WHERE hotel_id = 9) scoped_rows WHERE hotel_id = 9',
+			'WITH scoped_orders AS (SELECT * FROM ota_order WHERE hotel_id = 9) SELECT * FROM scoped_orders',
+			'SELECT hotel_id, order_id FROM ota_order WHERE hotel_id = 9 UNION ALL SELECT hotel_id, order_id FROM direct_order WHERE hotel_id = 9'
 		]) {
-			expect(() => constrainHotelDataSqlArgs({ script }, '81918192', ['9', '10'])).toThrow();
+			expect(() => constrainHotelDataSqlArgs({ script }, '81918192', ['9', '10'])).not.toThrow();
+		}
+		expect(() =>
+			constrainHotelDataSqlArgs(
+				{
+					script:
+						'SELECT s.secret FROM secret_table s, fact_business_daily f WHERE f.hotel_id = 9 AND s.active = 1'
+				},
+				'81918192',
+				['9', '10']
+			)
+		).toThrow('笛卡尔');
+		expect(() =>
+			constrainHotelDataSqlArgs(
+				{ script: 'SELECT o.order_id, h.name FROM ota_order o JOIN hotel h ON h.id = o.hotel_id' },
+				'81918192',
+				['9', '10']
+			)
+		).toThrow('酒店范围');
+		expect(() =>
+			constrainHotelDataSqlArgs(
+				{
+					script:
+						'SELECT o.order_id, h.name FROM ota_order o JOIN hotel h ON h.id = o.hotel_id WHERE o.hotel_id = 99'
+				},
+				'81918192',
+				['9', '10']
+			)
+		).toThrow('酒店范围');
+		for (const script of [
+			'SELECT o.order_id FROM ota_order o JOIN hotel h ON h.id = o.hotel_id WHERE o.hotel_id = 9 OR 1 = 1',
+			'SELECT hotel_id FROM ota_order WHERE hotel_id = 9 UNION ALL SELECT hotel_id FROM ota_order'
+		]) {
+			expect(() => constrainHotelDataSqlArgs({ script }, '81918192', ['9', '10'])).toThrow(
+				'酒店范围'
+			);
 		}
 		const alternativeBoolean = constrainHotelDataSqlArgs(
 			{

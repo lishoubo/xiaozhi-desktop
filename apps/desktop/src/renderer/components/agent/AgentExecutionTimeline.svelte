@@ -8,6 +8,7 @@
   import TriangleAlert from '@lucide/svelte/icons/triangle-alert';
   import Wrench from '@lucide/svelte/icons/wrench';
   import { onMount } from 'svelte';
+  import { agentToolStepLabel } from '../../agent-presentation';
   import { enter, LAYOUT_ANIMATION_OPTIONS, SURFACE_TRANSITION_OPTIONS } from '../../motion';
 
   let { trace }: { trace: AgentExecutionTrace } = $props();
@@ -32,9 +33,10 @@
     stepStatus: AgentExecutionTrace['steps'][number]['status'],
     traceStatus: AgentExecutionTrace['status'],
   ): string {
-    if (toolName !== 'upstream_llm_analysis') return toolName;
-    if (stepStatus === 'completed') return '上游大模型分析';
-    return traceStatus === 'failed' ? '上游大模型分析超时或失败' : '上游大模型正在分析数据';
+    const label = agentToolStepLabel(toolName);
+    if (toolName !== 'upstream_llm_analysis') return label;
+    if (stepStatus === 'completed') return label;
+    return traceStatus === 'failed' ? '分析经营数据未完成' : '正在分析经营数据';
   }
 </script>
 
@@ -84,7 +86,7 @@
           <span class="absolute top-[-11px] left-[6px] h-3 border-l border-border"></span>
           {#if step.status === 'completed'}
             <Check size={14} class="mt-0.5 shrink-0 text-emerald-600" />
-          {:else if trace.status === 'failed' && step.toolName === 'upstream_llm_analysis'}
+          {:else if step.status === 'failed'}
             <TriangleAlert size={14} class="mt-0.5 shrink-0 text-amber-600" />
           {:else if trace.status === 'cancelled'}
             <Square size={14} class="mt-0.5 shrink-0 text-muted-foreground" />

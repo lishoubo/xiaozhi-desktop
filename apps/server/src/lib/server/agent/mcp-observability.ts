@@ -29,12 +29,33 @@ function contentBlockCount(value: unknown): number {
 	).length;
 }
 
-function protocolIsError(value: unknown): boolean {
-	return (
+export function mcpResultText(value: unknown): string | null {
+	if (typeof value === 'string') return value;
+	const content = Array.isArray(value)
+		? value
+		: typeof value === 'object' && value !== null
+			? Reflect.get(value, 'content')
+			: null;
+	if (typeof content === 'string') return content;
+	if (!Array.isArray(content)) return null;
+	const texts = content.flatMap((block) => {
+		if (typeof block !== 'object' || block === null) return [];
+		const text = Reflect.get(block, 'text');
+		return typeof text === 'string' ? [text] : [];
+	});
+	return texts.length > 0 ? texts.join('\n') : null;
+}
+
+export function mcpResultIsError(value: unknown): boolean {
+	if (
 		typeof value === 'object' &&
 		value !== null &&
 		(Reflect.get(value, 'isError') === true || Reflect.get(value, 'status') === 'error')
-	);
+	) {
+		return true;
+	}
+	const text = mcpResultText(value)?.trim() ?? '';
+	return /^(?:ToolException:\s*)?Error calling tool\b/i.test(text);
 }
 
 function serializeForSummary(value: unknown): string | null {
@@ -53,7 +74,7 @@ export function summarizeMcpResult(result: unknown): McpResultSummary {
 	const serialized = serializeForSummary(result);
 	return {
 		resultType: resultType(result),
-		protocolStatus: protocolIsError(result) ? 'error' : 'success',
+		protocolStatus: mcpResultIsError(result) ? 'error' : 'success',
 		contentBlockCount: contentBlockCount(result),
 		resultCharacterCount: serialized?.length ?? null,
 		resultFingerprint: serialized ? createHash('sha256').update(serialized).digest('hex') : null,

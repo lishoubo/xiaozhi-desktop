@@ -1,3 +1,6 @@
+import { analyzeComplexHotelDataSql } from './hotel-data-sql-policy';
+import { AgentQueryInvalidError, AgentQueryRejectedError } from './agent-query-error';
+
 export const DMS_GENERATE_SQL_TOOL_NAME = 'generateSql';
 export const DMS_SQL_TOOL_NAME = 'executeScript';
 export const DMS_LIST_TABLES_TOOL_NAME = 'listTables';
@@ -274,18 +277,15 @@ function scopeHotelDataSql(
 	allowedHotelIds: readonly string[],
 	databaseName?: string
 ): string {
-	if (allowedHotelIds.length === 0) throw new Error('当前账号没有可查询的酒店');
-	if (!allowedHotelIds.every((id) => /^\d+$/.test(id))) throw new Error('酒店数据访问范围无效');
-	const tokens = mysqlTokens(sql);
-	if (
-		tokens.some((token) => ['with', 'union', 'join'].includes(token.value)) ||
-		tokens.filter((token) => token.value === 'select').length !== 1
-	) {
-		throw new Error('员工酒店数据查询只允许单表、单 SELECT');
+	if (allowedHotelIds.length === 0) throw new AgentQueryRejectedError('当前账号没有可查询的酒店');
+	if (!allowedHotelIds.every((id) => /^\d+$/.test(id))) {
+		throw new AgentQueryRejectedError('酒店数据访问范围无效');
 	}
+	const tokens = mysqlTokens(sql);
+	if (analyzeComplexHotelDataSql(sql, allowedHotelIds, databaseName).isComplex) return sql;
 	const from = tokens.find((token) => token.depth === 0 && token.value === 'from');
 	if (!from) {
-		throw new Error('员工酒店数据查询缺少单一数据表');
+		throw new AgentQueryInvalidError('员工酒店数据查询缺少单一数据表');
 	}
 	const clauseEnd =
 		tokens.find(
@@ -301,15 +301,17 @@ function scopeHotelDataSql(
 		'i'
 	);
 	const parsedSource = sourcePattern.exec(sourceClause);
-	if (!parsedSource) throw new Error('员工酒店数据查询只允许单一数据表，不允许联表或子查询');
+	if (!parsedSource) {
+		throw new AgentQueryInvalidError('员工酒店数据查询的数据表结构无效');
+	}
 	const table = parsedSource[1];
-	if (!table) throw new Error('员工酒店数据查询的数据表无效');
+	if (!table) throw new AgentQueryInvalidError('员工酒店数据查询的数据表无效');
 	const qualifiedParts = table.split('.').map((part) => part.trim().replace(/^`|`$/g, ''));
 	if (qualifiedParts.length === 2 && databaseName && qualifiedParts[0] !== databaseName) {
-		throw new Error('员工酒店数据查询超出目标数据库范围');
+		throw new AgentQueryRejectedError('员工酒店数据查询超出目标数据库范围');
 	}
 	const alias = parsedSource[2] ?? table.split('.').at(-1)?.trim();
-	if (!alias) throw new Error('员工酒店数据查询的数据表别名无效');
+	if (!alias) throw new AgentQueryInvalidError('员工酒店数据查询的数据表别名无效');
 	const authorizedIds = allowedHotelIds.join(', ');
 	const scopedSource = ` (SELECT * FROM ${table} WHERE hotel_id IN (${authorizedIds})) AS ${alias} `;
 	return `${sql.slice(0, from.end)}${scopedSource}${sql.slice(clauseEnd)}`;
@@ -322,18 +324,26 @@ export function constrainHotelDataSqlArgs(
 	databaseName?: string
 ): unknown {
 	if (typeof args !== 'object' || args === null || Array.isArray(args)) {
-		throw new Error('DMS executeScript 参数格式无效');
+		throw new AgentQueryRejectedError('DMS executeScript 参数格式无效');
 	}
 	const parameters = Object.fromEntries(Object.entries(args));
 	const script = parameters.script;
-	if (typeof script !== 'string' || !script.trim()) throw new Error('DMS executeScript 缺少 SQL');
+	if (typeof script !== 'string' || !script.trim()) {
+		throw new AgentQueryInvalidError('DMS executeScript 缺少 SQL');
+	}
 	let sql = script.trim();
-	if (sql.length > 20_000) throw new Error('经营数据 SQL 过长');
-	if (/\0|--|#|\/\*/.test(sql)) throw new Error('经营数据 SQL 不允许注释或控制字符');
+	if (sql.length > 20_000) throw new AgentQueryRejectedError('经营数据 SQL 过长');
+	if (/\0|--|#|\/\*/.test(sql)) {
+		throw new AgentQueryRejectedError('经营数据 SQL 不允许注释或控制字符');
+	}
 	if (sql.endsWith(';')) sql = sql.slice(0, -1).trim();
-	if (sql.includes(';')) throw new Error('经营数据 SQL 只允许单条语句');
-	if (!/^(select|with)\b/i.test(sql)) throw new Error('经营数据 SQL 只允许 SELECT 或 CTE 查询');
-	if (FORBIDDEN_SQL.test(sql)) throw new Error('经营数据 SQL 包含不允许的操作');
+	if (sql.includes(';')) throw new AgentQueryRejectedError('经营数据 SQL 只允许单条语句');
+	if (!/^(select|with)\b/i.test(sql)) {
+		throw new AgentQueryRejectedError('经营数据 SQL 只允许 SELECT 或 CTE 查询');
+	}
+	if (FORBIDDEN_SQL.test(sql)) {
+		throw new AgentQueryRejectedError('经营数据 SQL 包含不允许的操作');
+	}
 	if (allowedHotelIds) sql = scopeHotelDataSql(sql, allowedHotelIds, databaseName);
 	return {
 		...parameters,

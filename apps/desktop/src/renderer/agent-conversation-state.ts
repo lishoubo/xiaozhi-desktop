@@ -137,6 +137,35 @@ export function applyRunEvent(
       })),
     };
   }
+  if (event.type === 'tool_failed') {
+    return {
+      ...state,
+      executions: updateExecution(state.executions, event.runId, (execution) => ({
+        ...execution,
+        steps: execution.steps.some((step) => step.toolCallId === event.toolCallId)
+          ? execution.steps.map((step) =>
+              step.toolCallId === event.toolCallId
+                ? {
+                    ...step,
+                    status: 'failed',
+                    failureCode: event.code,
+                    summary: event.summary,
+                  }
+                : step,
+            )
+          : [
+              ...execution.steps,
+              {
+                toolCallId: event.toolCallId,
+                toolName: event.toolName,
+                status: 'failed',
+                failureCode: event.code,
+                summary: event.summary,
+              },
+            ],
+      })),
+    };
+  }
   if (event.type === 'ui_spec') {
     return { ...state, draftUi: event.spec, preparingUi: false };
   }
@@ -171,7 +200,12 @@ export function applyRunEvent(
         ...execution,
         status: 'failed',
         completedAt: event.createdAt,
-        failure: { message: event.message, retryable: event.retryable },
+        failure: {
+          code: event.code ?? 'unexpected_error',
+          message: event.message,
+          recovery: event.recovery ?? (event.retryable ? 'retry' : 'none'),
+          retryable: event.retryable,
+        },
       })),
     };
   }

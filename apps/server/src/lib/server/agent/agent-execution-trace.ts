@@ -44,10 +44,23 @@ export function buildAgentExecutionTraces(
 					status: 'completed',
 					summary: event.summary
 				});
+			} else if (event.type === 'tool_failed') {
+				steps.set(event.toolCallId, {
+					toolCallId: event.toolCallId,
+					toolName: event.toolName,
+					status: 'failed',
+					failureCode: event.code,
+					summary: event.summary
+				});
 			} else if (event.type === 'run_completed') {
 				assistantMessageId = event.message.id;
 			} else if (event.type === 'run_failed') {
-				failure = { message: event.message, retryable: event.retryable };
+				failure = {
+					code: event.code ?? 'unexpected_error',
+					message: event.message,
+					recovery: event.recovery ?? (event.retryable ? 'retry' : 'none'),
+					retryable: event.retryable
+				};
 			}
 		}
 		return {

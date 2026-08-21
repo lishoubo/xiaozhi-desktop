@@ -37,12 +37,14 @@
   } from '../agent-conversation-state';
   import {
     AGENT_CHAT_DISPLAY_NAME,
+    agentFailureTitle,
     chatUserDisplayName,
     executionForDisplayedMessage,
     formatConversationUpdatedAt,
     isPendingBusinessExecutionConflict,
     messageOwnsPendingClarification,
     shouldDisplayExecutionTrace,
+    shouldOfferFailureRetry,
   } from '../agent-presentation';
   import { greetingName } from '../session-greeting.svelte';
   import { shouldFollowAgentViewport } from '../agent-scroll';
@@ -113,6 +115,13 @@
   });
   const errorMessage = $derived(
     pageErrorMessage || activeView?.errorMessage || latestFailure?.failure?.message || '',
+  );
+  const errorTitle = $derived(
+    pageErrorMessage
+      ? '暂时无法完成操作'
+      : latestFailure?.failure
+        ? agentFailureTitle(latestFailure.failure.code)
+        : '本次任务未完成',
   );
   const activeBusinessExecution = $derived(activeView?.activeBusinessExecution ?? null);
   const pendingClarification = $derived(activeBusinessExecution?.pendingClarification ?? null);
@@ -871,8 +880,13 @@
             class="mx-auto mt-6 flex w-full max-w-4xl flex-wrap items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive sm:flex-nowrap sm:items-center"
           >
             <TriangleAlert class="mt-0.5 shrink-0 sm:mt-0" size={16} />
-            <span class="min-w-0 flex-1 break-words [overflow-wrap:anywhere]">{errorMessage}</span>
-            {#if !pageErrorMessage && latestFailure?.failure?.retryable && !activeRunId}
+            <div class="min-w-0 flex-1">
+              <p class="m-0 font-medium">{errorTitle}</p>
+              <p class="mt-0.5 mb-0 break-words text-destructive/85 [overflow-wrap:anywhere]">
+                {errorMessage}
+              </p>
+            </div>
+            {#if !pageErrorMessage && shouldOfferFailureRetry(latestFailure?.failure ?? null) && !activeRunId}
               <Button
                 class="ml-auto shrink-0"
                 size="sm"

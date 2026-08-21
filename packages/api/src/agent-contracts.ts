@@ -221,11 +221,35 @@ export const agentMessageSchema = z.strictObject({
 });
 export type AgentMessage = Readonly<z.infer<typeof agentMessageSchema>>;
 
+export const agentFailureCodeSchema = z.enum([
+  'query_rejected',
+  'query_invalid',
+  'data_source_timeout',
+  'data_source_unavailable',
+  'model_timeout',
+  'model_unavailable',
+  'model_output_invalid',
+  'evidence_rejected',
+  'configuration_error',
+  'execution_protocol_error',
+  'unexpected_error',
+]);
+export type AgentFailureCode = z.infer<typeof agentFailureCodeSchema>;
+
+export const agentFailureRecoverySchema = z.enum([
+  'retry',
+  'revise_request',
+  'contact_admin',
+  'none',
+]);
+export type AgentFailureRecovery = z.infer<typeof agentFailureRecoverySchema>;
+
 export const agentExecutionStepSchema = z.strictObject({
   toolCallId: z.string().min(1),
   toolName: z.string().min(1),
-  status: z.enum(['running', 'completed']),
+  status: z.enum(['running', 'completed', 'failed']),
   summary: z.string().max(500),
+  failureCode: agentFailureCodeSchema.optional(),
 });
 export type AgentExecutionStep = Readonly<z.infer<typeof agentExecutionStepSchema>>;
 
@@ -242,7 +266,12 @@ export const agentExecutionTraceSchema = z.strictObject({
   createdAt: isoDateSchema,
   completedAt: isoDateSchema.nullable(),
   failure: z
-    .strictObject({ message: z.string().min(1).max(500), retryable: z.boolean() })
+    .strictObject({
+      code: agentFailureCodeSchema,
+      message: z.string().min(1).max(500),
+      recovery: agentFailureRecoverySchema,
+      retryable: z.boolean(),
+    })
     .nullable()
     .optional(),
 });
@@ -321,6 +350,14 @@ export const agentRunEventSchema = z.discriminatedUnion('type', [
     toolName: z.string().min(1),
     summary: z.string().max(500),
   }),
+  z.strictObject({
+    ...eventBase,
+    type: z.literal('tool_failed'),
+    toolCallId: z.string().min(1),
+    toolName: z.string().min(1),
+    code: agentFailureCodeSchema,
+    summary: z.string().min(1).max(500),
+  }),
   z.strictObject({ ...eventBase, type: z.literal('ui_spec'), spec: generativeUiSpecSchema }),
   z.strictObject({
     ...eventBase,
@@ -335,7 +372,9 @@ export const agentRunEventSchema = z.discriminatedUnion('type', [
   z.strictObject({
     ...eventBase,
     type: z.literal('run_failed'),
+    code: agentFailureCodeSchema.optional(),
     message: z.string().min(1).max(500),
+    recovery: agentFailureRecoverySchema.optional(),
     retryable: z.boolean(),
   }),
   z.strictObject({ ...eventBase, type: z.literal('run_cancelled') }),

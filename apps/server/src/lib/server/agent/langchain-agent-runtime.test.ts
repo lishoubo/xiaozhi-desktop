@@ -5,13 +5,16 @@ import {
 	DuplicateUiRenderError,
 	completeGroundedAnswerAfterUi,
 	groundedAnalysisWritingInstructions,
+	hotelDataCollectionToolChoice,
 	isLocalToolAllowed,
 	normalizeAgentStreamFailure,
 	recoverCompletedUiAfterRenderLimit,
 	selectWorkflowToolNames,
 	shouldLoadMcpTools,
 	shouldLoadSkills,
+	shouldRequireHotelDataQuery,
 	shouldCaptureToolEvidence,
+	shouldAbortRepeatedMcpFailure,
 	shouldSuppressUiRenderCall,
 	shouldStopDuplicateUiRender,
 	workflowRecursionLimit
@@ -111,6 +114,9 @@ describe('groundedAnalysisWritingInstructions', () => {
 
 describe('selectWorkflowToolNames', () => {
 	const available = [
+		'list_hotel_data_tables',
+		'describe_hotel_data_table',
+		'generate_hotel_operating_data_sql',
 		'query_hotel_operating_data_sql',
 		'query_weather_forecast',
 		'search_room_rates',
@@ -124,6 +130,8 @@ describe('selectWorkflowToolNames', () => {
 			slots: {}
 		};
 		expect(selectWorkflowToolNames({ workflowRequest }, available)).toEqual([
+			'list_hotel_data_tables',
+			'describe_hotel_data_table',
 			'query_hotel_operating_data_sql'
 		]);
 		expect(selectWorkflowToolNames({ workflowRequest, validatedEvidence: [] }, available)).toEqual([
@@ -132,11 +140,79 @@ describe('selectWorkflowToolNames', () => {
 	});
 });
 
+describe('shouldRequireHotelDataQuery', () => {
+	const genericRequest = {
+		routeKind: 'business_read' as const,
+		intent: 'generic_hotel_data_query' as const,
+		slots: {}
+	};
+
+	it('requires hotel-data workflows to execute the SQL query before the model may finish', () => {
+		expect(shouldRequireHotelDataQuery(genericRequest, [])).toBe(true);
+		expect(shouldRequireHotelDataQuery(genericRequest, ['list_hotel_data_tables'])).toBe(true);
+		expect(
+			shouldRequireHotelDataQuery(genericRequest, ['query_hotel_operating_data_sql'])
+		).toBe(false);
+		expect(
+			shouldRequireHotelDataQuery(
+				{ ...genericRequest, intent: 'hotel_operating_summary' },
+				['query_hotel_operating_data_sql']
+			)
+		).toBe(false);
+	});
+
+	it('forces table discovery, schema inspection and SQL execution in order', () => {
+		expect(hotelDataCollectionToolChoice(genericRequest, [])).toEqual({
+			type: 'function',
+			function: { name: 'list_hotel_data_tables' }
+		});
+		expect(
+			hotelDataCollectionToolChoice(genericRequest, ['list_hotel_data_tables'])
+		).toEqual({
+			type: 'function',
+			function: { name: 'describe_hotel_data_table' }
+		});
+		expect(
+			hotelDataCollectionToolChoice(genericRequest, [
+				'list_hotel_data_tables',
+				'describe_hotel_data_table'
+			])
+		).toEqual({
+			type: 'function',
+			function: { name: 'query_hotel_operating_data_sql' }
+		});
+		expect(
+			hotelDataCollectionToolChoice(genericRequest, ['query_hotel_operating_data_sql'])
+		).toBe('auto');
+	});
+
+	it('does not force a hotel SQL query for unrelated workflows or general conversation', () => {
+		expect(shouldRequireHotelDataQuery(undefined, [])).toBe(false);
+		expect(
+			shouldRequireHotelDataQuery(
+				{ ...genericRequest, intent: 'weather_operations_advice' },
+				[]
+			)
+		).toBe(false);
+	});
+});
+
 describe('tool evidence capture', () => {
 	it('does not treat an error ToolMessage as business evidence', () => {
 		expect(shouldCaptureToolEvidence('error')).toBe(false);
 		expect(shouldCaptureToolEvidence('success')).toBe(true);
 		expect(shouldCaptureToolEvidence(undefined)).toBe(true);
+		expect(
+			shouldCaptureToolEvidence(
+				undefined,
+				'ToolException: Error calling tool executeScript: database rejected query'
+			)
+		).toBe(false);
+	});
+
+	it('stops retrying the same MCP tool after one corrective retry', () => {
+		expect(shouldAbortRepeatedMcpFailure(1)).toBe(false);
+		expect(shouldAbortRepeatedMcpFailure(2)).toBe(true);
 	});
 
 	it('suppresses lifecycle publication for every render call after the first call id', () => {
@@ -176,6 +252,15 @@ describe('model-driven collection diagnostics', () => {
 				errorType: 'McpError',
 				failureKind: 'tool_or_data_source',
 				retryable: true
+			})
+		).toBe(true);
+		expect(
+			shouldForwardCollectionRuntimeEvent({
+				type: 'tool_failed',
+				toolCallId: 'query-1',
+				toolName: 'query_hotel_operating_data_sql',
+				code: 'query_rejected',
+				summary: '查询未通过安全校验，已停止执行'
 			})
 		).toBe(true);
 		expect(shouldForwardCollectionRuntimeEvent({ type: 'text_delta', delta: 'raw result' })).toBe(
