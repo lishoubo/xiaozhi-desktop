@@ -181,13 +181,20 @@ class BrowserOtaTabsStore {
   }
 
   /**
-   * 离开浏览器工作区：下次进来重新按「默认激活」处理。
+   * 离开浏览器工作区：下次进来重新按「默认激活」处理，并把让位状态还原。
    *
-   * 让位状态不在这里复位——它现在是主进程的事实（`setViewportVisible`），
-   * 而离开工作区走的是 `browser.hide()`，与可见性无关。
+   * **必须复位可见性**：弹窗开着时用户从侧边栏跳走，组件树连同弹窗一起卸载，
+   * `closeDialog()`（唯一的 resume 出口）永远不会跑。不复位的话主进程的
+   * `viewportVisible` 停在 false，下次回到工作区 `activate()` 会照着它把视图设为
+   * 不可见 —— 内容区一片空白，且用户无法自行恢复。
+   *
+   * 放这里而不是主进程的 `hide()`：`hide()` 有三个调用方，另外两个（切到空渠道、
+   * 账号切换弹窗）并不表示离开工作区，在那里复位会清掉别人的让位状态。本方法的
+   * 语义就是「离开工作区」，只有卸载路径调它。
    */
   releaseViewportSession(): void {
     this.#explicitlyActivated = false;
+    void window.hotelButler.browser.setViewportVisible(true);
   }
 
   /** 切换渠道：没有已打开的 tab 时必须显式 `hide`，否则上一个渠道的视图会留在原地。 */

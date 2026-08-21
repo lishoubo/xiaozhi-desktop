@@ -72,6 +72,18 @@ type ManagedTab = {
   partitionName: string;
   /** 当前故障状态，`null` 表示正常。语义见 `shared/browser.ts`。 */
   failure: BrowserTabFailure | null;
+  /**
+   * 已经走过 `close()`。**广播前必须查它**。
+   *
+   * `webContents.close()` 是异步的：实测（Electron 43）关闭后仍会收到
+   * `did-stop-loading`（页面 unload 处理器里的跳转就会触发），且此刻
+   * `isDestroyed()` 仍为 false，所以 `snapshot()` 不抛、照常广播出去。
+   *
+   * 而事件回调持有的是**闭包里的 tab 对象**，不查 `this.tabs`，删除 map 拦不住它。
+   * 渲染进程 `updateTab` 对没见过的 id 一律 append 并设为活动标签，于是刚关掉的
+   * 标签页会自己长回标签栏、还抢走高亮 —— 之后点它必然报「浏览器标签不存在」。
+   */
+  closed?: boolean;
   /** 本标签页最近一次开窗节流窗口的起点与计数。 */
   popupWindowStartedAt?: number;
   popupCountInWindow?: number;
@@ -160,6 +172,10 @@ export class BrowserManager extends EventEmitter {
       importedCookies?: readonly CookiesSetDetails[];
     }> = {},
   ): Promise<Readonly<{ tab: BrowserTab; partitionName: string }>> {
+    // ⚠️ 必须**先**查上限再建 partition：`sessionForLogin` 会在磁盘上落一份新的
+    // 登录态，随后还可能写入 cookie。若等到 `createTab` 才拒绝，这份 partition
+    // 既没有标签页引用、也没进账本，就成了孤儿 —— 正是本仓库出过事故的那一类。
+    this.assertTabCapacity();
     const { session: tabSession, partitionName } =
       this.sessionFactory.sessionForLogin(channelId);
     if (options.importedCookies) {
@@ -167,6 +183,19 @@ export class BrowserManager extends EventEmitter {
     }
     const tab = this.createTab(channelId, url, partitionName, tabSession);
     return { tab: this.snapshot(tab), partitionName };
+  }
+
+  /**
+   * 上限对**所有**创建路径生效，含用户主动新建：只拦网页自开的话，用户照样能把
+   * 内存耗尽。每个标签页背后是一个独立的渲染进程（80–150MB）。
+   *
+   * 单独抽出来是为了能在**创建 partition 之前**先问一次 —— 见
+   * `createAndNewPartition`。
+   */
+  private assertTabCapacity(): void {
+    if (this.tabs.size >= MAX_TABS) {
+      throw new Error(`最多同时打开 ${MAX_TABS} 个标签页，请先关闭一些`);
+    }
   }
 
   private createTab(
@@ -178,11 +207,7 @@ export class BrowserManager extends EventEmitter {
   ): ManagedTab {
     assertWebUrl(url);
     if (!channelId.trim()) throw new Error('渠道标识不能为空');
-    // 上限对**所有**创建路径生效，含用户主动新建：只拦网页自开的话，用户照样能把
-    // 内存耗尽。每个标签页背后是一个独立的渲染进程（80–150MB）。
-    if (this.tabs.size >= MAX_TABS) {
-      throw new Error(`最多同时打开 ${MAX_TABS} 个标签页，请先关闭一些`);
-    }
+    this.assertTabCapacity();
 
     const id = randomUUID();
     const view = new WebContentsView({
@@ -256,6 +281,8 @@ export class BrowserManager extends EventEmitter {
     }
     this.tabs.delete(tabId);
     this.managedWebContentsIds.delete(tab.view.webContents.id);
+    // 必须在 close() 之前置位：关闭期间仍会有事件回调进来（见 `ManagedTab.closed`）。
+    tab.closed = true;
     tab.view.webContents.close();
     // 关掉的是活动标签页时，主进程自己接管，不等界面发第二次请求：那是一次额外的
     // IPC 往返（中间一帧内容区空白）；而从别处发起的关闭（如切换账号时收尾旧标签
@@ -332,13 +359,16 @@ export class BrowserManager extends EventEmitter {
     const active = this.activeTabId ? this.tabs.get(this.activeTabId) : undefined;
     if (active) this.window.contentView.removeChildView(active.view);
     this.activeTabId = null;
-    // 离开浏览器工作区 = 任何弹窗对内容区的占用都结束了。
+    // ⚠️ 刻意**不**在这里复位 `viewportVisible`。
     //
-    // ⚠️ 必须在这里复位，否则让位状态会泄漏：弹窗开着时用户从侧边栏跳走，
-    // 组件树连同弹窗一起卸载，`closeDialog()`（唯一的 resume 出口）永远不会跑。
-    // `viewportVisible` 就此停在 false，下次回到工作区时 `activate()` 会照着它
-    // 把视图设为不可见——内容区一片空白，且用户无法自行恢复。
-    this.viewportVisible = true;
+    // 曾经这么做过，理由是「离开工作区 = 弹窗占用结束」。但 `hide()` 有三个调用方，
+    // 只有一个是「离开工作区」：
+    //   - `BrowserWorkspace` 卸载        —— 确实是离开
+    //   - `selectChannel` 切到空渠道     —— 没离开，只是这个渠道没有标签页
+    //   - `AccountSwitcherDialog`        —— 没离开，这是它自己的让位方式
+    // 在这里复位会让后两者顺手清掉别人的让位状态（账号弹窗一开，绑定弹窗的让位
+    // 就没了）。复位的正确位置是渲染进程的 `releaseViewportSession()` —— 那个方法
+    // 的语义**就是**「离开工作区」，且只有卸载路径会调它。
   }
 
   /*
@@ -547,6 +577,10 @@ export class BrowserManager extends EventEmitter {
       this.emitStateChanged(tab);
     });
     webContents.on('unresponsive', () => {
+      // 不得覆盖更严重的故障：崩溃/加载失败需要用户介入，而「无响应」通常自愈。
+      // 一旦覆盖，随后的 `responsive` 会把它清成 null（那条只认 unresponsive），
+      // 崩溃就此从界面上消失，只剩一块空白页。
+      if (tab.failure !== null) return;
       tab.failure = 'unresponsive';
       this.logger.warn('Browser tab became unresponsive', { channelId: tab.channelId });
       this.emitStateChanged(tab);
@@ -580,6 +614,9 @@ export class BrowserManager extends EventEmitter {
   }
 
   private emitTabNavigated(tab: ManagedTab, url: string, webContents: WebContents): void {
+    // 已关闭的标签页不得再广播：订阅方（登录判定等）刚在 `tab:closed` 里清完它的
+    // 状态，这里再来一条会让它们为一个死 tab 重新登记，之后没有任何事件能清掉。
+    if (tab.closed) return;
     this.emit('tab:navigated', {
       tabId: tab.id,
       partitionName: tab.partitionName,
@@ -603,6 +640,7 @@ export class BrowserManager extends EventEmitter {
   }
 
   private emitStateChanged(tab: ManagedTab): void {
+    if (tab.closed) return;
     if (!this.window.isDestroyed()) {
       this.window.webContents.send(IPC_CHANNELS.browser.stateChanged, this.snapshot(tab));
     }

@@ -89,6 +89,7 @@ vi.mock('electron', () => ({
 }));
 
 import { BrowserManager } from '../../../src/main/browser/browser-manager';
+import { toChannelId } from '../../../src/main/ids';
 
 function createLogger() {
   return { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
@@ -373,17 +374,47 @@ describe('BrowserManager viewport visibility', () => {
   });
 
   /**
-   * 🔴 让位状态的泄漏路径：弹窗开着时用户从侧边栏跳走，组件树连同弹窗一起卸载，
-   * `closeDialog()`（唯一的 resume 出口）永远不会跑。不在 `hide()` 里复位的话，
-   * 下次回到工作区内容区一片空白，且用户无法自行恢复。
+   * 🔴 `hide()` **不得**顺手复位让位状态。它有三个调用方，只有一个是「离开工作区」：
+   * 切到空渠道、账号切换弹窗都会调它，在那里复位会清掉别人（如绑定弹窗）的让位。
+   *
+   * 复位的责任在渲染进程 `releaseViewportSession()`，那个方法的语义就是离开工作区。
    */
-  it('clears the suspended state when leaving the workspace', () => {
+  it('does not resurrect visibility on hide, since hide has non-workspace callers', () => {
     const manager = new BrowserManager(createWindow() as never, createLogger());
     manager.createWithAlreadyPartition('persist:xiaozhi:prod:ctrip:a', 'ctrip', CTRIP);
     manager.setViewportVisible(false);
 
     manager.hide();
     manager.activate(manager.list()[0].id);
+
+    // 让位仍然有效——只有显式 setViewportVisible(true) 才解除。
+    expect(electron.views[0].setVisible).toHaveBeenLastCalledWith(false);
+
+    manager.setViewportVisible(true);
+    expect(electron.views[0].setVisible).toHaveBeenLastCalledWith(true);
+  });
+
+  /**
+   * `setViewportVisible` 只作用于当前活动视图，因此让位期间被顶下去的旧标签页会
+   * 留在 setVisible(false) 上——实测确认可见性是**每个 view 各自持有**的状态，
+   * 且移出/加回视图树都不会重置它。
+   *
+   * 兜底靠 `activate()` 每次都无条件重设可见性（不只在切换时）。这是个隐式不变量：
+   * 全类只有 activate 一处 addChildView，所以「上屏必经 activate」成立。这条用例
+   * 就是钉住它——若有人日后在 activate 之外新增上屏路径，或把这行改成只在切换时
+   * 执行，旧标签页会永久隐身。
+   */
+  it('re-asserts visibility on every activate, even for an already-active tab', () => {
+    const manager = new BrowserManager(createWindow() as never, createLogger());
+    const first = manager.createWithAlreadyPartition('persist:xiaozhi:prod:ctrip:a', 'ctrip', CTRIP);
+    manager.setViewportVisible(false);
+    // 让位期间开第二个标签页：它顶掉了 first，此后 setViewportVisible 再也够不到 first。
+    manager.createWithAlreadyPartition('persist:xiaozhi:prod:ctrip:b', 'ctrip', CTRIP);
+    manager.setViewportVisible(true);
+    expect(electron.views[0].setVisible).toHaveBeenLastCalledWith(false);
+
+    // 用户点回第一个标签页 —— 必须把它救回来。
+    manager.activate(first.id);
 
     expect(electron.views[0].setVisible).toHaveBeenLastCalledWith(true);
   });
@@ -469,6 +500,30 @@ describe('BrowserManager tab limit', () => {
       ),
     ).toThrow('最多同时打开');
     expect(manager.list()).toHaveLength(12);
+  });
+
+  /**
+   * 🔴 达上限时**不得**先建 partition 再拒绝：`sessionForLogin` 会在磁盘上落一份
+   * 登录态，随后还写入 cookie。若等到 createTab 才抛，这份 partition 既无标签页
+   * 引用、也没进账本，就成了孤儿 —— 本仓库出过事故的那一类。
+   */
+  it('refuses before creating a partition, so nothing is orphaned', async () => {
+    const manager = new BrowserManager(createWindow() as never, createLogger());
+    for (let index = 0; index < 12; index += 1) {
+      manager.createWithAlreadyPartition(
+        `persist:xiaozhi:prod:ctrip:a${index}`,
+        'ctrip',
+        `https://ebooking.ctrip.com/p/${index}`,
+      );
+    }
+    electron.session.fromPartition.mockClear();
+
+    await expect(
+      manager.createAndNewPartition(toChannelId('ctrip'), 'https://ebooking.ctrip.com/'),
+    ).rejects.toThrow('最多同时打开');
+
+    // 一次都不该去换 session —— 换了就意味着 partition 已经落盘。
+    expect(electron.session.fromPartition).not.toHaveBeenCalled();
   });
 });
 
@@ -601,5 +656,77 @@ describe('BrowserManager close hand-off', () => {
 
     expect(window.contentView.addChildView).not.toHaveBeenCalled();
     expect(manager.list()).toHaveLength(0);
+  });
+});
+
+describe('BrowserManager closed-tab silence', () => {
+  const CTRIP = 'https://ebooking.ctrip.com/';
+
+  /**
+   * 🔴 幽灵标签页：`webContents.close()` 是异步的，实测（Electron 43）关闭后仍会
+   * 收到 `did-stop-loading`（页面 unload 处理器里的跳转即可触发），且此刻
+   * `isDestroyed()` 仍是 false —— `snapshot()` 不抛，照常广播。
+   *
+   * 事件回调持有的是闭包里的 tab 对象，从 map 里删掉拦不住它。渲染进程 `updateTab`
+   * 对没见过的 id 一律 append 并设为活动标签，于是刚关掉的标签页自己长回标签栏、
+   * 还抢走高亮，之后点它必然报「浏览器标签不存在」。
+   */
+  it('stops broadcasting state for a tab that was already closed', () => {
+    const window = createWindow();
+    const manager = new BrowserManager(window as never, createLogger());
+    const tab = manager.createWithAlreadyPartition('persist:xiaozhi:prod:ctrip:a', 'ctrip', CTRIP);
+    manager.close(tab.id);
+    window.webContents.send.mockClear();
+
+    // 关闭之后迟到的事件
+    electron.views[0].handlers.get('did-stop-loading')?.();
+    electron.views[0].handlers.get('page-title-updated')?.({}, 'late title');
+
+    expect(window.webContents.send).not.toHaveBeenCalled();
+  });
+
+  it('stops broadcasting navigation for a closed tab', () => {
+    const manager = new BrowserManager(createWindow() as never, createLogger());
+    const tab = manager.createWithAlreadyPartition('persist:xiaozhi:prod:ctrip:a', 'ctrip', CTRIP);
+    const navigated = vi.fn();
+    manager.on('tab:navigated', navigated);
+    manager.close(tab.id);
+
+    electron.views[0].handlers.get('did-navigate')?.({}, 'https://ebooking.ctrip.com/late');
+
+    // 订阅方（登录判定）刚在 tab:closed 里清完状态，再来一条会让它为死 tab 重新登记。
+    expect(navigated).not.toHaveBeenCalled();
+  });
+});
+
+describe('BrowserManager failure precedence', () => {
+  const CTRIP = 'https://ebooking.ctrip.com/';
+
+  /**
+   * 🔴 崩溃被「无响应」覆盖后，随后的 `responsive` 会把它清成 null（那条只认
+   * unresponsive）—— 崩溃就此从界面消失，用户只剩一块空白页且没有恢复入口。
+   */
+  it('does not let unresponsive downgrade a crash', () => {
+    const manager = new BrowserManager(createWindow() as never, createLogger());
+    manager.createWithAlreadyPartition('persist:xiaozhi:prod:ctrip:a', 'ctrip', CTRIP);
+    const view = electron.views[0];
+
+    view.handlers.get('render-process-gone')?.({}, { reason: 'crashed' });
+    view.handlers.get('unresponsive')?.();
+    view.handlers.get('responsive')?.();
+
+    expect(manager.list()[0].failure).toBe('crashed');
+  });
+
+  it('does not let unresponsive downgrade a load failure', () => {
+    const manager = new BrowserManager(createWindow() as never, createLogger());
+    manager.createWithAlreadyPartition('persist:xiaozhi:prod:ctrip:a', 'ctrip', CTRIP);
+    const view = electron.views[0];
+
+    view.handlers.get('did-fail-load')?.({}, -105, 'ERR_NAME_NOT_RESOLVED', CTRIP, true);
+    view.handlers.get('unresponsive')?.();
+    view.handlers.get('responsive')?.();
+
+    expect(manager.list()[0].failure).toBe('load-failed');
   });
 });
