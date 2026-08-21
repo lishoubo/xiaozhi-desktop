@@ -1,27 +1,42 @@
 /**
- * 携程的价量态改动适配器 —— 当前管**三个端点**：改价新老两套模块 + 房态。
+ * 携程的价量态改动适配器 —— 当前管**五个端点**，分布在**三个菜单**上。
  *
- * 踩点：`docs/踩点/携程/改价.md`（改价）、`docs/踩点/携程/房量01.md`（房态）
+ * 踩点：`docs/踩点/携程/` 下的 `改价.md`、`房量01.md`、`日历菜单-价量态修改踩点.md`、
+ * `房价维护菜单踩点.md`、`房态房量菜单.md`。
  *
- * 📄 **上报内容的规格（`changeRaw` 里有什么、RMS 怎么解读）分成两份，按用途看：**
- * - 改价 → `./amount-change-payload.ts`（含新老两套模块怎么分辨）
- * - 房态 → `./room-status-payload.ts`（含 `roomStatus` 的 G/N 语义）
+ * 📄 **上报内容的规格（`changeRaw` 里有什么、RMS 怎么解读）分成三份，按 `endpointId` 看：**
+ * - 改价（三个端点）→ `./amount-change-payload.ts`（含新老两套模块怎么分辨）
+ * - 房态·日历菜单 → `./room-status-payload.ts`（`roomStatus` 是 `G`/`N` **字符串**）
+ * - 房态房量·新菜单 → `./room-status-quantity-payload.ts`（`roomStatus` 是 `1`/`2` **数字**）
  *
  * 本文件只讲「怎么拦、怎么判、怎么定位」。
  *
- * ## 房态与改价共用一套机制，只在适配器内分流
+ * ## 三个菜单、五个端点，共用一套机制，只在适配器内分流
  *
  * ```
- * 页面 /ebkovsroom/inventory/calendar   ← 同一张日历页，改价与房态都在这里
- *   ├── 改价 → batchsetroomprice / setRCRoomPrice → changeType: 'price'
- *   └── 房态 → setbatchroombookablestatus          → changeType: 'roomStatus'
+ * /ebkovsroom/inventory/calendar              日历菜单（改价与房态同页）
+ *   ├── 改价 → batchsetroomprice              → changeType: 'price'
+ *   └── 房态 → setbatchroombookablestatus     → changeType: 'roomStatus'   G/N 字符串
+ *
+ * /rateplan/batchPriceSetting                 房价维护菜单（同页两个改价变体）
+ *   ├── 逐项设价   → setRCRoomPrice           → changeType: 'price'
+ *   └── 统一加减价 → setUniformRCRoomPrice    → changeType: 'price'
+ *
+ * /rateplan/batchSetRoomStatusAndQuantity     房态房量菜单（只有批量入口）
+ *   └── 房态+房量 → batchUpdateRoomStatusAndQuantity → changeType: 'roomStatus'  1/2 数字
  * ```
  *
- * 两者请求体**没有一个字段同名**（改价 `roomPriceInfoList` / 房态 `hotelRoomInfoDtoList`），
- * 所以 `parse` 先按 `endpointId` 分流，各走各的取值逻辑，不共用。
+ * 请求体形状**四类互不相同**（改价老 `roomPriceInfoList` / 改价新 `roomPriceInfos` /
+ * 房态老 `hotelRoomInfoDtoList` / 房态房量 `roomProductIds`），⚠️ 连**两个房态端点之间都
+ * 没有一个字段同名**。所以 `parse` 与 `isSuccessful` 都先按 `endpointId` 分流，各走各的
+ * 取值逻辑，不共用、不靠形状自辨。
  *
- * 开房与关房**不拆两个 `endpointId`**：同端点、同形状，整个请求体只差 `roomStatus` 一个
- * 字段（`G` 开 / `N` 关）。拆了等于让 desktop 解读渠道语义，与「忠实透传」的定位冲突。
+ * 开房与关房在**两个房态端点内部**都**不拆两个 `endpointId`**：同端点、同形状，整个请求体
+ * 只差 `roomStatus` 一个字段的取值。拆了等于让 desktop 解读渠道语义，与「忠实透传」的定位
+ * 冲突。（美团相反：那边开关房是两个独立端点。）
+ *
+ * ⚠️ 两个房态端点表达开关房用的是**不同形式**（`"G"`/`"N"` vs `1`/`2`），desktop
+ * **不归一化** —— 归一化属于语义转换。RMS 须按 `endpointId` 分别解读。
  *
  * ## 与抖音的三处结构性差异
  *
@@ -52,6 +67,7 @@ import { isTrustedHotelUrl } from '../trusted-hotel-url';
 import type { AmountChangeAdapter, AmountParseResult } from '../types';
 import { toCtripAmountChangeRaw } from './amount-change-payload';
 import { toCtripRoomStatusRaw } from './room-status-payload';
+import { toCtripRoomStatusQuantityRaw } from './room-status-quantity-payload';
 import type { AppLogger } from '../../../shared/logging';
 
 const CTRIP_EBOOKING_HOSTNAME = 'ebooking.ctrip.com';
@@ -77,43 +93,68 @@ const CTRIP_EBOOKING_HOSTNAME = 'ebooking.ctrip.com';
  * `[DIAG] 导航 { url: '.../rateplan/batchPriceSetting', 可监听: false, 当前在监听: true }`
  * 紧跟着就是 `监听已停止`。
  *
- * ## 加房态时**无需**改这里（2026-08-13 已核对，别再排查一遍）
+ * ## 日历菜单的房态**无需**改这里，房态房量菜单**必须**改（别混为一谈）
  *
- * 房态踩点的 referer 是 `/ebkovsroom/inventory/calendar?microJump=true` —— 就是改价老模块
- * 那张**日历页**，已被第一条前缀覆盖。房态与改价在携程是同一个页面上的两个操作。
+ * 日历菜单房态踩点的 referer 是 `/ebkovsroom/inventory/calendar?microJump=true` —— 就是
+ * 改价老模块那张**日历页**，已被第一条前缀覆盖。房态与改价在那个菜单里是同一页面上的两个操作。
  *
- * 这一点与抖音相反：抖音房态在 `/hotel/status`，是另一条路由，二期光加端点常量不够，
- * 必须同时放开 `WATCH_PATH`，否则页面匹配不上就根本不会 attach。
+ * 但**房态房量菜单是另一条路由** `/rateplan/batchSetRoomStatusAndQuantity`，光加端点常量
+ * 不够，必须同时放开这里 —— 否则页面匹配不上，`AmountChangeWatcher` 会按上面描述的路径
+ * 把整个 tab 的监听 detach 掉。这一点与抖音房态（另起 `/hotel/status` 路由）同理。
+ *
+ * ## ⚠️ 三条前缀两两互不为前缀，且**不要图省事写成 `/rateplan`**
+ *
+ * ```
+ * /ebkovsroom/inventory                      日历菜单（改价老 + 房态老）
+ * /rateplan/batchPriceSetting                房价维护菜单（改价新 ×2）
+ * /rateplan/batchSetRoomStatusAndQuantity    房态房量菜单   ← 与上一条第二段就分叉
+ * ```
+ *
+ * 写成 `/rateplan` 会把该前缀下**所有**子页面都纳入监听，无谓扩大 CDP attach 面（attach
+ * 本身要与酒店探测抢调试通道）。按页面精确声明。
  */
-const WATCH_PATHS: readonly string[] = ['/ebkovsroom/inventory', '/rateplan/batchPriceSetting'];
+const WATCH_PATHS: readonly string[] = [
+  '/ebkovsroom/inventory',
+  '/rateplan/batchPriceSetting',
+  '/rateplan/batchSetRoomStatusAndQuantity',
+];
 
 /**
- * 要拦的端点 —— 携程当前认**三个**：两套并存的改价模块 + 房态。
+ * 要拦的端点 —— 携程当前认**五个**，分布在**三个菜单**上：改价三个 + 房态两个。
  *
- * | 用途 | 模块 | 页面 | 端点 | 来源 |
+ * | 菜单 | 用途 | 页面 | 端点方法名 | 来源 |
  * |---|---|---|---|---|
- * | 改价 | `ebkovsroom`（老） | `/ebkovsroom/inventory/calendar` | `/api/inventory/batchsetroomprice` | 踩点 `改价.md` |
- * | 改价 | `rateplan`（新） | `/rateplan/batchPriceSetting` | `/restapi/soa2/23783/setRCRoomPrice` | 2026-08-11 真机 |
- * | 房态 | `ebkovsroom` | `/ebkovsroom/inventory/calendar` | `/api/inventory/setbatchroombookablestatus` | 踩点 `房量01.md` |
+ * | 日历 | 改价 | `/ebkovsroom/inventory/calendar` | `batchsetroomprice` | 踩点 `改价.md` |
+ * | 日历 | 房态 | `/ebkovsroom/inventory/calendar` | `setbatchroombookablestatus` | 踩点 `房量01.md` |
+ * | 房价维护 | 改价·逐项 | `/rateplan/batchPriceSetting` | `setRCRoomPrice` | 2026-08-11 真机 |
+ * | 房价维护 | 改价·统一加减 | `/rateplan/batchPriceSetting` | `setUniformRCRoomPrice` | 踩点 `房价维护菜单踩点.md` |
+ * | 房态房量 | 房态+房量 | `/rateplan/batchSetRoomStatusAndQuantity` | `batchUpdateRoomStatusAndQuantity` | 踩点 `房态房量菜单.md` |
  *
- * 改价踩点文档只覆盖了老模块。真机走左侧菜单「批量设价」进的是 `rateplan` 新模块，
- * 用的是完全不同的 `soa2/23783` 接口 —— 只认踩点那个端点会**一次都拦不到**。
+ * ## ⚠️ 同一个菜单里可能有多个端点
  *
- * 两个改价端点都留：不确定哪些账号/入口会走哪一套，多认一个端点的成本只是一行常量。
+ * 携程的同类操作分散在多个菜单，**同一个页面上的不同操作变体还会走不同端点**：房价维护页
+ * 的「逐项设价」与「统一加减价」就是两个端点。只认其中一个，另一个的改动**静默漏报** ——
+ * 日志上与「用户根本没改」完全一样。这是本渠道反复踩到的同一类坑（2026-08-11 只认踩点里的
+ * 老改价端点、真机一次都拦不到，是同一个成因）。
  *
- * ## 三个路径互不为子串，分发不会串味
+ * 多认一个端点的成本只是一行常量，漏认一个的代价是查不出来的漏报 —— 取舍很明确。
+ *
+ * ## 五个片段两两互不为子串，分发不会串味
  *
  * `AmountSaveCapture.matchEndpoint` 是 `url.includes(fragment)` **首个命中即返回**，
  * 所以片段之间不能有包含关系：
  *
  * ```
  * /ebkovsroom/api/inventory/batchsetroomprice            改价老
- * /ebkovsroom/api/inventory/setbatchroombookablestatus   房态     ← 与上一条前缀相同但
+ * /ebkovsroom/api/inventory/setbatchroombookablestatus   房态老   ← 与上一条前缀相同但
  * /setRCRoomPrice                                        改价新      末段不同，互不为子串
+ * /setUniformRCRoomPrice                                 改价新·统一加减 ← `Uniform` 插在
+ * /batchUpdateRoomStatusAndQuantity                      房态房量        中间，与上一条互不含
  * ```
  *
- * 注意 `batchsetroomprice` 与 `setbatchroombookablestatus` 只是**看着像**（都含 `batch`、
- * `room`），实际互不包含。有单测钉住这一点。
+ * 两组**看着像**但实际互不包含的：`batchsetroomprice` 与 `setbatchroombookablestatus`
+ * （都含 `batch`、`room`）、`setRCRoomPrice` 与 `setUniformRCRoomPrice`（后者不含前者，
+ * 因为 `Uniform` 插在 `set` 与 `RCRoomPrice` 之间）。有单测钉住这一点。
  *
  * ## 为什么新端点不写死 `soa2/23783`
  *
@@ -131,12 +172,26 @@ const WATCHED_ENDPOINTS: ReadonlyMap<string, string> = new Map([
   // 「前缀 + 跳过中间编号 + 方法名」，所以片段只取方法名。误匹配风险由 `isWatchableUrl`
   // 兜底：只有停在携程改价页时才会 attach，那种上下文里不会有别的服务叫这个名字。
   ['setRCRoomPrice', '/setRCRoomPrice'],
+  // 同页面的「统一加减价」变体 —— 与逐项设价是**两个端点**，只认一个会漏掉另一个。
+  // 请求体与 `setRCRoomPrice` 同构，只多三个加减价字段（adjustmentPrice*），故解析与
+  // 成功判定全部复用改价新模块的路径，无需额外分支。
+  ['setUniformRCRoomPrice', '/setUniformRCRoomPrice'],
   // 房态（开房/关房共用此端点，靠请求体 `roomStatus` 的 G/N 区分，不拆两个 endpointId）。
   ['setbatchroombookablestatus', '/ebkovsroom/api/inventory/setbatchroombookablestatus'],
+  // 房态房量菜单 —— 与上一条是**两个完全不同的房态端点**，零字段同名，见
+  // `./room-status-quantity-payload.ts`。开房/关房同样共用此端点，靠 `roomStatus` 的
+  // 数字码 1/2 区分（⚠️ 与上一条的 G/N 不同，desktop 两套都原样透传、不归一化）。
+  ['batchUpdateRoomStatusAndQuantity', '/batchUpdateRoomStatusAndQuantity'],
 ]);
 
-/** 房态端点的 `endpointId`。判定与解析都要按它分支，抽成常量避免拼错。 */
+/** 日历菜单房态端点的 `endpointId`。判定与解析都要按它分支，抽成常量避免拼错。 */
 const ROOM_STATUS_ENDPOINT_ID = 'setbatchroombookablestatus';
+
+/**
+ * 房态房量菜单端点的 `endpointId`。与上面那个是**两个不同的房态端点**，请求体零字段同名，
+ * 成功判定的响应信封也不同 —— 判定与解析都必须按它单独分支。
+ */
+const ROOM_STATUS_QUANTITY_ENDPOINT_ID = 'batchUpdateRoomStatusAndQuantity';
 
 const CTRIP_CHANNEL = toChannelId('ctrip');
 
@@ -186,16 +241,30 @@ function roomTypeIdsOf(requestBody: JsonObject): readonly string[] {
 }
 
 /**
- * 新模块（`setRCRoomPrice`）的房型列表 —— 字段名与老模块完全不同。
+ * 改价新模块（`setRCRoomPrice` / `setUniformRCRoomPrice`）的房型列表 —— 字段名与老模块
+ * 完全不同，两个新端点之间则同构。
  *
  * ```
  * 老 batchsetroomprice   { roomPriceInfoList: [{ roomTypeID, hotelID, refRoomIDs }] }
- * 新 setRCRoomPrice      { roomPriceInfos:    [{ roomProductId, startDate, endDate }] }
+ * 新 setRCRoomPrice      { roomPriceInfos:    [{ roomProductId, relationRoomProducts }] }
  * ```
  *
- * ⚠️ `excludedRelationRoomProductIds` 是**排除**语义（哪些联动房型不跟着改），与老模块
- * `refRoomIDs` 的「一并改了这些」正好相反 —— **不能收进来**，否则会把明确排除掉的房型
- * 当成改过的报给 RMS。
+ * ## ⚠️ 联动房型有**两个语义相反**的字段，只能收其中一个
+ *
+ * | 字段 | 形状 | 语义 | 收不收 |
+ * |---|---|---|---|
+ * | `relationRoomProducts` | `[{ roomProductId, mealNum }]` 对象数组 | **一并改了这些** | ✅ 收 |
+ * | `excludedRelationRoomProductIds` | `[id, …]` 裸 ID 数组 | **排除这些** | ⛔ **绝不能收** |
+ *
+ * `relationRoomProducts` 对应老模块的 `refRoomIDs`（也是「一并改了这些」），只是形状从裸
+ * ID 数组变成了对象数组，取值要多一层 `.roomProductId`。
+ *
+ * 收 `excludedRelationRoomProductIds` 会把用户**明确排除**掉的房型当成改过的报给 RMS ——
+ * 方向完全反了。两个字段名字长得像，改这段代码时务必看清楚。
+ *
+ * ⚠️ 漏收 `relationRoomProducts` 是本文件的**既有缺陷**（2026-08-21 修复）：只收
+ * `roomProductId` 时，用户若只改联动房型，这次改价会被判成「拦到的不是改价请求」而**整个
+ * 丢弃**。这个函数只用于该丢弃判定，不进上报体 —— `changeRaw` 本来就全量透传。
  */
 function roomProductIdsOf(requestBody: JsonObject): readonly string[] {
   const list = requestBody.roomPriceInfos;
@@ -203,8 +272,20 @@ function roomProductIdsOf(requestBody: JsonObject): readonly string[] {
   const found = new Set<string>();
   for (const item of list) {
     if (typeof item !== 'object' || item === null || Array.isArray(item)) continue;
-    const productId = idToString((item as Record<string, unknown>).roomProductId);
+    const entry = item as Record<string, unknown>;
+
+    const productId = idToString(entry.roomProductId);
     if (productId) found.add(productId);
+
+    // 联动房型：这些房型的价也一并被改了，与老模块 `refRoomIDs` 同义。
+    // ⛔ 注意不是 `excludedRelationRoomProductIds` —— 那个是排除语义，见上表。
+    if (Array.isArray(entry.relationRoomProducts)) {
+      for (const relation of entry.relationRoomProducts) {
+        if (typeof relation !== 'object' || relation === null || Array.isArray(relation)) continue;
+        const relationId = idToString((relation as Record<string, unknown>).roomProductId);
+        if (relationId) found.add(relationId);
+      }
+    }
   }
   return [...found];
 }
@@ -284,7 +365,16 @@ function isCtripSaveSuccessful(responseBody: string, endpointId: string): boolea
 
   if (endpointId === ROOM_STATUS_ENDPOINT_ID) return isRoomStatusSuccessful(envelope);
 
-  // 新模块 `setRCRoomPrice`：`{ taskId, resStatus: {rcode}, ResponseStatus: {Ack, Errors} }`
+  // 房态房量菜单：响应是标准 SOA 信封，与改价新模块同构，复用同一判据。
+  //
+  // ⚠️ **必须显式列出这个分支，不能让它落到下面的形状自辨里**。虽然该端点确实有
+  // `resStatus`、落到自辨分支也能判对，但那是**巧合而非契约**：一旦携程给这个端点换个
+  // 信封，自辨会把它错判到老模块分支，卡在 `data` 上判成失败 —— 失效方式是静默漏报，
+  // 与本文件头警告的、以及 2026-08-13 美团关房全丢的是同一类问题。判据按端点钉死。
+  if (endpointId === ROOM_STATUS_QUANTITY_ENDPOINT_ID) return isNewModuleSuccessful(envelope);
+
+  // 新模块 `setRCRoomPrice` / `setUniformRCRoomPrice`：
+  // `{ taskId, resStatus: {rcode}, ResponseStatus: {Ack, Errors} }`
   // 两个都要看：`rcode` 是业务码，`Ack`/`Errors` 是携程 SOA 框架层的结果。
   if (envelope.resStatus !== undefined || envelope.ResponseStatus !== undefined) {
     return isNewModuleSuccessful(envelope);
@@ -434,6 +524,70 @@ function parseRoomStatus(observed: AmountSaveObserved, logger: AppLogger): Amoun
   };
 }
 
+/**
+ * 房态房量菜单涉及的房型 —— **只有顶层 `roomProductIds` 一处**。
+ *
+ * ⚠️ **不要复用 `roomStatusRoomIdsOf`**：那个函数读的是日历菜单房态端点的
+ * `hotelRoomInfoDtoList[].roomTypeID` 与 `originalRoomProductIds`，本端点这两个字段
+ * 都不存在（两个房态端点零字段同名，见 `./room-status-quantity-payload.ts`）。
+ *
+ * 这里只用于「拦到的是不是一次真实房态房量操作」的判定，不进上报体（`changeRaw` 有全量）。
+ */
+function roomStatusQuantityRoomIdsOf(requestBody: JsonObject): readonly string[] {
+  const list = requestBody.roomProductIds;
+  if (!Array.isArray(list)) return [];
+  const found = new Set<string>();
+  for (const item of list) {
+    const id = idToString(item);
+    if (id) found.add(id);
+  }
+  return [...found];
+}
+
+/**
+ * 房态房量菜单（`batchUpdateRoomStatusAndQuantity`）的解读。
+ *
+ * 开关方向不在这里判 —— `roomStatus` 的数字码（`1` 开 / `2` 关）原样留在 `changeRaw` 里
+ * 交给 RMS，desktop 不解读渠道语义，也**不把它归一化成日历菜单那套 `G`/`N`**。
+ * 房量三字段同样原样透传（本次 RMS 不解析）。规格见 `./room-status-quantity-payload.ts`。
+ */
+function parseRoomStatusQuantity(
+  observed: AmountSaveObserved,
+  logger: AppLogger,
+): AmountParseResult | null {
+  const roomIds = roomStatusQuantityRoomIdsOf(observed.requestBody);
+
+  // 硬错误判定：一个房型都取不到，说明拦到的不是房态房量操作 —— 上报出去 RMS 也处理不了。
+  if (roomIds.length === 0) {
+    logger.warn('Ctrip room status/quantity: request body had no room identifiers', {
+      endpointId: observed.endpointId,
+      requestBodyKeys: Object.keys(observed.requestBody),
+    });
+    return null;
+  }
+
+  // 该端点请求体里**根本没有门店 ID**（踩点已确认），`otaHotelId` 恒为空串。这是**正常
+  // 情况不是错误**，所以记 info 而非 warn —— 与改价新模块同一处境，RMS 按房型反查。
+  // 一次操作还可能跨多家门店（踩点样本里两个房型就分属两家），RMS 须遍历全量反查。
+  logger.info('Ctrip room status/quantity: no hotelID in body, RMS will resolve by room product', {
+    endpointId: observed.endpointId,
+    roomIds,
+  });
+
+  return {
+    kind: 'report',
+    report: {
+      source: CTRIP_CHANNEL,
+      changeType: 'roomStatus',
+      endpointId: observed.endpointId,
+      endpointUrl: observed.endpointUrl,
+      // 恒为空串：该端点不暴露门店标识，不为凑这个值去查绑定或操作页面。
+      otaHotelId: '',
+      changeRaw: toCtripRoomStatusQuantityRaw(observed.requestBody),
+    },
+  };
+}
+
 export function createCtripAmountChangeAdapter(logger: AppLogger): AmountChangeAdapter {
   return {
     watchedEndpoints: WATCHED_ENDPOINTS,
@@ -448,8 +602,12 @@ export function createCtripAmountChangeAdapter(logger: AppLogger): AmountChangeA
 
     parse(observed: AmountSaveObserved): AmountParseResult | null {
       // 房态与改价的请求体没有一个字段同名，分流后各走各的，不共用取值逻辑。
+      // 两个房态端点之间同样零字段同名，必须各走各的 parse。
       if (observed.endpointId === ROOM_STATUS_ENDPOINT_ID) {
         return parseRoomStatus(observed, logger);
+      }
+      if (observed.endpointId === ROOM_STATUS_QUANTITY_ENDPOINT_ID) {
+        return parseRoomStatusQuantity(observed, logger);
       }
 
       const hotelIds = hotelIdsOf(observed.requestBody);
