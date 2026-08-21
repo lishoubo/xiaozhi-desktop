@@ -198,7 +198,7 @@ if (roomProductIds.length === 0) { logger.warn(...); return null; }
 
 - **上线顺序**：A + B 一起提交（零风险）；C 待踩点补齐后单独提交。
 - **回滚**：删掉新增的端点常量与页面前缀即可回到当前行为，无残留状态。
-- **RMS 协同**：C 块上线**前**需与 RMS 确认已能处理 `batchUpdateRoomStatusAndQuantity` 的 `changeRaw` 形状及空 `otaHotelId`。A、B 不需要 —— A 的形状 RMS 已能处理，B 不改 `changeRaw`。
+- **RMS 协同**：C 块上线**前**需与 RMS 确认已能处理 `batchUpdateRoomStatusAndQuantity` 的 `changeRaw` 形状及空 `otaHotelId`。A、B 不需要 —— A 的形状 RMS 已能处理，B 不改 `changeRaw`。交付给服务端的对接说明见 `./server-integration.md`。
 
 ## 踩点确认结果（2026-08-21，C 块已解锁）
 

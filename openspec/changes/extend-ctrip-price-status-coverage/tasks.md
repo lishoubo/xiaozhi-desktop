@@ -50,7 +50,8 @@
 
 ## 6. C 块交付
 
-- [ ] 6.1 与 RMS 侧确认已能处理新端点的 `changeRaw` 形状及空 `otaHotelId`（上线前置，见 design.md Migration Plan）
+- [x] 6.1 写服务端对接说明 `server-integration.md`（C 块工作清单 + 完整 `changeRaw` 样本 + 逐字段含义表）
+- [ ] 6.1b 把 `server-integration.md` 交给服务端，确认已能处理新端点的 `changeRaw` 形状及空 `otaHotelId`（上线前置，见 design.md Migration Plan）
 - [ ] 6.2 与 RMS 侧对齐 `roomStatus` 的 **`1` 开 / `2` 关**（区别于日历菜单端点的 `"G"`/`"N"`），并明确 ⚠️ **房量三字段本次不解析、`-100` 不得当作房量值**
 - [x] 6.3 跑受影响单测，全绿
 - [ ] 6.4 真机验证：在房态房量页做开房、关房各一次，确认两次都产生上报、`changeRaw.roomStatus` 分别为 `1` 与 `2`
