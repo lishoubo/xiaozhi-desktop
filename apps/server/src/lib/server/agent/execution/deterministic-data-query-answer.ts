@@ -1,5 +1,6 @@
 import type { GenerativeUiSpec } from '@hotel-butler/api';
 import { HOTEL_DATA_RESULT_ROW_LIMIT, HOTEL_DATA_SQL_TOOL_NAME } from '../hotel-data-mcp';
+import { hotelDataDomainLabel, type HotelDataDomain } from '../hotel-data-semantic-catalog';
 import { validateHotelUi } from '../hotel-ui-validator';
 import type {
 	EvidenceRecord,
@@ -135,6 +136,60 @@ function filtered(value: JsonValue, depth = 0): boolean {
 	return Object.values(value).some((item) => filtered(item, depth + 1));
 }
 
+function resultSetLabel(source: EvidenceRecord, index: number): string {
+	if (typeof source.data !== 'object' || source.data === null || Array.isArray(source.data)) {
+		return `查询 ${index}`;
+	}
+	const provenance = Reflect.get(source.data, 'provenance');
+	if (typeof provenance !== 'object' || provenance === null || Array.isArray(provenance)) {
+		return `查询 ${index}`;
+	}
+	const domains = Reflect.get(provenance, 'domains');
+	const tables = Reflect.get(provenance, 'tables');
+	const domain = Array.isArray(domains) && typeof domains[0] === 'string' ? domains[0] : null;
+	const table = Array.isArray(tables) && typeof tables[0] === 'string' ? tables[0] : null;
+	const knownDomains: readonly HotelDataDomain[] = [
+		'operating',
+		'traffic_conversion',
+		'content',
+		'search',
+		'crowd',
+		'marketing',
+		'reviews_scores',
+		'orders',
+		'sync'
+	];
+	const domainLabel = knownDomains.find((candidate) => candidate === domain);
+	return (
+		[domainLabel ? hotelDataDomainLabel(domainLabel) : null, table].filter(Boolean).join(' · ') ||
+		`查询 ${index}`
+	);
+}
+
+function rowsWithFairResultSetAllocation(
+	resultSets: readonly Readonly<{
+		source: EvidenceRecord;
+		table: TableData;
+		index: number;
+	}>[],
+	dataColumns: readonly string[]
+): readonly (readonly Scalar[])[] {
+	const baseQuota = Math.floor(HOTEL_DATA_RESULT_ROW_LIMIT / resultSets.length);
+	let remainder = HOTEL_DATA_RESULT_ROW_LIMIT % resultSets.length;
+	return resultSets.flatMap((resultSet) => {
+		const quota = baseQuota + (remainder-- > 0 ? 1 : 0);
+		return resultSet.table.rows.slice(0, quota).map((row) => {
+			const values = new Map(
+				resultSet.table.columns.map((column, index) => [column, row[index] ?? null])
+			);
+			return [
+				resultSetLabel(resultSet.source, resultSet.index),
+				...dataColumns.map((column) => values.get(column) ?? null)
+			];
+		});
+	});
+}
+
 export function buildDeterministicDataQueryAnswer(
 	request: ResolvedBusinessRequest,
 	evidence: readonly EvidenceRecord[]
@@ -164,19 +219,7 @@ export function buildDeterministicDataQueryAnswer(
 					const dataColumns = columns.slice(1);
 					return {
 						columns,
-						rows: resultSets
-							.flatMap((resultSet) =>
-								resultSet.table.rows.map((row) => {
-									const values = new Map(
-										resultSet.table.columns.map((column, index) => [column, row[index] ?? null])
-									);
-									return [
-										`查询 ${resultSet.index}`,
-										...dataColumns.map((column) => values.get(column) ?? null)
-									];
-								})
-							)
-							.slice(0, HOTEL_DATA_RESULT_ROW_LIMIT)
+						rows: rowsWithFairResultSetAllocation(resultSets, dataColumns)
 					};
 				})();
 	if (!table) return null;

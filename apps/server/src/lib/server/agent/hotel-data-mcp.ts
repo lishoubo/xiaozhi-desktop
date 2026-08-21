@@ -1,4 +1,5 @@
-import { analyzeComplexHotelDataSql } from './hotel-data-sql-policy';
+import { HOTEL_DATA_TABLES } from './hotel-data-business-catalog';
+import { analyzeComplexHotelDataSql, hotelDataSqlTableNames } from './hotel-data-sql-policy';
 import { AgentQueryInvalidError, AgentQueryRejectedError } from './agent-query-error';
 
 export const DMS_GENERATE_SQL_TOOL_NAME = 'generateSql';
@@ -317,6 +318,37 @@ function scopeHotelDataSql(
 	return `${sql.slice(0, from.end)}${scopedSource}${sql.slice(clauseEnd)}`;
 }
 
+const ALWAYS_PRIVATE_HOTEL_DATA_FIELDS = new Set(['raw_payload', 'data_payload', 'cookie_cipher']);
+
+function sqlMentionsIdentifier(sql: string, identifier: string): boolean {
+	const escaped = identifier.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+	return new RegExp(
+		`(?:^|[^A-Za-z0-9_$])(?:\\\`${escaped}\\\`|${escaped})(?:$|[^A-Za-z0-9_$])`,
+		'i'
+	).test(sql);
+}
+
+export function enforceHotelDataProjectionPolicy(sql: string): void {
+	const referenced = hotelDataSqlTableNames(sql).flatMap((name) => {
+		const table = HOTEL_DATA_TABLES.find((candidate) => candidate.name === name);
+		return table ? [table] : [];
+	});
+	const forbidden = new Set([
+		...referenced.flatMap((table) => table.sensitiveFields),
+		...ALWAYS_PRIVATE_HOTEL_DATA_FIELDS
+	]);
+	const selectedForbidden = [...forbidden].find((field) => sqlMentionsIdentifier(sql, field));
+	if (selectedForbidden) {
+		throw new AgentQueryRejectedError(`酒店数据查询不允许访问敏感字段 ${selectedForbidden}`);
+	}
+	if (
+		referenced.some((table) => table.sensitiveFields.length > 0 || table.fallbackOnly) &&
+		/\bselect\s+(?:[A-Za-z_][A-Za-z0-9_$]*\s*\.\s*)?\*/i.test(sql)
+	) {
+		throw new AgentQueryRejectedError('酒店数据查询不允许对敏感或后备数据表使用 SELECT *');
+	}
+}
+
 export function constrainHotelDataSqlArgs(
 	args: unknown,
 	databaseId?: string,
@@ -344,6 +376,8 @@ export function constrainHotelDataSqlArgs(
 	if (FORBIDDEN_SQL.test(sql)) {
 		throw new AgentQueryRejectedError('经营数据 SQL 包含不允许的操作');
 	}
+	if (allowedHotelIds) analyzeComplexHotelDataSql(sql, allowedHotelIds, databaseName);
+	enforceHotelDataProjectionPolicy(sql);
 	if (allowedHotelIds) sql = scopeHotelDataSql(sql, allowedHotelIds, databaseName);
 	return {
 		...parameters,

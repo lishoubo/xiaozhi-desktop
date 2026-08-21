@@ -4,6 +4,7 @@ import {
 	HOTEL_DATA_SCHEMA_CATALOG,
 	HOTEL_DATA_TABLES,
 	hotelDataDomainsForText,
+	hotelDataMetricFamiliesForFields,
 	isGenericHotelDataDomainRequest,
 	isLikelyHotelDataRequest
 } from './hotel-data-business-catalog';
@@ -56,5 +57,15 @@ describe('hotel data business catalog', () => {
 		expect(hotelDataDomainsForText('搜索流量表现')).toEqual(['search']);
 		expect(hotelDataDomainsForText('直播成交表现')).toEqual(['content']);
 		expect(hotelDataDomainsForText('订单退款情况')).toEqual(['orders']);
+	});
+
+	it('does not mistake a conversion-rate field for a completed trade metric', () => {
+		expect(hotelDataMetricFamiliesForFields(['exposure_to_trade_conversion_rate'])).toEqual([
+			'conversion'
+		]);
+		expect(hotelDataMetricFamiliesForFields(['gmv', 'trade_user_cnt'])).toEqual([
+			'conversion',
+			'trade'
+		]);
 	});
 });

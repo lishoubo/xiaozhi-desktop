@@ -3,22 +3,32 @@ import {
 	describeVerifiedHotelDataTables,
 	hotelDataDomainLabel,
 	hotelDataDomainsForText,
+	hotelDataMetricFamiliesForFields,
+	hotelDataMetricFamiliesForText,
+	hotelDataMetricFamilyLabel,
 	hotelDataTableSemantics,
 	HOTEL_DATA_TABLES,
 	HOTEL_DATA_CATALOG_TOOL_NAME,
 	type HotelDataDomain,
-	type HotelDataTableSemantics
+	type HotelDataMetricFamily,
+	type HotelDataTableSemantics,
+	verifiedHotelDataTablesForText
 } from './hotel-data-semantic-catalog';
 
 export {
 	hotelDataDomainLabel,
 	hotelDataDomainsForText,
+	hotelDataMetricFamiliesForFields,
+	hotelDataMetricFamiliesForText,
+	hotelDataMetricFamilyLabel,
 	hotelDataTableSemantics,
 	describeVerifiedHotelDataTables,
 	HOTEL_DATA_TABLES,
 	HOTEL_DATA_CATALOG_TOOL_NAME,
 	type HotelDataDomain,
-	type HotelDataTableSemantics
+	type HotelDataMetricFamily,
+	type HotelDataTableSemantics,
+	verifiedHotelDataTablesForText
 };
 
 export const HOTEL_DATA_BUSINESS_ROUTE_GUIDANCE = `酒店真实业务数据不仅包括“经营概览”，还包括以下用户自然语言：

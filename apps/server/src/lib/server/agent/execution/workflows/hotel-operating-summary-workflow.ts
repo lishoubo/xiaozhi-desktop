@@ -42,6 +42,9 @@ export const hotelOperatingSummaryWorkflow: BusinessWorkflowHandler = {
 		if (Array.isArray(request.slots.hotelReference)) {
 			return { kind: 'agent', reason: 'agent_required' };
 		}
+		if (request.slots.dateRange === undefined) {
+			return { kind: 'agent', reason: 'agent_required' };
+		}
 		const tool = tools.find((candidate) => candidate.name === HOTEL_DATA_SQL_TOOL_NAME);
 		const args = tool ? operatingSummaryArgs(tool, request) : null;
 		if (!tool || !args || !schemaAccepts(tool.schema, args)) {

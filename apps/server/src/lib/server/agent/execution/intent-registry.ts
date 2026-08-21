@@ -43,7 +43,8 @@ const definitions = [
 		workflowId: 'hotel_operating_summary.v1',
 		slots: [
 			{ name: 'hotelReference', required: true },
-			{ name: 'dateRange', required: true }
+			{ name: 'dateRange', required: false },
+			{ name: 'metrics', required: false }
 		],
 		maxToolCalls: 4,
 		allowSchemaDiscovery: true,

@@ -19,6 +19,11 @@ cross-hotel data mixing.
   `OR` predicates when they cannot weaken hotel scope.
 - Distinguish discovery, SQL-round and repeated-query failure budgets; reject semantically empty
   table discovery.
+- Reject and refresh transiently empty MCP tool catalogs instead of caching them as healthy.
+- Separate requested, effective and observed query scope; enforce sensitive-column policy before SQL
+  reaches DMS.
+- Validate requested metrics and latest-complete-data evidence, detect schema drift out of band, and
+  preserve evidence across retry and multi-result presentation.
 
 ## Success criteria
 
@@ -29,6 +34,9 @@ cross-hotel data mixing.
 - Final answers receive table, domain, grain, time and unit provenance and can present multiple SQL
   result sets.
 - Existing dedicated operating queries and read-only DMS protections remain compatible.
+- A transient empty MCP catalog fails fast or recovers once, and never poisons the process cache.
+- Evidence cannot claim a hotel or date merely because it appeared in the request.
+- Sensitive columns and fallback JSON cannot enter model evidence through generic SQL.
 
 ## Non-goals
 

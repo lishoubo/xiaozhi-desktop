@@ -1,11 +1,12 @@
 import type { GenerativeUiSpec } from '@hotel-butler/api';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
 	analysisCompletionIssue,
 	DuplicateUiRenderError,
 	completeGroundedAnswerAfterUi,
 	groundedAnalysisWritingInstructions,
 	hotelDataCollectionToolChoice,
+	loadMcpToolsWithSingleRefresh,
 	mcpFailureFingerprint,
 	isLocalToolAllowed,
 	normalizeAgentStreamFailure,
@@ -163,7 +164,7 @@ describe('shouldRequireHotelDataQuery', () => {
 	it('uses the verified semantic catalog and forces business SQL without metadata round trips', () => {
 		expect(hotelDataCollectionToolChoice(genericRequest, [])).toEqual({
 			type: 'function',
-			function: { name: 'describe_verified_hotel_data_tables' }
+			function: { name: 'query_hotel_operating_data_sql' }
 		});
 		expect(
 			hotelDataCollectionToolChoice(genericRequest, ['describe_verified_hotel_data_tables'])
@@ -178,11 +179,22 @@ describe('shouldRequireHotelDataQuery', () => {
 			])
 		).toEqual({
 			type: 'function',
-			function: { name: 'describe_verified_hotel_data_tables' }
+			function: { name: 'query_hotel_operating_data_sql' }
 		});
 		expect(hotelDataCollectionToolChoice(genericRequest, ['query_hotel_operating_data_sql'])).toBe(
 			'auto'
 		);
+	});
+
+	it('refreshes the MCP catalog once after a failed hotel-data discovery', async () => {
+		const provider = {
+			getTools: vi.fn().mockRejectedValue(new Error('empty catalog')),
+			refreshTools: vi.fn().mockResolvedValue([{ name: 'query_hotel_operating_data_sql' }])
+		};
+
+		await expect(loadMcpToolsWithSingleRefresh(provider, ['hotel_data'])).resolves.toHaveLength(1);
+		expect(provider.getTools).toHaveBeenCalledOnce();
+		expect(provider.refreshTools).toHaveBeenCalledOnce();
 	});
 
 	it('does not force a hotel SQL query for unrelated workflows or general conversation', () => {

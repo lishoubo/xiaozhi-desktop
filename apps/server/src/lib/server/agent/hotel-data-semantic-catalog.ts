@@ -11,6 +11,18 @@ export type HotelDataDomain =
 	| 'orders'
 	| 'sync';
 
+export type HotelDataMetricFamily =
+	| 'exposure'
+	| 'visit'
+	| 'click'
+	| 'conversion'
+	| 'trade'
+	| 'booking'
+	| 'verification'
+	| 'refund'
+	| 'orders'
+	| 'score';
+
 export type HotelDataTableSemantics = Readonly<{
 	name: string;
 	domain: HotelDataDomain;
@@ -309,17 +321,94 @@ export function hotelDataDomainsForText(text: string): readonly HotelDataDomain[
 		.replace(/(?:直播|视频|获客卡|内容)(?:流量|曝光|访问|点击|转化|成交|退款)/g, '内容')
 		.replace(/营销(?:流量|曝光|访问|点击|转化|成交|退款)/g, '营销')
 		.replace(/订单(?:成交|退款|取消|金额)/g, '订单');
-	return domains
+	const matched = domains
 		.filter((item) =>
 			item.pattern.test(
 				item.domain === 'operating' || item.domain === 'traffic_conversion' ? generalMetrics : text
 			)
 		)
 		.map((item) => item.domain);
+	return matched.includes('traffic_conversion') &&
+		matched.includes('operating') &&
+		!/(预约|在店|核销|退款|券|间夜|新客|客单价|经营概览)/.test(text)
+		? matched.filter((domain) => domain !== 'operating')
+		: matched;
 }
 
 export function hotelDataDomainLabel(domain: HotelDataDomain): string {
 	return domains.find((item) => item.domain === domain)?.label ?? domain;
+}
+
+const metricFamilies: readonly Readonly<{
+	metric: HotelDataMetricFamily;
+	label: string;
+	requestPattern: RegExp;
+	fieldPattern: RegExp;
+}>[] = [
+	{
+		metric: 'exposure',
+		label: '曝光',
+		requestPattern: /曝光/,
+		fieldPattern: /(?:^|_)(?:exposure_cnt|exposure_user_cnt)(?:$|_)/
+	},
+	{
+		metric: 'visit',
+		label: '访问',
+		requestPattern: /访问|访客|进店|观看/,
+		fieldPattern:
+			/(?:^|_)(?:visit_cnt|visit_user_cnt|watch_cnt|watch_user_cnt|watch_duration)(?:$|_)/
+	},
+	{
+		metric: 'click',
+		label: '点击',
+		requestPattern: /点击/,
+		fieldPattern: /(?:^|_)(?:click_cnt|click_user_cnt)(?:$|_)/
+	},
+	{
+		metric: 'conversion',
+		label: '转化',
+		requestPattern: /转化|漏斗/,
+		fieldPattern: /conversion|_rate$|trade_user_cnt/
+	},
+	{
+		metric: 'trade',
+		label: '成交',
+		requestPattern: /成交|交易|GMV/i,
+		fieldPattern: /(?:^|_)(?:gmv|trade_amount|trade_value|trade_coupon_cnt|trade_user_cnt)(?:$|_)/
+	},
+	{ metric: 'booking', label: '预约', requestPattern: /预约|预订/, fieldPattern: /booking|booked/ },
+	{ metric: 'verification', label: '核销', requestPattern: /核销/, fieldPattern: /verif/ },
+	{ metric: 'refund', label: '退款', requestPattern: /退款|退订/, fieldPattern: /refund/ },
+	{ metric: 'orders', label: '订单', requestPattern: /订单/, fieldPattern: /order/ },
+	{
+		metric: 'score',
+		label: '评分',
+		requestPattern: /评分|经营分|口碑/,
+		fieldPattern: /score|grade/
+	}
+];
+
+export function hotelDataMetricFamiliesForText(text: string): readonly HotelDataMetricFamily[] {
+	return metricFamilies.filter((item) => item.requestPattern.test(text)).map((item) => item.metric);
+}
+
+export function hotelDataMetricFamiliesForFields(
+	fields: readonly string[]
+): readonly HotelDataMetricFamily[] {
+	return metricFamilies
+		.filter((item) => fields.some((field) => item.fieldPattern.test(field)))
+		.map((item) => item.metric);
+}
+
+export function hotelDataMetricFamilyLabel(metric: HotelDataMetricFamily): string {
+	return metricFamilies.find((item) => item.metric === metric)?.label ?? metric;
+}
+
+export function verifiedHotelDataTablesForText(text: string): readonly HotelDataTableSemantics[] {
+	const requestedDomains = hotelDataDomainsForText(text);
+	return requestedDomains.length === 0
+		? []
+		: HOTEL_DATA_TABLES.filter((table) => requestedDomains.includes(table.domain));
 }
 
 export function buildHotelDataSchemaCatalog(): string {

@@ -145,3 +145,40 @@ the server-owned verified schema catalog and SHALL not expose a known-unusable r
 - **WHEN** table listing reports success but contains no table candidates
 - **THEN** the collector does not attempt table descriptions from that result
 - **AND** uses the verified semantic catalog or returns an explicit discovery limitation
+
+### Requirement: Healthy and bounded hotel-data collection
+
+The server SHALL only cache a hotel-data MCP tool catalog containing the required SQL tool, SHALL
+refresh an unhealthy catalog at most once, and SHALL enforce a total collection deadline.
+
+#### Scenario: Hotel-data tool catalog is incomplete
+
+- **WHEN** the MCP catalog does not contain the required SQL tool
+- **THEN** the server does not cache it and attempts at most one refresh
+- **AND** collection remains bounded by the total deadline
+
+### Requirement: Truthful scope, metric coverage and privacy
+
+Evidence SHALL keep requested scope and default-date policy separate from observed scope, SHALL verify recognized
+requested metric families and latest-complete-data requirements, and SHALL reject sensitive or raw
+payload projections before DMS execution.
+
+#### Scenario: Evidence does not prove its requested scope
+
+- **WHEN** hotel data omits the observed hotel or an explicitly requested business date
+- **THEN** the server does not copy request values into observed evidence to mark it sufficient
+
+#### Scenario: SQL projects private data
+
+- **WHEN** generated SQL references a sensitive catalog field, raw payload or unsafe wildcard
+- **THEN** the server rejects the query before DMS execution
+
+### Requirement: Retry-safe complete evidence
+
+Retry and follow-up SHALL restore and deduplicate persisted evidence, and bounded presentation SHALL
+retain semantic identity for every useful result set.
+
+#### Scenario: Retry resumes with prior result sets
+
+- **WHEN** a retry checkpoint already contains validated SQL evidence
+- **THEN** the server restores it, deduplicates repeated queries and includes every useful result set

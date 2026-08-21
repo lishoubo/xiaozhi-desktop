@@ -124,4 +124,32 @@ describe('buildDeterministicDataQueryAnswer', () => {
 		expect(JSON.stringify(result?.ui)).toContain('exposure_cnt');
 		expect(JSON.stringify(result?.ui)).toContain('keyword');
 	});
+
+	it('reserves display capacity for every SQL result set and uses provenance labels', () => {
+		const result = buildDeterministicDataQueryAnswer(request, [
+			{
+				evidenceId: '55555555-5555-4555-8555-555555555555',
+				source: 'aliyun_dms_mcp',
+				data: {
+					toolName: 'query_hotel_operating_data_sql',
+					provenance: { domains: ['traffic_conversion'], tables: ['fact_traffic_scene'] },
+					data: Array.from({ length: 75 }, (_, index) => ({ exposure_cnt: index + 1 }))
+				}
+			},
+			{
+				evidenceId: '66666666-6666-4666-8666-666666666666',
+				source: 'aliyun_dms_mcp',
+				data: {
+					toolName: 'query_hotel_operating_data_sql',
+					provenance: { domains: ['search'], tables: ['fact_search_keyword'] },
+					data: [{ keyword: '包头酒店' }]
+				}
+			}
+		]);
+
+		const serialized = JSON.stringify(result?.ui);
+		expect(serialized).toContain('流量与转化 · fact_traffic_scene');
+		expect(serialized).toContain('搜索 · fact_search_keyword');
+		expect(serialized).toContain('包头酒店');
+	});
 });

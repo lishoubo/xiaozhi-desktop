@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { assessEvidence, normalizeEvidence, parseEvidenceResult } from './evidence';
+import {
+	assessEvidence,
+	normalizeEvidence,
+	parseEvidenceResult,
+	restoreEvidenceEnvelope
+} from './evidence';
 
 const request = {
 	routeKind: 'business_read' as const,
@@ -17,6 +22,23 @@ const request = {
 };
 
 describe('business evidence', () => {
+	it('restores a persisted envelope for retry without changing its scope', () => {
+		const envelope = normalizeEvidence({
+			request,
+			toolName: 'query_hotel_operating_data_sql',
+			toolArgs: { script: 'SELECT hotel_id, data_date FROM fact_business_daily' },
+			result: [{ hotel_id: 'hotel-1', data_date: '2026-07-01' }]
+		});
+
+		expect(
+			restoreEvidenceEnvelope({
+				evidenceId: envelope.evidenceId,
+				source: envelope.source,
+				data: envelope
+			})
+		).toEqual(envelope);
+	});
+
 	it('prefers structured MCP content over display text', () => {
 		const parsed = parseEvidenceResult('get_weather_summary', {
 			content: [{ type: 'text', text: 'display only' }],
@@ -65,15 +87,19 @@ describe('business evidence', () => {
 	it('normalizes scope, fingerprint and filtered result metadata', () => {
 		const evidence = normalizeEvidence({
 			request,
-			toolName: 'query_hotel_operating_data',
+			toolName: 'query_hotel_operating_data_sql',
 			toolArgs: { question: 'query' },
 			result: Array.from({ length: 80 }, (_, index) => ({ hotel_id: 'hotel-1', value: index }))
 		});
 
 		expect(evidence).toMatchObject({
 			source: 'aliyun_dms_mcp',
-			toolName: 'query_hotel_operating_data',
+			toolName: 'query_hotel_operating_data_sql',
 			scope: {
+				hotelReference: 'hotel-1',
+				period: null
+			},
+			requestedScope: {
 				hotelReference: 'hotel-1',
 				period: { start: '2026-07-01', end: '2026-07-31' }
 			},
@@ -83,6 +109,21 @@ describe('business evidence', () => {
 		});
 		expect(evidence.queryFingerprint).toMatch(/^[a-f0-9]{64}$/);
 		expect(Array.isArray(evidence.data) && evidence.data).toHaveLength(75);
+	});
+
+	it('does not treat requested hotel or date as observed scope', () => {
+		const evidence = normalizeEvidence({
+			request,
+			toolName: 'query_hotel_operating_data_sql',
+			toolArgs: { script: 'SELECT SUM(gmv) AS gmv FROM fact_business_daily' },
+			result: '| gmv |\n| --- |\n| 100 |'
+		});
+
+		expect(evidence.scope).toEqual({ hotelReference: null, period: null });
+		expect(assessEvidence(request, [evidence], false)).toEqual({
+			status: 'needs_more_data',
+			limitation: '查询结果未返回可验证的酒店范围。'
+		});
 	});
 
 	it('allows one follow-up for empty data and becomes inconclusive afterward', () => {
@@ -133,9 +174,9 @@ describe('business evidence', () => {
 	it('rejects evidence for another hotel', () => {
 		const evidence = normalizeEvidence({
 			request: { ...request, slots: { ...request.slots, hotelReference: 'hotel-2' } },
-			toolName: 'query_hotel_operating_data',
+			toolName: 'query_hotel_operating_data_sql',
 			toolArgs: {},
-			result: [{ value: 1 }]
+			result: [{ hotel_id: 'hotel-2', data_date: '2026-07-10', value: 1 }]
 		});
 
 		expect(assessEvidence(request, [evidence], false)).toEqual({
@@ -188,8 +229,8 @@ describe('business evidence', () => {
 			reasonCode: 'evidence_scope_mismatch'
 		});
 		expect(assessEvidence(multiHotelRequest, [unverifiable], false)).toEqual({
-			status: 'rejected',
-			reasonCode: 'evidence_scope_mismatch'
+			status: 'needs_more_data',
+			limitation: '查询结果未返回可验证的酒店范围。'
 		});
 		for (const result of [
 			JSON.stringify([{ hotel_id: 9, value: 1 }, { order_id: 'unscoped' }]),
@@ -228,7 +269,7 @@ describe('business evidence', () => {
 			toolArgs: {
 				script: 'SELECT hotel_id, exposure_cnt FROM fact_traffic_scene WHERE hotel_id = 4'
 			},
-			result: JSON.stringify([{ exposure_cnt: 100 }])
+			result: JSON.stringify([{ hotel_id: 'hotel-1', data_date: '2026-07-10', exposure_cnt: 100 }])
 		});
 		const search = normalizeEvidence({
 			request: crossDomainRequest,
@@ -236,7 +277,9 @@ describe('business evidence', () => {
 			toolArgs: {
 				script: 'SELECT hotel_id, keyword FROM fact_search_keyword WHERE hotel_id = 4'
 			},
-			result: JSON.stringify([{ keyword: '包头酒店' }])
+			result: JSON.stringify([
+				{ hotel_id: 'hotel-1', data_date: '2026-07-10', keyword: '包头酒店' }
+			])
 		});
 
 		expect(traffic.provenance).toMatchObject({
@@ -261,6 +304,91 @@ describe('business evidence', () => {
 		});
 
 		expect(evidence.provenance).toMatchObject({ domains: ['orders'] });
+	});
+
+	it('requires every explicitly requested metric family, not only the broad domain', () => {
+		const metricRequest = {
+			...request,
+			slots: {
+				...request.slots,
+				metrics: '分析曝光、访问、转化和成交情况'
+			}
+		};
+		const exposureOnly = normalizeEvidence({
+			request: metricRequest,
+			toolName: 'query_hotel_operating_data_sql',
+			toolArgs: {
+				script:
+					"SELECT hotel_id, data_date, exposure_cnt FROM fact_traffic_scene WHERE hotel_id = 4 AND data_date = '2026-07-10'"
+			},
+			result:
+				'| hotel_id | data_date | exposure_cnt |\n| --- | --- | --- |\n| hotel-1 | 2026-07-10 | 100 |'
+		});
+
+		expect(assessEvidence(metricRequest, [exposureOnly], false)).toEqual({
+			status: 'needs_more_data',
+			limitation: '尚缺少以下明确指标的可验证数据：访问、转化、成交。'
+		});
+	});
+
+	it('requires freshness proof and a comparison baseline for vague current analysis', () => {
+		const currentAnalysis = {
+			...request,
+			responseMode: 'analysis' as const,
+			slots: { hotelReference: 'hotel-1', metrics: '分析酒店流量情况' }
+		};
+		const latestOnly = normalizeEvidence({
+			request: currentAnalysis,
+			toolName: 'query_hotel_operating_data_sql',
+			toolArgs: { script: 'SELECT hotel_id, data_date, exposure_cnt FROM fact_traffic_scene' },
+			result:
+				'| hotel_id | data_date | exposure_cnt |\n| --- | --- | --- |\n| hotel-1 | 2026-08-20 | 100 |'
+		});
+		const complete = normalizeEvidence({
+			request: currentAnalysis,
+			toolName: 'query_hotel_operating_data_sql',
+			toolArgs: { script: 'SELECT hotel_id, data_date, exposure_cnt FROM fact_traffic_scene' },
+			result:
+				'| hotel_id | data_date | latest_data_date | exposure_cnt |\n| --- | --- | --- | --- |\n| hotel-1 | 2026-08-14 | 2026-08-20 | 80 |\n| hotel-1 | 2026-08-20 | 2026-08-20 | 100 |'
+		});
+		const noFreshnessProof = normalizeEvidence({
+			request: currentAnalysis,
+			toolName: 'query_hotel_operating_data_sql',
+			toolArgs: { script: 'SELECT hotel_id, data_date, exposure_cnt FROM fact_traffic_scene' },
+			result:
+				'| hotel_id | data_date | exposure_cnt |\n| --- | --- | --- |\n| hotel-1 | 2026-08-20 | 100 |'
+		});
+
+		expect(assessEvidence(currentAnalysis, [latestOnly], false)).toEqual({
+			status: 'needs_more_data',
+			limitation: '尚未证明最近完整业务日及其可比基线。'
+		});
+		expect(
+			assessEvidence(
+				{ ...currentAnalysis, slots: { hotelReference: 'hotel-1', metrics: '评估一下业绩' } },
+				[latestOnly],
+				false
+			)
+		).toEqual({
+			status: 'needs_more_data',
+			limitation: '尚未证明最近完整业务日及其可比基线。'
+		});
+		expect(assessEvidence(currentAnalysis, [complete], false)).toMatchObject({
+			status: 'sufficient'
+		});
+		expect(
+			assessEvidence({ ...currentAnalysis, responseMode: 'data_only' }, [noFreshnessProof], false)
+		).toEqual({ status: 'needs_more_data', limitation: '尚未证明最近完整业务日。' });
+		expect(
+			assessEvidence({ ...currentAnalysis, responseMode: 'data_only' }, [complete], false)
+		).toMatchObject({ status: 'sufficient' });
+		expect(
+			assessEvidence(
+				{ ...currentAnalysis, intent: 'hotel_operating_summary' as const },
+				[complete],
+				false
+			)
+		).toMatchObject({ status: 'sufficient' });
 	});
 
 	it('rejects operating table rows outside the requested hotel or date range', () => {

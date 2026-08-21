@@ -26,6 +26,7 @@ export const HOTEL_DATA_TABLE_COLUMNS: Readonly<Record<string, readonly string[]
 		'backfill_days',
 		'remark',
 		'cookie_cipher',
+		'ota_credential_id',
 		'cookie_updated_at',
 		'updated_by',
 		'created_at',

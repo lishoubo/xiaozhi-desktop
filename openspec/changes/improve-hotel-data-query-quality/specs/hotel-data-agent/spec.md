@@ -46,3 +46,49 @@ as unavailable metadata rather than completed discovery.
 - **WHEN** table listing reports success but contains no table candidates
 - **THEN** the collector does not attempt table descriptions from that result
 - **AND** uses the verified semantic catalog or returns an explicit discovery limitation
+
+### Requirement: Healthy bounded collection
+
+The server SHALL only cache a hotel-data MCP catalog when the required SQL query tool is present and
+SHALL bound total collection duration independently of individual boundary timeouts.
+
+#### Scenario: MCP discovery transiently returns no tools
+
+- **WHEN** hotel-data MCP returns an empty or incomplete tool catalog
+- **THEN** the server refreshes it at most once and does not cache the unhealthy result
+- **AND** fails explicitly if the SQL tool remains unavailable
+
+### Requirement: Truthful scope and private evidence
+
+Hotel-data evidence SHALL distinguish requested scope from observed scope, and SQL SHALL reject
+default-sensitive fields and raw fallback payloads before execution.
+
+#### Scenario: Result omits its requested date
+
+- **WHEN** a date-bound request returns data that cannot prove the effective date range
+- **THEN** the evidence is not marked sufficient solely from request slots
+
+#### Scenario: Model projects sensitive detail
+
+- **WHEN** SQL selects a catalog-sensitive field, `SELECT *` from a sensitive table, or raw JSON
+- **THEN** the server rejects it before DMS execution
+
+### Requirement: Metric and freshness evidence
+
+Recognized requested metric families SHALL be backed by returned fields, and vague current analysis
+SHALL establish a latest complete business date and a bounded comparison baseline when applicable.
+
+#### Scenario: Traffic analysis only returns exposure
+
+- **WHEN** the user explicitly asks for exposure, visits, conversion and trade
+- **THEN** exposure-only evidence is incomplete and triggers one focused follow-up
+
+### Requirement: Recoverable complete presentation
+
+Persisted evidence SHALL survive retry and multiple result sets SHALL retain semantic identity under
+the display row limit.
+
+#### Scenario: Follow-up resumes after interruption
+
+- **WHEN** retry resumes with prior SQL evidence
+- **THEN** prior evidence participates in assessment without duplicate display rows

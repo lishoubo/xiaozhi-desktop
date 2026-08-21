@@ -90,6 +90,16 @@ export function selectMcpServersByCapabilities(
 	);
 }
 
+export function hotelDataToolCatalogIsHealthy(
+	capabilities: readonly McpCapability[],
+	tools: readonly Readonly<{ name: string }>[]
+): boolean {
+	return (
+		!capabilities.includes('hotel_data') ||
+		tools.some((tool) => tool.name === HOTEL_DATA_SQL_TOOL_NAME)
+	);
+}
+
 function configureHotelDataTool(tool: DynamicStructuredTool): DynamicStructuredTool {
 	if (
 		tool.name === DMS_GENERATE_SQL_TOOL_NAME ||
@@ -138,6 +148,12 @@ export class McpToolProvider {
 		return new Set(Object.values(this.servers).flatMap((server) => server.capabilities));
 	}
 
+	prewarm(capabilities: readonly McpCapability[]): void {
+		void this.getTools(capabilities).catch(() => {
+			// getTools already emits a structured failure log; the foreground request will retry once.
+		});
+	}
+
 	getTools(capabilities: readonly McpCapability[]): Promise<readonly DynamicStructuredTool[]> {
 		const normalizedCapabilities = [...new Set(capabilities)].sort();
 		const cacheKey = normalizedCapabilities.join(',') || 'none';
@@ -154,6 +170,12 @@ export class McpToolProvider {
 			);
 			const loading = this.loadTools(selectedServers, cacheKey)
 				.then((tools) => {
+					if (!hotelDataToolCatalogIsHealthy(normalizedCapabilities, tools)) {
+						throw new AgentProtocolError({
+							operation: 'load_hotel_data_tool_catalog',
+							reason: 'Required DMS executeScript tool is unavailable'
+						});
+					}
 					this.logger?.info?.(
 						{
 							event: 'agent.mcp.catalog.load.completed',

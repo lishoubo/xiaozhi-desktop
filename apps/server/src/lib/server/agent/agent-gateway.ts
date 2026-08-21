@@ -46,7 +46,11 @@ import {
 	getIntentDefinition,
 	presentationPolicyForIntent
 } from './execution/intent-registry';
-import { normalizeEvidence, type EvidenceEnvelope } from './execution/evidence';
+import {
+	normalizeEvidence,
+	restoreEvidenceEnvelope,
+	type EvidenceEnvelope
+} from './execution/evidence';
 import { buildNoHotelDataAnswer } from './execution/no-data-answer';
 import { buildRoutingContext } from './execution/routing-context';
 import type { JsonValue, ResolvedBusinessRequest } from './execution/business-execution-state';
@@ -86,7 +90,8 @@ type AgentRepositoryPort = Pick<
 	| 'listMemories'
 	| 'updateConversationTitle'
 >;
-type McpToolProviderPort = Pick<McpToolProvider, 'serverCount' | 'capabilities'>;
+type McpToolProviderPort = Pick<McpToolProvider, 'serverCount' | 'capabilities'> &
+	Partial<Pick<McpToolProvider, 'prewarm'>>;
 type ConversationContextPort = Pick<ConversationContextService, 'prepare'>;
 type WorkflowCollectorPort = Pick<
 	DeterministicWorkflowCollector,
@@ -96,6 +101,7 @@ type BusinessIntentRouterPort = Pick<BusinessIntentRouter, 'route'>;
 type BusinessSlotResolverPort = Pick<BusinessSlotResolver, 'resolve'>;
 
 const GROUNDED_ANALYSIS_TIMEOUT_MS = 90_000;
+const HOTEL_DATA_COLLECTION_TIMEOUT_MS = 120_000;
 
 export function isBusinessEvidenceTool(
 	request: Pick<ResolvedBusinessRequest, 'intent'>,
@@ -272,6 +278,9 @@ export class HotelAgentGateway implements AgentGateway {
 	}
 
 	async capabilities() {
+		if (this.mcpTools.capabilities().has('hotel_data')) {
+			this.mcpTools.prewarm?.(['hotel_data']);
+		}
 		const quickActions = listHotelQuickActions(this.mcpTools.capabilities());
 		return {
 			model: this.environment.model,
@@ -866,7 +875,20 @@ export class HotelAgentGateway implements AgentGateway {
 					);
 				}
 				let workflowPasses = 0;
-				const accumulatedEnvelopes: EvidenceEnvelope[] = [];
+				const collectionSignal = AbortSignal.any([
+					controller.signal,
+					AbortSignal.timeout(HOTEL_DATA_COLLECTION_TIMEOUT_MS)
+				]);
+				const accumulatedEnvelopes: EvidenceEnvelope[] =
+					execution.state.status === 'executing'
+						? execution.state.evidence.flatMap((record) => {
+								const restored = restoreEvidenceEnvelope(record);
+								return restored ? [restored] : [];
+							})
+						: [];
+				const evidenceFingerprints = new Set(
+					accumulatedEnvelopes.map((item) => item.queryFingerprint)
+				);
 				let evidenceGap: string | undefined;
 				while (execution.state.status === 'executing' && workflowPasses < 2) {
 					workflowPasses += 1;
@@ -894,7 +916,7 @@ export class HotelAgentGateway implements AgentGateway {
 								workflowCollector.collect({
 									principal,
 									request: workflowRequest,
-									signal: controller.signal,
+									signal: collectionSignal,
 									emit: (event) =>
 										this.forwardRuntimeEvent(
 											principal,
@@ -917,7 +939,7 @@ export class HotelAgentGateway implements AgentGateway {
 								history: prepared.history,
 								memories,
 								...executionPolicyForIntent(workflowRequest.intent),
-								signal: controller.signal,
+								signal: collectionSignal,
 								workflowRequest,
 								evidenceGap,
 								emit: (event) =>
@@ -948,7 +970,7 @@ export class HotelAgentGateway implements AgentGateway {
 						},
 						'Agent workflow collection completed'
 					);
-					const envelopes = collectedToolEvidence
+					const normalizedEnvelopes = collectedToolEvidence
 						.filter((item) => isBusinessEvidenceTool(workflowRequest, item.toolName))
 						.map((item) =>
 							normalizeEvidence({
@@ -959,6 +981,11 @@ export class HotelAgentGateway implements AgentGateway {
 								observedAt: new Date().toISOString()
 							})
 						);
+					const envelopes = normalizedEnvelopes.filter((item) => {
+						if (evidenceFingerprints.has(item.queryFingerprint)) return false;
+						evidenceFingerprints.add(item.queryFingerprint);
+						return true;
+					});
 					accumulatedEnvelopes.push(...envelopes);
 					execution = await this.repository.transitionBusinessExecution(
 						principal,

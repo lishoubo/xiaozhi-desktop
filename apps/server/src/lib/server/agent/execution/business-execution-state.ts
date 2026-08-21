@@ -395,7 +395,7 @@ function checkpointFromState(state: BusinessExecutionState): RetryCheckpoint | n
 			return {
 				kind: 'executing',
 				request: state.request,
-				evidence: [],
+				evidence: state.evidence,
 				followUpUsed: state.followUpUsed
 			};
 		case 'answering':

@@ -1,7 +1,11 @@
 import { createHash, randomUUID } from 'node:crypto';
 import type { AgentBusinessIntent } from '@hotel-butler/api';
 import { compactHotelDataResult } from '../hotel-data-mcp';
-import type { JsonValue, ResolvedBusinessRequest } from './business-execution-state';
+import type {
+	EvidenceRecord,
+	JsonValue,
+	ResolvedBusinessRequest
+} from './business-execution-state';
 import {
 	isEmptyHotelDataTable,
 	operatingRowsMatchRequest,
@@ -11,9 +15,13 @@ import { HOTEL_DATA_SQL_TOOL_NAME } from '../hotel-data-mcp';
 import {
 	hotelDataDomainLabel,
 	hotelDataDomainsForText,
+	hotelDataMetricFamiliesForFields,
+	hotelDataMetricFamiliesForText,
+	hotelDataMetricFamilyLabel,
 	hotelDataTableSemantics,
 	HOTEL_DATA_TABLES,
-	type HotelDataDomain
+	type HotelDataDomain,
+	type HotelDataMetricFamily
 } from '../hotel-data-business-catalog';
 import { hotelDataSqlTableNames } from '../hotel-data-sql-policy';
 
@@ -23,6 +31,8 @@ export type HotelDataEvidenceProvenance = Readonly<{
 	grains: readonly string[];
 	timeFields: readonly string[];
 	units: readonly string[];
+	metricFamilies: readonly HotelDataMetricFamily[];
+	resultFields: readonly string[];
 }>;
 
 export type EvidenceEnvelope = Readonly<{
@@ -32,6 +42,10 @@ export type EvidenceEnvelope = Readonly<{
 	queryFingerprint: string;
 	scope: Readonly<{
 		hotelReference: string | null;
+		period: Readonly<{ start: string; end: string }> | null;
+	}>;
+	requestedScope: Readonly<{
+		hotelReference: JsonValue | null;
 		period: Readonly<{ start: string; end: string }> | null;
 	}>;
 	metrics: readonly string[];
@@ -267,7 +281,9 @@ function sqlProvenance(
 		domains: [...new Set([...tables.map((item) => item.domain), ...inferredDomains])],
 		grains: [...new Set(tables.map((item) => item.grain))],
 		timeFields: [...new Set(tables.flatMap((item) => (item.timeField ? [item.timeField] : [])))],
-		units: [...new Set(tables.flatMap((item) => item.units))]
+		units: [...new Set(tables.flatMap((item) => item.units))],
+		metricFamilies: hotelDataMetricFamiliesForFields(fieldNames),
+		resultFields: fieldNames
 	};
 }
 
@@ -288,6 +304,27 @@ function explicitHotelReferences(value: unknown, depth = 0): readonly string[] {
 			...Object.values(value).flatMap((item) => explicitHotelReferences(item, depth + 1))
 		])
 	];
+}
+
+function explicitBusinessDates(value: unknown, depth = 0): readonly string[] {
+	if (depth > 8 || value === null || typeof value !== 'object') return [];
+	if (Array.isArray(value)) {
+		return [...new Set(value.flatMap((item) => explicitBusinessDates(item, depth + 1)))];
+	}
+	const dates: string[] = [];
+	for (const [key, item] of Object.entries(value)) {
+		if (
+			typeof item === 'string' &&
+			/(?:^|_)(?:data_date|review_date|night_date|check_in_date|check_out_date|period_start|period_end|latest_data_date|baseline_start|baseline_end|scope_start|scope_end)$/i.test(
+				key
+			)
+		) {
+			const date = item.slice(0, 10);
+			if (/^\d{4}-\d{2}-\d{2}$/.test(date)) dates.push(date);
+		}
+		dates.push(...explicitBusinessDates(item, depth + 1));
+	}
+	return [...new Set(dates)];
 }
 
 function structuredHotelReferences(value: unknown, depth = 0): readonly string[] | null {
@@ -345,10 +382,14 @@ export function normalizeEvidence(
 				.filter((value): value is string => typeof value === 'string' && value.length > 0)
 		)
 	];
-	const observedDates = operatingRows
-		.map((row) => row.data_date)
-		.filter((value): value is string => /^\d{4}-\d{2}-\d{2}$/.test(value))
-		.sort();
+	const observedDates = [
+		...new Set([
+			...operatingRows
+				.map((row) => row.data_date)
+				.filter((value): value is string => /^\d{4}-\d{2}-\d{2}$/.test(value)),
+			...explicitBusinessDates(data)
+		])
+	].sort();
 	const explicitHotelIds = structuredHotelReferences(data) ?? [];
 	const observedHotel = [...new Set([...observedHotelIds, ...explicitHotelIds])].join(',') || null;
 	const observedPeriod =
@@ -363,8 +404,12 @@ export function normalizeEvidence(
 			.update(JSON.stringify({ toolName: input.toolName, args: input.toolArgs }))
 			.digest('hex'),
 		scope: {
-			hotelReference: observedHotel ?? (typeof requestedHotel === 'string' ? requestedHotel : null),
-			period: observedPeriod ?? periodFromRequest(input.request)
+			hotelReference: observedHotel,
+			period: observedPeriod
+		},
+		requestedScope: {
+			hotelReference: requestedHotel ?? null,
+			period: periodFromRequest(input.request)
 		},
 		metrics: Array.isArray(metrics)
 			? metrics.filter((metric): metric is string => typeof metric === 'string')
@@ -375,6 +420,128 @@ export function normalizeEvidence(
 		parseQuality: parsed.quality,
 		filtered: compacted.includes('[DATA_RESULT_FILTERED]'),
 		provenance: sqlProvenance(input.toolName, input.toolArgs, data),
+		data: jsonValue(data)
+	};
+}
+
+function restoredStringArray(value: unknown): readonly string[] {
+	return Array.isArray(value)
+		? value.filter((item): item is string => typeof item === 'string')
+		: [];
+}
+
+function restoredPeriod(value: unknown): Readonly<{ start: string; end: string }> | null {
+	if (typeof value !== 'object' || value === null || Array.isArray(value)) return null;
+	const start = Reflect.get(value, 'start');
+	const end = Reflect.get(value, 'end');
+	return typeof start === 'string' && typeof end === 'string' ? { start, end } : null;
+}
+
+export function restoreEvidenceEnvelope(record: EvidenceRecord): EvidenceEnvelope | null {
+	const value = record.data;
+	if (typeof value !== 'object' || value === null || Array.isArray(value)) return null;
+	const evidenceId = Reflect.get(value, 'evidenceId');
+	const source = Reflect.get(value, 'source');
+	const toolName = Reflect.get(value, 'toolName');
+	const queryFingerprint = Reflect.get(value, 'queryFingerprint');
+	const scope = Reflect.get(value, 'scope');
+	const requestedScope = Reflect.get(value, 'requestedScope');
+	const parseQuality = Reflect.get(value, 'parseQuality');
+	const data = Reflect.get(value, 'data');
+	if (
+		typeof evidenceId !== 'string' ||
+		typeof toolName !== 'string' ||
+		typeof queryFingerprint !== 'string' ||
+		!['aliyun_dms_mcp', 'weather_mcp', 'hotel_rates_mcp'].includes(String(source)) ||
+		!['structured', 'json', 'adapter', 'unstructured'].includes(String(parseQuality)) ||
+		typeof scope !== 'object' ||
+		scope === null ||
+		Array.isArray(scope)
+	) {
+		return null;
+	}
+	const provenanceValue = Reflect.get(value, 'provenance');
+	const provenance =
+		typeof provenanceValue === 'object' &&
+		provenanceValue !== null &&
+		!Array.isArray(provenanceValue)
+			? {
+					tables: restoredStringArray(Reflect.get(provenanceValue, 'tables')),
+					domains: restoredStringArray(Reflect.get(provenanceValue, 'domains')).filter(
+						(item): item is HotelDataDomain =>
+							[
+								'operating',
+								'traffic_conversion',
+								'content',
+								'search',
+								'crowd',
+								'marketing',
+								'reviews_scores',
+								'orders',
+								'sync'
+							].includes(item)
+					),
+					grains: restoredStringArray(Reflect.get(provenanceValue, 'grains')),
+					timeFields: restoredStringArray(Reflect.get(provenanceValue, 'timeFields')),
+					units: restoredStringArray(Reflect.get(provenanceValue, 'units')),
+					metricFamilies: restoredStringArray(
+						Reflect.get(provenanceValue, 'metricFamilies')
+					).filter((item): item is HotelDataMetricFamily =>
+						[
+							'exposure',
+							'visit',
+							'click',
+							'conversion',
+							'trade',
+							'booking',
+							'verification',
+							'refund',
+							'orders',
+							'score'
+						].includes(item)
+					),
+					resultFields: restoredStringArray(Reflect.get(provenanceValue, 'resultFields'))
+				}
+			: null;
+	const observedHotel = Reflect.get(scope, 'hotelReference');
+	const requestedHotel =
+		typeof requestedScope === 'object' && requestedScope !== null && !Array.isArray(requestedScope)
+			? Reflect.get(requestedScope, 'hotelReference')
+			: null;
+	return {
+		evidenceId,
+		source:
+			source === 'weather_mcp'
+				? 'weather_mcp'
+				: source === 'hotel_rates_mcp'
+					? 'hotel_rates_mcp'
+					: 'aliyun_dms_mcp',
+		toolName,
+		queryFingerprint,
+		scope: {
+			hotelReference: typeof observedHotel === 'string' ? observedHotel : null,
+			period: restoredPeriod(Reflect.get(scope, 'period'))
+		},
+		requestedScope: {
+			hotelReference: requestedHotel === undefined ? null : jsonValue(requestedHotel),
+			period:
+				typeof requestedScope === 'object' &&
+				requestedScope !== null &&
+				!Array.isArray(requestedScope)
+					? restoredPeriod(Reflect.get(requestedScope, 'period'))
+					: null
+		},
+		metrics: restoredStringArray(Reflect.get(value, 'metrics')),
+		observedAt:
+			typeof Reflect.get(value, 'observedAt') === 'string'
+				? Reflect.get(value, 'observedAt')
+				: null,
+		parseQuality:
+			parseQuality === 'json' || parseQuality === 'adapter' || parseQuality === 'unstructured'
+				? parseQuality
+				: 'structured',
+		filtered: Reflect.get(value, 'filtered') === true,
+		provenance,
 		data: jsonValue(data)
 	};
 }
@@ -431,6 +598,18 @@ export function assessEvidence(
 		return { status: 'rejected', reasonCode: 'evidence_scope_mismatch' };
 	}
 	if (
+		(typeof requestedHotel === 'string' || Array.isArray(requestedHotel)) &&
+		hotelQueryEvidence.some((item) => item.scope.hotelReference === null)
+	) {
+		if (hotelQueryEvidence.some((item) => explicitHotelReferences(item.data).length > 0)) {
+			return { status: 'rejected', reasonCode: 'evidence_scope_mismatch' };
+		}
+		const limitation = '查询结果未返回可验证的酒店范围。';
+		return followUpUsed
+			? { status: 'inconclusive', limitations: [limitation] }
+			: { status: 'needs_more_data', limitation };
+	}
+	if (
 		Array.isArray(requestedHotel) &&
 		requestedHotel.every((hotel): hotel is string => typeof hotel === 'string') &&
 		evidence.some((item) => {
@@ -452,6 +631,12 @@ export function assessEvidence(
 	) {
 		return { status: 'rejected', reasonCode: 'evidence_scope_mismatch' };
 	}
+	if (requestedPeriod && hotelQueryEvidence.some((item) => item.scope.period === null)) {
+		const limitation = '查询结果未返回可验证的业务日期范围。';
+		return followUpUsed
+			? { status: 'inconclusive', limitations: [limitation] }
+			: { status: 'needs_more_data', limitation };
+	}
 	if (
 		(request.intent === 'generic_hotel_data_query' ||
 			request.intent === 'hotel_operating_summary') &&
@@ -462,7 +647,10 @@ export function assessEvidence(
 			? { status: 'inconclusive', limitations: [limitation] }
 			: { status: 'needs_more_data', limitation };
 	}
-	if (request.intent === 'generic_hotel_data_query') {
+	if (
+		request.intent === 'generic_hotel_data_query' ||
+		request.intent === 'hotel_operating_summary'
+	) {
 		const metrics = valueAt(request.slots, 'metrics');
 		const metricText = Array.isArray(metrics)
 			? metrics.filter((item): item is string => typeof item === 'string').join(' ')
@@ -470,6 +658,7 @@ export function assessEvidence(
 				? metrics
 				: '';
 		const requiredDomains = hotelDataDomainsForText(metricText);
+		const requiredMetricFamilies = hotelDataMetricFamiliesForText(metricText);
 		const provenanceAvailable = hotelQueryEvidence.some(
 			(item) => (item.provenance?.domains.length ?? 0) > 0
 		);
@@ -484,6 +673,42 @@ export function assessEvidence(
 				const limitation = `尚缺少以下业务域的可验证数据：${missing
 					.map(hotelDataDomainLabel)
 					.join('、')}。`;
+				return followUpUsed
+					? { status: 'inconclusive', limitations: [limitation] }
+					: { status: 'needs_more_data', limitation };
+			}
+		}
+		if (requiredMetricFamilies.length > 0 && provenanceAvailable) {
+			const coveredMetrics = new Set(
+				hotelQueryEvidence.flatMap((item) => item.provenance?.metricFamilies ?? [])
+			);
+			const missingMetrics = requiredMetricFamilies.filter((metric) => !coveredMetrics.has(metric));
+			if (missingMetrics.length > 0) {
+				const limitation = `尚缺少以下明确指标的可验证数据：${missingMetrics
+					.map(hotelDataMetricFamilyLabel)
+					.join('、')}。`;
+				return followUpUsed
+					? { status: 'inconclusive', limitations: [limitation] }
+					: { status: 'needs_more_data', limitation };
+			}
+		}
+		if (!requestedPeriod) {
+			const periods = hotelQueryEvidence.flatMap((item) =>
+				item.scope.period ? [item.scope.period.start, item.scope.period.end] : []
+			);
+			const fields = new Set(
+				hotelQueryEvidence.flatMap((item) => item.provenance?.resultFields ?? [])
+			);
+			const hasFreshnessProof = [...fields].some((field) =>
+				/latest_(?:complete_)?data_date|max_data_date|latest_fetch_time/i.test(field)
+			);
+			const sortedPeriods = [...periods].sort();
+			const hasBaseline = sortedPeriods.length > 1 && sortedPeriods[0] !== sortedPeriods.at(-1);
+			const needsBaseline = request.responseMode === 'analysis';
+			if (!hasFreshnessProof || (needsBaseline && !hasBaseline)) {
+				const limitation = needsBaseline
+					? '尚未证明最近完整业务日及其可比基线。'
+					: '尚未证明最近完整业务日。';
 				return followUpUsed
 					? { status: 'inconclusive', limitations: [limitation] }
 					: { status: 'needs_more_data', limitation };

@@ -243,6 +243,34 @@ describe('business execution state machine', () => {
 		);
 	});
 
+	it('keeps validated evidence when retrying a transient validation failure', () => {
+		const evidence = [
+			{
+				evidenceId: '11111111-1111-4111-8111-111111111111',
+				source: 'aliyun_dms_mcp' as const,
+				data: { toolName: 'query_hotel_operating_data_sql', data: [{ hotel_id: 4 }] }
+			}
+		];
+		const validating: BusinessExecutionState = {
+			status: 'validating_evidence',
+			request,
+			evidence,
+			followUpUsed: false
+		};
+		const failed = transitionBusinessExecution(validating, {
+			type: 'execution_failed',
+			reasonCode: 'mcp_timeout',
+			retryable: true
+		});
+
+		expect(transitionBusinessExecution(failed, { type: 'execution_retry_requested' })).toEqual({
+			status: 'executing',
+			request,
+			evidence,
+			followUpUsed: false
+		});
+	});
+
 	it('re-resolves a legacy retry checkpoint that stored a hotel name as an ID', () => {
 		const legacyRequest: ResolvedBusinessRequest = {
 			routeKind: 'business_read',

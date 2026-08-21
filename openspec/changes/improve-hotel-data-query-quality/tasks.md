@@ -27,3 +27,21 @@
 - [x] Run one affected server completion suite, type/lint checks, OpenSpec validation and
   `git diff --check`.
 - [x] Record independent verification and code-review findings in `verification.md`.
+
+## 5. Reliability and privacy hardening
+
+- [x] Reject/refresh empty or incomplete hotel-data MCP catalogs without caching unhealthy results.
+- [x] Separate requested/effective/observed evidence scope and validate date proof.
+- [x] Enforce sensitive-column and raw-JSON projection policy in SQL.
+
+## 6. Query quality and latency
+
+- [x] Add metric-family coverage and latest-complete-data evidence requirements.
+- [x] Add a read-only semantic-catalog drift checker.
+- [x] Add a total collection deadline, catalog prewarm and preinject relevant verified schemas.
+
+## 7. Recovery and presentation
+
+- [x] Restore and deduplicate persisted evidence during retry/follow-up.
+- [x] Allocate and label multiple result sets without starving later evidence.
+- [x] Run focused tests and record the new verification and code-review evidence.

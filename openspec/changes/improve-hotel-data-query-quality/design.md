@@ -59,3 +59,28 @@ default exclusion of sensitive detail.
 The evidence schema is internal and extended additively. Queries already accepted as single-table
 SELECTs continue to receive server-injected hotel filters. Complex SQL that joined another hotel
 table without hotel equality becomes rejected and must be regenerated safely.
+
+### Reliability and bounded execution
+
+The provider considers a hotel-data catalog healthy only when the required SQL tool is present. One
+refresh is allowed for an empty or incomplete catalog; unhealthy results are not cached. Business
+collection uses one total deadline in addition to existing boundary timeouts. Relevant verified
+schema is preloaded into the collection prompt so the local schema tool is a fallback rather than a
+mandatory model round.
+
+### Scope, metric and privacy contracts
+
+Requested scope, effective default scope and observed scope remain distinct. Missing observed hotel
+or date values are never filled from the request. SQL inspection supplies safe table, projected
+column and predicate metadata. Explicitly requested metric families must be covered by returned
+columns; vague current analysis requires latest-complete-date evidence and a bounded baseline.
+
+Sensitive catalog columns, credential-bearing fields and fallback raw JSON are rejected in SQL
+projection by default. Future explicitly authorized detail workflows may add a narrow allowlist.
+
+### Catalog drift, retry and presentation
+
+A small read-only drift checker compares the verified catalog with `information_schema` through the
+working DMS SQL path. It is diagnostic and never runs in the user request path. Retry restores
+persisted evidence and deduplicates it by fingerprint. Multi-result presentation allocates bounded
+rows per result set and uses semantic labels.

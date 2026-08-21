@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
 	isReadOnlyMcpToolName,
+	hotelDataToolCatalogIsHealthy,
 	loadMcpServerToolsInOrder,
 	makeServerInjectedDatabaseIdOptional,
 	McpToolProvider,
@@ -11,6 +12,7 @@ import {
 	compactHotelDataResult,
 	constrainHotelDataGenerateSqlArgs,
 	constrainHotelDataSqlArgs,
+	enforceHotelDataProjectionPolicy,
 	constrainHotelDataTableDetailArgs,
 	constrainHotelDataTableListArgs,
 	isEmptyHotelDataTableListResult,
@@ -99,6 +101,17 @@ describe('selectMcpServersByCapabilities', () => {
 });
 
 describe('McpToolProvider connection refresh', () => {
+	it('requires the SQL tool before treating a hotel-data catalog as healthy', () => {
+		expect(hotelDataToolCatalogIsHealthy(['hotel_data'], [])).toBe(false);
+		expect(
+			hotelDataToolCatalogIsHealthy(['hotel_data'], [{ name: 'list_hotel_data_tables' }])
+		).toBe(false);
+		expect(
+			hotelDataToolCatalogIsHealthy(['hotel_data'], [{ name: 'query_hotel_operating_data_sql' }])
+		).toBe(true);
+		expect(hotelDataToolCatalogIsHealthy(['weather'], [])).toBe(true);
+	});
+
 	it('closes the cached client and reloads tools for the requested capabilities', async () => {
 		mcpClientState.instances.length = 0;
 		const provider = new McpToolProvider(
@@ -280,6 +293,23 @@ describe('hotel data MCP guardrails', () => {
 		});
 	});
 
+	it('rejects sensitive columns, raw payloads and wildcard projections on sensitive tables', () => {
+		for (const script of [
+			'SELECT guest_name FROM ota_order WHERE hotel_id = 9',
+			'SELECT raw_payload FROM ota_order WHERE hotel_id = 9',
+			'SELECT * FROM fact_review_items WHERE hotel_id = 9',
+			'SELECT r.* FROM fact_review_items r WHERE r.hotel_id = 9',
+			'SELECT data_payload FROM ota_daily_report_data WHERE hotel_id = 9'
+		]) {
+			expect(() => enforceHotelDataProjectionPolicy(script)).toThrow(/敏感|后备/);
+		}
+		expect(() =>
+			enforceHotelDataProjectionPolicy(
+				'SELECT hotel_id, review_date, star, rating_label FROM fact_review_items WHERE hotel_id = 9'
+			)
+		).not.toThrow();
+	});
+
 	it('enforces the staff managed-hotel scope before SQL execution', () => {
 		const scoped = constrainHotelDataSqlArgs(
 			{ script: 'SELECT hotel_id, order_id FROM ota_order WHERE hotel_id IN (9, 10)' },
@@ -326,8 +356,8 @@ describe('hotel data MCP guardrails', () => {
 		);
 		for (const script of [
 			'SELECT o.hotel_id, p.item_name FROM ota_order o JOIN ota_order_price_item p ON p.hotel_id = o.hotel_id AND p.ota_order_id = o.id WHERE o.hotel_id = 9',
-			'SELECT * FROM (SELECT * FROM ota_order WHERE hotel_id = 9) scoped_rows WHERE hotel_id = 9',
-			'WITH scoped_orders AS (SELECT * FROM ota_order WHERE hotel_id = 9) SELECT * FROM scoped_orders',
+			'SELECT scoped_rows.hotel_id, scoped_rows.ota_order_no FROM (SELECT hotel_id, ota_order_no FROM ota_order WHERE hotel_id = 9) scoped_rows WHERE hotel_id = 9',
+			'WITH scoped_orders AS (SELECT hotel_id, ota_order_no FROM ota_order WHERE hotel_id = 9) SELECT hotel_id, ota_order_no FROM scoped_orders',
 			'SELECT hotel_id, order_id FROM ota_order WHERE hotel_id = 9 UNION ALL SELECT hotel_id, order_id FROM direct_order WHERE hotel_id = 9'
 		]) {
 			expect(() => constrainHotelDataSqlArgs({ script }, '81918192', ['9', '10'])).not.toThrow();
