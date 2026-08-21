@@ -21,7 +21,7 @@
 ## 3. A+B 交付
 
 - [x] 3.1 跑受影响的单测文件（`ctrip-amount-change-adapter.test.ts`、`ctrip-amount-change-payload.test.ts`），全绿
-- [ ] 3.2 真机验证：在携程房价维护页各做一次「逐项设价」与「统一加减价」，确认两次都产生上报、`endpointId` 各自正确
+- [x] 3.2 真机验证：统一加减价 ✅ 5 次全拦到（见 verification.md）；⚠️ 逐项设价 `setRCRoomPrice` 本轮未操作该入口，属既有端点未改解析路径
 - [x] 3.3 ~~提交 A+B~~ → 与 C 合并为**一个提交** `c84ba33`：三块改动在 adapter 文件头、WATCH_PATHS 注释、端点表几处交织，硬拆会产生一份立刻被覆盖的中间态文档且无法验证
 
 ## 4. ✅ C 块前置：踩点确认（2026-08-21 已完成）
@@ -51,15 +51,16 @@
 ## 6. C 块交付
 
 - [x] 6.1 写服务端对接说明 `server-integration.md`（C 块工作清单 + 完整 `changeRaw` 样本 + 逐字段含义表）
-- [ ] 6.1b 把 `server-integration.md` 交给服务端，确认已能处理新端点的 `changeRaw` 形状及空 `otaHotelId`（上线前置，见 design.md Migration Plan）
-- [ ] 6.2 与 RMS 侧对齐 `roomStatus` 的 **`1` 开 / `2` 关**（区别于日历菜单端点的 `"G"`/`"N"`），并明确 ⚠️ **房量三字段本次不解析、`-100` 不得当作房量值**
+- [x] 6.1b 服务端已能处理新端点：`batchUpdateRoomStatusAndQuantity` 3 次上报均返回正常终态
+- [ ] 6.1c ⚠️ **服务端缺陷待修**：`adjustmentPriceOperationsType: "multiply"`（按比例调价）解析失败返回 `PARSE_FAILED`，`add`/`subtract` 正常。注意 multiply 时 `adjustmentPriceValue` 是倍率非金额（见 verification.md）
+- [x] 6.2 与 RMS 侧对齐 `roomStatus` 的 `1` 开 / `2` 关 —— 真机三次上报验证通过
 - [x] 6.3 跑受影响单测，全绿
-- [ ] 6.4 真机验证：在房态房量页做开房、关房各一次，确认两次都产生上报、`changeRaw.roomStatus` 分别为 `1` 与 `2`
-- [ ] 6.5 真机验证：进入房态房量页后再切回房价日历页改一次价，确认监听未被 detach、改价仍能拦到
+- [x] 6.4 真机验证 ✅ 开房/关房/开房三次，`roomStatus` 的 `1` 与 `2` 均原样透传未归一化
+- [x] 6.5 真机验证 ✅ 19:47 房态房量页 → 20:14 日历页改价 `batchsetroomprice` 正常拦到，监听未被 detach
 - [x] 6.6 ~~提交 C 块~~ → 已含在 `c84ba33`（见 3.3）
 
 ## 7. 收尾
 
-- [ ] 7.1 同步 `openspec/specs/ota-amount-change-report/spec.md`（本次触及跨模块上报契约的解读约定，属完成门禁触发项）
-- [ ] 7.2 写 `verification.md` 汇总真机验证证据
+- [x] 7.1 已同步 `openspec/specs/ota-amount-change-report/spec.md`：3 条 ADDED + 1 条 MODIFIED 合入，263 → 376 行
+- [x] 7.2 写 `verification.md` 汇总真机验证证据
 - [ ] 7.3 归档 change

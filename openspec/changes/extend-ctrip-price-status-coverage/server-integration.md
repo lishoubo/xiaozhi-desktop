@@ -18,6 +18,10 @@
 **A 为什么零改动**：请求体与 `setRCRoomPrice` 同构，只多三个 `adjustmentPrice*` 字段
 （加减方向与幅度）。现有解析逻辑直接能跑，新字段靠透传自动进 `changeRaw`。
 
+> ⚠️ **2026-08-21 联调发现一个已有缺陷需要修**（与本次 desktop 改动无关，但同一批上线要用到）：
+> `adjustmentPriceOperationsType` 为 `"multiply"` 时服务端返回 `PARSE_FAILED`，
+> `"add"` / `"subtract"` 正常。详见下方 §按比例调价。
+
 **B 为什么零改动**：只影响 desktop 侧「这是不是一次真实改价」的丢弃判定。`changeRaw`
 一直是全量透传，联动房型本来就在里面 —— 修的是「改价被整个丢弃」，不是「字段没传」。
 
@@ -44,6 +48,30 @@ endpointUrl / endpointId / changeType / otaHotelId / changeRaw
 房态房量菜单    /rateplan/batchSetRoomStatusAndQuantity
   └── 房态房量 batchUpdateRoomStatusAndQuantity 【C】changeType: roomStatus   1/2 数字
 ```
+
+## ⚠️ 按比例调价（`multiply`）解析失败 —— 需修复
+
+2026-08-21 真机联调实测：
+
+```
+adjustmentPriceOperationsType  结果
+  multiply                     PARSE_FAILED  ×2
+  subtract                     SKIPPED       ×2   （正常终态）
+  add                          SKIPPED       ×1   （正常终态）
+```
+
+desktop 侧报文完整、上报成功（HTTP 200），是服务端未实现 `multiply` 分支。
+
+⚠️ **量纲不同，不能套用同一套换算**：
+
+| `adjustmentPriceOperationsType` | `adjustmentPriceValue` 含义 | 示例 |
+|---|---|---|
+| `add` / `subtract` | **绝对金额**（元） | `1` = 加/减 1 元 |
+| `multiply` | **倍率** | `1.001` = 乘以 1.001 |
+
+`adjustmentPriceType` 指出调的是哪个价：`salePrice`（卖价）或 `costPrice`（底价）。
+
+**影响**：用户用「按比例」方式调价时，RMS 收得到但解析不了，等同于跟价失效。
 
 ---
 
