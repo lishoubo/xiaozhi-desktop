@@ -6,6 +6,10 @@ import {
 	type AgentQuickActionId
 } from '@hotel-butler/api';
 import { z } from 'zod';
+import {
+	isGenericHotelDataDomainRequest,
+	isLikelyHotelDataRequest
+} from '../hotel-data-business-catalog';
 import type { SlotCollection } from './business-execution-state';
 import { getIntentDefinition, quickActionIntent } from './intent-registry';
 
@@ -45,6 +49,16 @@ function registeredCandidateSlots(
 	return candidateSlots(
 		Object.fromEntries(Object.entries(values).filter(([name]) => allowed.has(name)))
 	);
+}
+
+function inferredHotelDataSlots(
+	text: string,
+	values: Readonly<Record<string, string>>
+): Readonly<Record<string, string>> {
+	if (values.dateRange) return values;
+	if (/(今日|今天)/.test(text)) return { ...values, dateRange: '@date:today' };
+	if (/(昨日|昨天)/.test(text)) return { ...values, dateRange: '@date:yesterday' };
+	return values;
 }
 
 export class BusinessIntentRouter {
@@ -108,12 +122,20 @@ export class BusinessIntentRouter {
 				responseMode: 'analysis'
 			};
 		}
-		if (proposed.category === 'business_read') {
-			const intent = proposed.intentCandidate ?? 'generic_hotel_data_query';
+		const likelyHotelDataRequest = isLikelyHotelDataRequest(input.text);
+		if (proposed.category === 'business_read' || likelyHotelDataRequest) {
+			const intent = isGenericHotelDataDomainRequest(input.text)
+				? 'generic_hotel_data_query'
+				: (proposed.intentCandidate ?? 'generic_hotel_data_query');
 			return {
 				routeKind: 'business_read',
 				intent,
-				slots: registeredCandidateSlots(intent, proposed.slots),
+				slots: registeredCandidateSlots(
+					intent,
+					likelyHotelDataRequest
+						? inferredHotelDataSlots(input.text, proposed.slots)
+						: proposed.slots
+				),
 				confidence: proposed.confidence,
 				responseMode: proposed.responseMode
 			};

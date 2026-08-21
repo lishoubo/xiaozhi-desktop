@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import {
 	isReadOnlyMcpToolName,
 	loadMcpServerToolsInOrder,
+	makeServerInjectedDatabaseIdOptional,
 	McpToolProvider,
 	selectMcpServersByCapabilities
 } from './mcp-tool-provider';
@@ -126,6 +127,22 @@ describe('McpToolProvider connection refresh', () => {
 });
 
 describe('hotel data MCP guardrails', () => {
+	it('removes the model-facing database id requirement because the server injects it', () => {
+		const schema = {
+			type: 'object',
+			properties: {
+				database_id: { type: 'string', description: 'DMS databaseId' },
+				script: { type: 'string' }
+			},
+			required: ['database_id', 'script']
+		};
+
+		makeServerInjectedDatabaseIdOptional(schema);
+
+		expect(schema.required).toEqual(['script']);
+		expect(schema.properties.database_id.description).toBe('由服务端安全注入，请勿填写或猜测');
+	});
+
 	it('summarizes MCP responses without retaining business content', () => {
 		const summary = summarizeMcpResult({
 			content: [{ type: 'text', text: '酒店收入 123456，客人手机号 13800138000' }],

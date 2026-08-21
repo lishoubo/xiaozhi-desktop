@@ -140,6 +140,35 @@ describe('BusinessIntentRouter', () => {
 		});
 	});
 
+	it('uses the schema-informed backstop when the model misclassifies a traffic request', async () => {
+		const router = new BusinessIntentRouter({
+			classify: vi.fn().mockResolvedValue({
+				category: 'hotel_knowledge',
+				intentCandidate: null,
+				requestedEffect: 'explain',
+				responseMode: 'analysis',
+				confidence: 0.7,
+				slots: {
+					hotelReference: '银际酒店',
+					metrics: '流量'
+				}
+			})
+		});
+
+		await expect(
+			router.route({ kind: 'prompt', text: '分析下这个酒店今日的流量情况' })
+		).resolves.toMatchObject({
+			routeKind: 'business_read',
+			intent: 'generic_hotel_data_query',
+			responseMode: 'analysis',
+			slots: {
+				hotelReference: { status: 'candidate', raw: '银际酒店' },
+				dateRange: { status: 'candidate', raw: '@date:today' },
+				metrics: { status: 'candidate', raw: '流量' }
+			}
+		});
+	});
+
 	it('uses the model-classified response mode and normalized date range', async () => {
 		const router = new BusinessIntentRouter({
 			classify: vi.fn().mockResolvedValue({

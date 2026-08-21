@@ -372,7 +372,7 @@ export class LangChainAgentRuntime implements AgentRuntime {
 				: answerOnly && options.workflowRequest
 					? `\n\n当前是证据校验后的回答阶段。不可变请求：${JSON.stringify(options.workflowRequest)}。已验证证据：${JSON.stringify(options.validatedEvidence)}。不得调用数据工具，不得补造证据中没有的事实；必须写明范围、来源和重要限制。可按需要调用一次 render_hotel_ui。`
 					: options.workflowRequest
-						? `\n\n当前是受限业务取证阶段。意图：${options.workflowRequest.intent}。已解析参数：${JSON.stringify(options.workflowRequest.slots)}。只能使用已提供的只读工具，不得调用、建议或模拟任何写操作。只完成数据获取，最终文字不会直接展示给用户。必须依次确认目标业务表、读取相关表字段，再调用 query_hotel_operating_data_sql 执行只读查询；问题需要跨表分析时可以使用 JOIN、子查询、CTE 或 UNION。SQL 中使用不带数据库名前缀的表名，复杂查询必须对 hotel_id 明确限定为已解析酒店，并包含完成问题所需的日期、排序和数量约束。目录和字段结果不是业务数据证据。`
+						? `\n\n当前是受限业务取证阶段。意图：${options.workflowRequest.intent}。已解析参数：${JSON.stringify(options.workflowRequest.slots)}。只能使用已提供的只读工具，不得调用、建议或模拟写操作。只完成数据获取，当前阶段文字不会直接展示给用户。database_id 由服务端注入，不要填写或猜测。先按实际业务含义选择目标表并读取必要字段，再调用 query_hotel_operating_data_sql；一个查询不足以回答时继续查询相关表。可以使用 JOIN、子查询、CTE 或 UNION，但 SQL 使用不带数据库名前缀的表名，并对 hotel_id 明确限定为已解析酒店，同时包含完成问题所需的日期、排序和数量约束。目录、字段元数据和生成 SQL 都不是业务证据。`
 						: '';
 		const agent = createAgent({
 			model: analysisOnly ? this.analysisModel : this.model,
