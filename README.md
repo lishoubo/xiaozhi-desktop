@@ -125,8 +125,8 @@ server 还会通过 `XIAOZHI_RMS_SERVER_URL` 访问 RMS API。该地址与 RMS M
 用途不同，不应混用。
 
 生产 desktop 的 RMS 地址**不读环境文件**，而是写死在
-`apps/desktop/scripts/package-production.ts` 的 `PRODUCTION_RMS_ORIGIN` 常量里，与同文件的
-`PRODUCTION_SERVER_ORIGIN` 一致。`.env.production` 被 gitignore（含数据库密码等），
+`apps/desktop/scripts/package-production.ts` 的 `PRODUCTION_RMS_ORIGIN` 常量里，和同文件的
+`PRODUCTION_SERVER_ORIGIN` 一样由代码维护。`.env.production` 被 gitignore（含数据库密码等），
 让同一个地址散落在每台机器的私有文件里，只会导致谁也不知道哪份是对的。改地址改常量即可，
 它随仓库走、进 code review、有测试固化。
 
@@ -418,9 +418,9 @@ find "$HOME/Library/Logs" -type f \( -path "*/staff/main.log" -o -path "*/phone/
 | Backend 私有 CA | `output/production-tls/121.199.29.74/desktop/private-ca.pem` |
 | 认证 Profile | 默认 `staff`，phone 快捷命令显式选择 `phone` |
 
-生产脚本会默认确认 RMS 使用 HTTPS；当前 HTTP RMS 需要显式不安全开关。脚本还会确认生产
-证书对 `121.199.29.74` 有效、server 证书与私钥匹配、desktop CA 与 server CA 完全一致，
-而且 desktop 资源中不包含 CA 私钥。
+生产脚本会校验固定 RMS 地址只使用 HTTP(S) 且不携带凭证；当前固定的 HTTP RMS 会被脚本
+自动放行并打印明文传输警告。脚本还会确认生产证书对 `121.199.29.74` 有效、server 证书与
+私钥匹配、desktop CA 与 server CA 完全一致，而且 desktop 资源中不包含 CA 私钥。
 
 ### 1. 生产输入预检
 
@@ -430,8 +430,8 @@ find "$HOME/Library/Logs" -type f \( -path "*/staff/main.log" -o -path "*/phone/
 npm run check:desktop:production
 ```
 
-该命令只校验并显示 backend、RMS 和 CA 路径，不构建应用。任何 placeholder、证书过期、
-证书不匹配或环境文件权限过宽都会直接失败。
+该命令只校验并显示 backend、RMS 和 CA 路径，不构建应用。RMS 地址协议或凭证不合法、生产
+证书过期、证书不匹配等问题都会直接失败。
 
 RMS 目前是明文 HTTP（正式域名尚未启用 HTTPS），**脚本自行放行、不需要再手敲
 `XIAOZHI_ALLOW_INSECURE_RMS=1`**，但每次都会打印凭证明文传输的 WARNING——豁免自动
@@ -470,7 +470,7 @@ npm run make:desktop:production -- --platform=darwin --arch=x64
 
 ### 4. 生成 phone 登录的生产桌面包
 
-Phone 生产入口复用上述生产地址、私有 CA、环境文件权限和 RMS 安全检查，不需要手工拼接
+Phone 生产入口复用上述生产地址、私有 CA 和 RMS 安全检查，不需要手工拼接
 `HOTEL_BUTLER_SERVER_URL` 等构建变量。先执行只读预检：
 
 ```bash
@@ -499,8 +499,8 @@ npm run make:desktop:production:phone -- --platform=darwin --arch=x64
 产物仍位于 `apps/desktop/out/make/`，Forge 使用 phone build identifier、独立 bundle ID 和
 executable name 与 staff 产物隔离。生产 server 的 `RMS_DATABASE_URL` 必须有效，否则 phone
 登录页可以启动，但服务端无法查询手机号对应的 RMS 员工身份。该入口只构建本地产物，不会
-上传、发布或部署。若生产 RMS 仍为 HTTP，上述 phone 命令与 staff 命令一样必须在命令前
-显式添加 `XIAOZHI_ALLOW_INSECURE_RMS=1`，并接受构建时输出的明文传输警告。
+上传、发布或部署。若生产 RMS 仍为 HTTP，上述 phone 命令与 staff 命令一样会由脚本自动
+放行，并在构建时输出明文传输警告。
 
 普通的 `package:desktop:staff`、`package:desktop:phone`、`make:desktop:staff` 和
 `make:desktop:phone` 默认注入本地 backend/RMS，仅用于开发或显式定制构建，不得作为生产
@@ -510,14 +510,14 @@ executable name 与 staff 产物隔离。生产 server 的 `RMS_DATABASE_URL` �
 ## 最终上线顺序
 
 1. 确认 Git worktree 干净且所有上线代码已提交。
-2. 确认 `apps/server/.env.production` 权限为 `0600` 且所有 placeholder 已替换；RMS 优先使用
-   HTTPS，当前 HTTP 例外需在 server 与 desktop 构建命令前显式设置不安全开关。
+2. 确认 `apps/server/.env.production` 权限为 `0600` 且所有 placeholder 已替换；server 使用
+   当前 HTTP RMS 时，打包命令前仍需显式设置 `XIAOZHI_ALLOW_INSECURE_RMS=1`。
 3. 默认生成并上传 server-only 镜像包；仅首次部署或 pgvector 缺失时使用全量包。
 4. 在 ECS 执行部署脚本，确认备份、migration、管理员初始化及 server 健康检查全部成功。
 5. 从 ECS 使用私有 CA 请求健康接口，确认 HTTP `200`，并确认两个 Compose 服务均为
    `healthy`。
-6. 使用与 server 构建相同的 RMS 安全开关执行 `check:desktop:production`，再执行
-   `make:desktop:production`。
+6. 直接执行 `check:desktop:production`，再执行 `make:desktop:production`；desktop 脚本会
+   根据固定 RMS 地址自动应用当前 HTTP 豁免并输出警告。
 7. 在目标 Mac 上启动最终产物，验证 staff 登录、Agent 对话、7 日经营快捷入口和退出重启。
 8. 若面向外部用户分发，在交付前完成对应平台的代码签名与 notarization。
 
