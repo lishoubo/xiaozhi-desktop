@@ -219,6 +219,29 @@ describe('business evidence', () => {
 		});
 	});
 
+	it('keeps the enforced hotel scope when only some aggregate rows repeat hotel_id', () => {
+		const currentRequest = {
+			...request,
+			responseMode: 'data_only' as const,
+			slots: { hotelReference: 'hotel-1', metrics: ['流量'] }
+		};
+		const evidence = normalizeEvidence({
+			request: currentRequest,
+			toolName: 'query_hotel_operating_data_sql',
+			toolArgs: { script: 'SELECT hotel_id, MAX(data_date), SUM(exposure_cnt)' },
+			result: [
+				{ hotel_id: 'hotel-1', latest_data_date: '2026-08-20', exposure_cnt: 100 },
+				{ latest_data_date: '2026-08-19', exposure_cnt: 80 }
+			],
+			verifiedHotelScope: ['hotel-1']
+		});
+
+		expect(evidence.scope.hotelReference).toBe('hotel-1');
+		expect(assessEvidence(currentRequest, [evidence], false)).toMatchObject({
+			status: 'sufficient'
+		});
+	});
+
 	it('does not let an execution-scope attestation override a conflicting result hotel', () => {
 		const evidence = normalizeEvidence({
 			request,

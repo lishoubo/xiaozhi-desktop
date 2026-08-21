@@ -313,7 +313,7 @@ describe('model-driven collection diagnostics', () => {
 				intent: 'generic_hotel_data_query',
 				slots: {}
 			})
-		).toBe(32);
+		).toBe(18);
 		expect(
 			workflowRecursionLimit({
 				routeKind: 'business_read',

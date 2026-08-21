@@ -1349,6 +1349,17 @@ export class HotelAgentGateway implements AgentGateway {
 						type: 'run_completed',
 						message
 					});
+					this.logger.info(
+						{
+							event: 'agent.run.execution.completed',
+							runId,
+							conversationId: context.conversation.id,
+							durationMs: Math.max(0, Math.round(performance.now() - startedAt)),
+							responseCharacterCount: content.length,
+							hasGenerativeUi: Boolean(controlledResult?.ui)
+						},
+						'Agent run execution completed'
+					);
 					return;
 				}
 			}

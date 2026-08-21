@@ -460,9 +460,18 @@ export function normalizeEvidence(
 	const requestedHotel = valueAt(input.request.slots, 'hotelReference');
 	const rowHotelScope = verifiedHotelReferences(data);
 	const explicitHotels = anyExplicitHotelReferences(data);
+	const enforcedHotels = input.verifiedHotelScope?.filter((hotel) => hotel.length > 0) ?? [];
+	const enforcedHotelSet = new Set(enforcedHotels);
+	const conflictingHotels =
+		enforcedHotels.length === 0
+			? []
+			: explicitHotels.filter((hotel) => !enforcedHotelSet.has(hotel));
 	const observedHotel =
-		rowHotelScope?.join(',') ||
-		(explicitHotels.length === 0 ? input.verifiedHotelScope?.join(',') : null) ||
+		(enforcedHotels.length > 0 && conflictingHotels.length === 0
+			? enforcedHotels.join(',')
+			: conflictingHotels.length > 0
+				? explicitHotels.join(',')
+				: rowHotelScope?.join(',')) ||
 		null;
 	const dateFacts = evidenceDateFacts(data);
 	return {
