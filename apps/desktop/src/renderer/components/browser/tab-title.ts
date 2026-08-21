@@ -21,15 +21,17 @@ import type { BrowserTab } from '../../../shared/browser';
  * 常把「-携程酒店eBooking」这类后缀挂在每个页面上，不清掉的话，几个标签页截断后
  * 长得一模一样。
  *
- * ⚠️ 规则按**真机实测**的 `document.title` 补充，不要凭渠道名猜。空表是合法的
- * 初始状态（等价于不清洗），逐渠道补即可。
+ * ⚠️ **目前刻意为空 —— 等真机实测的 `document.title` 再逐渠道补**。
+ *
+ * 曾按常见形态猜过一版（如 `/\s*[-—|]\s*携程.*$/`），未经真机核对即撤下，原因是
+ * 标签页**没有 tooltip**（产品决策，见 `BrowserWorkspace.svelte` 标签栏注释）：
+ * 规则一旦误伤，被删掉的部分用户再也无从查看。「删错了看不见」比「后缀没清掉」
+ * 严重得多，所以在拿到真实标题之前，不清洗是唯一安全的默认。
+ *
+ * 补规则时注意：`携程` 这类词可能出现在标题正文里，也可能是前缀而非后缀，
+ * 必须按实测的完整字符串写，不要用 `.*$` 这种贪婪写法一刀切。
  */
-const CHANNEL_TITLE_SUFFIXES: Readonly<Record<string, readonly RegExp[]>> = {
-  ctrip: [/\s*[-—|]\s*携程.*$/u],
-  meituan: [/\s*[-—|]\s*美团.*$/u],
-  'meituan-minsu': [/\s*[-—|]\s*美团.*$/u],
-  douyin: [/\s*[-—|]\s*抖音.*$/u],
-};
+const CHANNEL_TITLE_SUFFIXES: Readonly<Record<string, readonly RegExp[]>> = {};
 
 /** 加载中且还没拿到标题时的占位。 */
 const LOADING_PLACEHOLDER = '正在加载…';

@@ -18,25 +18,21 @@ function tab(overrides: Partial<BrowserTab> = {}): BrowserTab {
 }
 
 describe('displayTabTitle', () => {
-  it('strips the channel suffix so truncated tabs stay distinguishable', () => {
-    expect(displayTabTitle(tab({ title: '订单管理 - 携程酒店eBooking' }))).toBe('订单管理');
-    expect(displayTabTitle(tab({ channelId: 'meituan', title: '房态日历 | 美团酒店商家中心' }))).toBe(
-      '房态日历',
+  /**
+   * 后缀规则表当前**刻意为空**（等真机实测的 document.title 再补，理由见
+   * `tab-title.ts`）。规则为空时必须原样返回——绝不能因为查不到规则就吞标题。
+   */
+  it('returns the title unchanged while no suffix rule is configured', () => {
+    expect(displayTabTitle(tab({ title: '订单管理 - 携程酒店eBooking' }))).toBe(
+      '订单管理 - 携程酒店eBooking',
     );
-  });
-
-  it('keeps the original title when the channel has no suffix rule', () => {
     expect(displayTabTitle(tab({ channelId: 'fliggy', title: '飞猪商家 - 某某页' }))).toBe(
       '飞猪商家 - 某某页',
     );
   });
 
-  /**
-   * 渠道首页的标题常常整个就是后缀本身。清成空字符串的话标签是一片空白，
-   * 比留着后缀更难认。
-   */
-  it('falls back to the raw title when stripping would empty it', () => {
-    expect(displayTabTitle(tab({ title: '- 携程酒店eBooking' }))).toBe('- 携程酒店eBooking');
+  it('trims surrounding whitespace', () => {
+    expect(displayTabTitle(tab({ title: '  订单管理  ' }))).toBe('订单管理');
   });
 
   it('shows a placeholder while the title is still empty', () => {

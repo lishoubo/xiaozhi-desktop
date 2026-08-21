@@ -56,7 +56,7 @@
 
 - [x] 8.1 新建 `renderer/components/browser/tab-title.ts`：`displayTabTitle(tab)` 纯函数，含渠道后缀清洗规则表与故障态/加载态占位文字（规则表可先落空表，见 design Open Questions）
 - [x] 8.2 新建 `tests/unit/renderer-tab-title.test.ts`（**路径按仓库既有约定 `renderer-*.test.ts`**，非计划里写的 `renderer/` 子目录）：覆盖后缀清洗、故障态文字、空标题回退，5 例通过
-- [x] 8.3 `BrowserWorkspace.svelte`：标签外层加 `title={displayTabTitle(tab)}` tooltip；关闭按钮的 `aria-label` 改用同一函数，消除「关闭 正在加载…」
+- [x] 8.3 `BrowserWorkspace.svelte`：关闭按钮的 `aria-label` 改用 `displayTabTitle`，消除「关闭 正在加载…」。~~加 tooltip~~ **已按用户决策撤销**（2026-08-21）：悬停弹层扫过标签栏时会一路弹出，比截断本身更烦人；截断看不全不做额外处理
 - [x] 8.4 标签宽度改为随数量弹性伸缩（少量标签时可占更大宽度）
 - [x] 8.5 故障标签页显示故障样式与显式「重新加载」入口
 
@@ -72,7 +72,7 @@
 - [ ] 10.2 真机验证零尺寸竞态已修复：打开携程标签 → 触发绑定弹窗（让位）→ 关闭弹窗 → 点携程菜单触发新开页，确认内容区正常切换
 - [ ] 10.2b 真机验证让位泄漏已修复（实现中新发现，见 verification 缺陷②）：打开绑定弹窗 → **不关闭弹窗**直接从侧边栏跳走 → 回到浏览器页，确认内容区非空白
 - [ ] 10.3 真机验证故障恢复：对某标签页强制终止渲染进程，确认标签页显示崩溃态且可重新加载
-- [ ] 10.4 真机验证标题：确认 tooltip 可见、后缀已清洗；按 10.4 的实测结果补全 8.1 的规则表（Open Questions 的收口）
+- [ ] 10.4 真机验证标题：~~tooltip~~ 已撤销，只需确认后缀清洗是否命中；按实测 `document.title` 校准 8.1 的规则表（Open Questions 的收口）
 - [ ] 10.5 真机验证数量上限与开窗节流的提示文案
 - [ ] 10.6 Windows 端验证 `setVisible` 让位行为（design 已记为风险项）
 - [x] 10.7 把验证证据写入 `openspec/changes/optimize-ota-browser-tabs/verification.md`

@@ -507,8 +507,10 @@
         use:autoAnimate={LAYOUT_ANIMATION_OPTIONS}
       >
         {#each activeTabs as tab (tab.id)}
-          <!-- 标题一律走 displayTabTitle：tooltip、标签文字、辅助文本同一个来源，
-               否则「关闭 ${tab.title}」在加载中会读成「关闭 正在加载…」。 -->
+          <!-- 标题一律走 displayTabTitle：标签文字与辅助文本同一个来源，否则
+               「关闭 ${tab.title}」在加载中会读成「关闭 正在加载…」。
+               刻意**不加** title 属性做 tooltip：悬停弹层在标签栏上扫过时会一路
+               弹出来，比截断本身更烦人（产品决策，2026-08-21）。 -->
           {@const tabTitle = displayTabTitle(tab)}
           <div
             class={[
@@ -521,7 +523,6 @@
                   ? 'border-[#e2e6ec] bg-white text-[#242936] shadow-sm'
                   : 'border-transparent text-[#5f6673] hover:bg-[#e8ebef] hover:text-[#242936]',
             ]}
-            title={tabTitle}
           >
             <button
               class="flex min-w-0 flex-1 items-center gap-2 self-stretch px-3 text-left"
