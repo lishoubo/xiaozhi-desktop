@@ -96,7 +96,7 @@ describe('business evidence', () => {
 		});
 	});
 
-	it('recognizes a successful header-only hotel SQL table as a final no-data outcome', () => {
+	it('checks freshness and sync once before treating a generic empty query as final no-data', () => {
 		const evidence = normalizeEvidence({
 			request,
 			toolName: 'query_hotel_operating_data_sql',
@@ -105,7 +105,11 @@ describe('business evidence', () => {
 				'[{"type":"text","text":"| hotel_id | data_date |\\n| --- | --- |","structuredContent":{"result":"| hotel_id | data_date |\\n| --- | --- |"}}]'
 		});
 
-		expect(assessEvidence(request, [evidence], false)).toEqual({ status: 'no_data' });
+		expect(assessEvidence(request, [evidence], false)).toEqual({
+			status: 'needs_more_data',
+			limitation: '目标业务数据为空，需核对最近完整业务日和同步状态。'
+		});
+		expect(assessEvidence(request, [evidence], true)).toEqual({ status: 'no_data' });
 	});
 
 	it('does not accept hotel metadata as a completed business-data query', () => {
@@ -143,7 +147,7 @@ describe('business evidence', () => {
 	it('accepts only evidence contained in an explicit multi-hotel scope', () => {
 		const multiHotelRequest = {
 			...request,
-			slots: { ...request.slots, hotelReference: ['9', '10'] }
+			slots: { ...request.slots, hotelReference: ['9', '10'], metrics: ['GMV'] }
 		};
 		const allowed = normalizeEvidence({
 			request: multiHotelRequest,
@@ -211,6 +215,52 @@ describe('business evidence', () => {
 				reasonCode: 'evidence_scope_mismatch'
 			});
 		}
+	});
+
+	it('requires combined SQL evidence to cover every requested known domain', () => {
+		const crossDomainRequest = {
+			...request,
+			slots: { ...request.slots, metrics: ['流量', '搜索词'] }
+		};
+		const traffic = normalizeEvidence({
+			request: crossDomainRequest,
+			toolName: 'query_hotel_operating_data_sql',
+			toolArgs: {
+				script: 'SELECT hotel_id, exposure_cnt FROM fact_traffic_scene WHERE hotel_id = 4'
+			},
+			result: JSON.stringify([{ exposure_cnt: 100 }])
+		});
+		const search = normalizeEvidence({
+			request: crossDomainRequest,
+			toolName: 'query_hotel_operating_data_sql',
+			toolArgs: {
+				script: 'SELECT hotel_id, keyword FROM fact_search_keyword WHERE hotel_id = 4'
+			},
+			result: JSON.stringify([{ keyword: '包头酒店' }])
+		});
+
+		expect(traffic.provenance).toMatchObject({
+			tables: ['fact_traffic_scene'],
+			domains: ['traffic_conversion']
+		});
+		expect(assessEvidence(crossDomainRequest, [traffic], false)).toEqual({
+			status: 'needs_more_data',
+			limitation: '尚缺少以下业务域的可验证数据：搜索。'
+		});
+		expect(assessEvidence(crossDomainRequest, [traffic, search], false)).toMatchObject({
+			status: 'sufficient'
+		});
+	});
+
+	it('infers domain provenance from distinctive result fields when streamed SQL args are absent', () => {
+		const evidence = normalizeEvidence({
+			request: { ...request, slots: { ...request.slots, metrics: '订单佣金' } },
+			toolName: 'query_hotel_operating_data_sql',
+			toolArgs: null,
+			result: '| ota_order_no | commission_cents |\n| --- | --- |\n| O-1 | 1200 |'
+		});
+
+		expect(evidence.provenance).toMatchObject({ domains: ['orders'] });
 	});
 
 	it('rejects operating table rows outside the requested hotel or date range', () => {

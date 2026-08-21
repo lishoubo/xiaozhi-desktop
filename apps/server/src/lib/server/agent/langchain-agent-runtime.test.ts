@@ -6,6 +6,7 @@ import {
 	completeGroundedAnswerAfterUi,
 	groundedAnalysisWritingInstructions,
 	hotelDataCollectionToolChoice,
+	mcpFailureFingerprint,
 	isLocalToolAllowed,
 	normalizeAgentStreamFailure,
 	recoverCompletedUiAfterRenderLimit,
@@ -16,6 +17,7 @@ import {
 	shouldCaptureToolEvidence,
 	shouldAbortRepeatedMcpFailure,
 	shouldSuppressUiRenderCall,
+	shouldStopHotelDataCollection,
 	shouldStopDuplicateUiRender,
 	workflowRecursionLimit
 } from './langchain-agent-runtime';
@@ -130,8 +132,6 @@ describe('selectWorkflowToolNames', () => {
 			slots: {}
 		};
 		expect(selectWorkflowToolNames({ workflowRequest }, available)).toEqual([
-			'list_hotel_data_tables',
-			'describe_hotel_data_table',
 			'query_hotel_operating_data_sql'
 		]);
 		expect(selectWorkflowToolNames({ workflowRequest, validatedEvidence: [] }, available)).toEqual([
@@ -150,27 +150,26 @@ describe('shouldRequireHotelDataQuery', () => {
 	it('requires hotel-data workflows to execute the SQL query before the model may finish', () => {
 		expect(shouldRequireHotelDataQuery(genericRequest, [])).toBe(true);
 		expect(shouldRequireHotelDataQuery(genericRequest, ['list_hotel_data_tables'])).toBe(true);
+		expect(shouldRequireHotelDataQuery(genericRequest, ['query_hotel_operating_data_sql'])).toBe(
+			false
+		);
 		expect(
-			shouldRequireHotelDataQuery(genericRequest, ['query_hotel_operating_data_sql'])
-		).toBe(false);
-		expect(
-			shouldRequireHotelDataQuery(
-				{ ...genericRequest, intent: 'hotel_operating_summary' },
-				['query_hotel_operating_data_sql']
-			)
+			shouldRequireHotelDataQuery({ ...genericRequest, intent: 'hotel_operating_summary' }, [
+				'query_hotel_operating_data_sql'
+			])
 		).toBe(false);
 	});
 
-	it('forces table discovery, schema inspection and SQL execution in order', () => {
+	it('uses the verified semantic catalog and forces business SQL without metadata round trips', () => {
 		expect(hotelDataCollectionToolChoice(genericRequest, [])).toEqual({
 			type: 'function',
-			function: { name: 'list_hotel_data_tables' }
+			function: { name: 'describe_verified_hotel_data_tables' }
 		});
 		expect(
-			hotelDataCollectionToolChoice(genericRequest, ['list_hotel_data_tables'])
+			hotelDataCollectionToolChoice(genericRequest, ['describe_verified_hotel_data_tables'])
 		).toEqual({
 			type: 'function',
-			function: { name: 'describe_hotel_data_table' }
+			function: { name: 'query_hotel_operating_data_sql' }
 		});
 		expect(
 			hotelDataCollectionToolChoice(genericRequest, [
@@ -179,21 +178,36 @@ describe('shouldRequireHotelDataQuery', () => {
 			])
 		).toEqual({
 			type: 'function',
-			function: { name: 'query_hotel_operating_data_sql' }
+			function: { name: 'describe_verified_hotel_data_tables' }
 		});
-		expect(
-			hotelDataCollectionToolChoice(genericRequest, ['query_hotel_operating_data_sql'])
-		).toBe('auto');
+		expect(hotelDataCollectionToolChoice(genericRequest, ['query_hotel_operating_data_sql'])).toBe(
+			'auto'
+		);
 	});
 
 	it('does not force a hotel SQL query for unrelated workflows or general conversation', () => {
 		expect(shouldRequireHotelDataQuery(undefined, [])).toBe(false);
 		expect(
-			shouldRequireHotelDataQuery(
-				{ ...genericRequest, intent: 'weather_operations_advice' },
-				[]
-			)
+			shouldRequireHotelDataQuery({ ...genericRequest, intent: 'weather_operations_advice' }, [])
 		).toBe(false);
+	});
+});
+
+describe('hotel data collection convergence', () => {
+	const genericRequest = {
+		routeKind: 'business_read' as const,
+		intent: 'generic_hotel_data_query' as const,
+		slots: {}
+	};
+
+	it('stops broad hotel-data discovery after eight successful queries or three query rounds', () => {
+		expect(shouldStopHotelDataCollection(genericRequest, 7, 2)).toBe(false);
+		expect(shouldStopHotelDataCollection(genericRequest, 8, 1)).toBe(true);
+		expect(shouldStopHotelDataCollection(genericRequest, 1, 3)).toBe(true);
+		expect(
+			shouldStopHotelDataCollection({ ...genericRequest, intent: 'hotel_operating_summary' }, 8, 3)
+		).toBe(false);
+		expect(shouldStopHotelDataCollection(undefined, 8, 3)).toBe(false);
 	});
 });
 
@@ -213,6 +227,22 @@ describe('tool evidence capture', () => {
 	it('stops retrying the same MCP tool after one corrective retry', () => {
 		expect(shouldAbortRepeatedMcpFailure(1)).toBe(false);
 		expect(shouldAbortRepeatedMcpFailure(2)).toBe(true);
+	});
+
+	it('does not combine failures from different SQL attempts', () => {
+		expect(
+			mcpFailureFingerprint(
+				'query_hotel_operating_data_sql',
+				{ script: 'SELECT 1' },
+				'query_invalid'
+			)
+		).not.toBe(
+			mcpFailureFingerprint(
+				'query_hotel_operating_data_sql',
+				{ script: 'SELECT 2' },
+				'query_invalid'
+			)
+		);
 	});
 
 	it('suppresses lifecycle publication for every render call after the first call id', () => {

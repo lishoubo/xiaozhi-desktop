@@ -46,7 +46,7 @@ import {
 	getIntentDefinition,
 	presentationPolicyForIntent
 } from './execution/intent-registry';
-import { normalizeEvidence } from './execution/evidence';
+import { normalizeEvidence, type EvidenceEnvelope } from './execution/evidence';
 import { buildNoHotelDataAnswer } from './execution/no-data-answer';
 import { buildRoutingContext } from './execution/routing-context';
 import type { JsonValue, ResolvedBusinessRequest } from './execution/business-execution-state';
@@ -61,6 +61,7 @@ import {
 } from './agent-effect';
 import { describeAgentFailure, evidenceFailure, toolFailureSummary } from './agent-failure';
 import { runWithHotelDataAccessScope } from './hotel-data-access-scope';
+import { HOTEL_DATA_SQL_TOOL_NAME } from './hotel-data-mcp';
 
 type AgentRepositoryPort = Pick<
 	AgentRepository,
@@ -95,6 +96,19 @@ type BusinessIntentRouterPort = Pick<BusinessIntentRouter, 'route'>;
 type BusinessSlotResolverPort = Pick<BusinessSlotResolver, 'resolve'>;
 
 const GROUNDED_ANALYSIS_TIMEOUT_MS = 90_000;
+
+export function isBusinessEvidenceTool(
+	request: Pick<ResolvedBusinessRequest, 'intent'>,
+	toolName: string
+): boolean {
+	if (
+		request.intent === 'generic_hotel_data_query' ||
+		request.intent === 'hotel_operating_summary'
+	) {
+		return toolName === HOTEL_DATA_SQL_TOOL_NAME;
+	}
+	return toolName !== 'render_hotel_ui';
+}
 
 function requestHotelDataScope(
 	principal: AgentPrincipal,
@@ -852,6 +866,8 @@ export class HotelAgentGateway implements AgentGateway {
 					);
 				}
 				let workflowPasses = 0;
+				const accumulatedEnvelopes: EvidenceEnvelope[] = [];
+				let evidenceGap: string | undefined;
 				while (execution.state.status === 'executing' && workflowPasses < 2) {
 					workflowPasses += 1;
 					const workflowRequest = execution.state.request;
@@ -903,6 +919,7 @@ export class HotelAgentGateway implements AgentGateway {
 								...executionPolicyForIntent(workflowRequest.intent),
 								signal: controller.signal,
 								workflowRequest,
+								evidenceGap,
 								emit: (event) =>
 									shouldForwardCollectionRuntimeEvent(event)
 										? this.forwardRuntimeEvent(
@@ -932,7 +949,7 @@ export class HotelAgentGateway implements AgentGateway {
 						'Agent workflow collection completed'
 					);
 					const envelopes = collectedToolEvidence
-						.filter((item) => item.toolName !== 'render_hotel_ui')
+						.filter((item) => isBusinessEvidenceTool(workflowRequest, item.toolName))
 						.map((item) =>
 							normalizeEvidence({
 								request: workflowRequest,
@@ -942,6 +959,7 @@ export class HotelAgentGateway implements AgentGateway {
 								observedAt: new Date().toISOString()
 							})
 						);
+					accumulatedEnvelopes.push(...envelopes);
 					execution = await this.repository.transitionBusinessExecution(
 						principal,
 						context.run.businessExecutionId,
@@ -966,9 +984,10 @@ export class HotelAgentGateway implements AgentGateway {
 					const assessment = workflowCollector.assessEvidence(
 						// Evidence assessment is deterministic and intentionally separate from the model.
 						execution.state.request,
-						envelopes,
+						accumulatedEnvelopes,
 						execution.state.followUpUsed
 					);
+					evidenceGap = assessment.status === 'needs_more_data' ? assessment.limitation : undefined;
 					this.logger.info(
 						{
 							event: 'agent.workflow.evidence.assessed',
@@ -976,11 +995,17 @@ export class HotelAgentGateway implements AgentGateway {
 							conversationId: context.conversation.id,
 							businessExecutionId: context.run.businessExecutionId,
 							assessment: assessment.status,
-							evidenceCount: envelopes.length,
-							evidenceSources: [...new Set(envelopes.map((item) => item.source))],
-							toolNames: [...new Set(envelopes.map((item) => item.toolName))],
-							parseQualities: [...new Set(envelopes.map((item) => item.parseQuality))],
-							filteredEvidenceCount: envelopes.filter((item) => item.filtered).length,
+							evidenceCount: accumulatedEnvelopes.length,
+							evidenceSources: [...new Set(accumulatedEnvelopes.map((item) => item.source))],
+							toolNames: [...new Set(accumulatedEnvelopes.map((item) => item.toolName))],
+							parseQualities: [...new Set(accumulatedEnvelopes.map((item) => item.parseQuality))],
+							coveredDomains: [
+								...new Set(accumulatedEnvelopes.flatMap((item) => item.provenance?.domains ?? []))
+							],
+							tableNames: [
+								...new Set(accumulatedEnvelopes.flatMap((item) => item.provenance?.tables ?? []))
+							],
+							filteredEvidenceCount: accumulatedEnvelopes.filter((item) => item.filtered).length,
 							durationMs: Math.max(0, Math.round(performance.now() - evidenceAssessmentStartedAt))
 						},
 						'Agent workflow evidence assessed'

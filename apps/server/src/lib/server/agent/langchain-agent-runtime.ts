@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { generativeUiSpecSchema } from '@hotel-butler/api';
 import type { GenerativeUiSpec } from '@hotel-butler/api';
 import { AIMessage, AIMessageChunk, ToolMessage } from '@langchain/core/messages';
@@ -10,13 +11,7 @@ import { z } from 'zod';
 import type { AgentRepository } from './agent-repository';
 import type { AgentRuntime, AgentRuntimeRunOptions } from './agent-runtime';
 import type { McpToolProvider } from './mcp-tool-provider';
-import {
-	HOTEL_DATA_DESCRIBE_TABLE_TOOL_NAME,
-	HOTEL_DATA_GENERATE_SQL_TOOL_NAME,
-	HOTEL_DATA_LIST_TABLES_TOOL_NAME,
-	HOTEL_DATA_SQL_TOOL_NAME,
-	isHotelDataToolName
-} from './hotel-data-mcp';
+import { HOTEL_DATA_SQL_TOOL_NAME, isHotelDataToolName } from './hotel-data-mcp';
 import { mcpResultIsError, summarizeMcpResult } from './mcp-observability';
 import {
 	describeAgentFailure,
@@ -30,6 +25,10 @@ import { HotelAgentToolHandlers } from './hotel-agent-tool-handlers';
 import type { AgentSkill, SkillProvider } from './skill-provider';
 import type { AgentModelGateway } from './model-gateway';
 import { getIntentDefinition } from './execution/intent-registry';
+import {
+	describeVerifiedHotelDataTables,
+	HOTEL_DATA_CATALOG_TOOL_NAME
+} from './hotel-data-business-catalog';
 import {
 	agentPromise,
 	agentErrorCauseType,
@@ -92,6 +91,16 @@ export function shouldCaptureToolEvidence(status: string | undefined, result?: u
 
 export function shouldAbortRepeatedMcpFailure(attempts: number): boolean {
 	return attempts >= 2;
+}
+
+export function mcpFailureFingerprint(
+	toolName: string,
+	toolArgs: unknown,
+	failureCode: string
+): string {
+	return `${toolName}:${failureCode}:${createHash('sha256')
+		.update(JSON.stringify(toolArgs ?? null))
+		.digest('hex')}`;
 }
 
 export function normalizeAgentStreamFailure(
@@ -158,9 +167,7 @@ export function selectWorkflowToolNames(
 		request.workflowRequest.intent === 'hotel_operating_summary' ||
 		request.workflowRequest.intent === 'generic_hotel_data_query'
 	) {
-		return availableNames.filter(
-			(name) => isHotelDataToolName(name) && name !== HOTEL_DATA_GENERATE_SQL_TOOL_NAME
-		);
+		return availableNames.filter((name) => name === HOTEL_DATA_SQL_TOOL_NAME);
 	}
 	if (request.workflowRequest.intent === 'weather_operations_advice') {
 		return availableNames.filter((name) =>
@@ -192,6 +199,21 @@ export function shouldRequireHotelDataQuery(
 type HotelDataCollectionToolChoice =
 	'auto' | 'required' | Readonly<{ type: 'function'; function: Readonly<{ name: string }> }>;
 
+const GENERIC_HOTEL_DATA_SUCCESSFUL_QUERY_LIMIT = 8;
+const GENERIC_HOTEL_DATA_QUERY_ROUND_LIMIT = 3;
+
+export function shouldStopHotelDataCollection(
+	request: AgentRuntimeRunOptions['workflowRequest'],
+	successfulQueryCount: number,
+	queryRoundCount = 0
+): boolean {
+	return (
+		request?.intent === 'generic_hotel_data_query' &&
+		(successfulQueryCount >= GENERIC_HOTEL_DATA_SUCCESSFUL_QUERY_LIMIT ||
+			(successfulQueryCount > 0 && queryRoundCount >= GENERIC_HOTEL_DATA_QUERY_ROUND_LIMIT))
+	);
+}
+
 export function hotelDataCollectionToolChoice(
 	request: AgentRuntimeRunOptions['workflowRequest'],
 	completedToolNames: readonly string[]
@@ -203,21 +225,15 @@ export function hotelDataCollectionToolChoice(
 		return 'auto';
 	}
 	if (completedToolNames.includes(HOTEL_DATA_SQL_TOOL_NAME)) return 'auto';
-	if (completedToolNames.includes(HOTEL_DATA_DESCRIBE_TABLE_TOOL_NAME)) {
+	if (!completedToolNames.includes(HOTEL_DATA_CATALOG_TOOL_NAME)) {
 		return {
 			type: 'function',
-			function: { name: HOTEL_DATA_SQL_TOOL_NAME }
-		};
-	}
-	if (completedToolNames.includes(HOTEL_DATA_LIST_TABLES_TOOL_NAME)) {
-		return {
-			type: 'function',
-			function: { name: HOTEL_DATA_DESCRIBE_TABLE_TOOL_NAME }
+			function: { name: HOTEL_DATA_CATALOG_TOOL_NAME }
 		};
 	}
 	return {
 		type: 'function',
-		function: { name: HOTEL_DATA_LIST_TABLES_TOOL_NAME }
+		function: { name: HOTEL_DATA_SQL_TOOL_NAME }
 	};
 }
 
@@ -237,6 +253,34 @@ function requireHotelDataQueryMiddleware(request: AgentRuntimeRunOptions['workfl
 				...modelRequest,
 				toolChoice: hotelDataCollectionToolChoice(request, completedToolNames)
 			});
+		}
+	});
+}
+
+function stopCompletedHotelDataCollectionMiddleware(
+	request: AgentRuntimeRunOptions['workflowRequest']
+) {
+	return createMiddleware({
+		name: 'StopCompletedHotelDataCollection',
+		beforeModel: {
+			canJumpTo: ['end'],
+			hook: (state) => {
+				const successfulQueryCount = state.messages.filter(
+					(message) =>
+						ToolMessage.isInstance(message) &&
+						message.name === HOTEL_DATA_SQL_TOOL_NAME &&
+						message.status !== 'error' &&
+						!mcpResultIsError(message.content)
+				).length;
+				const queryRoundCount = state.messages.filter(
+					(message) =>
+						AIMessage.isInstance(message) &&
+						message.tool_calls?.some((call) => call.name === HOTEL_DATA_SQL_TOOL_NAME)
+				).length;
+				return shouldStopHotelDataCollection(request, successfulQueryCount, queryRoundCount)
+					? { jumpTo: 'end' as const }
+					: undefined;
+			}
 		}
 	});
 }
@@ -337,6 +381,25 @@ export class LangChainAgentRuntime implements AgentRuntime {
 						if (generatedUi) throw new DuplicateUiRenderError();
 						generatedUi = spec;
 					});
+		const hotelDataCatalogTools: StructuredToolInterface[] =
+			options.workflowRequest &&
+			!answerOnly &&
+			(options.workflowRequest.intent === 'generic_hotel_data_query' ||
+				options.workflowRequest.intent === 'hotel_operating_summary')
+				? [
+						tool(
+							({ table_names }) => JSON.stringify(describeVerifiedHotelDataTables(table_names)),
+							{
+								name: HOTEL_DATA_CATALOG_TOOL_NAME,
+								description:
+									'读取服务端已验证的 RMS 表字段、粒度、单位、聚合规则、新鲜度和敏感字段；一次提交本轮所需的全部表名，不访问远端。',
+								schema: z.object({
+									table_names: z.array(z.string().min(1).max(100)).min(1).max(35)
+								})
+							}
+						)
+					]
+				: [];
 		const loadedMcpTools = !shouldLoadMcpTools(options)
 			? []
 			: await runAgentEffect(
@@ -358,7 +421,11 @@ export class LangChainAgentRuntime implements AgentRuntime {
 						).includes(candidate.name)
 					)
 				: loadedMcpTools;
-		const tools: StructuredToolInterface[] = [...localTools, ...workflowMcpTools];
+		const tools: StructuredToolInterface[] = [
+			...localTools,
+			...hotelDataCatalogTools,
+			...workflowMcpTools
+		];
 		const mcpToolNames = new Set(workflowMcpTools.map((tool) => tool.name));
 		const workflowToolCallBudget = options.workflowRequest
 			? getIntentDefinition(options.workflowRequest.intent).maxToolCalls
@@ -372,12 +439,15 @@ export class LangChainAgentRuntime implements AgentRuntime {
 				: answerOnly && options.workflowRequest
 					? `\n\n当前是证据校验后的回答阶段。不可变请求：${JSON.stringify(options.workflowRequest)}。已验证证据：${JSON.stringify(options.validatedEvidence)}。不得调用数据工具，不得补造证据中没有的事实；必须写明范围、来源和重要限制。可按需要调用一次 render_hotel_ui。`
 					: options.workflowRequest
-						? `\n\n当前是受限业务取证阶段。意图：${options.workflowRequest.intent}。已解析参数：${JSON.stringify(options.workflowRequest.slots)}。只能使用已提供的只读工具，不得调用、建议或模拟写操作。只完成数据获取，当前阶段文字不会直接展示给用户。database_id 由服务端注入，不要填写或猜测。先按实际业务含义选择目标表并读取必要字段，再调用 query_hotel_operating_data_sql；一个查询不足以回答时继续查询相关表。可以使用 JOIN、子查询、CTE 或 UNION，但 SQL 使用不带数据库名前缀的表名，并对 hotel_id 明确限定为已解析酒店，同时包含完成问题所需的日期、排序和数量约束。目录、字段元数据和生成 SQL 都不是业务证据。`
+						? `\n\n当前是受限业务取证阶段。意图：${options.workflowRequest.intent}。已解析参数：${JSON.stringify(options.workflowRequest.slots)}。${options.evidenceGap ? `这是定向补证轮次，只补齐：${options.evidenceGap}` : ''}只能使用已提供的只读工具，不得调用、建议或模拟写操作。只完成数据获取，当前阶段文字不会直接展示给用户。database_id 由服务端注入，不要填写或猜测。先根据已验证业务目录选择目标表，再用 describe_verified_hotel_data_tables 一次读取本轮全部目标表的准确字段；不要调用远端 list/describe。随后直接用 query_hotel_operating_data_sql 获取证据。先列出用户明确要求的业务域和必需证据，再规划完整首批 SQL，并在同一回复中并行调用。跨表必须先分别聚合到 hotel_id、source、业务日等共同粒度，再按 hotel_id 和必要维度关联；每张酒店业务表都必须直接限定授权 hotel_id，或通过 hotel_id 等值关联到已限定表。不同 source、元/分、快照/事件/日报不得直接混加，汇总行与明细行选择单一层级，默认不投影敏感字段或原始 JSON。用户未指定日期且请求“当前、情况、表现、分析”时，先确定相关业务域最近完整业务日，并为分析补充前一日或近 7 日可比基线；无可比数据时保留限制。只有返回数据揭示必要新问题、证据域缺失或查询失败时才追加，最多 3 个 SQL 规划轮次、累计最多 8 次成功 SQL；这不限制业务维度。数据充分时只回复 DATA_COLLECTION_COMPLETE，不在取证阶段写分析。SQL 不带数据库名前缀，包含必要日期、排序和数量限制。目录、字段元数据和 SQL 都不是业务证据。`
 						: '';
 		const agent = createAgent({
 			model: analysisOnly ? this.analysisModel : this.model,
 			tools,
 			middleware: [
+				stopCompletedHotelDataCollectionMiddleware(
+					answerOnly ? undefined : options.workflowRequest
+				),
 				requireHotelDataQueryMiddleware(answerOnly ? undefined : options.workflowRequest),
 				singleSuccessfulUiRenderMiddleware(() => generatedUi !== null)
 			],
@@ -528,8 +598,11 @@ export class LangChainAgentRuntime implements AgentRuntime {
 					const toolName = message.name ?? toolNamesByCall.get(callId) ?? 'tool';
 					const failed = message.status === 'error' || mcpResultIsError(message.content);
 					const toolFailure = failed ? describeToolFailure(toolName, message.content) : null;
-					const failureCount = failed ? (mcpFailureCounts.get(toolName) ?? 0) + 1 : 0;
-					if (failed) mcpFailureCounts.set(toolName, failureCount);
+					const failureKey = toolFailure
+						? mcpFailureFingerprint(toolName, toolArgs.get(callId) ?? null, toolFailure.code)
+						: null;
+					const failureCount = failureKey ? (mcpFailureCounts.get(failureKey) ?? 0) + 1 : 0;
+					if (failureKey) mcpFailureCounts.set(failureKey, failureCount);
 					if (mcpCallStartedAt.has(callId)) {
 						const durationMs = Math.max(
 							0,

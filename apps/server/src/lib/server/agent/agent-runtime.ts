@@ -82,6 +82,7 @@ export type AgentRuntimeRunOptions = Readonly<{
 	signal: AbortSignal;
 	emit(event: RuntimeEvent): Promise<void>;
 	workflowRequest?: ResolvedBusinessRequest;
+	evidenceGap?: string;
 	validatedEvidence?: readonly EvidenceRecord[];
 	analysisOnly?: boolean;
 }>;

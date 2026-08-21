@@ -13,6 +13,7 @@ import {
 	constrainHotelDataSqlArgs,
 	constrainHotelDataTableDetailArgs,
 	constrainHotelDataTableListArgs,
+	isEmptyHotelDataTableListResult,
 	isAllowedHotelDataMcpToolName,
 	resolveDmsDatabaseId,
 	selectDmsDatabaseId
@@ -225,13 +226,32 @@ describe('hotel data MCP guardrails', () => {
 	it('bounds table metadata pagination before calling DMS', () => {
 		expect(constrainHotelDataTableListArgs({ page_number: 0, page_size: 10_000 })).toEqual({
 			page_number: 1,
-			page_size: 50
+			page_size: 50,
+			return_guid: true
 		});
 		expect(constrainHotelDataTableListArgs(null, '81918192')).toEqual({
 			database_id: '81918192',
 			page_number: 1,
-			page_size: 50
+			page_size: 50,
+			return_guid: true
 		});
+	});
+
+	it('treats a successful empty DMS table list as unusable metadata', () => {
+		expect(isEmptyHotelDataTableListResult({ Success: true, TotalCount: 0 })).toBe(true);
+		expect(isEmptyHotelDataTableListResult({ TableList: { Table: [] } })).toBe(true);
+		expect(
+			isEmptyHotelDataTableListResult([
+				{ type: 'text', text: '{"Success":true,"TotalCount":0,"TableList":{"Table":[]}}' }
+			])
+		).toBe(true);
+		expect(
+			isEmptyHotelDataTableListResult({
+				Success: true,
+				TotalCount: 1,
+				TableList: { Table: [{ TableName: 'fact_business_daily' }] }
+			})
+		).toBe(false);
 	});
 
 	it('allows table metadata only inside the discovered database schema', () => {
@@ -305,7 +325,7 @@ describe('hotel data MCP guardrails', () => {
 			"SELECT 'from ota_order where' AS marker, s.secret FROM (SELECT * FROM secret_table WHERE hotel_id IN (9)) AS s"
 		);
 		for (const script of [
-			'SELECT o.hotel_id, h.name FROM ota_order o JOIN hotel h ON h.id = o.hotel_id WHERE o.hotel_id = 9',
+			'SELECT o.hotel_id, p.item_name FROM ota_order o JOIN ota_order_price_item p ON p.hotel_id = o.hotel_id AND p.ota_order_id = o.id WHERE o.hotel_id = 9',
 			'SELECT * FROM (SELECT * FROM ota_order WHERE hotel_id = 9) scoped_rows WHERE hotel_id = 9',
 			'WITH scoped_orders AS (SELECT * FROM ota_order WHERE hotel_id = 9) SELECT * FROM scoped_orders',
 			'SELECT hotel_id, order_id FROM ota_order WHERE hotel_id = 9 UNION ALL SELECT hotel_id, order_id FROM direct_order WHERE hotel_id = 9'
@@ -340,13 +360,34 @@ describe('hotel data MCP guardrails', () => {
 			)
 		).toThrow('酒店范围');
 		for (const script of [
-			'SELECT o.order_id FROM ota_order o JOIN hotel h ON h.id = o.hotel_id WHERE o.hotel_id = 9 OR 1 = 1',
+			'SELECT a.gmv, b.exposure_cnt FROM fact_business_daily a JOIN fact_traffic_scene b ON b.data_date = a.data_date WHERE a.hotel_id = 9',
+			'WITH traffic AS (SELECT * FROM fact_traffic_scene) SELECT a.gmv, traffic.exposure_cnt FROM fact_business_daily a JOIN traffic ON traffic.hotel_id = a.hotel_id WHERE a.hotel_id = 9',
 			'SELECT hotel_id FROM ota_order WHERE hotel_id = 9 UNION ALL SELECT hotel_id FROM ota_order'
 		]) {
 			expect(() => constrainHotelDataSqlArgs({ script }, '81918192', ['9', '10'])).toThrow(
 				'酒店范围'
 			);
 		}
+		expect(() =>
+			constrainHotelDataSqlArgs(
+				{
+					script:
+						"SELECT a.gmv, b.exposure_cnt FROM fact_business_daily a JOIN fact_traffic_scene b ON b.hotel_id = a.hotel_id AND b.data_date = a.data_date WHERE a.hotel_id = 9 AND (b.traffic_scene = '搜索' OR b.traffic_scene = '推荐')"
+				},
+				'81918192',
+				['9']
+			)
+		).not.toThrow();
+		expect(() =>
+			constrainHotelDataSqlArgs(
+				{
+					script:
+						'SELECT a.gmv, b.exposure_cnt, c.visit_cnt FROM fact_business_daily a JOIN fact_traffic_scene b ON b.hotel_id = a.hotel_id JOIN fact_conversion_funnel c ON c.hotel_id = b.hotel_id WHERE a.hotel_id = 9'
+				},
+				'81918192',
+				['9']
+			)
+		).not.toThrow();
 		const alternativeBoolean = constrainHotelDataSqlArgs(
 			{
 				script: 'SELECT * FROM fact_business_daily WHERE hotel_id = 9 AND 0 XOR hotel_id > 10'
@@ -400,6 +441,13 @@ describe('hotel data MCP guardrails', () => {
 
 		expect(compacted).toContain('[REDACTED_DMS_TOKEN]');
 		expect(compacted).not.toContain('DMS-1234567890abcdef');
+	});
+
+	it('redacts stored cookie credentials if a query projects them accidentally', () => {
+		const compacted = compactHotelDataResult({ cookie_cipher: 'encrypted-cookie-value' });
+
+		expect(compacted).toContain('[REDACTED]');
+		expect(compacted).not.toContain('encrypted-cookie-value');
 	});
 
 	it('parses embedded MCP JSON while preserving business metadata', () => {

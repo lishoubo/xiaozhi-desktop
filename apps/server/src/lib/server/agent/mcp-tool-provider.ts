@@ -21,6 +21,7 @@ import {
 	HOTEL_DATA_LIST_TABLES_TOOL_NAME,
 	HOTEL_DATA_RESULT_ROW_LIMIT,
 	HOTEL_DATA_SQL_TOOL_NAME,
+	isEmptyHotelDataTableListResult,
 	isAllowedHotelDataMcpToolName,
 	resolveDmsDatabaseId
 } from './hotel-data-mcp';
@@ -307,8 +308,14 @@ export class McpToolProvider {
 					return { args: constrainHotelDataTableDetailArgs(args, resolvedDmsDatabaseName) };
 				}
 			},
-			afterToolCall: ({ serverName, result }) => {
+			afterToolCall: ({ serverName, name, result }) => {
 				if (serverName !== HOTEL_DATA_MCP_SERVER_NAME) return;
+				if (name === DMS_LIST_TABLES_TOOL_NAME && isEmptyHotelDataTableListResult(result[0])) {
+					throw new AgentProtocolError({
+						operation: 'list_hotel_data_tables',
+						reason: 'DMS table discovery returned no table metadata'
+					});
+				}
 				return { result: compactHotelDataToolResult(result) };
 			}
 		});

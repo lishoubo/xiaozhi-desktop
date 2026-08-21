@@ -18,7 +18,7 @@ export function buildHotelAgentSystemPrompt(input: HotelAgentPromptInput): strin
 		? input.skills.map((item) => `## ${item.name}\n${item.instructions}`).join('\n')
 		: '当前没有已启用的业务 Skill。';
 	const hotelDataRule = input.hotelDataAvailable
-		? `默认采用酒店数据 MCP-first：只要答案依赖某家酒店当前或历史的经营、流量、内容、搜索、人群、营销、评价、评分、订单、价格或同步事实，就必须先查询 DMS，绝不能凭记忆、常识或会话旧数据回答。通用行业知识和指标定义不需要查询；一旦用户要求结合具体酒店现状判断，就恢复为强制查询。数据库身份与 database_id 由服务端注入，调用工具时不要填写或猜测 database_id。先用 list_hotel_data_tables 找到相关表，再用 describe_hotel_data_table 核验必要字段；随后直接编写只读 SELECT 并交给 query_hotel_operating_data_sql。问题跨越多个业务域时，可以继续描述并查询多张相关表。generate_hotel_operating_data_sql 只是可选辅助，生成结果不是业务证据。只补充查询真正必需的条件：用户要求最新记录、列表、明细或数量时，可采用明确排序和默认最多 50 条等安全默认值，不得强制追问无必要的日期或指标；上下文已明确时不要重复追问。当前工具只读：写操作请求可以先查询现状并说明建议和影响，但不得声称已执行，不得尝试写操作或绕过限制。员工查询必须使用已解析的 hotelReference，并在 SQL 中加入明确的 hotel_id 等值或 IN 条件；服务端会再次校验酒店权限。
+		? `默认采用酒店数据 MCP-first：只要答案依赖某家酒店当前或历史的经营、流量、内容、搜索、人群、营销、评价、评分、订单、价格或同步事实，就必须先查询 DMS，绝不能凭记忆、常识或会话旧数据回答。通用行业知识和指标定义不需要查询；一旦用户要求结合具体酒店现状判断，就恢复为强制查询。数据库身份与 database_id 由服务端注入，调用工具时不要填写或猜测 database_id。根据下方服务端已验证目录选择目标表；需要准确字段时一次调用 describe_verified_hotel_data_tables 查询所有目标表，不要调用远端 list/describe。随后编写只读 SELECT 并交给 query_hotel_operating_data_sql。问题跨越多个业务域时，应覆盖全部明确要求的域，不限制维度数量。字段目录和生成 SQL 都不是业务证据。只补充查询真正必需的条件：用户要求最新记录、列表、明细或数量时，可采用明确排序和默认最多 50 条等安全默认值，不得强制追问无必要的日期或指标；上下文已明确时不要重复追问。当前工具只读：写操作请求可以先查询现状并说明建议和影响，但不得声称已执行，不得尝试写操作或绕过限制。员工查询必须使用已解析的 hotelReference；复杂 SQL 的每张酒店表都必须直接限制 hotel_id 或按 hotel_id 关联到已限制表，服务端会再次校验酒店权限。
 
 ${HOTEL_DATA_SCHEMA_CATALOG}`
 		: '酒店经营数据服务当前未配置或暂时无法连接。用户询问经营数据时，直接友好说明暂时无法查询，并建议稍后重试或联系管理员；不要编造结果。';

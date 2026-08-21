@@ -7,6 +7,7 @@ const parser = new Parser();
 type SqlAnalysis = Readonly<{
 	isComplex: boolean;
 	hotelIds: readonly string[];
+	tableNames: readonly string[];
 }>;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -48,22 +49,46 @@ function hotelPredicateIds(node: Readonly<Record<string, unknown>>): readonly st
 	});
 }
 
-function collectHotelPredicateIds(value: unknown, skipUnionTail = false): readonly string[] {
-	const hotelIds: string[] = [];
-	const collect = (candidate: unknown): void => {
-		if (Array.isArray(candidate)) {
-			for (const item of candidate) collect(item);
-			return;
-		}
-		if (!isRecord(candidate)) return;
-		hotelIds.push(...hotelPredicateIds(candidate));
-		for (const [key, child] of Object.entries(candidate)) {
-			if (skipUnionTail && key === '_next') continue;
-			collect(child);
-		}
+function columnReference(
+	value: unknown
+): Readonly<{ table: string | null; column: string }> | null {
+	if (!isRecord(value) || value.type !== 'column_ref' || typeof value.column !== 'string')
+		return null;
+	return {
+		table: typeof value.table === 'string' ? value.table.toLowerCase() : null,
+		column: value.column.toLowerCase()
 	};
-	collect(value);
-	return hotelIds;
+}
+
+function safeBooleanLeaves(value: unknown): readonly Readonly<Record<string, unknown>>[] {
+	if (!isRecord(value)) return [];
+	if (value.type !== 'binary_expr' || typeof value.operator !== 'string') return [value];
+	const operator = value.operator.toUpperCase();
+	if (operator === 'OR' || operator === 'XOR') return [];
+	if (operator === 'AND')
+		return [...safeBooleanLeaves(value.left), ...safeBooleanLeaves(value.right)];
+	return [value];
+}
+
+function hotelPredicateRelation(
+	node: Readonly<Record<string, unknown>>,
+	relations: readonly string[]
+): string | null {
+	if (hotelPredicateIds(node).length === 0) return null;
+	const column = columnReference(node.left);
+	if (!column) return null;
+	if (column.table) return column.table;
+	return relations.length === 1 ? (relations[0] ?? null) : null;
+}
+
+function hotelEquality(node: Readonly<Record<string, unknown>>): readonly [string, string] | null {
+	if (node.type !== 'binary_expr' || node.operator !== '=') return null;
+	const left = columnReference(node.left);
+	const right = columnReference(node.right);
+	if (!left?.table || !right?.table || left.column !== 'hotel_id' || right.column !== 'hotel_id') {
+		return null;
+	}
+	return [left.table, right.table];
 }
 
 function isConstantTrue(value: unknown): boolean {
@@ -94,26 +119,13 @@ export function analyzeComplexHotelDataSql(
 	databaseName?: string
 ): SqlAnalysis {
 	const ast = parseSingleSelect(sql);
-	let isComplex = false;
-	let hasUnsafeBoolean = false;
+	let isComplex = Boolean(Array.isArray(ast.with) && ast.with.length > 0) || isRecord(ast._next);
 	let hasCartesianJoin = false;
 	const referencedHotelIds: string[] = [];
-	const unionBranchHotelIds: Array<readonly string[]> = [];
+	const tableNames = new Set<string>();
+	const authorized = new Set(allowedHotelIds);
 
 	visit(ast, (node) => {
-		if (Array.isArray(node.with) && node.with.length > 0) isComplex = true;
-		if (isRecord(node._next)) {
-			isComplex = true;
-			let branch: unknown = node;
-			while (isRecord(branch)) {
-				unionBranchHotelIds.push(collectHotelPredicateIds(branch, true));
-				branch = branch._next;
-			}
-		}
-		if (node.type === 'binary_expr' && typeof node.operator === 'string') {
-			const operator = node.operator.toUpperCase();
-			if (operator === 'OR' || operator === 'XOR') hasUnsafeBoolean = true;
-		}
 		referencedHotelIds.push(...hotelPredicateIds(node));
 
 		if (!Array.isArray(node.from)) return;
@@ -130,6 +142,7 @@ export function analyzeComplexHotelDataSql(
 				hasCartesianJoin = true;
 			}
 			if (isRecord(source.expr)) isComplex = true;
+			if (typeof source.table === 'string') tableNames.add(source.table.toLowerCase());
 			if (
 				databaseName &&
 				typeof source.db === 'string' &&
@@ -141,25 +154,93 @@ export function analyzeComplexHotelDataSql(
 		}
 	});
 
-	if (!isComplex) return { isComplex: false, hotelIds: referencedHotelIds };
+	if (!isComplex) {
+		return { isComplex: false, hotelIds: referencedHotelIds, tableNames: [...tableNames] };
+	}
 	if (hasCartesianJoin) throw new AgentQueryRejectedError('酒店数据查询不允许笛卡尔连接');
-	if (hasUnsafeBoolean) {
-		throw new AgentQueryRejectedError(
-			'复杂酒店数据查询不允许 OR/XOR 条件，请使用 IN 明确限制酒店范围'
-		);
+	if (referencedHotelIds.some((hotelId) => !authorized.has(hotelId))) {
+		throw new AgentQueryRejectedError('复杂酒店数据查询必须显式限制在当前账号的酒店范围内');
 	}
-	const authorized = new Set(allowedHotelIds);
-	if (
-		referencedHotelIds.length === 0 ||
-		referencedHotelIds.some((hotelId) => !authorized.has(hotelId)) ||
-		unionBranchHotelIds.some(
-			(branchHotelIds) =>
-				branchHotelIds.length === 0 || branchHotelIds.some((hotelId) => !authorized.has(hotelId))
-		)
-	) {
-		throw new AgentQueryRejectedError(
-			'复杂酒店数据查询必须显式限制在当前账号的酒店范围内'
-		);
-	}
-	return { isComplex: true, hotelIds: referencedHotelIds };
+
+	const validateSelect = (
+		select: Readonly<Record<string, unknown>>,
+		inheritedCtes: ReadonlyMap<string, true> = new Map()
+	): void => {
+		const ctes = new Map(inheritedCtes);
+		if (Array.isArray(select.with)) {
+			for (const candidate of select.with) {
+				if (!isRecord(candidate) || !isRecord(candidate.name) || !isRecord(candidate.stmt))
+					continue;
+				const name = candidate.name.value;
+				const statement = candidate.stmt.ast;
+				if (typeof name !== 'string' || !isRecord(statement)) continue;
+				validateSelect(statement, ctes);
+				ctes.set(name.toLowerCase(), true);
+			}
+		}
+		const from = Array.isArray(select.from) ? select.from.filter(isRecord) : [];
+		const aliases: string[] = [];
+		const alreadyScoped = new Set<string>();
+		for (const source of from) {
+			const tableName = typeof source.table === 'string' ? source.table.toLowerCase() : null;
+			const alias =
+				typeof source.as === 'string'
+					? source.as.toLowerCase()
+					: (tableName ?? (isRecord(source.expr) ? `derived_${aliases.length}` : null));
+			if (!alias) continue;
+			aliases.push(alias);
+			if (tableName && ctes.has(tableName)) alreadyScoped.add(alias);
+			if (isRecord(source.expr) && isRecord(source.expr.ast)) {
+				validateSelect(source.expr.ast, ctes);
+				alreadyScoped.add(alias);
+			}
+		}
+		const scoped = new Set(alreadyScoped);
+		const equalities: Array<readonly [string, string]> = [];
+		for (const expression of [select.where, select.having, ...from.map((source) => source.on)]) {
+			for (const leaf of safeBooleanLeaves(expression)) {
+				const relation = hotelPredicateRelation(leaf, aliases);
+				if (relation) scoped.add(relation);
+				const equality = hotelEquality(leaf);
+				if (equality) equalities.push(equality);
+			}
+		}
+		let changed = true;
+		while (changed) {
+			changed = false;
+			for (const [left, right] of equalities) {
+				if (scoped.has(left) && !scoped.has(right)) {
+					scoped.add(right);
+					changed = true;
+				}
+				if (scoped.has(right) && !scoped.has(left)) {
+					scoped.add(left);
+					changed = true;
+				}
+			}
+		}
+		if (aliases.some((alias) => !scoped.has(alias))) {
+			throw new AgentQueryRejectedError(
+				'复杂酒店数据查询必须为每张业务表显式限制酒店范围或按 hotel_id 安全关联'
+			);
+		}
+		if (isRecord(select._next)) validateSelect(select._next, ctes);
+	};
+
+	validateSelect(ast);
+	return { isComplex: true, hotelIds: referencedHotelIds, tableNames: [...tableNames] };
+}
+
+export function hotelDataSqlTableNames(sql: string): readonly string[] {
+	const ast = parseSingleSelect(sql);
+	const tables = new Set<string>();
+	visit(ast, (node) => {
+		if (!Array.isArray(node.from)) return;
+		for (const source of node.from) {
+			if (isRecord(source) && typeof source.table === 'string') {
+				tables.add(source.table.toLowerCase());
+			}
+		}
+	});
+	return [...tables];
 }

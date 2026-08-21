@@ -140,7 +140,7 @@ export function buildDeterministicDataQueryAnswer(
 	evidence: readonly EvidenceRecord[]
 ): Readonly<{ content: string; ui: GenerativeUiSpec }> | null {
 	if (request.intent !== 'generic_hotel_data_query') return null;
-	const source = evidence.findLast(
+	const sources = evidence.filter(
 		(item) =>
 			item.source === 'aliyun_dms_mcp' &&
 			typeof item.data === 'object' &&
@@ -148,12 +148,52 @@ export function buildDeterministicDataQueryAnswer(
 			!Array.isArray(item.data) &&
 			Reflect.get(item.data, 'toolName') === HOTEL_DATA_SQL_TOOL_NAME
 	);
-	const table = source ? tableData(source.data) : null;
-	if (!source || !table || table.rows.length === 0) return null;
-	const wasFiltered = filtered(source.data);
+	const resultSets = sources.flatMap((source, index) => {
+		const table = tableData(source.data);
+		return table && table.rows.length > 0 ? [{ source, table, index: index + 1 }] : [];
+	});
+	if (resultSets.length === 0) return null;
+	const table =
+		resultSets.length === 1
+			? resultSets[0]?.table
+			: (() => {
+					const columns = [
+						'结果集',
+						...new Set(resultSets.flatMap((resultSet) => resultSet.table.columns))
+					].slice(0, 12);
+					const dataColumns = columns.slice(1);
+					return {
+						columns,
+						rows: resultSets
+							.flatMap((resultSet) =>
+								resultSet.table.rows.map((row) => {
+									const values = new Map(
+										resultSet.table.columns.map((column, index) => [column, row[index] ?? null])
+									);
+									return [
+										`查询 ${resultSet.index}`,
+										...dataColumns.map((column) => values.get(column) ?? null)
+									];
+								})
+							)
+							.slice(0, HOTEL_DATA_RESULT_ROW_LIMIT)
+					};
+				})();
+	if (!table) return null;
+	const totalSourceRows = resultSets.reduce(
+		(count, resultSet) => count + resultSet.table.rows.length,
+		0
+	);
+	const totalColumns = new Set(resultSets.flatMap((resultSet) => resultSet.table.columns)).size;
+	const wasFiltered =
+		sources.some((source) => filtered(source.data)) ||
+		totalSourceRows > HOTEL_DATA_RESULT_ROW_LIMIT ||
+		(resultSets.length > 1 && totalColumns > 11);
 	return {
 		content: [
-			`已查询到 ${table.rows.length} 条酒店数据记录，按数据源返回顺序展示。`,
+			resultSets.length === 1
+				? `已查询到 ${table.rows.length} 条酒店数据记录，按数据源返回顺序展示。`
+				: `已查询到 ${resultSets.length} 组酒店数据，共展示 ${table.rows.length} 条记录。`,
 			wasFiltered ? '结果经过行数、字段或长度裁剪，不代表完整明细。' : '',
 			'数据来源：阿里云 DMS MCP。'
 		]

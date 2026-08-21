@@ -8,6 +8,22 @@ import {
 	parseOperatingEvidenceRows
 } from './deterministic-operating-answer';
 import { HOTEL_DATA_SQL_TOOL_NAME } from '../hotel-data-mcp';
+import {
+	hotelDataDomainLabel,
+	hotelDataDomainsForText,
+	hotelDataTableSemantics,
+	HOTEL_DATA_TABLES,
+	type HotelDataDomain
+} from '../hotel-data-business-catalog';
+import { hotelDataSqlTableNames } from '../hotel-data-sql-policy';
+
+export type HotelDataEvidenceProvenance = Readonly<{
+	tables: readonly string[];
+	domains: readonly HotelDataDomain[];
+	grains: readonly string[];
+	timeFields: readonly string[];
+	units: readonly string[];
+}>;
 
 export type EvidenceEnvelope = Readonly<{
 	evidenceId: string;
@@ -22,6 +38,7 @@ export type EvidenceEnvelope = Readonly<{
 	observedAt: string | null;
 	parseQuality: EvidenceParseQuality;
 	filtered: boolean;
+	provenance: HotelDataEvidenceProvenance | null;
 	data: JsonValue;
 }>;
 
@@ -163,6 +180,97 @@ function sourceForIntent(intent: AgentBusinessIntent): EvidenceEnvelope['source'
 	return 'aliyun_dms_mcp';
 }
 
+function scriptFromToolArgs(toolArgs: unknown, depth = 0): string | null {
+	if (depth > 4) return null;
+	if (typeof toolArgs === 'string') {
+		try {
+			return scriptFromToolArgs(JSON.parse(toolArgs), depth + 1);
+		} catch {
+			return null;
+		}
+	}
+	if (typeof toolArgs !== 'object' || toolArgs === null) return null;
+	const script = Reflect.get(toolArgs, 'script');
+	if (typeof script === 'string') return script;
+	return scriptFromToolArgs(Reflect.get(toolArgs, 'args'), depth + 1);
+}
+
+function resultFieldNames(value: unknown, depth = 0): readonly string[] {
+	if (depth > 8 || value === null) return [];
+	if (typeof value === 'string') {
+		const markdownHeader = value
+			.split('\n')
+			.map((line) => line.trim())
+			.find((line) => line.startsWith('|') && line.endsWith('|'));
+		if (markdownHeader) {
+			return markdownHeader
+				.slice(1, -1)
+				.split('|')
+				.map((field) => field.trim())
+				.filter((field) => /^[a-z][a-z0-9_]*$/i.test(field));
+		}
+		try {
+			return resultFieldNames(JSON.parse(value), depth + 1);
+		} catch {
+			return [];
+		}
+	}
+	if (Array.isArray(value)) {
+		return [...new Set(value.flatMap((item) => resultFieldNames(item, depth + 1)))];
+	}
+	if (typeof value !== 'object') return [];
+	return [
+		...new Set([
+			...Object.keys(value).filter((field) => /^[a-z][a-z0-9_]*$/i.test(field)),
+			...Object.values(value).flatMap((item) => resultFieldNames(item, depth + 1))
+		])
+	];
+}
+
+function sqlProvenance(
+	toolName: string,
+	toolArgs: unknown,
+	data: unknown
+): HotelDataEvidenceProvenance | null {
+	if (toolName !== HOTEL_DATA_SQL_TOOL_NAME) return null;
+	const script = scriptFromToolArgs(toolArgs);
+	let tableNames: readonly string[];
+	if (script) {
+		try {
+			tableNames = hotelDataSqlTableNames(script);
+		} catch {
+			tableNames = [];
+		}
+	} else {
+		tableNames = [];
+	}
+	const exactTables = tableNames.flatMap((name) => {
+		const semantics = hotelDataTableSemantics(name);
+		return semantics ? [semantics] : [];
+	});
+	const fieldNames = resultFieldNames(data);
+	const inferredTables = fieldNames.flatMap((field) => {
+		const owners = HOTEL_DATA_TABLES.filter((item) => item.columns.includes(field));
+		return owners.length === 1 ? owners : [];
+	});
+	const inferredDomains = fieldNames.flatMap((field) => {
+		const owners = HOTEL_DATA_TABLES.filter((item) => item.columns.includes(field));
+		const domains = [...new Set(owners.map((item) => item.domain))];
+		return domains.length === 1 ? domains : [];
+	});
+	const tables = [
+		...new Map([...exactTables, ...inferredTables].map((item) => [item.name, item])).values()
+	];
+	if (tables.length === 0 && inferredDomains.length === 0) return null;
+	return {
+		tables: tables.map((item) => item.name),
+		domains: [...new Set([...tables.map((item) => item.domain), ...inferredDomains])],
+		grains: [...new Set(tables.map((item) => item.grain))],
+		timeFields: [...new Set(tables.flatMap((item) => (item.timeField ? [item.timeField] : [])))],
+		units: [...new Set(tables.flatMap((item) => item.units))]
+	};
+}
+
 function explicitHotelReferences(value: unknown, depth = 0): readonly string[] {
 	if (depth > 6 || value === null || typeof value !== 'object') return [];
 	if (Array.isArray(value)) {
@@ -266,6 +374,7 @@ export function normalizeEvidence(
 		observedAt: input.observedAt ?? null,
 		parseQuality: parsed.quality,
 		filtered: compacted.includes('[DATA_RESULT_FILTERED]'),
+		provenance: sqlProvenance(input.toolName, input.toolArgs, data),
 		data: jsonValue(data)
 	};
 }
@@ -289,6 +398,12 @@ export function assessEvidence(
 		hotelQueryEvidence.length > 0 &&
 		hotelQueryEvidence.every((item) => emptyData(item.data) || isEmptyHotelDataTable(item.data))
 	) {
+		if (request.intent === 'generic_hotel_data_query' && !followUpUsed) {
+			return {
+				status: 'needs_more_data',
+				limitation: '目标业务数据为空，需核对最近完整业务日和同步状态。'
+			};
+		}
 		return { status: 'no_data' };
 	}
 	if (evidence.length === 0 || evidence.every((item) => emptyData(item.data))) {
@@ -346,6 +461,34 @@ export function assessEvidence(
 		return followUpUsed
 			? { status: 'inconclusive', limitations: [limitation] }
 			: { status: 'needs_more_data', limitation };
+	}
+	if (request.intent === 'generic_hotel_data_query') {
+		const metrics = valueAt(request.slots, 'metrics');
+		const metricText = Array.isArray(metrics)
+			? metrics.filter((item): item is string => typeof item === 'string').join(' ')
+			: typeof metrics === 'string'
+				? metrics
+				: '';
+		const requiredDomains = hotelDataDomainsForText(metricText);
+		const provenanceAvailable = hotelQueryEvidence.some(
+			(item) => (item.provenance?.domains.length ?? 0) > 0
+		);
+		if (requiredDomains.length > 0 && provenanceAvailable) {
+			const coveredDomains = new Set(
+				hotelQueryEvidence
+					.filter((item) => !emptyData(item.data) && !isEmptyHotelDataTable(item.data))
+					.flatMap((item) => item.provenance?.domains ?? [])
+			);
+			const missing = requiredDomains.filter((domain) => !coveredDomains.has(domain));
+			if (missing.length > 0) {
+				const limitation = `尚缺少以下业务域的可验证数据：${missing
+					.map(hotelDataDomainLabel)
+					.join('、')}。`;
+				return followUpUsed
+					? { status: 'inconclusive', limitations: [limitation] }
+					: { status: 'needs_more_data', limitation };
+			}
+		}
 	}
 	const limitations = [
 		...(evidence.some((item) => item.filtered)

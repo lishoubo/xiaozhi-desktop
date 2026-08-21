@@ -8,6 +8,7 @@ import {
 	describeAgentRunFailure,
 	formatClarificationAnswer,
 	HotelAgentGateway,
+	isBusinessEvidenceTool,
 	runGroundedAnalysis
 } from './agent-gateway';
 import { AgentConfigurationError, AgentProtocolError, AgentUpstreamError } from './agent-effect';
@@ -26,6 +27,23 @@ const event: AgentRunEvent = {
 	recovery: 'retry',
 	retryable: true
 };
+
+describe('business evidence selection', () => {
+	it('keeps only executed SQL results for hotel-data analysis', () => {
+		const request = { intent: 'generic_hotel_data_query' as const };
+
+		expect(isBusinessEvidenceTool(request, 'list_hotel_data_tables')).toBe(false);
+		expect(isBusinessEvidenceTool(request, 'describe_hotel_data_table')).toBe(false);
+		expect(isBusinessEvidenceTool(request, 'query_hotel_operating_data_sql')).toBe(true);
+	});
+
+	it('keeps non-UI evidence for other workflows', () => {
+		const request = { intent: 'weather_operations_advice' as const };
+
+		expect(isBusinessEvidenceTool(request, 'get_weather_summary')).toBe(true);
+		expect(isBusinessEvidenceTool(request, 'render_hotel_ui')).toBe(false);
+	});
+});
 
 describe('runGroundedAnalysis', () => {
 	it('enforces one total deadline and reports a model timeout', async () => {

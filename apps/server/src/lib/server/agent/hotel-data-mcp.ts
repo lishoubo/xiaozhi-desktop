@@ -16,7 +16,7 @@ export const HOTEL_DATA_RESULT_ROW_LIMIT = 75;
 const MAX_RESULT_CHARACTERS = 40_000;
 const MAX_VALUE_CHARACTERS = 1_000;
 const MAX_MARKDOWN_TABLE_CHARACTERS = 10_000;
-const CREDENTIAL_FIELD = /authorization|credential|password|passwd|secret|token/i;
+const CREDENTIAL_FIELD = /authorization|cookie|credential|password|passwd|secret|token/i;
 const FORBIDDEN_SQL =
 	/\b(insert|update|delete|replace|merge|upsert|create|alter|drop|truncate|rename|grant|revoke|call|handler|load|lock|unlock|set|use|transaction|commit|rollback|savepoint|prepare|execute|deallocate|outfile|dumpfile|sleep|benchmark|load_file|get_lock|release_lock|is_free_lock|is_used_lock)\b|\bfor\s+update\b|\block\s+in\s+share\s+mode\b|\binto\b|:=/i;
 
@@ -357,7 +357,8 @@ export function constrainHotelDataTableListArgs(args: unknown, databaseId?: stri
 		return {
 			...(databaseId ? { database_id: databaseId } : {}),
 			page_number: 1,
-			page_size: 50
+			page_size: 50,
+			return_guid: true
 		};
 	}
 	const parameters = Object.fromEntries(Object.entries(args));
@@ -367,8 +368,54 @@ export function constrainHotelDataTableListArgs(args: unknown, databaseId?: stri
 		...parameters,
 		...(databaseId ? { database_id: databaseId } : {}),
 		page_number: Math.max(1, Math.trunc(pageNumber)),
-		page_size: Math.min(50, Math.max(1, Math.trunc(pageSize)))
+		page_size: Math.min(50, Math.max(1, Math.trunc(pageSize))),
+		return_guid: true
 	};
+}
+
+export function isEmptyHotelDataTableListResult(result: unknown): boolean {
+	if (
+		typeof result === 'object' &&
+		result !== null &&
+		(Reflect.get(result, 'TotalCount') === 0 || Reflect.get(result, 'total_count') === 0)
+	) {
+		return true;
+	}
+	const texts: string[] = [];
+	const collectText = (value: unknown, depth = 0): void => {
+		if (depth > 6) return;
+		if (typeof value === 'string') {
+			texts.push(value);
+			return;
+		}
+		if (Array.isArray(value)) {
+			for (const item of value) collectText(item, depth + 1);
+			return;
+		}
+		if (typeof value === 'object' && value !== null) {
+			for (const item of Object.values(value)) collectText(item, depth + 1);
+		}
+	};
+	collectText(result);
+	if (
+		texts.some(
+			(text) =>
+				/(?:"|\b)TotalCount(?:"|\b)\s*:\s*0\b/i.test(text) ||
+				/(?:"|\b)total_count(?:"|\b)\s*:\s*0\b/i.test(text)
+		)
+	) {
+		return true;
+	}
+	try {
+		const parsed: unknown = typeof result === 'string' ? JSON.parse(result) : result;
+		if (typeof parsed !== 'object' || parsed === null) return false;
+		const tableList = Reflect.get(parsed, 'TableList') ?? Reflect.get(parsed, 'table_list');
+		if (typeof tableList !== 'object' || tableList === null) return false;
+		const tables = Reflect.get(tableList, 'Table') ?? Reflect.get(tableList, 'table');
+		return Array.isArray(tables) && tables.length === 0;
+	} catch {
+		return false;
+	}
 }
 
 export function constrainHotelDataTableDetailArgs(args: unknown, databaseName: string): unknown {

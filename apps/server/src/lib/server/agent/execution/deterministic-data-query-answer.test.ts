@@ -99,4 +99,29 @@ describe('buildDeterministicDataQueryAnswer', () => {
 		});
 		expect(JSON.stringify(result)).not.toContain('TableList');
 	});
+
+	it('keeps rows from every successful SQL evidence set', () => {
+		const result = buildDeterministicDataQueryAnswer(request, [
+			{
+				evidenceId: '33333333-3333-4333-8333-333333333333',
+				source: 'aliyun_dms_mcp',
+				data: {
+					toolName: 'query_hotel_operating_data_sql',
+					data: [{ hotel_id: 4, exposure_cnt: 100 }]
+				}
+			},
+			{
+				evidenceId: '44444444-4444-4444-8444-444444444444',
+				source: 'aliyun_dms_mcp',
+				data: {
+					toolName: 'query_hotel_operating_data_sql',
+					data: [{ hotel_id: 4, keyword: '包头酒店' }]
+				}
+			}
+		]);
+
+		expect(result?.content).toContain('2 组');
+		expect(JSON.stringify(result?.ui)).toContain('exposure_cnt');
+		expect(JSON.stringify(result?.ui)).toContain('keyword');
+	});
 });

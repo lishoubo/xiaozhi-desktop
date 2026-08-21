@@ -55,10 +55,11 @@ function inferredHotelDataSlots(
 	text: string,
 	values: Readonly<Record<string, string>>
 ): Readonly<Record<string, string>> {
-	if (values.dateRange) return values;
-	if (/(今日|今天)/.test(text)) return { ...values, dateRange: '@date:today' };
-	if (/(昨日|昨天)/.test(text)) return { ...values, dateRange: '@date:yesterday' };
-	return values;
+	const withMetrics = values.metrics ? values : { ...values, metrics: text };
+	if (withMetrics.dateRange) return withMetrics;
+	if (/(今日|今天)/.test(text)) return { ...withMetrics, dateRange: '@date:today' };
+	if (/(昨日|昨天)/.test(text)) return { ...withMetrics, dateRange: '@date:yesterday' };
+	return withMetrics;
 }
 
 export class BusinessIntentRouter {
