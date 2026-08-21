@@ -56,7 +56,13 @@ describe('BusinessIntentRouter', () => {
 		).resolves.toEqual({
 			routeKind: 'business_read',
 			intent: 'hotel_operating_summary',
-			slots: {},
+			slots: {
+				metrics: {
+					status: 'resolved',
+					value: '@metrics:operating-summary',
+					source: { kind: 'quick_action' }
+				}
+			},
 			confidence: 1,
 			responseMode: 'analysis'
 		});
@@ -104,7 +110,14 @@ describe('BusinessIntentRouter', () => {
 		).resolves.toEqual({
 			routeKind: 'business_read',
 			intent: 'hotel_operating_summary',
-			slots: { dateRange: { status: 'candidate', raw: '@date:yesterday' } },
+			slots: {
+				dateRange: { status: 'candidate', raw: '@date:yesterday' },
+				metrics: {
+					status: 'resolved',
+					value: '@metrics:operating-summary',
+					source: { kind: 'quick_action' }
+				}
+			},
 			confidence: 1,
 			responseMode: 'analysis'
 		});

@@ -286,9 +286,9 @@ describe('business evidence', () => {
 			tables: ['fact_traffic_scene'],
 			domains: ['traffic_conversion']
 		});
-		expect(assessEvidence(crossDomainRequest, [traffic], false)).toEqual({
-			status: 'needs_more_data',
-			limitation: '尚缺少以下业务域的可验证数据：搜索。'
+		expect(assessEvidence(crossDomainRequest, [traffic], false)).toMatchObject({
+			status: 'sufficient',
+			limitations: expect.arrayContaining(['以下请求业务域暂无可展示数据：搜索。'])
 		});
 		expect(assessEvidence(crossDomainRequest, [traffic, search], false)).toMatchObject({
 			status: 'sufficient'
@@ -325,9 +325,9 @@ describe('business evidence', () => {
 				'| hotel_id | data_date | exposure_cnt |\n| --- | --- | --- |\n| hotel-1 | 2026-07-10 | 100 |'
 		});
 
-		expect(assessEvidence(metricRequest, [exposureOnly], false)).toEqual({
-			status: 'needs_more_data',
-			limitation: '尚缺少以下明确指标的可验证数据：访问、转化、成交。'
+		expect(assessEvidence(metricRequest, [exposureOnly], false)).toMatchObject({
+			status: 'sufficient',
+			limitations: expect.arrayContaining(['以下请求指标暂无可展示数据：访问、转化、成交。'])
 		});
 	});
 
@@ -360,8 +360,11 @@ describe('business evidence', () => {
 		});
 
 		expect(assessEvidence(currentAnalysis, [latestOnly], false)).toEqual({
-			status: 'needs_more_data',
-			limitation: '尚未证明最近完整业务日及其可比基线。'
+			status: 'sufficient',
+			limitations: [
+				'结果未证明最近完整业务日，不能视为当前或最新数据。',
+				'结果缺少可比基线，仅展示现有数据，不输出趋势、异常或阶段变化结论。'
+			]
 		});
 		expect(
 			assessEvidence(
@@ -370,15 +373,21 @@ describe('business evidence', () => {
 				false
 			)
 		).toEqual({
-			status: 'needs_more_data',
-			limitation: '尚未证明最近完整业务日及其可比基线。'
+			status: 'sufficient',
+			limitations: [
+				'结果未证明最近完整业务日，不能视为当前或最新数据。',
+				'结果缺少可比基线，仅展示现有数据，不输出趋势、异常或阶段变化结论。'
+			]
 		});
 		expect(assessEvidence(currentAnalysis, [complete], false)).toMatchObject({
 			status: 'sufficient'
 		});
 		expect(
 			assessEvidence({ ...currentAnalysis, responseMode: 'data_only' }, [noFreshnessProof], false)
-		).toEqual({ status: 'needs_more_data', limitation: '尚未证明最近完整业务日。' });
+		).toEqual({
+			status: 'sufficient',
+			limitations: ['结果未证明最近完整业务日，不能视为当前或最新数据。']
+		});
 		expect(
 			assessEvidence({ ...currentAnalysis, responseMode: 'data_only' }, [complete], false)
 		).toMatchObject({ status: 'sufficient' });
@@ -431,6 +440,189 @@ describe('business evidence', () => {
 		expect(assessEvidence(operatingRequest, [evidence], false)).toEqual({
 			status: 'rejected',
 			reasonCode: 'evidence_scope_mismatch'
+		});
+	});
+
+	it('normalizes aggregate Markdown dates and allows in-range partial coverage with a limitation', () => {
+		const monthlyRequest = {
+			...request,
+			intent: 'hotel_operating_summary' as const,
+			slots: {
+				hotelReference: '4',
+				dateRange: { start: '2026-08-01', end: '2026-08-21' }
+			}
+		};
+		const evidence = normalizeEvidence({
+			request: monthlyRequest,
+			toolName: 'query_hotel_operating_data_sql',
+			toolArgs: {
+				script: 'SELECT hotel_id, MIN(data_date) AS period_start FROM fact_business_daily'
+			},
+			result:
+				'| hotel_id | period_start | period_end | gmv |\n| --- | --- | --- | --- |\n| 4 | 2026-08-01 | 2026-08-20 | 100 |'
+		});
+
+		expect(evidence.scope.period).toEqual({ start: '2026-08-01', end: '2026-08-20' });
+		expect(assessEvidence(monthlyRequest, [evidence], false)).toMatchObject({
+			status: 'sufficient',
+			limitations: [expect.stringContaining('当前可验证数据覆盖 2026-08-01 至 2026-08-20')]
+		});
+	});
+
+	it('discloses missing interior dates for a daily trend without blocking the available rows', () => {
+		const trendRequest = {
+			...request,
+			intent: 'hotel_operating_summary' as const,
+			responseMode: 'analysis' as const,
+			slots: {
+				hotelReference: '4',
+				dateRange: { start: '2026-08-10', end: '2026-08-12' },
+				metrics: '@metrics:daily-trend'
+			}
+		};
+		const evidence = normalizeEvidence({
+			request: trendRequest,
+			toolName: 'query_hotel_operating_data_sql',
+			toolArgs: { script: 'SELECT hotel_id, data_date, gmv FROM fact_business_daily' },
+			result:
+				'| hotel_id | data_date | gmv |\n| --- | --- | --- |\n| 4 | 2026-08-10 | 100 |\n| 4 | 2026-08-12 | 120 |'
+		});
+
+		expect(assessEvidence(trendRequest, [evidence], false)).toMatchObject({
+			status: 'sufficient',
+			limitations: expect.arrayContaining([
+				expect.stringContaining('共 3 个自然日，当前仅返回 2 个可验证日期')
+			])
+		});
+	});
+
+	it('keeps freshness dates separate from the requested business period', () => {
+		const evidence = normalizeEvidence({
+			request,
+			toolName: 'query_hotel_operating_data_sql',
+			toolArgs: {
+				script: 'SELECT hotel_id, data_date, latest_data_date, gmv FROM fact_business_daily'
+			},
+			result: [
+				{ hotel_id: 'hotel-1', data_date: '2026-07-10', latest_data_date: '2026-08-20', gmv: 100 }
+			]
+		});
+
+		expect(evidence.scope.period).toEqual({ start: '2026-07-10', end: '2026-07-10' });
+		expect(assessEvidence(request, [evidence], false)).toMatchObject({ status: 'sufficient' });
+	});
+
+	it('does not accept a null freshness column as proof and still exposes covered data', () => {
+		const currentRequest = {
+			...request,
+			responseMode: 'analysis' as const,
+			slots: { hotelReference: 'hotel-1' }
+		};
+		const evidence = normalizeEvidence({
+			request: currentRequest,
+			toolName: 'query_hotel_operating_data_sql',
+			toolArgs: {
+				script: 'SELECT hotel_id, data_date, latest_data_date, exposure_cnt FROM fact_traffic_scene'
+			},
+			result: [
+				{ hotel_id: 'hotel-1', data_date: '2026-08-14', latest_data_date: null, exposure_cnt: 80 },
+				{ hotel_id: 'hotel-1', data_date: '2026-08-20', latest_data_date: null, exposure_cnt: 100 }
+			]
+		});
+
+		expect(assessEvidence(currentRequest, [evidence], false)).toMatchObject({
+			status: 'sufficient',
+			limitations: ['结果未证明最近完整业务日，不能视为当前或最新数据。']
+		});
+	});
+
+	it('does not treat aggregate period endpoints as a comparison baseline', () => {
+		const currentRequest = {
+			...request,
+			responseMode: 'analysis' as const,
+			slots: { hotelReference: 'hotel-1' }
+		};
+		const evidence = normalizeEvidence({
+			request: currentRequest,
+			toolName: 'query_hotel_operating_data_sql',
+			toolArgs: { script: 'SELECT hotel_id, MIN(data_date), MAX(data_date), SUM(gmv)' },
+			result: [
+				{
+					hotel_id: 'hotel-1',
+					period_start: '2026-08-01',
+					period_end: '2026-08-20',
+					latest_data_date: '2026-08-20',
+					gmv: 100
+				}
+			]
+		});
+
+		expect(assessEvidence(currentRequest, [evidence], false)).toMatchObject({
+			status: 'sufficient',
+			limitations: ['结果缺少可比基线，仅展示现有数据，不输出趋势、异常或阶段变化结论。']
+		});
+	});
+
+	it('allows a verified subset of requested hotels and identifies missing hotels', () => {
+		const multiRequest = {
+			...request,
+			slots: { ...request.slots, hotelReference: ['hotel-1', 'hotel-2'] }
+		};
+		const evidence = normalizeEvidence({
+			request: multiRequest,
+			toolName: 'query_hotel_operating_data_sql',
+			toolArgs: { script: 'SELECT hotel_id, data_date, gmv FROM fact_business_daily' },
+			result: [{ hotel_id: 'hotel-1', data_date: '2026-07-10', gmv: 100 }]
+		});
+
+		expect(assessEvidence(multiRequest, [evidence], false)).toMatchObject({
+			status: 'sufficient',
+			limitations: expect.arrayContaining([expect.stringContaining('1 家酒店没有可展示记录')])
+		});
+	});
+
+	it('uses actual row fields instead of metadata keys for metric coverage', () => {
+		const evidence = normalizeEvidence({
+			request,
+			toolName: 'query_hotel_operating_data_sql',
+			toolArgs: null,
+			result: {
+				columns: { gmv: 'decimal' },
+				rows: [{ hotel_id: 'hotel-1', data_date: '2026-07-10', booking_amount: 50 }]
+			}
+		});
+
+		expect(evidence.provenance?.resultFields).toEqual(['hotel_id', 'data_date', 'booking_amount']);
+	});
+
+	it('recognizes structured empty rows as no data', () => {
+		const evidence = normalizeEvidence({
+			request,
+			toolName: 'query_hotel_operating_data_sql',
+			toolArgs: {},
+			result: { rows: [] }
+		});
+
+		expect(assessEvidence(request, [evidence], true)).toEqual({ status: 'no_data' });
+	});
+
+	it('applies language-neutral protocol metric requirements as display limitations', () => {
+		const protocolRequest = {
+			...request,
+			slots: { ...request.slots, metrics: '@metrics:operating-summary' }
+		};
+		const evidence = normalizeEvidence({
+			request: protocolRequest,
+			toolName: 'query_hotel_operating_data_sql',
+			toolArgs: { script: 'SELECT hotel_id, data_date, gmv FROM fact_business_daily' },
+			result: [{ hotel_id: 'hotel-1', data_date: '2026-07-10', gmv: 100 }]
+		});
+
+		expect(assessEvidence(protocolRequest, [evidence], false)).toMatchObject({
+			status: 'sufficient',
+			limitations: expect.arrayContaining([
+				expect.stringContaining('预约金额、核销金额、退款金额、间夜量、核销单价')
+			])
 		});
 	});
 });

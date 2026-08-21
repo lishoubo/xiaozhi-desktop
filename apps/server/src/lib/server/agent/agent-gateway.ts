@@ -911,23 +911,24 @@ export class HotelAgentGateway implements AgentGateway {
 						'Agent workflow collection started'
 					);
 					const workflowCollector = this.workflowCollector;
-					const deterministic = workflowCollector
-						? await runWithHotelDataAccessScope(workflowHotelIds, () =>
-								workflowCollector.collect({
-									principal,
-									request: workflowRequest,
-									signal: collectionSignal,
-									emit: (event) =>
-										this.forwardRuntimeEvent(
-											principal,
-											runId,
-											context.conversation.id,
-											event,
-											context.run.businessExecutionId
-										)
-								})
-							)
-						: { status: 'fallback' as const, reason: 'agent_required' as const };
+					const deterministic =
+						workflowCollector && evidenceGap === undefined
+							? await runWithHotelDataAccessScope(workflowHotelIds, () =>
+									workflowCollector.collect({
+										principal,
+										request: workflowRequest,
+										signal: collectionSignal,
+										emit: (event) =>
+											this.forwardRuntimeEvent(
+												principal,
+												runId,
+												context.conversation.id,
+												event,
+												context.run.businessExecutionId
+											)
+									})
+								)
+							: { status: 'fallback' as const, reason: 'agent_required' as const };
 					if (deterministic.status === 'collected') {
 						collectionStrategy = deterministic.strategy;
 						collectedToolEvidence = deterministic.toolEvidence;
@@ -1073,6 +1074,10 @@ export class HotelAgentGateway implements AgentGateway {
 							execution.state.evidence
 						);
 						if (deterministicAnswer) {
+							const limitationText = execution.state.limitations.length
+								? `\n\n数据限制：${execution.state.limitations.join('；')}`
+								: '';
+							const deterministicContent = `${deterministicAnswer.content.trimEnd()}${limitationText}`;
 							const toolCallId = `render_hotel_ui_${randomUUID()}`;
 							await this.forwardRuntimeEvent(
 								principal,
@@ -1092,7 +1097,7 @@ export class HotelAgentGateway implements AgentGateway {
 								principal,
 								runId,
 								context.conversation.id,
-								{ type: 'text_delta', delta: `${deterministicAnswer.content.trimEnd()}\n\n` },
+								{ type: 'text_delta', delta: `${deterministicContent}\n\n` },
 								context.run.businessExecutionId
 							);
 							await this.forwardRuntimeEvent(
@@ -1118,7 +1123,7 @@ export class HotelAgentGateway implements AgentGateway {
 								'Deterministic grounded result prepared'
 							);
 							if (execution.state.request.responseMode === 'data_only') {
-								controlledResult = deterministicAnswer;
+								controlledResult = { ...deterministicAnswer, content: deterministicContent };
 								this.logger.info(
 									{
 										event: 'agent.answer.data_only.completed',
@@ -1155,7 +1160,7 @@ export class HotelAgentGateway implements AgentGateway {
 									},
 									'Agent answer model started'
 								);
-								let analysisResult: Awaited<ReturnType<typeof runGroundedAnalysis>>;
+								let analysisResult: Awaited<ReturnType<typeof runGroundedAnalysis>> | null = null;
 								try {
 									analysisResult = await runGroundedAnalysis(this.runtime, {
 										principal,
@@ -1166,6 +1171,7 @@ export class HotelAgentGateway implements AgentGateway {
 										signal: controller.signal,
 										workflowRequest: execution.state.request,
 										validatedEvidence: execution.state.evidence,
+										evidenceLimitations: execution.state.limitations,
 										analysisOnly: true,
 										emit: (event) =>
 											this.forwardRuntimeEvent(
@@ -1177,6 +1183,7 @@ export class HotelAgentGateway implements AgentGateway {
 											)
 									});
 								} catch (error) {
+									if (controller.signal.aborted) throw error;
 									const failure = describeAgentRunFailure(error);
 									await this.forwardRuntimeEvent(
 										principal,
@@ -1191,38 +1198,53 @@ export class HotelAgentGateway implements AgentGateway {
 										},
 										context.run.businessExecutionId
 									);
-									throw error;
+									controlledResult = {
+										content: `${deterministicContent}\n\n${failure.message}`,
+										ui: deterministicAnswer.ui
+									};
+									this.logger.warn(
+										{
+											event: 'agent.answer.model.degraded',
+											runId,
+											conversationId: context.conversation.id,
+											businessExecutionId: context.run.businessExecutionId,
+											failureCode: failure.code
+										},
+										'Agent answer model failed after deterministic result was prepared'
+									);
 								}
-								await this.forwardRuntimeEvent(
-									principal,
-									runId,
-									context.conversation.id,
-									{
-										type: 'tool_completed',
-										toolCallId: analysisToolCallId,
-										toolName: 'upstream_llm_analysis',
-										summary: '上游大模型分析已完成'
-									},
-									context.run.businessExecutionId
-								);
-								controlledResult = {
-									content: analysisResult.content.trim()
-										? `${deterministicAnswer.content.trimEnd()}\n\n${analysisResult.content.trim()}`
-										: deterministicAnswer.content,
-									ui: deterministicAnswer.ui
-								};
-								this.logger.info(
-									{
-										event: 'agent.answer.model.completed',
+								if (analysisResult) {
+									await this.forwardRuntimeEvent(
+										principal,
 										runId,
-										conversationId: context.conversation.id,
-										businessExecutionId: context.run.businessExecutionId,
-										hasGenerativeUi: true,
-										responseCharacterCount: analysisResult.content.length,
-										durationMs: Math.max(0, Math.round(performance.now() - answerStartedAt))
-									},
-									'Agent answer model completed'
-								);
+										context.conversation.id,
+										{
+											type: 'tool_completed',
+											toolCallId: analysisToolCallId,
+											toolName: 'upstream_llm_analysis',
+											summary: '上游大模型分析已完成'
+										},
+										context.run.businessExecutionId
+									);
+									controlledResult = {
+										content: analysisResult.content.trim()
+											? `${deterministicContent}\n\n${analysisResult.content.trim()}`
+											: deterministicContent,
+										ui: deterministicAnswer.ui
+									};
+									this.logger.info(
+										{
+											event: 'agent.answer.model.completed',
+											runId,
+											conversationId: context.conversation.id,
+											businessExecutionId: context.run.businessExecutionId,
+											hasGenerativeUi: true,
+											responseCharacterCount: analysisResult.content.length,
+											durationMs: Math.max(0, Math.round(performance.now() - answerStartedAt))
+										},
+										'Agent answer model completed'
+									);
+								}
 							}
 						} else {
 							const answerStartedAt = performance.now();
@@ -1249,6 +1271,7 @@ export class HotelAgentGateway implements AgentGateway {
 									signal: controller.signal,
 									workflowRequest: execution.state.request,
 									validatedEvidence: execution.state.evidence,
+									evidenceLimitations: execution.state.limitations,
 									emit: (event) =>
 										this.forwardRuntimeEvent(
 											principal,

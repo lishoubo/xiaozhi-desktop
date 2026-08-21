@@ -686,11 +686,12 @@ describe('HotelAgentGateway execution containment', () => {
 
 describe('HotelAgentGateway deterministic business collection', () => {
 	it.each([
-		{ responseMode: 'analysis' as const, runsAnalysis: true },
-		{ responseMode: 'data_only' as const, runsAnalysis: false }
+		{ responseMode: 'analysis' as const, runsAnalysis: true, analysisFails: false },
+		{ responseMode: 'analysis' as const, runsAnalysis: true, analysisFails: true },
+		{ responseMode: 'data_only' as const, runsAnalysis: false, analysisFails: false }
 	])(
-		'renders validated operating evidence with $responseMode response mode',
-		async ({ responseMode, runsAnalysis }) => {
+		'renders validated operating evidence with $responseMode response mode (analysisFails=$analysisFails)',
+		async ({ responseMode, runsAnalysis, analysisFails }) => {
 			const { repository, logger } = createGatewayHarness(
 				vi.fn(async () => []),
 				['weather']
@@ -702,13 +703,22 @@ describe('HotelAgentGateway deterministic business collection', () => {
 			const userMessageId = '22222222-2222-4222-8222-222222222222';
 			const assistantMessageId = '99999999-9999-4999-8999-999999999999';
 			const runtime = {
-				run: vi
-					.fn()
-					.mockResolvedValue({ content: '入住表现稳定，建议继续关注核销转化。', ui: null })
+				run: analysisFails
+					? vi.fn().mockRejectedValue(
+							new AgentUpstreamError({
+								service: 'model',
+								operation: 'analyze_grounded_answer',
+								kind: 'unavailable'
+							})
+						)
+					: vi.fn().mockResolvedValue({ content: '入住表现稳定，建议继续关注核销转化。', ui: null })
 			};
 			const operatingWorkflow = createBusinessWorkflowRegistry().resolve('hotel_operating_summary');
 			const workflowCollector = {
-				assessEvidence: operatingWorkflow.assessEvidence,
+				assessEvidence: vi.fn(() => ({
+					status: 'sufficient' as const,
+					limitations: ['仅基于已覆盖日期展示。']
+				})),
 				present: operatingWorkflow.present,
 				collect: vi.fn().mockImplementation(async (input) => {
 					await input.emit({
@@ -853,6 +863,8 @@ describe('HotelAgentGateway deterministic business collection', () => {
 						});
 					}
 					if (event.type === 'evidence_validated') {
+						const limitations =
+							event.assessment.status === 'sufficient' ? event.assessment.limitations : [];
 						return Promise.resolve({
 							summary: { ...summary, status: 'answering' },
 							state: {
@@ -860,7 +872,7 @@ describe('HotelAgentGateway deterministic business collection', () => {
 								mode: 'grounded',
 								request,
 								evidence: persistedEvidence,
-								limitations: []
+								limitations
 							},
 							version
 						});
@@ -926,6 +938,7 @@ describe('HotelAgentGateway deterministic business collection', () => {
 					expect.objectContaining({
 						workflowRequest: request,
 						validatedEvidence: persistedEvidence,
+						evidenceLimitations: ['仅基于已覆盖日期展示。'],
 						analysisOnly: true
 					})
 				);
@@ -935,18 +948,30 @@ describe('HotelAgentGateway deterministic business collection', () => {
 			expect(repository.finalizeRunSuccess).toHaveBeenCalledWith(
 				runId,
 				conversationId,
-				runsAnalysis
-					? expect.stringMatching(/成交金额合计 1,000\.00 元[\s\S]+入住表现稳定/)
-					: expect.stringContaining('成交金额合计 1,000.00 元'),
+				analysisFails
+					? expect.stringMatching(
+							/成交金额合计 1,000\.00 元[\s\S]+仅基于已覆盖日期展示[\s\S]+分析服务暂时繁忙/
+						)
+					: runsAnalysis
+						? expect.stringMatching(
+								/成交金额合计 1,000\.00 元[\s\S]+仅基于已覆盖日期展示[\s\S]+入住表现稳定/
+							)
+						: expect.stringMatching(/成交金额合计 1,000\.00 元[\s\S]+仅基于已覆盖日期展示/),
 				expect.objectContaining({ root: 'root' })
 			);
-			if (runsAnalysis) {
+			if (runsAnalysis && !analysisFails) {
 				expect(JSON.stringify(repository.appendEvent.mock.calls)).toContain(
 					'upstream_llm_analysis'
 				);
-			} else {
+			} else if (!runsAnalysis) {
 				expect(JSON.stringify(repository.appendEvent.mock.calls)).not.toContain(
 					'upstream_llm_analysis'
+				);
+			}
+			if (analysisFails) {
+				expect(logger.warn).toHaveBeenCalledWith(
+					expect.objectContaining({ event: 'agent.answer.model.degraded' }),
+					'Agent answer model failed after deterministic result was prepared'
 				);
 			}
 			expect(logger.info).toHaveBeenCalledWith(

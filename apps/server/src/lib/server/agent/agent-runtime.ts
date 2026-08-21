@@ -84,6 +84,7 @@ export type AgentRuntimeRunOptions = Readonly<{
 	workflowRequest?: ResolvedBusinessRequest;
 	evidenceGap?: string;
 	validatedEvidence?: readonly EvidenceRecord[];
+	evidenceLimitations?: readonly string[];
 	analysisOnly?: boolean;
 }>;
 

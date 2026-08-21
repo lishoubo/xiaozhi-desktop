@@ -73,6 +73,18 @@ describe('buildDeterministicDataQueryAnswer', () => {
 		});
 	});
 
+	it('keeps scalar MCP evidence visible', () => {
+		const result = buildDeterministicDataQueryAnswer(
+			request,
+			evidence({ data: 12, filtered: false })
+		);
+
+		expect(result?.ui.elements.result.props).toEqual({
+			columns: ['查询结果'],
+			rows: [[12]]
+		});
+	});
+
 	it('renders only SQL query evidence when schema discovery evidence appears first', () => {
 		const result = buildDeterministicDataQueryAnswer(request, [
 			{

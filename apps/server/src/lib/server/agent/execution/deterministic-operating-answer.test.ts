@@ -30,7 +30,7 @@ describe('buildDeterministicOperatingAnswer', () => {
 			]
 		);
 
-		expect(result?.content).toContain('2026-08-10 至 2026-08-16');
+		expect(result?.content).toContain('2026-08-10 至 2026-08-11');
 		expect(result?.content).toContain('成交金额合计 4,986.79 元');
 		expect(result?.ui.elements.root).toMatchObject({
 			type: 'Stack',
@@ -105,5 +105,26 @@ describe('buildDeterministicOperatingAnswer', () => {
 				[]
 			)
 		).toBeNull();
+	});
+
+	it('renders structured DMS rows through the same table normalization path', () => {
+		const result = buildDeterministicOperatingAnswer(
+			{
+				routeKind: 'business_read',
+				intent: 'hotel_operating_summary',
+				slots: { hotelReference: '4', dateRange: { start: '2026-08-10', end: '2026-08-10' } }
+			},
+			[
+				{
+					evidenceId: '77777777-7777-4777-8777-777777777777',
+					source: 'aliyun_dms_mcp',
+					data: {
+						data: [{ hotel_id: '4', data_date: '2026-08-10', gmv: 100 }]
+					}
+				}
+			]
+		);
+
+		expect(result?.content).toContain('成交金额合计 100.00 元');
 	});
 });

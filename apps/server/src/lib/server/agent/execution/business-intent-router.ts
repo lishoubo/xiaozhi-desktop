@@ -94,6 +94,17 @@ export class BusinessIntentRouter {
 								}
 							}
 						: {}),
+					...(input.quickActionId === 'yesterday_operating_review' ||
+					input.quickActionId === 'month_to_date_operating_progress' ||
+					input.quickActionId === 'hotel_operating_data'
+						? {
+								metrics: {
+									status: 'resolved' as const,
+									value: '@metrics:operating-summary',
+									source: { kind: 'quick_action' as const }
+								}
+							}
+						: {}),
 					...(input.quickActionId === 'channel_operating_comparison'
 						? {
 								metrics: {

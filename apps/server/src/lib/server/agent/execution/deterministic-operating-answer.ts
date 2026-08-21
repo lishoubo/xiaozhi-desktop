@@ -1,9 +1,9 @@
 import type { GenerativeUiSpec } from '@hotel-butler/api';
 import { validateHotelUi } from '../hotel-ui-validator';
 import type { EvidenceRecord, ResolvedBusinessRequest } from './business-execution-state';
+import { parseEvidenceTable } from './evidence-table';
 
 type TableRow = Readonly<Record<string, string>>;
-const TEXT_BLOCK_PREFIX = '[{"type":"text","text":"';
 
 const columns = [
 	['data_date', '日期'],
@@ -14,76 +14,23 @@ const columns = [
 	['verified_unit_price', '核销单价']
 ] as const;
 
-function textFromEvidence(value: unknown, depth = 0): string | null {
-	if (depth > 5) return null;
-	if (typeof value === 'string') {
-		try {
-			return textFromEvidence(JSON.parse(value), depth + 1) ?? value;
-		} catch {
-			if (value.startsWith(TEXT_BLOCK_PREFIX)) {
-				let encoded = value.slice(TEXT_BLOCK_PREFIX.length).split('…[值已截断]')[0] ?? '';
-				if (encoded.endsWith('\\')) encoded = encoded.slice(0, -1);
-				try {
-					return JSON.parse(`"${encoded}"`);
-				} catch {
-					return encoded.replace(/\\n/g, '\n').replace(/\\"/g, '"').replace(/\\\\/g, '\\');
-				}
-			}
-			return value;
-		}
-	}
-	if (Array.isArray(value)) {
-		const texts = value
-			.map((item) => textFromEvidence(item, depth + 1))
-			.filter((item): item is string => item !== null);
-		return texts.length ? texts.join('\n') : null;
-	}
-	if (typeof value !== 'object' || value === null) return null;
-	const text = Reflect.get(value, 'text');
-	if (typeof text === 'string') return text;
-	return textFromEvidence(Reflect.get(value, 'data'), depth + 1);
-}
-
-function markdownTable(text: string): Readonly<{ valid: boolean; rows: readonly TableRow[] }> {
-	const tableLines = text
-		.split('\n')
-		.map((line) => line.trim())
-		.filter((line) => line.startsWith('|') && line.endsWith('|'));
-	if (tableLines.length < 2) return { valid: false, rows: [] };
-	const cells = (line: string): string[] =>
-		line
-			.slice(1, -1)
-			.split('|')
-			.map((cell) => cell.trim());
-	const headers = cells(tableLines[0] ?? '');
-	const separator = cells(tableLines[1] ?? '');
-	if (
-		headers.length === 0 ||
-		separator.length !== headers.length ||
-		!separator.every((cell) => /^:?-{3,}:?$/.test(cell))
-	) {
-		return { valid: false, rows: [] };
-	}
-	return {
-		valid: true,
-		rows: tableLines.slice(2).flatMap((line) => {
-			const values = cells(line);
-			if (values.length !== headers.length) return [];
-			return [Object.fromEntries(headers.map((header, index) => [header, values[index] ?? '']))];
-		})
-	};
-}
-
 export function parseOperatingEvidenceRows(value: unknown): readonly TableRow[] {
-	const text = textFromEvidence(value);
-	return text ? markdownTable(text).rows : [];
+	const table = parseEvidenceTable(value);
+	return (
+		table?.rows.map((row) =>
+			Object.fromEntries(
+				Object.entries(row).map(([key, item]) => [
+					key.toLowerCase(),
+					item === null ? '' : String(item)
+				])
+			)
+		) ?? []
+	);
 }
 
 export function isEmptyHotelDataTable(value: unknown): boolean {
-	const text = textFromEvidence(value);
-	if (!text) return false;
-	const table = markdownTable(text);
-	return table.valid && table.rows.length === 0;
+	const table = parseEvidenceTable(value);
+	return table !== null && table.rows.length === 0;
 }
 
 function requestedRange(
@@ -142,7 +89,7 @@ function finiteNumber(value: string | undefined): number | null {
 	return Number.isFinite(parsed) ? parsed : null;
 }
 
-function period(request: ResolvedBusinessRequest): string {
+function requestedPeriod(request: ResolvedBusinessRequest): string {
 	const range = request.slots.dateRange;
 	if (typeof range !== 'object' || range === null || Array.isArray(range)) return '当前查询期间';
 	const start = Reflect.get(range, 'start');
@@ -150,6 +97,20 @@ function period(request: ResolvedBusinessRequest): string {
 	return typeof start === 'string' && typeof end === 'string'
 		? `${start} 至 ${end}`
 		: '当前查询期间';
+}
+
+function observedPeriod(rows: readonly TableRow[], request: ResolvedBusinessRequest): string {
+	const starts = rows.flatMap((row) => {
+		const value = row.period_start ?? row.data_date;
+		return /^\d{4}-\d{2}-\d{2}$/.test(value ?? '') ? [value ?? ''] : [];
+	});
+	const ends = rows.flatMap((row) => {
+		const value = row.period_end ?? row.data_date;
+		return /^\d{4}-\d{2}-\d{2}$/.test(value ?? '') ? [value ?? ''] : [];
+	});
+	const start = starts.sort()[0];
+	const end = ends.sort().at(-1);
+	return start && end ? `${start} 至 ${end}` : requestedPeriod(request);
 }
 
 function total(rows: readonly TableRow[], key: string): number {
@@ -200,6 +161,7 @@ export function buildDeterministicOperatingAnswer(
 		];
 	});
 	const showTrend = request.slots.metrics === '@metrics:daily-trend' && trendData.length >= 2;
+	const resultPeriod = observedPeriod(rows, request);
 	const elements: GenerativeUiSpec['elements'] = {
 		root: {
 			type: showTrend ? 'Stack' : 'Card',
@@ -215,7 +177,7 @@ export function buildDeterministicOperatingAnswer(
 						type: 'HotelLineChart',
 						props: {
 							title: '近 7 日经营趋势',
-							description: period(request),
+							description: resultPeriod,
 							data: trendData,
 							valueLabel: '成交金额',
 							...(verifiedUsable ? { comparisonLabel: '核销金额' } : {}),
@@ -265,7 +227,7 @@ export function buildDeterministicOperatingAnswer(
 		Reflect.get(source.data, 'parseQuality') === 'unstructured';
 	return {
 		content: [
-			`${period(request)}${filtered ? '（已展示数据）' : ''}：${summaries.join('，')}。`,
+			`${resultPeriod}${filtered ? '（已展示数据）' : ''}：${summaries.join('，')}。`,
 			gmvUsable && peak?.data_date
 				? `成交金额高点出现在 ${peak.data_date}，为 ${money(finiteNumber(peak.gmv) ?? 0)} 元。`
 				: '',
