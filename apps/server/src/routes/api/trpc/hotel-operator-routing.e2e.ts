@@ -24,9 +24,10 @@ type RoutingScenario = Readonly<{
 }>;
 
 function conversationContext(
-	recentMessages: readonly Readonly<{ role: 'user' | 'assistant'; content: string }>[]
+	recentMessages: readonly Readonly<{ role: 'user' | 'assistant'; content: string }>[],
+	recentBusinessRequests: readonly Readonly<Record<string, unknown>>[] = []
 ): string {
-	return JSON.stringify({ summary: null, recentMessages, memories: [] });
+	return JSON.stringify({ summary: null, recentMessages, memories: [], recentBusinessRequests });
 }
 
 function slotValue(decision: RouteDecision, name: string): string {
@@ -55,16 +56,30 @@ const todayPattern = new RegExp(`${shanghaiDateOffset(0)}|today`, 'i');
 const yesterdayPattern = new RegExp(`${shanghaiDateOffset(-1)}|yesterday`, 'i');
 const completeSevenDayPattern = new RegExp(`${shanghaiDateOffset(-7)}.*${shanghaiDateOffset(-1)}`);
 
-const sevenDayOperatingContext = conversationContext([
-	{
-		role: 'user',
-		content: '分析银际酒店（包头青山王府井文化路店）2026-08-14 到 2026-08-20 的经营趋势'
-	},
-	{
-		role: 'assistant',
-		content: '这 7 天成交 8132 元，核销 5629.36 元，退款 3758.41 元。'
-	}
-]);
+const sevenDayOperatingContext = conversationContext(
+	[
+		{
+			role: 'user',
+			content: '分析银际酒店（包头青山王府井文化路店）2026-08-14 到 2026-08-20 的经营趋势'
+		},
+		{
+			role: 'assistant',
+			content: '这 7 天成交 8132 元，核销 5629.36 元，退款 3758.41 元。'
+		}
+	],
+	[
+		{
+			routeKind: 'business_read',
+			intent: 'hotel_operating_summary',
+			responseMode: 'analysis',
+			slots: {
+				hotelReference: '4',
+				dateRange: { start: '2026-08-15', end: '2026-08-21' },
+				metrics: '@metrics:daily-trend'
+			}
+		}
+	]
+);
 
 const trafficContext = conversationContext([
 	{
@@ -101,7 +116,7 @@ const scenarios: readonly RoutingScenario[] = [
 	{
 		name: '长句晨会复盘',
 		prompt:
-			'我十点要开晨会，你把银际酒店最近 7 个完整自然日的成交、预约、核销、退款和间夜拉一下，看看哪天最好、哪天最差，有异常就直接指出来。',
+			'我马上开晨会。先帮我看看银际酒店(包头青山王府井文化路店)最近 7 个完整自然日生意怎么样，成交、核销和退款哪里不对就直说。',
 		expected: {
 			routeKind: 'business_read',
 			intent: 'hotel_operating_summary',
@@ -132,6 +147,21 @@ const scenarios: readonly RoutingScenario[] = [
 				hotelReference: /银际|文化路|王府井/,
 				dateRange: /2026-08-14.*2026-08-20/,
 				metrics: /流量|曝光|支付|转化/
+			}
+		}
+	},
+	{
+		name: '近日流量承接最近结构化经营范围',
+		prompt: '这个酒店近日的流量情况咋样？',
+		context: sevenDayOperatingContext,
+		expected: {
+			routeKind: 'business_read',
+			intent: 'generic_hotel_data_query',
+			responseMode: 'analysis',
+			slots: {
+				hotelReference: /4|银际|文化路|王府井/,
+				dateRange: /2026-08-15.*2026-08-21/,
+				metrics: /流量/
 			}
 		}
 	},

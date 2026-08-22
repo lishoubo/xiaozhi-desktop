@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
 	assessEvidence,
+	evidenceVerifiesRequestedScope,
 	normalizeEvidence,
 	parseEvidenceResult,
 	restoreEvidenceEnvelope
@@ -198,6 +199,29 @@ describe('business evidence', () => {
 			status: 'needs_more_data',
 			limitation: '查询结果未返回可验证的业务日期范围。'
 		});
+		expect(evidenceVerifiesRequestedScope(request, evidence)).toBe(false);
+	});
+
+	it('keeps in-range dated evidence while excluding undated query results from presentation', () => {
+		const trafficRequest = { ...request, slots: { ...request.slots, metrics: ['流量'] } };
+		const dated = normalizeEvidence({
+			request: trafficRequest,
+			toolName: 'query_hotel_operating_data_sql',
+			toolArgs: { script: 'SELECT hotel_id, data_date FROM fact_traffic_scene' },
+			result: [{ hotel_id: 'hotel-1', data_date: '2026-07-10', exposure_cnt: 100 }],
+			verifiedHotelScope: ['hotel-1']
+		});
+
+		expect(evidenceVerifiesRequestedScope(trafficRequest, dated)).toBe(true);
+
+		const unrelated = normalizeEvidence({
+			request: trafficRequest,
+			toolName: 'query_hotel_operating_data_sql',
+			toolArgs: { script: 'SELECT hotel_id, data_date, score FROM fact_score_daily' },
+			result: [{ hotel_id: 'hotel-1', data_date: '2026-07-10', score: 90 }],
+			verifiedHotelScope: ['hotel-1']
+		});
+		expect(evidenceVerifiesRequestedScope(trafficRequest, unrelated)).toBe(false);
 	});
 
 	it('keeps scoped current data visible when the result proves freshness but omits hotel_id', () => {

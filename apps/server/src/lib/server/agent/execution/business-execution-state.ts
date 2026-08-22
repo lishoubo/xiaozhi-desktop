@@ -174,7 +174,11 @@ export type BusinessExecutionState =
 			evidence: readonly EvidenceRecord[];
 			limitations: readonly string[];
 	  }>
-	| Readonly<{ status: 'completed'; assistantMessageId: string }>
+	| Readonly<{
+			status: 'completed';
+			assistantMessageId: string;
+			request?: ResolvedBusinessRequest | null;
+	  }>
 	| Readonly<{
 			status: 'failed';
 			reasonCode: string;
@@ -228,7 +232,8 @@ export const businessExecutionStateSchema: z.ZodType<BusinessExecutionState> = z
 		}),
 		z.strictObject({
 			status: z.literal('completed'),
-			assistantMessageId: z.string().uuid()
+			assistantMessageId: z.string().uuid(),
+			request: resolvedBusinessRequestSchema.nullable().optional()
 		}),
 		z.strictObject({
 			status: z.literal('failed'),
@@ -591,7 +596,11 @@ export function transitionBusinessExecution(
 			};
 		case 'answering':
 			if (event.type !== 'answer_completed') break;
-			return { status: 'completed', assistantMessageId: event.assistantMessageId };
+			return {
+				status: 'completed',
+				assistantMessageId: event.assistantMessageId,
+				request: state.request
+			};
 		case 'failed':
 			if (event.type !== 'execution_retry_requested') break;
 			if (!state.retryable || !state.retryCheckpoint) break;

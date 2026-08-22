@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
-import { parseReviewedJson, routeStructuredOutputConfig } from './langchain-route-classifier';
+import {
+	normalizedTemporalReviewSlots,
+	parseReviewedJson,
+	routeStructuredOutputConfig
+} from './langchain-route-classifier';
 
 describe('LangChain route classifier configuration', () => {
 	it('uses Kimi-compatible function calling instead of inferred OpenAI JSON Schema mode', () => {
@@ -46,5 +50,24 @@ describe('LangChain route classifier configuration', () => {
 		expect(parseReviewedJson('{"metrics":"曝光 { 到支付 }"}', schema)).toEqual({
 			metrics: '曝光 { 到支付 }'
 		});
+	});
+
+	it('accepts only normalized temporal protocol values from the review model', () => {
+		expect(
+			normalizedTemporalReviewSlots({
+				date: null,
+				dateRange: '2026-08-15/2026-08-21',
+				checkIn: '下周五',
+				checkOut: '2026-08-29'
+			})
+		).toEqual({ dateRange: '2026-08-15/2026-08-21', checkOut: '2026-08-29' });
+		expect(
+			normalizedTemporalReviewSlots({
+				date: null,
+				dateRange: '@date:complete-days:7',
+				checkIn: null,
+				checkOut: null
+			})
+		).toEqual({});
 	});
 });

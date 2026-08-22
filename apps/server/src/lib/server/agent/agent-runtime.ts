@@ -1,4 +1,9 @@
-import type { AgentMessage, AgentPrincipal, GenerativeUiSpec } from '@hotel-butler/api';
+import type {
+	AgentMessage,
+	AgentPendingClarification,
+	AgentPrincipal,
+	GenerativeUiSpec
+} from '@hotel-butler/api';
 import type { EvidenceRecord, ResolvedBusinessRequest } from './execution/business-execution-state';
 import type { McpCapability } from './agent-config';
 import type { McpResultSummary } from './mcp-observability';
@@ -86,14 +91,23 @@ export type AgentRuntimeRunOptions = Readonly<{
 	validatedEvidence?: readonly EvidenceRecord[];
 	evidenceLimitations?: readonly string[];
 	analysisOnly?: boolean;
+	workflowToolCallBudget?: number;
 }>;
 
 export type AgentRuntimeResult = Readonly<{
 	content: string;
 	ui: GenerativeUiSpec | null;
 	toolEvidence?: readonly Readonly<{ toolName: string; toolArgs: unknown; result: unknown }>[];
+	toolCallCount?: number;
 }>;
 
 export interface AgentRuntime {
 	run(options: AgentRuntimeRunOptions): Promise<AgentRuntimeResult>;
+	writeClarification?(
+		input: Readonly<{
+			userRequest: string;
+			clarification: AgentPendingClarification;
+			signal: AbortSignal;
+		}>
+	): Promise<string>;
 }

@@ -134,6 +134,27 @@ describe('business execution state machine', () => {
 		).toMatchObject({ status: 'answering', mode: 'no_data', limitations: [] });
 	});
 
+	it('retains the resolved request after completion for structured follow-up context', () => {
+		const answering: BusinessExecutionState = {
+			status: 'answering',
+			mode: 'grounded',
+			request,
+			evidence: [],
+			limitations: []
+		};
+
+		expect(
+			transitionBusinessExecution(answering, {
+				type: 'answer_completed',
+				assistantMessageId: '33333333-3333-4333-8333-333333333333'
+			})
+		).toEqual({
+			status: 'completed',
+			assistantMessageId: '33333333-3333-4333-8333-333333333333',
+			request
+		});
+	});
+
 	it('rejects a clarification value outside the server-owned choices', () => {
 		const waiting: BusinessExecutionState = {
 			status: 'awaiting_clarification',

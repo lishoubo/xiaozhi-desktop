@@ -65,6 +65,30 @@ describe('routing conversation context', () => {
 		).toContain('酒店运营经理是什么角色');
 	});
 
+	it('provides normalized prior business scope for relative follow-ups', () => {
+		const context = buildRoutingContext({
+			conversationSummary: null,
+			currentMessageId: '30000000-0000-4000-8000-000000000000',
+			history: [],
+			recentBusinessRequests: [
+				{
+					routeKind: 'business_read',
+					intent: 'hotel_operating_summary',
+					responseMode: 'analysis',
+					slots: {
+						hotelReference: '4',
+						dateRange: { start: '2026-08-15', end: '2026-08-21' },
+						metrics: '@metrics:daily-trend'
+					}
+				}
+			]
+		});
+
+		expect(context).toContain('recentBusinessRequests');
+		expect(context).toContain('2026-08-15');
+		expect(context).toContain('2026-08-21');
+	});
+
 	it('makes bounded employee memory available alongside recent conversation messages', () => {
 		const context = buildRoutingContext({
 			conversationSummary: '旧会话摘要',

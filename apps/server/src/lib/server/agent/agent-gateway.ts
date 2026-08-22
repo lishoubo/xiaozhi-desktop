@@ -47,6 +47,7 @@ import {
 	presentationPolicyForIntent
 } from './execution/intent-registry';
 import {
+	evidenceVerifiesRequestedScope,
 	normalizeEvidence,
 	restoreEvidenceEnvelope,
 	type EvidenceEnvelope
@@ -66,6 +67,7 @@ import {
 import { describeAgentFailure, evidenceFailure, toolFailureSummary } from './agent-failure';
 import { runWithHotelDataAccessScope } from './hotel-data-access-scope';
 import { HOTEL_DATA_SQL_TOOL_NAME } from './hotel-data-mcp';
+import { mcpResultIsError } from './mcp-observability';
 
 type AgentRepositoryPort = Pick<
 	AgentRepository,
@@ -786,7 +788,8 @@ export class HotelAgentGateway implements AgentGateway {
 									conversationSummary: prepared.summary,
 									history: prepared.history,
 									currentMessageId: execution.summary.triggerUserMessageId,
-									memories
+									memories,
+									recentBusinessRequests: context.recentBusinessRequests
 								})
 							: null;
 					const decision = await this.intentRouter.route(
@@ -850,10 +853,31 @@ export class HotelAgentGateway implements AgentGateway {
 					});
 				}
 				if (execution.state.status === 'awaiting_clarification') {
+					let clarificationText = execution.state.clarification.prompt;
+					if (this.runtime.writeClarification) {
+						try {
+							clarificationText = await this.runtime.writeClarification({
+								userRequest: context.userMessage.content,
+								clarification: execution.state.clarification,
+								signal: controller.signal
+							});
+						} catch (error) {
+							if (controller.signal.aborted) throw error;
+							this.logger.warn(
+								{
+									event: 'agent.clarification.copy.failed',
+									runId,
+									conversationId: context.conversation.id,
+									...agentFailureLogFields(error)
+								},
+								'Clarification copy generation failed; using deterministic fallback'
+							);
+						}
+					}
 					const message = await this.repository.finalizeRunSuccess(
 						runId,
 						context.conversation.id,
-						execution.state.clarification.prompt,
+						clarificationText,
 						null
 					);
 					if (message) {
@@ -875,6 +899,10 @@ export class HotelAgentGateway implements AgentGateway {
 					);
 				}
 				let workflowPasses = 0;
+				let remainingWorkflowToolCalls =
+					execution.state.status === 'executing'
+						? getIntentDefinition(execution.state.request.intent).maxToolCalls
+						: 0;
 				const collectionSignal = AbortSignal.any([
 					controller.signal,
 					AbortSignal.timeout(HOTEL_DATA_COLLECTION_TIMEOUT_MS)
@@ -899,6 +927,7 @@ export class HotelAgentGateway implements AgentGateway {
 					let collectedToolEvidence: NonNullable<
 						Awaited<ReturnType<AgentRuntime['run']>>['toolEvidence']
 					> = [];
+					let collectionToolCallCount = 0;
 					this.logger.info(
 						{
 							event: 'agent.workflow.collection.started',
@@ -932,6 +961,7 @@ export class HotelAgentGateway implements AgentGateway {
 					if (deterministic.status === 'collected') {
 						collectionStrategy = deterministic.strategy;
 						collectedToolEvidence = deterministic.toolEvidence;
+						collectionToolCallCount = deterministic.toolEvidence.length;
 					} else {
 						controlledResult = await runWithHotelDataAccessScope(workflowHotelIds, () =>
 							this.runtime.run({
@@ -943,6 +973,7 @@ export class HotelAgentGateway implements AgentGateway {
 								signal: collectionSignal,
 								workflowRequest,
 								evidenceGap,
+								workflowToolCallBudget: remainingWorkflowToolCalls,
 								emit: (event) =>
 									shouldForwardCollectionRuntimeEvent(event)
 										? this.forwardRuntimeEvent(
@@ -956,7 +987,13 @@ export class HotelAgentGateway implements AgentGateway {
 							})
 						);
 						collectedToolEvidence = controlledResult.toolEvidence ?? [];
+						collectionToolCallCount =
+							controlledResult.toolCallCount ?? collectedToolEvidence.length;
 					}
+					remainingWorkflowToolCalls = Math.max(
+						0,
+						remainingWorkflowToolCalls - collectionToolCallCount
+					);
 					this.logger.info(
 						{
 							event: 'agent.workflow.collection.completed',
@@ -975,7 +1012,11 @@ export class HotelAgentGateway implements AgentGateway {
 						'Agent workflow collection completed'
 					);
 					const normalizedEnvelopes = collectedToolEvidence
-						.filter((item) => isBusinessEvidenceTool(workflowRequest, item.toolName))
+						.filter(
+							(item) =>
+								isBusinessEvidenceTool(workflowRequest, item.toolName) &&
+								!mcpResultIsError(item.result)
+						)
 						.map((item) =>
 							normalizeEvidence({
 								request: workflowRequest,
@@ -985,7 +1026,8 @@ export class HotelAgentGateway implements AgentGateway {
 								verifiedHotelScope: workflowHotelIds,
 								observedAt: new Date().toISOString()
 							})
-						);
+						)
+						.filter((item) => evidenceVerifiesRequestedScope(workflowRequest, item));
 					const envelopes = normalizedEnvelopes.filter((item) => {
 						if (evidenceFingerprints.has(item.queryFingerprint)) return false;
 						evidenceFingerprints.add(item.queryFingerprint);
@@ -1017,7 +1059,7 @@ export class HotelAgentGateway implements AgentGateway {
 						// Evidence assessment is deterministic and intentionally separate from the model.
 						execution.state.request,
 						accumulatedEnvelopes,
-						execution.state.followUpUsed
+						execution.state.followUpUsed || remainingWorkflowToolCalls === 0
 					);
 					evidenceGap = assessment.status === 'needs_more_data' ? assessment.limitation : undefined;
 					this.logger.info(

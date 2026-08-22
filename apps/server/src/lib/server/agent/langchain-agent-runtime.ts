@@ -195,12 +195,40 @@ export function shouldRecoverPartialCollection(
 	answerOnly: boolean,
 	toolEvidenceCount: number
 ): boolean {
-	return !answerOnly && agentErrorType(error) === 'GraphRecursionError' && toolEvidenceCount > 0;
+	return !answerOnly && toolEvidenceCount > 0 && agentFailureKind(error) !== 'cancelled';
 }
 
 export function workflowRecursionLimit(request: AgentRuntimeRunOptions['workflowRequest']): number {
 	if (!request) return 16;
 	return Math.max(10, getIntentDefinition(request.intent).maxToolCalls * 2 + 2);
+}
+
+export function workflowToolCallBudget(
+	request: AgentRuntimeRunOptions['workflowRequest'],
+	remaining?: number
+): number {
+	if (!request) return Number.POSITIVE_INFINITY;
+	const intentBudget = getIntentDefinition(request.intent).maxToolCalls;
+	return Math.min(intentBudget, remaining === undefined ? intentBudget : Math.max(0, remaining));
+}
+
+export function workflowMessages(
+	input: Pick<AgentRuntimeRunOptions, 'history' | 'workflowRequest'> &
+		Readonly<{ answerOnly: boolean; analysisOnly: boolean }>
+): BaseMessageLike[] {
+	if (!input.workflowRequest) {
+		return input.history.map((message) => ({ role: message.role, content: message.content }));
+	}
+	return [
+		{
+			role: 'user',
+			content: input.answerOnly
+				? input.analysisOnly
+					? '请分析已验证的经营数据，给出结论和建议。'
+					: '请根据已验证证据生成最终答复。'
+				: '请严格按系统消息中的不可变业务请求完成取证；不得从历史对话补充、替换或扩大酒店、日期和指标范围。'
+		}
+	];
 }
 
 export function shouldSuppressUiRenderCall(
@@ -298,6 +326,16 @@ export function hotelDataCollectionToolChoice(
 		request?.intent !== 'hotel_operating_summary'
 	) {
 		return 'auto';
+	}
+	if (
+		request.intent === 'generic_hotel_data_query' &&
+		!completedToolNames.includes(HOTEL_DATA_SQL_TOOL_NAME) &&
+		!completedToolNames.includes(HOTEL_DATA_CATALOG_TOOL_NAME)
+	) {
+		return {
+			type: 'function',
+			function: { name: HOTEL_DATA_CATALOG_TOOL_NAME }
+		};
 	}
 	if (completedToolNames.includes(HOTEL_DATA_SQL_TOOL_NAME)) return 'auto';
 	return {
@@ -403,6 +441,7 @@ export function groundedAnalysisWritingInstructions(): string {
 按优先级给出 1–3 条可执行建议，写清动作、原因和建议观察的指标；不要把常识性口号当建议。
 ## 数据口径
 用简短文字说明酒店/日期范围、数据来源和重要限制。
+严格区分真实零值、NULL、空字符串、缺行和查询失败；不得把后四者写成 0，也不得为了形成完整趋势自行补零。跨表比较前确认酒店、业务日期、渠道、范围和聚合粒度一致。派生字段必须保留原字段含义，归因成交额不得改称全口径 GMV。没有同步状态、库存、投放或运营动作证据时，不得把稀疏、缺失或零值归因为同步中断、下架、停投等具体原因，只能标注待核验。
 避免连续大段文字、重复同一结论、深层嵌套列表和无必要表格；单段不超过 3 句。若证据很少，可以合并或省略不适用的小节，但仍须先给结论、后给依据。`;
 }
 
@@ -420,6 +459,42 @@ export class LangChainAgentRuntime implements AgentRuntime {
 		this.localToolHandlers = new HotelAgentToolHandlers(repository);
 		this.model = modelGateway.createModel('workflow');
 		this.analysisModel = modelGateway.createModel('analysis');
+	}
+
+	async writeClarification(input: Parameters<NonNullable<AgentRuntime['writeClarification']>>[0]) {
+		const response = await runAgentEffect(
+			agentPromise({
+				service: 'model',
+				operation: 'write_clarification',
+				timeoutMs: 35_000,
+				try: (signal) =>
+					this.model.invoke(
+						[
+							{
+								role: 'system',
+								content:
+									'你负责为酒店助手写一段简短、自然的澄清说明。服务端已经决定需要补充哪些字段，你不能增加、删除或替用户猜测字段。结合用户原话说明当前理解到了什么、哪里不够明确、为什么需要补充，并邀请用户使用随附控件或直接文字回答。不要回答业务问题，不要输出列表、标题、JSON、字段代码或固定模板。控制在 120 个汉字以内。'
+							},
+							{
+								role: 'user',
+								content: JSON.stringify({
+									request: input.userRequest,
+									missing: input.clarification.fields.map((field) => field.label)
+								})
+							}
+						],
+						{ signal }
+					)
+			})
+		);
+		const text = textContent(response.content).trim();
+		if (!text || text.length > 120) {
+			throw new AgentProtocolError({
+				operation: 'write_clarification',
+				reason: 'Clarification model returned invalid text'
+			});
+		}
+		return text;
 	}
 
 	async run(options: AgentRuntimeRunOptions) {
@@ -508,9 +583,10 @@ export class LangChainAgentRuntime implements AgentRuntime {
 			...workflowMcpTools
 		];
 		const mcpToolNames = new Set(workflowMcpTools.map((tool) => tool.name));
-		const workflowToolCallBudget = options.workflowRequest
-			? getIntentDefinition(options.workflowRequest.intent).maxToolCalls
-			: Number.POSITIVE_INFINITY;
+		const toolCallBudget = workflowToolCallBudget(
+			options.workflowRequest,
+			options.workflowToolCallBudget
+		);
 		const hotelDataAvailable = answerOnly
 			? (options.validatedEvidence ?? []).some((item) => item.source === 'aliyun_dms_mcp')
 			: loadedMcpTools.some((candidate) => isHotelDataToolName(candidate.name));
@@ -541,7 +617,7 @@ export class LangChainAgentRuntime implements AgentRuntime {
 									columns: table.columns,
 									rules: table.rules
 								}));
-								return `\n\n当前是受限业务取证阶段。意图：${options.workflowRequest.intent}。已解析参数：${JSON.stringify(options.workflowRequest.slots)}。${options.evidenceGap ? `这是定向补证轮次，只补齐：${options.evidenceGap}` : ''}相关表的已验证字段：${JSON.stringify(preloadedSchema)}。只能使用已提供的只读工具，不得调用、建议或模拟写操作。只完成数据获取，当前阶段文字不会直接展示给用户。database_id 由服务端注入，不要填写或猜测。优先直接并行调用 query_hotel_operating_data_sql；只有相关表未被预载或字段仍不足时，才一次调用 describe_verified_hotel_data_tables 补充，不要调用远端 list/describe。先列出用户明确要求的业务域和指标，再规划完整首批 SQL。每个结果必须返回 hotel_id、实际业务日期范围，并用 latest_data_date 或 latest_fetch_time 证明最新完整数据；分析请求还要返回可比基线。跨表先分别聚合到共同粒度，再按 hotel_id 和必要维度关联。不同 source、单位、快照/事件/日报不得直接混加，汇总行与明细行选择单一层级。禁止查询敏感字段、SELECT * 和原始 JSON。只有证据缺失或失败时才追加，最多 3 个 SQL 规划轮次、累计最多 8 次成功 SQL。数据充分时只回复 DATA_COLLECTION_COMPLETE。`;
+								return `\n\n当前是受限业务取证阶段。意图：${options.workflowRequest.intent}。已解析参数：${JSON.stringify(options.workflowRequest.slots)}。${options.evidenceGap ? `这是定向补证轮次，只补齐：${options.evidenceGap}` : ''}相关表的已验证字段：${JSON.stringify(preloadedSchema)}。只能使用已提供的只读工具，不得调用、建议或模拟写操作。只完成数据获取，当前阶段文字不会直接展示给用户。database_id 由服务端注入，不要填写或猜测。优先直接并行调用 query_hotel_operating_data_sql；只有相关表未被预载或字段仍不足时，才一次调用 describe_verified_hotel_data_tables 补充，不要调用远端 list/describe。先列出用户明确要求的业务域和指标，再规划完整首批 SQL。每个结果必须返回 hotel_id、实际业务日期范围，并用 latest_data_date 或 latest_fetch_time 证明最新完整数据；分析请求还要返回可比基线。只使用已验证字段和语义目录提供的枚举，不得猜测字段名或范围枚举；用户未指定维度值时，首次取证不得自行添加该维度过滤，先取得实际分布再决定是否补证。NULL、空字符串和缺行必须原样保留，不得用 COALESCE 或派生别名伪装为零。派生字段名必须保留原指标口径，归因成交额不得命名为全口径 GMV。跨表先分别聚合到共同粒度，再按 hotel_id 和必要维度关联。不同 source、单位、快照/事件/日报不得直接混加，汇总行与明细行选择单一层级。禁止查询敏感字段、SELECT * 和原始 JSON。只有证据缺失或失败时才追加，最多 3 个 SQL 规划轮次、累计最多 8 次工具调用。数据充分时只回复 DATA_COLLECTION_COMPLETE。`;
 							})()
 						: '';
 		const agent = createAgent({
@@ -562,20 +638,12 @@ export class LangChainAgentRuntime implements AgentRuntime {
 				hotelDataAvailable
 			})}${workflowConstraint}`
 		});
-		const messages: BaseMessageLike[] =
-			answerOnly && options.workflowRequest
-				? [
-						{
-							role: 'user',
-							content: analysisOnly
-								? '请分析已验证的经营数据，给出结论和建议。'
-								: '请根据已验证证据生成最终答复。'
-						}
-					]
-				: options.history.map((message) => ({
-						role: message.role,
-						content: message.content
-					}));
+		const messages = workflowMessages({
+			history: options.history,
+			workflowRequest: options.workflowRequest,
+			answerOnly,
+			analysisOnly
+		});
 
 		let content = '';
 		const startedTools = new Set<string>();
@@ -631,10 +699,7 @@ export class LangChainAgentRuntime implements AgentRuntime {
 							continue;
 						}
 						if (toolName === 'render_hotel_ui') firstUiRenderCallId = toolCallId;
-						if (
-							toolName !== 'render_hotel_ui' &&
-							startedWorkflowToolCount >= workflowToolCallBudget
-						) {
+						if (toolName !== 'render_hotel_ui' && startedWorkflowToolCount >= toolCallBudget) {
 							throw new AgentProtocolError({
 								operation: 'execute_business_workflow',
 								reason: 'Business workflow tool-call budget exceeded'
@@ -668,10 +733,7 @@ export class LangChainAgentRuntime implements AgentRuntime {
 							continue;
 						}
 						if (call.name === 'render_hotel_ui') firstUiRenderCallId = call.id;
-						if (
-							call.name !== 'render_hotel_ui' &&
-							startedWorkflowToolCount >= workflowToolCallBudget
-						) {
+						if (call.name !== 'render_hotel_ui' && startedWorkflowToolCount >= toolCallBudget) {
 							throw new AgentProtocolError({
 								operation: 'execute_business_workflow',
 								reason: 'Business workflow tool-call budget exceeded'
@@ -787,7 +849,7 @@ export class LangChainAgentRuntime implements AgentRuntime {
 		} catch (error) {
 			const graphRecursionFailed = agentErrorType(error) === 'GraphRecursionError';
 			if (shouldRecoverPartialCollection(error, answerOnly, toolEvidence.length)) {
-				return { content, ui: generatedUi, toolEvidence };
+				return { content, ui: generatedUi, toolEvidence, toolCallCount: startedWorkflowToolCount };
 			}
 			const outstandingMcpToolName = graphRecursionFailed
 				? null
@@ -846,7 +908,7 @@ export class LangChainAgentRuntime implements AgentRuntime {
 				});
 			}
 		}
-		return { content, ui: generatedUi, toolEvidence };
+		return { content, ui: generatedUi, toolEvidence, toolCallCount: startedWorkflowToolCount };
 	}
 
 	private createLocalTools(

@@ -1033,7 +1033,27 @@ export class AgentRepository {
 			.where(and(eq(agentRun.id, runId), eq(agentRun.ownerEmployeeId, principal.employeeId)))
 			.limit(1);
 		if (!rows[0]) throw new AgentAccessDeniedError('Agent run was not found');
-		return rows[0];
+		const previousExecutions = await this.database
+			.select({ state: agentBusinessExecution.state })
+			.from(agentBusinessExecution)
+			.where(
+				and(
+					eq(agentBusinessExecution.conversationId, rows[0].conversation.id),
+					eq(agentBusinessExecution.ownerEmployeeId, principal.employeeId),
+					eq(agentBusinessExecution.status, 'completed')
+				)
+			)
+			.orderBy(desc(agentBusinessExecution.completedAt), desc(agentBusinessExecution.id))
+			.limit(4);
+		const recentBusinessRequests = previousExecutions
+			.flatMap((execution) => {
+				const state = businessExecutionStateSchema.safeParse(execution.state);
+				return state.success && state.data.status === 'completed' && state.data.request
+					? [state.data.request]
+					: [];
+			})
+			.reverse();
+		return { ...rows[0], recentBusinessRequests };
 	}
 
 	async getBusinessExecution(

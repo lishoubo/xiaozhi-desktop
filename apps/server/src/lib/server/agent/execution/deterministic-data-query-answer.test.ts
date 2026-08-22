@@ -133,8 +133,14 @@ describe('buildDeterministicDataQueryAnswer', () => {
 		]);
 
 		expect(result?.content).toContain('2 组');
-		expect(JSON.stringify(result?.ui)).toContain('exposure_cnt');
-		expect(JSON.stringify(result?.ui)).toContain('keyword');
+		expect(result?.ui.elements['table-1']?.props).toEqual({
+			columns: ['hotel_id', 'exposure_cnt'],
+			rows: [[4, 100]]
+		});
+		expect(result?.ui.elements['table-2']?.props).toEqual({
+			columns: ['hotel_id', 'keyword'],
+			rows: [[4, '包头酒店']]
+		});
 	});
 
 	it('reserves display capacity for every SQL result set and uses provenance labels', () => {

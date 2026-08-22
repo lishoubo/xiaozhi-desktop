@@ -1,4 +1,5 @@
 import type { AgentMessage } from '@hotel-butler/api';
+import type { ResolvedBusinessRequest } from './business-execution-state';
 
 const MAX_CONTEXT_MESSAGES = 8;
 const MAX_MESSAGE_CHARACTERS = 2_000;
@@ -14,6 +15,7 @@ export function buildRoutingContext(
 		history: readonly AgentMessage[];
 		currentMessageId: string;
 		memories?: readonly RoutingMemory[];
+		recentBusinessRequests?: readonly ResolvedBusinessRequest[];
 	}>
 ): string | null {
 	const recentMessages = input.history
@@ -29,6 +31,13 @@ export function buildRoutingContext(
 		content: memory.content.slice(0, MAX_MEMORY_CHARACTERS),
 		importance: memory.importance
 	}));
-	if (!summary && recentMessages.length === 0 && memories.length === 0) return null;
-	return JSON.stringify({ summary, recentMessages, memories });
+	const recentBusinessRequests = (input.recentBusinessRequests ?? []).slice(-4);
+	if (
+		!summary &&
+		recentMessages.length === 0 &&
+		memories.length === 0 &&
+		recentBusinessRequests.length === 0
+	)
+		return null;
+	return JSON.stringify({ summary, recentMessages, recentBusinessRequests, memories });
 }

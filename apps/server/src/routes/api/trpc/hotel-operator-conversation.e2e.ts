@@ -26,6 +26,23 @@ const conversationMessagesResponseSchema = z.object({
 	})
 });
 
+function shanghaiDateOffset(days: number): string {
+	const today = new Intl.DateTimeFormat('en-CA', {
+		timeZone: 'Asia/Shanghai',
+		year: 'numeric',
+		month: '2-digit',
+		day: '2-digit'
+	}).format(new Date());
+	const date = new Date(`${today}T00:00:00Z`);
+	date.setUTCDate(date.getUTCDate() + days);
+	return date.toISOString().slice(0, 10);
+}
+
+function displayedDatePattern(date: string): RegExp {
+	const [, month = '', day = ''] = date.split('-');
+	return new RegExp(`${date}|${month}-${day}|${Number(month)}月${Number(day)}`);
+}
+
 async function startPrompt(
 	request: APIRequestContext,
 	conversationId: string,
@@ -128,11 +145,7 @@ test('handles a natural multi-turn operating-to-traffic conversation without los
 		expect(operatingReply.content).not.toContain('查询结果未返回可验证的酒店范围');
 		expect(operatingReply.content).not.toContain('查询结果未返回可验证的业务日期范围');
 
-		const trafficRunId = await startPrompt(
-			request,
-			conversationId,
-			'那流量呢？还是刚才那几天。别只甩一堆数，帮我看看从曝光、访问到支付到底掉在哪。'
-		);
+		const trafficRunId = await startPrompt(request, conversationId, '这个酒店近日的流量情况咋样？');
 		expect(await waitForTerminal(database, trafficRunId)).toMatchObject({ type: 'run_completed' });
 		const trafficEvents = await runEvents(database, trafficRunId);
 		const trafficQueries = trafficEvents.filter(
@@ -140,7 +153,7 @@ test('handles a natural multi-turn operating-to-traffic conversation without los
 				event.type === 'tool_started' && event.toolName === 'query_hotel_operating_data_sql'
 		);
 		expect(trafficQueries.length).toBeGreaterThan(0);
-		expect(trafficQueries.length).toBeLessThanOrEqual(16);
+		expect(trafficQueries.length).toBeLessThanOrEqual(8);
 		const [trafficExecution] = await database<
 			{ route_kind: string; intent: string | null; status: string }[]
 		>`
@@ -159,6 +172,8 @@ test('handles a natural multi-turn operating-to-traffic conversation without los
 		expect(trafficReply.content).not.toContain('本次查询没有获得足够的可验证数据');
 		expect(trafficReply.content).not.toContain('查询结果未返回可验证的酒店范围');
 		expect(trafficReply.content).not.toContain('查询结果未返回可验证的业务日期范围');
+		expect(trafficReply.content).toMatch(displayedDatePattern(shanghaiDateOffset(-7)));
+		expect(trafficReply.content).toMatch(displayedDatePattern(shanghaiDateOffset(-1)));
 
 		const adviceRunId = await startPrompt(
 			request,

@@ -148,7 +148,14 @@ export const HOTEL_DATA_TABLES: readonly HotelDataTableSemantics[] = [
 		'traffic_conversion',
 		'三级人数转化漏斗',
 		'酒店×渠道×业务日×漏斗层级',
-		{ units: ['人', '百分比'], rules: ['漏斗节点不可相加'] }
+		{
+			units: ['人', '百分比'],
+			rules: [
+				'漏斗节点不可相加',
+				'funnel_scope 已验证取值为 CARD_PRODUCT、STORE_PAGE_VISIT；除非请求指定层级，首次取证不要按此字段过滤',
+				'NULL 或缺行表示未取得该层级证据，不代表零'
+			]
+		}
 	),
 	entry('fact_crowd_asset_daily', 'crowd', '人群资产规模和变化', '酒店×渠道×业务日×人群资产类型', {
 		units: ['人', '百分比']
@@ -222,14 +229,26 @@ export const HOTEL_DATA_TABLES: readonly HotelDataTableSemantics[] = [
 		'traffic_conversion',
 		'曝光或门店页访问入口来源',
 		'酒店×渠道×业务日×流量范围×二级入口',
-		{ units: ['次数', '人', '百分比'], rules: ['GLOBAL 与 STORE_PAGE 指标列互斥'] }
+		{
+			units: ['次数', '人', '百分比'],
+			rules: [
+				'GLOBAL 与 STORE_PAGE 指标列互斥，不得把无值列补成零',
+				'traffic_scope 已验证取值为 GLOBAL、STORE_PAGE；除非请求指定范围，首次取证不要按此字段过滤'
+			]
+		}
 	),
 	entry(
 		'fact_traffic_scene',
 		'traffic_conversion',
 		'流量场景曝光和成交',
 		'酒店×渠道×业务日×流量场景',
-		{ units: ['次数', '元', '百分比'], rules: ['traffic_scene_id=-1 总计与场景明细不可重复相加'] }
+		{
+			units: ['次数', '元', '百分比'],
+			rules: [
+				'traffic_scene_id=-1 总计与场景明细不可重复相加',
+				'trade_amount 是该流量场景归因成交额，不得表述为酒店全口径 GMV'
+			]
+		}
 	),
 	entry(
 		'fact_user_loss_distribution',

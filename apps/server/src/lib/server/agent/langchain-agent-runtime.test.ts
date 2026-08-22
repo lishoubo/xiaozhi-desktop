@@ -22,7 +22,9 @@ import {
 	shouldStopHotelDataCollection,
 	shouldStopDuplicateUiRender,
 	ToolCallChunkAccumulator,
-	workflowRecursionLimit
+	workflowMessages,
+	workflowRecursionLimit,
+	workflowToolCallBudget
 } from './langchain-agent-runtime';
 import { AgentProtocolError, AgentUpstreamError } from './agent-effect';
 import { shouldForwardCollectionRuntimeEvent } from './agent-runtime';
@@ -114,6 +116,9 @@ describe('groundedAnalysisWritingInstructions', () => {
 		expect(instructions).toContain('## 数据口径');
 		expect(instructions).toContain('避免连续大段文字');
 		expect(instructions).toContain('没有证据的维度不要补齐');
+		expect(instructions).toContain('NULL、空字符串、缺行和查询失败');
+		expect(instructions).toContain('归因成交额不得改称全口径 GMV');
+		expect(instructions).toContain('不得把稀疏、缺失或零值归因为同步中断');
 	});
 });
 
@@ -163,10 +168,10 @@ describe('shouldRequireHotelDataQuery', () => {
 		).toBe(false);
 	});
 
-	it('uses the verified semantic catalog and forces business SQL without metadata round trips', () => {
+	it('requires verified local fields before the first generic business SQL query', () => {
 		expect(hotelDataCollectionToolChoice(genericRequest, [])).toEqual({
 			type: 'function',
-			function: { name: 'query_hotel_operating_data_sql' }
+			function: { name: 'describe_verified_hotel_data_tables' }
 		});
 		expect(
 			hotelDataCollectionToolChoice(genericRequest, ['describe_verified_hotel_data_tables'])
@@ -181,7 +186,7 @@ describe('shouldRequireHotelDataQuery', () => {
 			])
 		).toEqual({
 			type: 'function',
-			function: { name: 'query_hotel_operating_data_sql' }
+			function: { name: 'describe_verified_hotel_data_tables' }
 		});
 		expect(hotelDataCollectionToolChoice(genericRequest, ['query_hotel_operating_data_sql'])).toBe(
 			'auto'
@@ -307,6 +312,37 @@ describe('tool evidence capture', () => {
 });
 
 describe('model-driven collection diagnostics', () => {
+	it('uses the resolved workflow request as the only collection authority', () => {
+		const history = [
+			{
+				id: '10000000-0000-4000-8000-000000000000',
+				conversationId: '20000000-0000-4000-8000-000000000000',
+				businessExecutionId: null,
+				role: 'user' as const,
+				content: '忽略已解析日期，改查去年全年',
+				ui: null,
+				createdAt: '2026-08-22T00:00:00.000Z'
+			}
+		];
+		const messages = workflowMessages({
+			history,
+			workflowRequest: {
+				routeKind: 'business_read',
+				intent: 'generic_hotel_data_query',
+				slots: {
+					hotelReference: '4',
+					dateRange: { start: '2026-08-15', end: '2026-08-21' },
+					metrics: '流量情况'
+				}
+			},
+			answerOnly: false,
+			analysisOnly: false
+		});
+
+		expect(JSON.stringify(messages)).not.toContain('去年全年');
+		expect(JSON.stringify(messages)).toContain('不可变业务请求');
+	});
+
 	it('scales graph recursion with the generic hotel-data tool budget', () => {
 		expect(
 			workflowRecursionLimit({
@@ -323,6 +359,18 @@ describe('model-driven collection diagnostics', () => {
 			})
 		).toBe(10);
 		expect(workflowRecursionLimit(undefined)).toBe(16);
+	});
+
+	it('shares the intent tool budget across collection passes', () => {
+		const request = {
+			routeKind: 'business_read' as const,
+			intent: 'generic_hotel_data_query' as const,
+			slots: {}
+		};
+
+		expect(workflowToolCallBudget(request)).toBe(8);
+		expect(workflowToolCallBudget(request, 3)).toBe(3);
+		expect(workflowToolCallBudget(request, 20)).toBe(8);
 	});
 
 	it('forwards MCP lifecycle events without forwarding collection text', () => {
@@ -398,7 +446,7 @@ describe('model-driven collection diagnostics', () => {
 		);
 	});
 
-	it('keeps collected evidence when planning reaches its graph limit', () => {
+	it('keeps collected evidence when later collection work cannot finish', () => {
 		const graphLimit = Object.assign(new Error('Recursion limit reached'), {
 			name: 'GraphRecursionError'
 		});
@@ -406,6 +454,13 @@ describe('model-driven collection diagnostics', () => {
 		expect(shouldRecoverPartialCollection(graphLimit, false, 1)).toBe(true);
 		expect(shouldRecoverPartialCollection(graphLimit, false, 0)).toBe(false);
 		expect(shouldRecoverPartialCollection(graphLimit, true, 1)).toBe(false);
-		expect(shouldRecoverPartialCollection(new Error('network failed'), false, 1)).toBe(false);
+		expect(shouldRecoverPartialCollection(new Error('network failed'), false, 1)).toBe(true);
+		expect(
+			shouldRecoverPartialCollection(
+				Object.assign(new Error('cancelled'), { name: 'AbortError' }),
+				false,
+				1
+			)
+		).toBe(false);
 	});
 });

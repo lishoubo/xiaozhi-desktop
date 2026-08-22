@@ -406,12 +406,18 @@ export class BusinessSlotResolver {
 				slots[name] = resolved(name === 'dateRange' ? range : range.start, 'application_timezone');
 		}
 
-		const unresolved = input.definition.slots.some(
-			(definition) => definition.required && slots[definition.name]?.status !== 'resolved'
-		);
+		const needsClarification = (definition: IntentDefinition['slots'][number]): boolean => {
+			const status = slots[definition.name]?.status;
+			return (
+				(definition.required && status !== 'resolved') ||
+				status === 'invalid' ||
+				status === 'ambiguous'
+			);
+		};
+		const unresolved = input.definition.slots.some(needsClarification);
 		if (unresolved) {
 			const requiredNames = new Set(
-				input.definition.slots.filter((definition) => definition.required).map(({ name }) => name)
+				input.definition.slots.filter(needsClarification).map(({ name }) => name)
 			);
 			return {
 				status: 'needs_clarification',

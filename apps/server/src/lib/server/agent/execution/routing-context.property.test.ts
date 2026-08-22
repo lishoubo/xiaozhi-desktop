@@ -96,4 +96,36 @@ describe('routing context properties', () => {
 			{ numRuns: 50 }
 		);
 	});
+
+	it('keeps at most four structured business scopes in chronological order', () => {
+		fc.assert(
+			fc.property(
+				fc.array(fc.integer({ min: 1, max: 999 }), { minLength: 1, maxLength: 20 }),
+				(ids) => {
+					const context = buildRoutingContext({
+						conversationSummary: null,
+						currentMessageId: 'ffffffff-ffff-4fff-8fff-ffffffffffff',
+						history: [],
+						recentBusinessRequests: ids.map((id) => ({
+							routeKind: 'business_read',
+							intent: 'generic_hotel_data_query',
+							responseMode: 'analysis',
+							slots: { hotelReference: String(id) }
+						}))
+					});
+					const parsed: unknown = JSON.parse(context ?? '{}');
+					if (typeof parsed !== 'object' || parsed === null) return;
+					const requests = Reflect.get(parsed, 'recentBusinessRequests');
+					expect(Array.isArray(requests) ? requests.length : 0).toBe(Math.min(ids.length, 4));
+					expect(
+						Array.isArray(requests)
+							? requests.map((request) =>
+									Reflect.get(Reflect.get(request, 'slots'), 'hotelReference')
+								)
+							: []
+					).toEqual(ids.slice(-4).map(String));
+				}
+			)
+		);
+	});
 });

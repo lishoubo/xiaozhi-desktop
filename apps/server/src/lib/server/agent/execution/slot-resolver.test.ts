@@ -410,4 +410,40 @@ describe('slot resolution', () => {
 			}
 		});
 	});
+
+	it('asks for an explicitly constrained optional date when it cannot be normalized', async () => {
+		const resolver = new BusinessSlotResolver(
+			{
+				resolve: vi.fn().mockResolvedValue([
+					{
+						id: '4',
+						label: '银际酒店',
+						match: 'exact',
+						accessScope: 'shared_dms_token'
+					}
+				])
+			},
+			() => now
+		);
+
+		const result = await resolver.resolve({
+			definition: getIntentDefinition('generic_hotel_data_query'),
+			intent: 'generic_hotel_data_query',
+			orgId: '42',
+			slots: {
+				hotelReference: { status: 'candidate', raw: '银际酒店' },
+				dateRange: { status: 'candidate', raw: '@date:needs-clarification' },
+				metrics: { status: 'candidate', raw: '流量' }
+			},
+			anchorMessageId: '22222222-2222-4222-8222-222222222222',
+			version: 1
+		});
+
+		expect(result).toMatchObject({
+			status: 'needs_clarification',
+			clarification: {
+				fields: [{ slot: 'dateRange', kind: 'date_range', required: true }]
+			}
+		});
+	});
 });

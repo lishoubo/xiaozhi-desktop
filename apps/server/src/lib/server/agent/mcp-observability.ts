@@ -31,6 +31,10 @@ function contentBlockCount(value: unknown): number {
 
 export function mcpResultText(value: unknown): string | null {
 	if (typeof value === 'string') return value;
+	if (typeof value === 'object' && value !== null) {
+		const directText = Reflect.get(value, 'text');
+		if (typeof directText === 'string') return directText;
+	}
 	const content = Array.isArray(value)
 		? value
 		: typeof value === 'object' && value !== null
@@ -55,7 +59,28 @@ export function mcpResultIsError(value: unknown): boolean {
 		return true;
 	}
 	const text = mcpResultText(value)?.trim() ?? '';
-	return /^(?:ToolException:\s*)?Error calling tool\b/i.test(text);
+	if (!text) return false;
+	if (text.startsWith('{') || text.startsWith('[')) {
+		try {
+			const parsed: unknown = JSON.parse(text);
+			if (Array.isArray(parsed)) {
+				return parsed.some(
+					(item) =>
+						typeof item === 'object' &&
+						item !== null &&
+						typeof Reflect.get(item, 'type') === 'string' &&
+						mcpResultIsError(item)
+				);
+			}
+			if (typeof parsed === 'object' && parsed !== null) return mcpResultIsError(parsed);
+		} catch {
+			// Continue as ordinary text when a provider returns malformed JSON-looking content.
+		}
+	}
+	if (/^\|[^\n]+\|(?:\r?\n|$)/.test(text)) return false;
+	return /^(?:(?:ToolException:\s*)?Error calling tool\b|Unknown column\b|SQLSTATE(?:\[[^\]]+\])?|(?:SQL|query|statement)\s+(?:execution\s+)?(?:failed|error)\b|syntax error\b|Table\s+['`"].+['`"]\s+doesn't exist\b|Access denied\b)/i.test(
+		text
+	);
 }
 
 function serializeForSummary(value: unknown): string | null {

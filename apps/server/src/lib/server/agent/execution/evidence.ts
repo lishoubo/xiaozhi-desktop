@@ -189,6 +189,34 @@ function periodFromRequest(request: ResolvedBusinessRequest): EvidenceEnvelope['
 	return typeof date === 'string' ? { start: date, end: date } : null;
 }
 
+export function evidenceVerifiesRequestedScope(
+	request: ResolvedBusinessRequest,
+	evidence: EvidenceEnvelope
+): boolean {
+	const metrics = valueAt(request.slots, 'metrics');
+	const metricText = Array.isArray(metrics)
+		? metrics.filter((item): item is string => typeof item === 'string').join(' ')
+		: typeof metrics === 'string'
+			? metrics
+			: '';
+	const requestedDomains = hotelDataDomainsForText(metricText);
+	if (
+		requestedDomains.length > 0 &&
+		(evidence.provenance?.domains.length ?? 0) > 0 &&
+		!evidence.provenance?.domains.some((domain) => requestedDomains.includes(domain))
+	) {
+		return false;
+	}
+	if (
+		evidence.source !== 'aliyun_dms_mcp' ||
+		evidence.toolName !== HOTEL_DATA_SQL_TOOL_NAME ||
+		periodFromRequest(request) === null
+	) {
+		return true;
+	}
+	return evidence.scope.period !== null;
+}
+
 function sourceForIntent(intent: AgentBusinessIntent): EvidenceEnvelope['source'] {
 	if (intent === 'weather_operations_advice') return 'weather_mcp';
 	if (intent === 'public_hotel_rates') return 'hotel_rates_mcp';
@@ -471,8 +499,7 @@ export function normalizeEvidence(
 			? enforcedHotels.join(',')
 			: conflictingHotels.length > 0
 				? explicitHotels.join(',')
-				: rowHotelScope?.join(',')) ||
-		null;
+				: rowHotelScope?.join(',')) || null;
 	const dateFacts = evidenceDateFacts(data);
 	return {
 		evidenceId: randomUUID(),
