@@ -57,6 +57,13 @@ export function normalizedTemporalReviewSlots(
 	return slots;
 }
 
+export function temporalReviewNeedsEscalation(temporal: TemporalReview): boolean {
+	return (
+		temporal.hasExplicitTimeConstraint &&
+		Object.keys(normalizedTemporalReviewSlots(temporal)).length === 0
+	);
+}
+
 export const routeStructuredOutputConfig = {
 	name: 'route_hotel_request',
 	method: 'functionCalling',
@@ -115,10 +122,12 @@ export function parseReviewedJson<T>(content: unknown, schema: z.ZodType<T>): T 
 export class LangChainRouteClassifier implements RouteClassifier {
 	private readonly model: BaseChatModel;
 	private readonly reviewModel: BaseChatModel;
+	private readonly fallbackReviewModel: BaseChatModel;
 
 	constructor(private readonly modelGateway: AgentModelGateway) {
 		this.model = modelGateway.createModel('routing');
-		this.reviewModel = modelGateway.createModel('analysis', { maxTokens: 2_048 });
+		this.reviewModel = modelGateway.createModel('routing', { maxTokens: 2_048 });
+		this.fallbackReviewModel = modelGateway.createModel('analysis', { maxTokens: 2_048 });
 	}
 
 	private async reviewJson<T>(
@@ -127,18 +136,23 @@ export class LangChainRouteClassifier implements RouteClassifier {
 			systemPrompt: string;
 			request: string;
 			schema: z.ZodType<T>;
+			escalate?: (value: T) => boolean;
 		}>
 	): Promise<T> {
 		const schemaJson = JSON.stringify(z.toJSONSchema(input.schema));
 		let lastError: unknown;
-		for (let attempt = 0; attempt < 2; attempt += 1) {
+		const attempts = [
+			{ model: this.reviewModel, timeoutMs: 35_000 },
+			{ model: this.fallbackReviewModel, timeoutMs: 120_000 }
+		];
+		for (const [attempt, review] of attempts.entries()) {
 			const response = await runAgentEffect(
 				agentPromise({
 					service: 'model',
 					operation: input.operation,
-					timeoutMs: 120_000,
+					timeoutMs: review.timeoutMs,
 					try: (signal) =>
-						this.reviewModel.invoke(
+						review.model.invoke(
 							[
 								{
 									role: 'system',
@@ -149,7 +163,7 @@ export class LangChainRouteClassifier implements RouteClassifier {
 									content:
 										attempt === 0
 											? input.request
-											: `${input.request}\n\n上次输出未通过 schema，请严格按 JSON Schema 重答。`
+											: `${input.request}\n\n上次输出不充分或未通过 schema，请严格按 JSON Schema 重答。`
 								}
 							],
 							{ signal }
@@ -157,7 +171,9 @@ export class LangChainRouteClassifier implements RouteClassifier {
 				})
 			);
 			try {
-				return parseReviewedJson(response.content, input.schema);
+				const parsed = parseReviewedJson(response.content, input.schema);
+				if (attempt === 0 && input.escalate?.(parsed)) continue;
+				return parsed;
 			} catch (error) {
 				lastError = error;
 			}
@@ -245,25 +261,14 @@ export class LangChainRouteClassifier implements RouteClassifier {
 		}
 		if (classified.category !== 'business_read') return classified;
 
-		let temporal = await this.reviewJson({
+		const temporal = await this.reviewJson({
 			operation: 'review_route_temporal_scope',
 			systemPrompt:
 				'只复核酒店业务请求的时间范围和回答模式，不分类、不回答。判断当前请求或其直接指代的相关上下文是否明确给出时间约束；相对、模糊、代词式或承接式时间表达也属于时间约束。当前请求承接最近相关业务任务时，优先使用历史上下文 recentBusinessRequests 中已规范化的日期范围；不得留空让后续取证模型自由选择。确实既没有当前时间表达、也没有相关结构化前序范围时，才返回 false 且所有日期为空，绝不默认今天、本月或最近。结合输入中的当前日期和 Asia/Shanghai 规范化。任何酒店业务读中的“最近/近 N 天”默认是截至昨天的 N 个完整自然日，除非用户明确要求包含今天；小时级窗口不适用。酒店经营或通用数据查询使用 dateRange（单日也写成起止相同），公开房价使用 checkIn/checkOut。需要评价、比较、诊断、归因、趋势、原因、建议，或把多个维度综合成画像、结构或结论时 responseMode 为 analysis；只要原始列表、详情或数字时为 data_only。',
 			request,
-			schema: temporalReviewSchema
+			schema: temporalReviewSchema,
+			escalate: temporalReviewNeedsEscalation
 		});
-		if (
-			temporal.hasExplicitTimeConstraint &&
-			Object.keys(normalizedTemporalReviewSlots(temporal)).length === 0
-		) {
-			temporal = await this.reviewJson({
-				operation: 'normalize_route_temporal_scope',
-				systemPrompt:
-					'重做酒店业务请求的时间规范化。上一轮已经确认用户存在时间约束，但没有给出日期。请仅根据当前请求、直接相关的结构化前序范围、输入中的当前日期和 Asia/Shanghai 时区，把相对、模糊或承接式时间转换为明确日期；不得因为表达口语化就放弃。若语义确实不足以确定唯一范围，保持 hasExplicitTimeConstraint=true 并将日期留空，让服务端向用户澄清。酒店经营或通用数据使用 dateRange，公开房价使用 checkIn/checkOut。只复核时间和 responseMode，不回答业务问题。',
-				request,
-				schema: temporalReviewSchema
-			});
-		}
 		const nonTemporalSlots = Object.fromEntries(
 			Object.entries(classified.slots).filter(
 				([name]) => !['date', 'dateRange', 'checkIn', 'checkOut'].includes(name)

@@ -3,7 +3,8 @@ import { z } from 'zod';
 import {
 	normalizedTemporalReviewSlots,
 	parseReviewedJson,
-	routeStructuredOutputConfig
+	routeStructuredOutputConfig,
+	temporalReviewNeedsEscalation
 } from './langchain-route-classifier';
 
 describe('LangChain route classifier configuration', () => {
@@ -69,5 +70,38 @@ describe('LangChain route classifier configuration', () => {
 				checkOut: null
 			})
 		).toEqual({});
+	});
+
+	it('escalates only unresolved explicit time constraints to the analysis model', () => {
+		expect(
+			temporalReviewNeedsEscalation({
+				hasExplicitTimeConstraint: true,
+				responseMode: 'analysis',
+				date: null,
+				dateRange: null,
+				checkIn: null,
+				checkOut: null
+			})
+		).toBe(true);
+		expect(
+			temporalReviewNeedsEscalation({
+				hasExplicitTimeConstraint: true,
+				responseMode: 'analysis',
+				date: null,
+				dateRange: '2026-08-15/2026-08-21',
+				checkIn: null,
+				checkOut: null
+			})
+		).toBe(false);
+		expect(
+			temporalReviewNeedsEscalation({
+				hasExplicitTimeConstraint: false,
+				responseMode: 'data_only',
+				date: null,
+				dateRange: null,
+				checkIn: null,
+				checkOut: null
+			})
+		).toBe(false);
 	});
 });
