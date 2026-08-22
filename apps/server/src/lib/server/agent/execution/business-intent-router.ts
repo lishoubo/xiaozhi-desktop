@@ -80,7 +80,7 @@ function mergeContextualProposal(
 	return {
 		...current,
 		intentCandidate: contextual.intentCandidate ?? current.intentCandidate,
-		slots: contextual.slots
+		slots: { ...contextual.slots, ...current.slots }
 	};
 }
 
@@ -167,20 +167,31 @@ export class BusinessIntentRouter {
 		}
 		const likelyHotelDataRequest = isLikelyHotelDataRequest(input.text);
 		if (safeProposal.category === 'business_read' || likelyHotelDataRequest) {
+			const contextDependent =
+				Boolean(input.context) &&
+				currentProposal.category === 'unclear' &&
+				safeProposal.category === 'business_read';
 			const intent = isGenericHotelDataDomainRequest(input.text)
 				? 'generic_hotel_data_query'
 				: (safeProposal.intentCandidate ?? 'generic_hotel_data_query');
 			const proposedSlots =
-				intent === 'generic_hotel_data_query' && !safeProposal.slots.metrics
+				intent === 'generic_hotel_data_query' && !safeProposal.slots.metrics && !contextDependent
 					? { ...safeProposal.slots, metrics: input.text }
 					: safeProposal.slots;
+			const slots = registeredCandidateSlots(
+				intent,
+				likelyHotelDataRequest ? inferredHotelDataSlots(input.text, proposedSlots) : proposedSlots
+			);
 			return {
 				routeKind: 'business_read',
 				intent,
-				slots: registeredCandidateSlots(
-					intent,
-					likelyHotelDataRequest ? inferredHotelDataSlots(input.text, proposedSlots) : proposedSlots
-				),
+				slots:
+					contextDependent && intent === 'generic_hotel_data_query' && !proposedSlots.metrics
+						? {
+								...slots,
+								metrics: { status: 'invalid', reasonCode: 'context_target_missing' }
+							}
+						: slots,
 				confidence: safeProposal.confidence,
 				responseMode: safeProposal.responseMode
 			};

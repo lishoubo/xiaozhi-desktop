@@ -184,6 +184,7 @@ export type BusinessExecutionState =
 			reasonCode: string;
 			retryable: boolean;
 			retryCheckpoint: RetryCheckpoint | null;
+			request?: ResolvedBusinessRequest | null;
 	  }>
 	| Readonly<{ status: 'cancelled' }>;
 
@@ -239,7 +240,8 @@ export const businessExecutionStateSchema: z.ZodType<BusinessExecutionState> = z
 			status: z.literal('failed'),
 			reasonCode: z.string().min(1).max(80),
 			retryable: z.boolean(),
-			retryCheckpoint: retryCheckpointSchema.nullable().default(null)
+			retryCheckpoint: retryCheckpointSchema.nullable().default(null),
+			request: resolvedBusinessRequestSchema.nullable().optional()
 		}),
 		z.strictObject({ status: z.literal('cancelled') })
 	]
@@ -420,6 +422,32 @@ function checkpointFromState(state: BusinessExecutionState): RetryCheckpoint | n
 	}
 }
 
+export function contextualRequestFromState(
+	state: BusinessExecutionState
+): ResolvedBusinessRequest | null {
+	switch (state.status) {
+		case 'ready':
+		case 'executing':
+		case 'validating_evidence':
+			return state.request;
+		case 'answering':
+			return state.request;
+		case 'completed':
+			return state.request ?? null;
+		case 'failed':
+			if (state.request) return state.request;
+			return state.retryCheckpoint?.kind === 'executing' ||
+				state.retryCheckpoint?.kind === 'answering'
+				? state.retryCheckpoint.request
+				: null;
+		case 'routing':
+		case 'resolving_slots':
+		case 'awaiting_clarification':
+		case 'cancelled':
+			return null;
+	}
+}
+
 function restoreRetryCheckpoint(checkpoint: RetryCheckpoint): BusinessExecutionState {
 	switch (checkpoint.kind) {
 		case 'routing':
@@ -492,11 +520,13 @@ export function transitionBusinessExecution(
 		!['completed', 'failed', 'cancelled'].includes(state.status)
 	) {
 		const retryCheckpoint = event.retryable ? checkpointFromState(state) : null;
+		const request = contextualRequestFromState(state);
 		return {
 			status: 'failed',
 			reasonCode: event.reasonCode,
 			retryable: event.retryable && retryCheckpoint !== null,
-			retryCheckpoint
+			retryCheckpoint,
+			...(request ? { request } : {})
 		};
 	}
 
@@ -574,7 +604,8 @@ export function transitionBusinessExecution(
 					status: 'failed',
 					reasonCode: event.assessment.reasonCode,
 					retryable: false,
-					retryCheckpoint: null
+					retryCheckpoint: null,
+					request: state.request
 				};
 			}
 			return {

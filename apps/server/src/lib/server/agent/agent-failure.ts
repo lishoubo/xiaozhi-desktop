@@ -46,8 +46,8 @@ export function describeAgentFailure(error: unknown): AgentFailureDescriptor {
 	if (chainHas(error, AgentQueryInvalidError)) {
 		return descriptor(
 			'query_invalid',
-			'没有生成可执行的数据查询。请明确要查询的指标、酒店和日期范围后再试。',
-			'revise_request'
+			'生成的数据查询语句无法执行，本次未取得业务数据。请重新尝试。',
+			'retry'
 		);
 	}
 	if (causeChain(error).some((cause) => cause instanceof AgentConfigurationError)) {
@@ -76,8 +76,8 @@ export function describeAgentFailure(error: unknown): AgentFailureDescriptor {
 			if (error.kind === 'invalid_response' && error.operation.includes('query')) {
 				return descriptor(
 					'query_invalid',
-					'没有生成可执行的数据查询。请明确要查询的指标、酒店和日期范围后再试。',
-					'revise_request'
+					'生成的数据查询语句无法执行，本次未取得业务数据。请重新尝试。',
+					'retry'
 				);
 			}
 			return descriptor(
@@ -168,8 +168,8 @@ export function describeToolFailure(
 	if (/query_hotel_operating_data_sql|executeScript/i.test(toolName)) {
 		return descriptor(
 			'query_invalid',
-			'没有生成可执行的数据查询。请明确要查询的指标、酒店和日期范围后再试。',
-			'revise_request'
+			'生成的数据查询语句无法执行，本次未取得业务数据。请重新尝试。',
+			'retry'
 		);
 	}
 	return descriptor(

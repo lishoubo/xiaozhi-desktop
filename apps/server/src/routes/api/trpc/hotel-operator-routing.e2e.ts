@@ -92,6 +92,28 @@ const trafficContext = conversationContext([
 	}
 ]);
 
+const failedTrafficContext = conversationContext(
+	[
+		{
+			role: 'user',
+			content: '分析银际酒店（包头青山王府井文化路店）近日的流量漏斗'
+		},
+		{ role: 'assistant', content: '上次查询语句无法执行，本次未取得业务数据。' }
+	],
+	[
+		{
+			routeKind: 'business_read',
+			intent: 'generic_hotel_data_query',
+			responseMode: 'analysis',
+			slots: {
+				hotelReference: '4',
+				dateRange: { start: '2026-08-15', end: '2026-08-21' },
+				metrics: '流量漏斗'
+			}
+		}
+	]
+);
+
 const scenarios: readonly RoutingScenario[] = [
 	{
 		name: '口语化经营追问',
@@ -162,6 +184,21 @@ const scenarios: readonly RoutingScenario[] = [
 				hotelReference: /4|银际|文化路|王府井/,
 				dateRange: /2026-08-15.*2026-08-21/,
 				metrics: /流量/
+			}
+		}
+	},
+	{
+		name: '失败查询后的纯承接请求',
+		prompt: '继续执行',
+		context: failedTrafficContext,
+		expected: {
+			routeKind: 'business_read',
+			intent: 'generic_hotel_data_query',
+			responseMode: 'analysis',
+			slots: {
+				hotelReference: /4|银际|文化路|王府井/,
+				dateRange: /2026-08-15.*2026-08-21/,
+				metrics: /流量|漏斗|曝光|转化/
 			}
 		}
 	},

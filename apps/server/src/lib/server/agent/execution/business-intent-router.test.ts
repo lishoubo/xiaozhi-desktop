@@ -411,6 +411,93 @@ describe('BusinessIntentRouter', () => {
 		expect(classify).toHaveBeenNthCalledWith(2, { text: '那支付转化呢？', context });
 	});
 
+	it('continues the latest structured business request without treating control text as a metric', async () => {
+		const classify = vi
+			.fn()
+			.mockResolvedValueOnce({
+				category: 'unclear',
+				intentCandidate: null,
+				requestedEffect: 'unclear',
+				responseMode: 'analysis',
+				confidence: 0.45,
+				slots: {}
+			})
+			.mockResolvedValueOnce({
+				category: 'business_read',
+				intentCandidate: 'generic_hotel_data_query',
+				requestedEffect: 'read',
+				responseMode: 'analysis',
+				confidence: 0.93,
+				slots: {
+					hotelReference: '4',
+					dateRange: '2026-08-15/2026-08-21',
+					metrics: '流量漏斗'
+				}
+			});
+		const router = new BusinessIntentRouter({ classify });
+
+		await expect(
+			router.route({
+				kind: 'prompt',
+				text: '继续执行',
+				context: JSON.stringify({
+					recentBusinessRequests: [
+						{
+							routeKind: 'business_read',
+							intent: 'generic_hotel_data_query',
+							slots: {
+								hotelReference: '4',
+								dateRange: '2026-08-15/2026-08-21',
+								metrics: '流量漏斗'
+							}
+						}
+					]
+				})
+			})
+		).resolves.toMatchObject({
+			routeKind: 'business_read',
+			intent: 'generic_hotel_data_query',
+			slots: {
+				hotelReference: { status: 'candidate', raw: '4' },
+				dateRange: { status: 'candidate', raw: '2026-08-15/2026-08-21' },
+				metrics: { status: 'candidate', raw: '流量漏斗' }
+			}
+		});
+	});
+
+	it('requests clarification when a context-dependent query has no recoverable business target', async () => {
+		const classify = vi
+			.fn()
+			.mockResolvedValueOnce({
+				category: 'unclear',
+				intentCandidate: null,
+				requestedEffect: 'unclear',
+				responseMode: 'analysis',
+				confidence: 0.4,
+				slots: {}
+			})
+			.mockResolvedValueOnce({
+				category: 'business_read',
+				intentCandidate: 'generic_hotel_data_query',
+				requestedEffect: 'read',
+				responseMode: 'analysis',
+				confidence: 0.7,
+				slots: { hotelReference: '4' }
+			});
+		const router = new BusinessIntentRouter({ classify });
+
+		await expect(
+			router.route({ kind: 'prompt', text: 'continue', context: '{"recentMessages":[]}' })
+		).resolves.toMatchObject({
+			routeKind: 'business_read',
+			intent: 'generic_hotel_data_query',
+			slots: {
+				hotelReference: { status: 'candidate', raw: '4' },
+				metrics: { status: 'invalid', reasonCode: 'context_target_missing' }
+			}
+		});
+	});
+
 	it('keeps explanatory knowledge separate from execution requests', async () => {
 		const router = new BusinessIntentRouter({
 			classify: vi.fn().mockResolvedValue({

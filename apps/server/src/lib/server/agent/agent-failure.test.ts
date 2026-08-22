@@ -91,6 +91,11 @@ describe('agent failure presentation', () => {
 				isError: true,
 				content: [{ type: 'text', text: 'SQL syntax error near FROM' }]
 			})
-		).toMatchObject({ code: 'query_invalid', recovery: 'revise_request' });
+		).toMatchObject({
+			code: 'query_invalid',
+			recovery: 'retry',
+			retryable: true,
+			message: '生成的数据查询语句无法执行，本次未取得业务数据。请重新尝试。'
+		});
 	});
 });

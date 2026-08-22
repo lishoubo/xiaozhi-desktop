@@ -9,7 +9,7 @@ import type {
 	GenerativeUiSpec,
 	StartAgentRunResponse
 } from '@hotel-butler/api';
-import { and, asc, desc, eq, gt, isNull, notInArray } from 'drizzle-orm';
+import { and, asc, desc, eq, gt, inArray, isNull, notInArray } from 'drizzle-orm';
 import { randomUUID } from 'node:crypto';
 import { db } from '$lib/server/db';
 import {
@@ -29,6 +29,7 @@ import {
 } from './agent-execution-trace';
 import {
 	businessExecutionStateSchema,
+	contextualRequestFromState,
 	transitionBusinessExecution,
 	type BusinessExecutionEvent,
 	type BusinessExecutionState
@@ -1040,18 +1041,19 @@ export class AgentRepository {
 				and(
 					eq(agentBusinessExecution.conversationId, rows[0].conversation.id),
 					eq(agentBusinessExecution.ownerEmployeeId, principal.employeeId),
-					eq(agentBusinessExecution.status, 'completed')
+					inArray(agentBusinessExecution.status, ['completed', 'failed'])
 				)
 			)
-			.orderBy(desc(agentBusinessExecution.completedAt), desc(agentBusinessExecution.id))
-			.limit(4);
+			.orderBy(desc(agentBusinessExecution.updatedAt), desc(agentBusinessExecution.id))
+			.limit(8);
 		const recentBusinessRequests = previousExecutions
 			.flatMap((execution) => {
 				const state = businessExecutionStateSchema.safeParse(execution.state);
-				return state.success && state.data.status === 'completed' && state.data.request
-					? [state.data.request]
-					: [];
+				if (!state.success) return [];
+				const request = contextualRequestFromState(state.data);
+				return request ? [request] : [];
 			})
+			.slice(0, 4)
 			.reverse();
 		return { ...rows[0], recentBusinessRequests };
 	}

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { AgentPendingClarification } from '@hotel-butler/api';
 import {
 	businessExecutionStateSchema,
+	contextualRequestFromState,
 	InvalidBusinessExecutionTransitionError,
 	transitionBusinessExecution,
 	type BusinessExecutionState,
@@ -155,6 +156,38 @@ describe('business execution state machine', () => {
 		});
 	});
 
+	it('retains a resolved request after a non-retryable failure for conversational context', () => {
+		const failed = transitionBusinessExecution(
+			{ status: 'executing', request, evidence: [], followUpUsed: false },
+			{ type: 'execution_failed', reasonCode: 'query_invalid', retryable: false }
+		);
+
+		expect(failed).toEqual({
+			status: 'failed',
+			reasonCode: 'query_invalid',
+			retryable: false,
+			retryCheckpoint: null,
+			request
+		});
+		expect(contextualRequestFromState(failed)).toEqual(request);
+	});
+
+	it('recovers contextual requests from legacy retry checkpoints', () => {
+		expect(
+			contextualRequestFromState({
+				status: 'failed',
+				reasonCode: 'data_source_timeout',
+				retryable: true,
+				retryCheckpoint: {
+					kind: 'executing',
+					request,
+					evidence: [],
+					followUpUsed: false
+				}
+			})
+		).toEqual(request);
+	});
+
 	it('rejects a clarification value outside the server-owned choices', () => {
 		const waiting: BusinessExecutionState = {
 			status: 'awaiting_clarification',
@@ -252,6 +285,7 @@ describe('business execution state machine', () => {
 			status: 'failed',
 			reasonCode: 'mcp_timeout',
 			retryable: true,
+			request,
 			retryCheckpoint: {
 				kind: 'executing',
 				request,
