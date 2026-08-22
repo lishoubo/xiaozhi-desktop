@@ -1101,7 +1101,7 @@ describe('describeAgentRunFailure', () => {
 
 		expect(failure).toEqual({
 			code: 'data_source_unavailable',
-			message: '暂时无法连接酒店经营数据，请稍后重试。',
+			message: 'DMS MCP 经营数据查询暂时不可用，请稍后重试。',
 			recovery: 'retry',
 			retryable: true
 		});

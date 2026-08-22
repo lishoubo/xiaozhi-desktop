@@ -114,7 +114,7 @@ describe('buildAgentExecutionTraces', () => {
 				event({
 					type: 'run_failed',
 					code: 'data_source_unavailable',
-					message: '经营数据暂时无法连接。',
+					message: 'DMS MCP 经营数据查询暂时不可用。',
 					recovery: 'retry',
 					retryable: true
 				})
@@ -125,7 +125,7 @@ describe('buildAgentExecutionTraces', () => {
 			status: 'failed',
 			failure: {
 				code: 'data_source_unavailable',
-				message: '经营数据暂时无法连接。',
+				message: 'DMS MCP 经营数据查询暂时不可用。',
 				recovery: 'retry',
 				retryable: true
 			}

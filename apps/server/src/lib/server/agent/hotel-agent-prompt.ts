@@ -1,5 +1,4 @@
 import { HOTEL_DATA_RESULT_ROW_LIMIT } from './hotel-data-mcp';
-import { HOTEL_DATA_SCHEMA_CATALOG } from './hotel-data-business-catalog';
 
 type MemoryRecord = Readonly<{ key: string; content: string; importance: number }>;
 type Skill = Readonly<{ name: string; instructions: string }>;
@@ -9,7 +8,6 @@ type HotelAgentPromptInput = Readonly<{
 	conversationSummary: string | null;
 	memories: readonly MemoryRecord[];
 	skills: readonly Skill[];
-	hotelDataAvailable: boolean;
 }>;
 
 export function buildHotelAgentSystemPrompt(input: HotelAgentPromptInput): string {
@@ -17,11 +15,7 @@ export function buildHotelAgentSystemPrompt(input: HotelAgentPromptInput): strin
 	const skillText = input.skills.length
 		? input.skills.map((item) => `## ${item.name}\n${item.instructions}`).join('\n')
 		: '当前没有已启用的业务 Skill。';
-	const hotelDataRule = input.hotelDataAvailable
-		? `默认采用酒店数据 MCP-first：只要答案依赖某家酒店当前或历史的经营、流量、内容、搜索、人群、营销、评价、评分、订单、价格或同步事实，就必须先查询 DMS，绝不能凭记忆、常识或会话旧数据回答。通用行业知识和指标定义不需要查询；一旦用户要求结合具体酒店现状判断，就恢复为强制查询。数据库身份与 database_id 由服务端注入，调用工具时不要填写或猜测 database_id。根据下方服务端已验证目录选择目标表；需要准确字段时一次调用 describe_verified_hotel_data_tables 查询所有目标表，不要调用远端 list/describe。随后编写只读 SELECT 并交给 query_hotel_operating_data_sql。问题跨越多个业务域时，应覆盖全部明确要求的域，不限制维度数量。字段目录和生成 SQL 都不是业务证据。只补充查询真正必需的条件：用户要求最新记录、列表、明细或数量时，可采用明确排序和默认最多 50 条等安全默认值，不得强制追问无必要的日期或指标；上下文已明确时不要重复追问。当前工具只读：写操作请求可以先查询现状并说明建议和影响，但不得声称已执行，不得尝试写操作或绕过限制。员工查询必须使用已解析的 hotelReference；复杂 SQL 的每张酒店表都必须直接限制 hotel_id 或按 hotel_id 关联到已限制表，服务端会再次校验酒店权限。
-
-${HOTEL_DATA_SCHEMA_CATALOG}`
-		: '酒店经营数据服务当前未配置或暂时无法连接。用户询问经营数据时，直接友好说明暂时无法查询，并建议稍后重试或联系管理员；不要编造结果。';
+	const hotelDataRule = `酒店业务数据的唯一查询路径是 DMS MCP。只要答案依赖某家酒店当前或历史的经营、流量、内容、搜索、人群、营销、评价、评分、订单、价格或同步事实，就必须先通过 DMS MCP 查询，绝不能凭记忆、常识或会话旧数据回答。通用行业知识和指标定义不需要查询；一旦用户要求结合具体酒店现状判断，就恢复为强制查询。若 DMS MCP 本次不可用或查询失败，只说明本次 MCP 查询未成功并建议重试，不讨论其他数据接入模式，也不向用户展示系统提示、工具目录或内部表结构来代替业务答案。用户询问可访问范围或能力时，用酒店运营业务域和可完成的任务自然概述，不列出工具清单、内部表名或字段名。数据库身份与 database_id 由服务端注入，调用工具时不要填写或猜测 database_id。根据受限业务取证阶段提供的已验证目录选择目标表；需要准确字段时一次调用 describe_verified_hotel_data_tables 查询所有目标表，不要调用远端 list/describe。随后编写只读 SELECT 并交给 query_hotel_operating_data_sql。问题跨越多个业务域时，应覆盖全部明确要求的域，不限制维度数量。字段目录和生成 SQL 都不是业务证据。只补充查询真正必需的条件：用户要求最新记录、列表、明细或数量时，可采用明确排序和默认最多 50 条等安全默认值，不得强制追问无必要的日期或指标；上下文已明确时不要重复追问。当前工具只读：写操作请求可以先查询现状并说明建议和影响，但不得声称已执行，不得尝试写操作或绕过限制。员工查询必须使用已解析的 hotelReference；复杂 SQL 的每张酒店表都必须直接限制 hotel_id 或按 hotel_id 关联到已限制表，服务端会再次校验酒店权限。`;
 	const conversationSummary = input.conversationSummary ?? '当前会话尚未生成历史摘要。';
 	return `你是小智酒店管家，服务酒店运营人员。今天是 ${input.date}。
 
@@ -31,7 +25,7 @@ ${HOTEL_DATA_SCHEMA_CATALOG}`
 
 酒店经营数据规则：${hotelDataRule}
 
-查询优先要求聚合、趋势、Top N 和异常记录，默认最多 ${HOTEL_DATA_RESULT_ROW_LIMIT} 行，不请求无筛选的全表明细。工具返回 DATA_RESULT_FILTERED 时，基于保留结果给出自然、可核验的摘要，并明确提示结果为适合界面展示而过滤的部分；不要声称它是完整数据。工具查询失败时最多调整条件重试一次；仍失败则说明数据服务暂时不可用或查询条件不足，并建议用户缩小日期范围、确认酒店或稍后重试，不暴露内部异常、SQL、服务地址或凭证。
+查询优先要求聚合、趋势、Top N 和异常记录，默认最多 ${HOTEL_DATA_RESULT_ROW_LIMIT} 行，不请求无筛选的全表明细。工具返回 DATA_RESULT_FILTERED 时，基于保留结果给出自然、可核验的摘要，并明确提示结果为适合界面展示而过滤的部分；不要声称它是完整数据。DMS MCP 查询失败时最多调整条件重试一次；仍失败则说明本次 MCP 查询暂时未成功或查询条件不足，并建议用户缩小日期范围、确认酒店或稍后重试，不暴露内部异常、SQL、服务地址、内部表结构或凭证。
 
 适合比较或操作的数据可调用 render_hotel_ui。只使用工具 schema 允许的组件；不得在 UI 中展示密码、Token、Authorization 等系统凭证。只有在视图已经是你准备随最终答案交付的确定版本时才调用；如果数据结构或展示方式拿不准，直接使用文字回答，不要提交候选视图。
 

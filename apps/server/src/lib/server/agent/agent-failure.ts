@@ -82,7 +82,7 @@ export function describeAgentFailure(error: unknown): AgentFailureDescriptor {
 			}
 			return descriptor(
 				'data_source_unavailable',
-				'暂时无法连接酒店经营数据，请稍后重试。',
+				'DMS MCP 经营数据查询暂时不可用，请稍后重试。',
 				'retry'
 			);
 		}
@@ -159,7 +159,11 @@ export function describeToolFailure(
 		);
 	}
 	if (DATA_SOURCE_UNAVAILABLE_MESSAGE.test(text)) {
-		return descriptor('data_source_unavailable', '暂时无法连接酒店经营数据，请稍后重试。', 'retry');
+		return descriptor(
+			'data_source_unavailable',
+			'DMS MCP 经营数据查询暂时不可用，请稍后重试。',
+			'retry'
+		);
 	}
 	if (/query_hotel_operating_data_sql|executeScript/i.test(toolName)) {
 		return descriptor(
@@ -168,7 +172,11 @@ export function describeToolFailure(
 			'revise_request'
 		);
 	}
-	return descriptor('data_source_unavailable', '暂时无法连接酒店经营数据，请稍后重试。', 'retry');
+	return descriptor(
+		'data_source_unavailable',
+		'DMS MCP 经营数据查询暂时不可用，请稍后重试。',
+		'retry'
+	);
 }
 
 export function toolFailureSummary(failure: AgentFailureDescriptor): string {
@@ -180,7 +188,7 @@ export function toolFailureSummary(failure: AgentFailureDescriptor): string {
 		case 'data_source_timeout':
 			return '经营数据查询超时';
 		case 'data_source_unavailable':
-			return '经营数据暂时无法连接';
+			return 'DMS MCP 查询暂时不可用';
 		case 'model_timeout':
 			return '分析服务响应超时';
 		case 'model_unavailable':

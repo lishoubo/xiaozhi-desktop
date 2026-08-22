@@ -58,7 +58,7 @@ export function agentFailureTitle(code: AgentFailureCode): string {
     case 'data_source_timeout':
       return '经营数据查询超时';
     case 'data_source_unavailable':
-      return '经营数据暂时无法连接';
+      return 'DMS MCP 查询暂时不可用';
     case 'model_timeout':
       return '分析服务响应超时';
     case 'model_unavailable':

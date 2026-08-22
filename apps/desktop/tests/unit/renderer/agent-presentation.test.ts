@@ -185,6 +185,7 @@ describe('Agent result presentation', () => {
   it('presents distinct business-friendly failure categories and only retries recoverable failures', () => {
     expect(agentFailureTitle('query_rejected')).toBe('查询已被安全拦截');
     expect(agentFailureTitle('data_source_timeout')).toBe('经营数据查询超时');
+    expect(agentFailureTitle('data_source_unavailable')).toBe('DMS MCP 查询暂时不可用');
     expect(agentFailureTitle('configuration_error')).toBe('服务尚未配置完成');
     expect(
       shouldOfferFailureRetry({

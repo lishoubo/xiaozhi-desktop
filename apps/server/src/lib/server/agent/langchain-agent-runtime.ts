@@ -587,9 +587,6 @@ export class LangChainAgentRuntime implements AgentRuntime {
 			options.workflowRequest,
 			options.workflowToolCallBudget
 		);
-		const hotelDataAvailable = answerOnly
-			? (options.validatedEvidence ?? []).some((item) => item.source === 'aliyun_dms_mcp')
-			: loadedMcpTools.some((candidate) => isHotelDataToolName(candidate.name));
 		const workflowConstraint =
 			analysisOnly && options.workflowRequest
 				? `\n\n当前是已验证经营数据的分析阶段。不可变请求：${JSON.stringify(options.workflowRequest)}。已验证证据：${JSON.stringify(options.validatedEvidence)}。证据限制：${JSON.stringify(options.evidenceLimitations ?? [])}。可靠数据摘要和图表已经展示给用户；不得调用任何工具，不要重复输出原始表格。只分析证据实际覆盖的酒店、日期和指标；缺少基线时不得输出趋势、异常或阶段变化结论，缺少新鲜度证明时不得称为当前或最新数据。不得补造证据中没有的事实，必须说明重要限制。\n\n${groundedAnalysisWritingInstructions()}`
@@ -634,8 +631,7 @@ export class LangChainAgentRuntime implements AgentRuntime {
 				date: new Date().toISOString().slice(0, 10),
 				conversationSummary: options.conversationSummary,
 				memories,
-				skills,
-				hotelDataAvailable
+				skills
 			})}${workflowConstraint}`
 		});
 		const messages = workflowMessages({
