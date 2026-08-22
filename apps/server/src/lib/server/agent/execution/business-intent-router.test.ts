@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { BusinessIntentRouter } from './business-intent-router';
 import { executionPolicyForIntent } from './intent-registry';
+import { BusinessSlotResolver } from './slot-resolver';
 
 describe('business route MCP dependencies', () => {
 	it('derives the MCP allowlist from the registered business route', () => {
@@ -436,31 +437,55 @@ describe('BusinessIntentRouter', () => {
 			});
 		const router = new BusinessIntentRouter({ classify });
 
-		await expect(
-			router.route({
-				kind: 'prompt',
-				text: '继续执行',
-				context: JSON.stringify({
-					recentBusinessRequests: [
-						{
-							routeKind: 'business_read',
-							intent: 'generic_hotel_data_query',
-							slots: {
-								hotelReference: '4',
-								dateRange: '2026-08-15/2026-08-21',
-								metrics: '流量漏斗'
-							}
+		const decision = await router.route({
+			kind: 'prompt',
+			text: '继续执行',
+			context: JSON.stringify({
+				recentBusinessRequests: [
+					{
+						routeKind: 'business_read',
+						intent: 'generic_hotel_data_query',
+						slots: {
+							hotelReference: '4',
+							dateRange: '2026-08-15/2026-08-21',
+							metrics: '流量漏斗'
 						}
-					]
-				})
+					}
+				]
 			})
-		).resolves.toMatchObject({
+		});
+		expect(decision).toMatchObject({
 			routeKind: 'business_read',
 			intent: 'generic_hotel_data_query',
 			slots: {
 				hotelReference: { status: 'candidate', raw: '4' },
 				dateRange: { status: 'candidate', raw: '2026-08-15/2026-08-21' },
 				metrics: { status: 'candidate', raw: '流量漏斗' }
+			}
+		});
+
+		const resolution = await new BusinessSlotResolver({ resolve: vi.fn() }).resolve({
+			definition: getIntentDefinition('generic_hotel_data_query'),
+			intent: 'generic_hotel_data_query',
+			responseMode: decision.responseMode,
+			orgId: '42',
+			hotelAccess: {
+				kind: 'staff_managed_hotels',
+				currentHotelId: '4',
+				hotels: [{ id: '4', label: '银际酒店' }]
+			},
+			slots: decision.slots,
+			anchorMessageId: '22222222-2222-4222-8222-222222222222',
+			version: 1
+		});
+		expect(resolution).toMatchObject({
+			status: 'ready',
+			request: {
+				slots: {
+					hotelReference: '4',
+					dateRange: { start: '2026-08-15', end: '2026-08-21' },
+					metrics: '流量漏斗'
+				}
 			}
 		});
 	});

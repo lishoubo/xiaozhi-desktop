@@ -441,9 +441,82 @@ describe('slot resolution', () => {
 
 		expect(result).toMatchObject({
 			status: 'needs_clarification',
+			slots: { metrics: { status: 'resolved', value: '流量' } },
 			clarification: {
 				fields: [{ slot: 'dateRange', kind: 'date_range', required: true }]
 			}
+		});
+	});
+
+	it('normalizes typed scalar candidates instead of dropping them from the request', async () => {
+		const resolver = new BusinessSlotResolver({ resolve: vi.fn() }, () => now);
+
+		await expect(
+			resolver.resolve({
+				definition: getIntentDefinition('generic_hotel_data_query'),
+				intent: 'generic_hotel_data_query',
+				orgId: '42',
+				hotelAccess: {
+					kind: 'staff_managed_hotels',
+					currentHotelId: '4',
+					hotels: [{ id: '4', label: '银际酒店' }]
+				},
+				slots: {
+					metrics: { status: 'candidate', raw: '流量漏斗' },
+					resultLimit: { status: 'candidate', raw: '25' }
+				},
+				anchorMessageId: '22222222-2222-4222-8222-222222222222',
+				version: 1
+			})
+		).resolves.toMatchObject({
+			status: 'ready',
+			request: {
+				slots: { hotelReference: '4', metrics: '流量漏斗', resultLimit: 25 }
+			}
+		});
+
+		await expect(
+			resolver.resolve({
+				definition: getIntentDefinition('public_hotel_rates'),
+				intent: 'public_hotel_rates',
+				orgId: '42',
+				slots: {
+					hotelReference: { status: 'resolved', value: '4', source: { kind: 'user_text' } },
+					checkIn: { status: 'candidate', raw: '2026-08-14' },
+					checkOut: { status: 'candidate', raw: '2026-08-16' },
+					guests: { status: 'candidate', raw: '3' },
+					currency: { status: 'candidate', raw: 'usd' }
+				},
+				anchorMessageId: '22222222-2222-4222-8222-222222222222',
+				version: 1
+			})
+		).resolves.toMatchObject({
+			status: 'ready',
+			request: { slots: { guests: 3, currency: 'USD' } }
+		});
+	});
+
+	it('clarifies invalid typed scalar candidates before execution', async () => {
+		const resolver = new BusinessSlotResolver({ resolve: vi.fn() }, () => now);
+
+		await expect(
+			resolver.resolve({
+				definition: getIntentDefinition('generic_hotel_data_query'),
+				intent: 'generic_hotel_data_query',
+				orgId: '42',
+				hotelAccess: {
+					kind: 'staff_managed_hotels',
+					currentHotelId: '4',
+					hotels: [{ id: '4', label: '银际酒店' }]
+				},
+				slots: { resultLimit: { status: 'candidate', raw: '0' } },
+				anchorMessageId: '22222222-2222-4222-8222-222222222222',
+				version: 1
+			})
+		).resolves.toMatchObject({
+			status: 'needs_clarification',
+			slots: { resultLimit: { status: 'invalid', reasonCode: 'result_limit_invalid' } },
+			clarification: { fields: [{ slot: 'resultLimit', required: true }] }
 		});
 	});
 });

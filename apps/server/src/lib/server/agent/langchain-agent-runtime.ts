@@ -105,6 +105,10 @@ export function mcpFailureFingerprint(
 		.digest('hex')}`;
 }
 
+export function mcpFailureClassFingerprint(toolName: string, failureCode: string): string {
+	return `${toolName}:${failureCode}`;
+}
+
 type ToolCallChunkFragment = Readonly<{
 	id?: string;
 	name?: string;
@@ -381,13 +385,19 @@ export function shouldSuppressWorkflowToolCall(
 	toolName: string,
 	mcpToolNames: ReadonlySet<string>,
 	startedWorkflowToolCount: number,
-	toolCallBudget: number
+	toolCallBudget: number,
+	startedWorkflowBatchToolCount = 0
 ): boolean {
-	return mcpToolNames.has(toolName) && startedWorkflowToolCount >= toolCallBudget;
+	return (
+		mcpToolNames.has(toolName) &&
+		(startedWorkflowToolCount >= toolCallBudget ||
+			startedWorkflowBatchToolCount >= MAX_WORKFLOW_TOOL_CALLS_PER_BATCH)
+	);
 }
 
 type WorkflowToolCallIdentity = Readonly<{ id: string; name: string }>;
 type WorkflowToolCallCandidate = Readonly<{ id?: string; name: string }>;
+const MAX_WORKFLOW_TOOL_CALLS_PER_BATCH = 2;
 
 export function blockedWorkflowToolCalls(
 	toolCalls: readonly WorkflowToolCallCandidate[],
@@ -395,7 +405,10 @@ export function blockedWorkflowToolCalls(
 	completedWorkflowToolCount: number,
 	toolCallBudget: number
 ): readonly WorkflowToolCallIdentity[] {
-	let remaining = Math.max(0, toolCallBudget - completedWorkflowToolCount);
+	let remaining = Math.min(
+		MAX_WORKFLOW_TOOL_CALLS_PER_BATCH,
+		Math.max(0, toolCallBudget - completedWorkflowToolCount)
+	);
 	const blocked: WorkflowToolCallIdentity[] = [];
 	for (const call of toolCalls) {
 		if (!call.id || !mcpToolNames.has(call.name)) continue;
@@ -435,7 +448,7 @@ function limitWorkflowToolCallsMiddleware(
 				messages: blocked.map(
 					(call) =>
 						new ToolMessage({
-							content: '本轮工具调用超过安全预算，请使用已完成查询继续回答。',
+							content: '本批工具调用超过并发或总量预算，请先使用已放行查询的结果。',
 							tool_call_id: call.id,
 							name: call.name,
 							status: 'error'
@@ -473,11 +486,7 @@ function requireHotelDataQueryMiddleware(request: AgentRuntimeRunOptions['workfl
 			);
 			return handler({
 				...modelRequest,
-				toolChoice: hotelDataCollectionToolChoice(
-					request,
-					completedToolNames,
-					hasPreloadedSchema
-				)
+				toolChoice: hotelDataCollectionToolChoice(request, completedToolNames, hasPreloadedSchema)
 			});
 		}
 	});
@@ -701,16 +710,18 @@ export class LangChainAgentRuntime implements AgentRuntime {
 					? `\n\n当前是证据校验后的回答阶段。不可变请求：${JSON.stringify(options.workflowRequest)}。已验证证据：${JSON.stringify(options.validatedEvidence)}。证据限制：${JSON.stringify(options.evidenceLimitations ?? [])}。不得调用数据工具，不得补造证据中没有的事实；只回答实际覆盖范围，必须写明范围、来源和重要限制。可按需要调用一次 render_hotel_ui。`
 					: options.workflowRequest
 						? (() => {
-								const preloadedSchema = preloadedHotelDataSchema(options.workflowRequest).map((table) => ({
-									name: table.name,
-									domain: table.domain,
-									grain: table.grain,
-									timeField: table.timeField,
-									freshnessField: table.freshnessField,
-									columns: table.columns,
-									rules: table.rules
-								}));
-								return `\n\n当前是受限业务取证阶段。意图：${options.workflowRequest.intent}。已解析参数：${JSON.stringify(options.workflowRequest.slots)}。${options.evidenceGap ? `这是定向补证轮次，只补齐：${options.evidenceGap}` : ''}相关表的已验证字段：${JSON.stringify(preloadedSchema)}。只能使用已提供的只读工具，不得调用、建议或模拟写操作。只完成数据获取，当前阶段文字不会直接展示给用户。database_id 由服务端注入，不要填写或猜测。优先直接并行调用 query_hotel_operating_data_sql；只有相关表未被预载或字段仍不足时，才一次调用 describe_verified_hotel_data_tables 补充，不要调用远端 list/describe。先列出用户明确要求的业务域和指标，再规划完整首批 SQL。每个结果必须返回 hotel_id、实际业务日期范围，并用 latest_data_date 或 latest_fetch_time 证明最新完整数据；分析请求还要返回可比基线。只使用已验证字段和语义目录提供的枚举，不得猜测字段名或范围枚举；用户未指定维度值时，首次取证不得自行添加该维度过滤，先取得实际分布再决定是否补证。NULL、空字符串和缺行必须原样保留，不得用 COALESCE 或派生别名伪装为零。派生字段名必须保留原指标口径，归因成交额不得命名为全口径 GMV。跨表先分别聚合到共同粒度，再按 hotel_id 和必要维度关联。不同 source、单位、快照/事件/日报不得直接混加，汇总行与明细行选择单一层级。禁止查询敏感字段、SELECT * 和原始 JSON。只有证据缺失或失败时才追加，最多 3 个 SQL 规划轮次、累计最多 ${toolCallBudget} 次业务数据查询。数据充分时只回复 DATA_COLLECTION_COMPLETE。`;
+								const preloadedSchema = preloadedHotelDataSchema(options.workflowRequest).map(
+									(table) => ({
+										name: table.name,
+										domain: table.domain,
+										grain: table.grain,
+										timeField: table.timeField,
+										freshnessField: table.freshnessField,
+										columns: table.columns,
+										rules: table.rules
+									})
+								);
+								return `\n\n当前是受限业务取证阶段。意图：${options.workflowRequest.intent}。已解析参数：${JSON.stringify(options.workflowRequest.slots)}。${options.evidenceGap ? `这是定向补证轮次，只补齐：${options.evidenceGap}` : ''}相关表的已验证字段：${JSON.stringify(preloadedSchema)}。只能使用已提供的只读工具，不得调用、建议或模拟写操作。只完成数据获取，当前阶段文字不会直接展示给用户。database_id 由服务端注入，不要填写或猜测。优先直接调用 query_hotel_operating_data_sql，每批最多并行 2 条并等待结果后再决定是否追加；只有相关表未被预载或字段仍不足时，才一次调用 describe_verified_hotel_data_tables 补充，不要调用远端 list/describe。先列出用户明确要求的业务域和指标，再规划完整首批 SQL。每个结果必须返回 hotel_id、实际业务日期范围，并用 latest_data_date 或 latest_fetch_time 证明最新完整数据；分析请求还要返回可比基线。只使用已验证字段和语义目录提供的枚举，不得猜测字段名或范围枚举；用户未指定维度值时，首次取证不得自行添加该维度过滤，先取得实际分布再决定是否补证。NULL、空字符串和缺行必须原样保留，不得用 COALESCE 或派生别名伪装为零。派生字段名必须保留原指标口径，归因成交额不得命名为全口径 GMV。跨表先分别聚合到共同粒度，再按 hotel_id 和必要维度关联。不同 source、单位、快照/事件/日报不得直接混加，汇总行与明细行选择单一层级。禁止查询敏感字段、SELECT * 和原始 JSON。只有证据缺失或失败时才追加，最多 3 个 SQL 规划轮次、累计最多 ${toolCallBudget} 次业务数据查询。数据充分时只回复 DATA_COLLECTION_COMPLETE。`;
 							})()
 						: '';
 		const agent = createAgent({
@@ -743,12 +754,14 @@ export class LangChainAgentRuntime implements AgentRuntime {
 		const suppressedTools = new Set<string>();
 		let firstUiRenderCallId: string | null = null;
 		let startedWorkflowToolCount = 0;
+		let startedWorkflowBatchToolCount = 0;
 		const completedTools = new Set<string>();
 		const toolArgs = new Map<string, unknown>();
 		const toolCallChunks = new ToolCallChunkAccumulator();
 		const toolNamesByCall = new Map<string, string>();
 		const mcpCallStartedAt = new Map<string, number>();
 		const mcpFailureCounts = new Map<string, number>();
+		const mcpFailureClassCounts = new Map<string, number>();
 		const toolEvidence: Array<{ toolName: string; toolArgs: unknown; result: unknown }> = [];
 		let completedGroundedUi = false;
 		const modelStartedAt = performance.now();
@@ -797,14 +810,18 @@ export class LangChainAgentRuntime implements AgentRuntime {
 								toolName,
 								mcpToolNames,
 								startedWorkflowToolCount,
-								toolCallBudget
+								toolCallBudget,
+								startedWorkflowBatchToolCount
 							)
 						) {
 							startedTools.add(toolCallId);
 							suppressedTools.add(toolCallId);
 							continue;
 						}
-						if (mcpToolNames.has(toolName)) startedWorkflowToolCount += 1;
+						if (mcpToolNames.has(toolName)) {
+							startedWorkflowToolCount += 1;
+							startedWorkflowBatchToolCount += 1;
+						}
 						startedTools.add(toolCallId);
 						if (toolName === 'render_hotel_ui' && generatedUi) continue;
 						await options.emit({
@@ -838,14 +855,18 @@ export class LangChainAgentRuntime implements AgentRuntime {
 								call.name,
 								mcpToolNames,
 								startedWorkflowToolCount,
-								toolCallBudget
+								toolCallBudget,
+								startedWorkflowBatchToolCount
 							)
 						) {
 							startedTools.add(toolCallId);
 							suppressedTools.add(toolCallId);
 							continue;
 						}
-						if (mcpToolNames.has(call.name)) startedWorkflowToolCount += 1;
+						if (mcpToolNames.has(call.name)) {
+							startedWorkflowToolCount += 1;
+							startedWorkflowBatchToolCount += 1;
+						}
 						startedTools.add(toolCallId);
 						if (call.name === 'render_hotel_ui' && generatedUi) continue;
 						await options.emit({
@@ -871,6 +892,7 @@ export class LangChainAgentRuntime implements AgentRuntime {
 					const callId = bufferedCall?.trackingId ?? rawCallId;
 					if (suppressedTools.has(callId)) continue;
 					if (completedTools.has(callId)) continue;
+					startedWorkflowBatchToolCount = 0;
 					completedTools.add(callId);
 					const toolName =
 						message.name ?? toolNamesByCall.get(callId) ?? bufferedCall?.name ?? 'tool';
@@ -886,6 +908,13 @@ export class LangChainAgentRuntime implements AgentRuntime {
 						: null;
 					const failureCount = failureKey ? (mcpFailureCounts.get(failureKey) ?? 0) + 1 : 0;
 					if (failureKey) mcpFailureCounts.set(failureKey, failureCount);
+					const failureClassKey = toolFailure
+						? mcpFailureClassFingerprint(toolName, toolFailure.code)
+						: null;
+					const failureClassCount = failureClassKey
+						? (mcpFailureClassCounts.get(failureClassKey) ?? 0) + 1
+						: 0;
+					if (failureClassKey) mcpFailureClassCounts.set(failureClassKey, failureClassCount);
 					if (mcpCallStartedAt.has(callId)) {
 						const durationMs = Math.max(
 							0,
@@ -937,7 +966,7 @@ export class LangChainAgentRuntime implements AgentRuntime {
 					if (
 						toolFailure &&
 						mcpToolNames.has(toolName) &&
-						shouldAbortRepeatedMcpFailure(failureCount)
+						shouldAbortRepeatedMcpFailure(Math.max(failureCount, failureClassCount))
 					) {
 						const failureCause = toolFailureCause(toolFailure);
 						throw new AgentUpstreamError({

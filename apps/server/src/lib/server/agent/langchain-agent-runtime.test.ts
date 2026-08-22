@@ -8,6 +8,7 @@ import {
 	groundedAnalysisWritingInstructions,
 	hotelDataCollectionToolChoice,
 	loadMcpToolsWithSingleRefresh,
+	mcpFailureClassFingerprint,
 	mcpFailureFingerprint,
 	isLocalToolAllowed,
 	normalizeAgentStreamFailure,
@@ -302,9 +303,7 @@ describe('tool evidence capture', () => {
 		});
 
 		expect(second?.trackingId).toBe(first?.trackingId);
-		expect(accumulator.trackingId('query_hotel_operating_data_sql_2')).toBe(
-			first?.trackingId
-		);
+		expect(accumulator.trackingId('query_hotel_operating_data_sql_2')).toBe(first?.trackingId);
 		expect(accumulator.take('query_hotel_operating_data_sql_2')).toEqual({
 			trackingId: first?.trackingId,
 			name: 'query_hotel_operating_data_sql',
@@ -352,6 +351,9 @@ describe('tool evidence capture', () => {
 				{ script: 'SELECT 2' },
 				'query_invalid'
 			)
+		);
+		expect(mcpFailureClassFingerprint('query_hotel_operating_data_sql', 'query_invalid')).toBe(
+			'query_hotel_operating_data_sql:query_invalid'
 		);
 	});
 
@@ -425,22 +427,20 @@ describe('model-driven collection diagnostics', () => {
 		expect(workflowToolCallBudget(request, 20)).toBe(8);
 	});
 
-	it('budgets external workflow calls without charging local schema lookup', () => {
+	it('budgets external workflow calls in small batches without charging local schema lookup', () => {
 		const mcpTools = new Set(['query_hotel_operating_data_sql']);
 
 		expect(
-			shouldSuppressWorkflowToolCall(
-				'describe_verified_hotel_data_tables',
-				mcpTools,
-				8,
-				8
-			)
+			shouldSuppressWorkflowToolCall('describe_verified_hotel_data_tables', mcpTools, 8, 8)
 		).toBe(false);
+		expect(shouldSuppressWorkflowToolCall('query_hotel_operating_data_sql', mcpTools, 7, 8)).toBe(
+			false
+		);
+		expect(shouldSuppressWorkflowToolCall('query_hotel_operating_data_sql', mcpTools, 8, 8)).toBe(
+			true
+		);
 		expect(
-			shouldSuppressWorkflowToolCall('query_hotel_operating_data_sql', mcpTools, 7, 8)
-		).toBe(false);
-		expect(
-			shouldSuppressWorkflowToolCall('query_hotel_operating_data_sql', mcpTools, 8, 8)
+			shouldSuppressWorkflowToolCall('query_hotel_operating_data_sql', mcpTools, 2, 8, 2)
 		).toBe(true);
 		expect(
 			blockedWorkflowToolCalls(
@@ -452,7 +452,23 @@ describe('model-driven collection diagnostics', () => {
 				0,
 				8
 			)
-		).toEqual([{ id: 'query-9', name: 'query_hotel_operating_data_sql' }]);
+		).toEqual(
+			Array.from({ length: 7 }, (_, index) => ({
+				id: `query-${index + 3}`,
+				name: 'query_hotel_operating_data_sql'
+			}))
+		);
+		expect(
+			blockedWorkflowToolCalls(
+				[
+					{ id: 'query-1', name: 'query_hotel_operating_data_sql' },
+					{ id: 'query-2', name: 'query_hotel_operating_data_sql' }
+				],
+				mcpTools,
+				7,
+				8
+			)
+		).toEqual([{ id: 'query-2', name: 'query_hotel_operating_data_sql' }]);
 	});
 
 	it('forwards MCP lifecycle events without forwarding collection text', () => {

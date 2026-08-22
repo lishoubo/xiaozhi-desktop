@@ -100,6 +100,38 @@ function rawText(slot: SlotState | undefined): string | null {
 	return slot?.status === 'candidate' && typeof slot.raw === 'string' ? slot.raw.trim() : null;
 }
 
+function integerCandidate(raw: string, minimum: number, maximum: number): number | null {
+	if (!/^\d+$/.test(raw)) return null;
+	const value = Number(raw);
+	return Number.isSafeInteger(value) && value >= minimum && value <= maximum ? value : null;
+}
+
+function normalizeScalarCandidate(name: string, slot: SlotState): SlotState {
+	if (slot.status !== 'candidate') return slot;
+	const raw = typeof slot.raw === 'string' ? slot.raw.trim() : '';
+	if (name === 'guests') {
+		const value = integerCandidate(raw, 1, 20);
+		return value === null
+			? { status: 'invalid', reasonCode: 'guest_count_invalid' }
+			: resolved(value, 'validated_guest_count');
+	}
+	if (name === 'resultLimit') {
+		const value = integerCandidate(raw, 1, 500);
+		return value === null
+			? { status: 'invalid', reasonCode: 'result_limit_invalid' }
+			: resolved(value, 'validated_result_limit');
+	}
+	if (name === 'currency') {
+		const value = raw.toUpperCase();
+		return /^[A-Z]{3}$/.test(value)
+			? resolved(value, 'validated_currency')
+			: { status: 'invalid', reasonCode: 'currency_invalid' };
+	}
+	return raw
+		? resolved(raw, `validated_${name}`)
+		: { status: 'invalid', reasonCode: 'slot_value_invalid' };
+}
+
 function normalizedHotelName(value: string): string {
 	return value
 		.normalize('NFKC')
@@ -158,7 +190,8 @@ function fieldLabel(slot: string): string {
 		checkOut: '离店日期',
 		guests: '入住人数',
 		currency: '币种',
-		metrics: '指标'
+		metrics: '指标',
+		resultLimit: '结果条数'
 	};
 	return labels[slot] ?? slot;
 }
@@ -228,6 +261,17 @@ function buildClarification(
 					required: true,
 					min: 1,
 					max: 20,
+					integer: true
+				};
+			}
+			if (name === 'resultLimit') {
+				return {
+					kind: 'number' as const,
+					slot: name,
+					label: fieldLabel(name),
+					required: true,
+					min: 1,
+					max: 500,
 					integer: true
 				};
 			}
@@ -404,6 +448,15 @@ export class BusinessSlotResolver {
 			if (!range) slots[name] = { status: 'invalid', reasonCode: 'date_ambiguous' };
 			else
 				slots[name] = resolved(name === 'dateRange' ? range : range.start, 'application_timezone');
+		}
+
+		for (const definition of input.definition.slots) {
+			if (['hotelReference', 'date', 'dateRange', 'checkIn', 'checkOut'].includes(definition.name))
+				continue;
+			const slot = slots[definition.name];
+			if (slot?.status === 'candidate') {
+				slots[definition.name] = normalizeScalarCandidate(definition.name, slot);
+			}
 		}
 
 		const needsClarification = (definition: IntentDefinition['slots'][number]): boolean => {

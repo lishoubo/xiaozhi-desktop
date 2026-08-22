@@ -54,7 +54,7 @@ export function agentFailureTitle(code: AgentFailureCode): string {
     case 'query_rejected':
       return '查询已被安全拦截';
     case 'query_invalid':
-      return '查询条件需要调整';
+      return '数据查询未执行成功';
     case 'data_source_timeout':
       return '经营数据查询超时';
     case 'data_source_unavailable':
