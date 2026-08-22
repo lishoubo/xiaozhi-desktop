@@ -637,6 +637,41 @@ describe('business evidence', () => {
 		});
 	});
 
+	it('recognizes business-date aggregate aliases without treating freshness fields as the period', () => {
+		const monthlyRequest = {
+			...request,
+			intent: 'generic_hotel_data_query' as const,
+			slots: {
+				hotelReference: '4',
+				dateRange: { start: '2026-08-01', end: '2026-08-21' },
+				metrics: ['曝光量']
+			}
+		};
+		const evidence = normalizeEvidence({
+			request: monthlyRequest,
+			toolName: 'query_hotel_operating_data_sql',
+			toolArgs: {
+				script:
+					'SELECT hotel_id, MIN(data_date) AS data_date_start, MAX(data_date) AS data_date_end, SUM(exposure_cnt) AS exposure_cnt FROM fact_traffic_scene'
+			},
+			result: [
+				{
+					hotel_id: '4',
+					data_date_start: '2026-08-01',
+					data_date_end: '2026-08-20',
+					latest_data_date: '2026-08-21',
+					exposure_cnt: 100
+				}
+			]
+		});
+
+		expect(evidence.scope.period).toEqual({ start: '2026-08-01', end: '2026-08-20' });
+		expect(assessEvidence(monthlyRequest, [evidence], false)).toMatchObject({
+			status: 'sufficient',
+			limitations: [expect.stringContaining('当前可验证数据覆盖 2026-08-01 至 2026-08-20')]
+		});
+	});
+
 	it('discloses missing interior dates for a daily trend without blocking the available rows', () => {
 		const trendRequest = {
 			...request,

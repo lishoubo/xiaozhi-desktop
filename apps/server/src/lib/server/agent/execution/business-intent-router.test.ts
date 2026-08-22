@@ -334,7 +334,7 @@ describe('BusinessIntentRouter', () => {
 			classify: vi.fn().mockResolvedValue({
 				category: 'business_write',
 				intentCandidate: null,
-				requestedEffect: 'write',
+				requestedEffect: 'system_mutation',
 				responseMode: 'analysis',
 				confidence: 0.91,
 				slots: {}
@@ -410,6 +410,48 @@ describe('BusinessIntentRouter', () => {
 		});
 		expect(classify).toHaveBeenNthCalledWith(1, { text: '那支付转化呢？', review: false });
 		expect(classify).toHaveBeenNthCalledWith(2, { text: '那支付转化呢？', context });
+	});
+
+	it('uses the context-aware classification to resolve references instead of restoring raw placeholders', async () => {
+		const classify = vi
+			.fn()
+			.mockResolvedValueOnce({
+				category: 'business_read',
+				intentCandidate: 'generic_hotel_data_query',
+				requestedEffect: 'read',
+				responseMode: 'analysis',
+				confidence: 0.9,
+				slots: { hotelReference: '这家店', metrics: '渠道核销对比' }
+			})
+			.mockResolvedValueOnce({
+				category: 'business_read',
+				intentCandidate: 'generic_hotel_data_query',
+				requestedEffect: 'read',
+				responseMode: 'analysis',
+				confidence: 0.95,
+				slots: {
+					hotelReference: '银际酒店（包头青山王府井文化路店）',
+					dateRange: '2026-08-15/2026-08-21',
+					metrics: '渠道核销对比'
+				}
+			});
+		const router = new BusinessIntentRouter({ classify });
+
+		await expect(
+			router.route({
+				kind: 'prompt',
+				text: '看看这家店是不是哪个渠道拖后腿',
+				context: '{"recentBusinessRequests":[]}'
+			})
+		).resolves.toMatchObject({
+			slots: {
+				hotelReference: {
+					status: 'candidate',
+					raw: '银际酒店（包头青山王府井文化路店）'
+				},
+				dateRange: { status: 'candidate', raw: '2026-08-15/2026-08-21' }
+			}
+		});
 	});
 
 	it('continues the latest structured business request without treating control text as a metric', async () => {

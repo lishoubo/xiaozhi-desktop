@@ -53,8 +53,13 @@ function shanghaiDateOffset(days: number): string {
 }
 
 const todayPattern = new RegExp(`${shanghaiDateOffset(0)}|today`, 'i');
-const yesterdayPattern = new RegExp(`${shanghaiDateOffset(-1)}|yesterday`, 'i');
-const completeSevenDayPattern = new RegExp(`${shanghaiDateOffset(-7)}.*${shanghaiDateOffset(-1)}`);
+const yesterdayPattern = new RegExp(
+	`@date:complete-days:1|${shanghaiDateOffset(-1)}|yesterday`,
+	'i'
+);
+const completeSevenDayPattern = new RegExp(
+	`@date:complete-days:7|${shanghaiDateOffset(-7)}.*${shanghaiDateOffset(-1)}`
+);
 const defaultRecentWindowPattern = new RegExp(
 	`@date:complete-days:7|${shanghaiDateOffset(-7)}.*${shanghaiDateOffset(-1)}`
 );
@@ -184,7 +189,7 @@ const scenarios: readonly RoutingScenario[] = [
 			responseMode: 'analysis',
 			slots: {
 				hotelReference: /银际|文化路|王府井/,
-				dateRange: /2026-08-14.*2026-08-20/,
+				dateRange: /2026-08-15.*2026-08-21/,
 				metrics: /流量|曝光|支付|转化/
 			}
 		}
@@ -226,7 +231,7 @@ const scenarios: readonly RoutingScenario[] = [
 		expected: {
 			routeKind: 'business_read',
 			responseMode: 'analysis',
-			slots: { hotelReference: /银际|文化路|王府井/, metrics: /退款/ }
+			slots: { hotelReference: /4|银际|文化路|王府井/, metrics: /退款/ }
 		}
 	},
 	{
@@ -237,7 +242,7 @@ const scenarios: readonly RoutingScenario[] = [
 			routeKind: 'business_read',
 			intent: 'generic_hotel_data_query',
 			responseMode: 'data_only',
-			slots: { hotelReference: /银际|文化路|王府井/, dateRange: todayPattern }
+			slots: { hotelReference: /4|银际|文化路|王府井/, dateRange: todayPattern }
 		}
 	},
 	{
@@ -269,7 +274,7 @@ const scenarios: readonly RoutingScenario[] = [
 			routeKind: 'business_read',
 			intent: 'generic_hotel_data_query',
 			responseMode: 'analysis',
-			slots: { hotelReference: /银际|文化路|王府井/, metrics: /渠道|订单|核销/ }
+			slots: { hotelReference: /4|银际|文化路|王府井/, metrics: /渠道|订单|核销/ }
 		}
 	},
 	{
@@ -280,7 +285,7 @@ const scenarios: readonly RoutingScenario[] = [
 			routeKind: 'business_read',
 			intent: 'generic_hotel_data_query',
 			responseMode: 'analysis',
-			slots: { hotelReference: /银际|文化路|王府井/, metrics: /新老客|年龄|会员|客群/ }
+			slots: { hotelReference: /4|银际|文化路|王府井/, metrics: /新老客|年龄|会员|客群/ }
 		}
 	},
 	{
@@ -291,7 +296,7 @@ const scenarios: readonly RoutingScenario[] = [
 			routeKind: 'business_read',
 			intent: 'generic_hotel_data_query',
 			responseMode: 'analysis',
-			slots: { hotelReference: /银际|文化路|王府井/, metrics: /内容|房型图|卖点|访问|转化/ }
+			slots: { hotelReference: /4|银际|文化路|王府井/, metrics: /内容|房型图|卖点|访问|转化/ }
 		}
 	},
 	{
@@ -302,7 +307,7 @@ const scenarios: readonly RoutingScenario[] = [
 			routeKind: 'business_read',
 			intent: 'generic_hotel_data_query',
 			responseMode: 'analysis',
-			slots: { hotelReference: /银际|文化路|王府井/, metrics: /差评|评价|评分/ }
+			slots: { hotelReference: /4|银际|文化路|王府井/, metrics: /差评|评价|评分/ }
 		}
 	},
 	{
@@ -459,7 +464,7 @@ const scenarios: readonly RoutingScenario[] = [
 		expected: {
 			routeKind: 'business_read',
 			responseMode: 'data_only',
-			slots: { hotelReference: /银际|文化路|王府井/, metrics: /退款|渠道/ }
+			slots: { hotelReference: /4|银际|文化路|王府井/, metrics: /退款|渠道/ }
 		}
 	},
 	{

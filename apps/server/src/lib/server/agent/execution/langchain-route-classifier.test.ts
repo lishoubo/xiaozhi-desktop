@@ -3,7 +3,8 @@ import { z } from 'zod';
 import {
 	normalizedTemporalReviewSlots,
 	parseReviewedJson,
-	routeStructuredOutputConfig
+	routeStructuredOutputConfig,
+	temporalReviewNeedsConfirmation
 } from './langchain-route-classifier';
 
 describe('LangChain route classifier configuration', () => {
@@ -73,6 +74,22 @@ describe('LangChain route classifier configuration', () => {
 		).toEqual({});
 	});
 
+	it('normalizes a single business date to the date-range contract unless the intent uses date', () => {
+		const temporal = {
+			date: '2026-08-22',
+			dateRange: null,
+			checkIn: null,
+			checkOut: null,
+			relativeCompleteDays: null
+		};
+		expect(normalizedTemporalReviewSlots(temporal)).toEqual({
+			dateRange: '2026-08-22/2026-08-22'
+		});
+		expect(normalizedTemporalReviewSlots(temporal, { singleDateSlot: 'date' })).toEqual({
+			date: '2026-08-22'
+		});
+	});
+
 	it('turns a model-understood relative window into a deterministic date protocol', () => {
 		expect(
 			normalizedTemporalReviewSlots({
@@ -92,5 +109,60 @@ describe('LangChain route classifier configuration', () => {
 				relativeCompleteDays: 7
 			})
 		).toEqual({ dateRange: '2026-08-15/2026-08-21' });
+	});
+
+	it('confirms negative or unusable temporal reviews before discarding classified dates', () => {
+		expect(
+			temporalReviewNeedsConfirmation(
+				{
+					hasTimeConstraint: false,
+					date: null,
+					dateRange: null,
+					checkIn: null,
+					checkOut: null,
+					relativeCompleteDays: null
+				},
+				{ dateRange: '2026-08-21/2026-08-21' }
+			)
+		).toBe(true);
+		expect(
+			temporalReviewNeedsConfirmation(
+				{
+					hasTimeConstraint: false,
+					date: null,
+					dateRange: null,
+					checkIn: null,
+					checkOut: null,
+					relativeCompleteDays: null
+				},
+				{}
+			)
+		).toBe(false);
+		expect(
+			temporalReviewNeedsConfirmation(
+				{
+					hasTimeConstraint: true,
+					date: null,
+					dateRange: '近日',
+					checkIn: null,
+					checkOut: null,
+					relativeCompleteDays: null
+				},
+				{}
+			)
+		).toBe(true);
+		expect(
+			temporalReviewNeedsConfirmation(
+				{
+					hasTimeConstraint: true,
+					date: null,
+					dateRange: null,
+					checkIn: null,
+					checkOut: null,
+					relativeCompleteDays: 7
+				},
+				{}
+			)
+		).toBe(false);
 	});
 });

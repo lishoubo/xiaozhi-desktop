@@ -16,7 +16,7 @@ import { getIntentDefinition, quickActionIntent } from './intent-registry';
 export const routeClassifierOutputSchema = z.strictObject({
 	category: agentBusinessRouteKindSchema,
 	intentCandidate: agentBusinessIntentSchema.nullable(),
-	requestedEffect: z.enum(['explain', 'read', 'write', 'unclear']),
+	requestedEffect: z.enum(['explain', 'read', 'system_mutation', 'unclear']),
 	responseMode: z.enum(['analysis', 'data_only']),
 	confidence: z.number().min(0).max(1),
 	slots: z
@@ -73,14 +73,14 @@ function mergeContextualProposal(
 	contextual: RouteClassifierOutput
 ): RouteClassifierOutput {
 	if (current.category === 'unclear') {
-		return contextual.requestedEffect === 'write' ? current : contextual;
+		return contextual.requestedEffect === 'system_mutation' ? current : contextual;
 	}
 	if (current.category !== 'business_read' || contextual.category !== 'business_read')
 		return current;
 	return {
 		...current,
 		intentCandidate: contextual.intentCandidate ?? current.intentCandidate,
-		slots: { ...contextual.slots, ...current.slots }
+		slots: contextual.slots
 	};
 }
 
@@ -153,10 +153,10 @@ export class BusinessIntentRouter {
 						)
 					)
 				: currentProposal.category === 'business_read' ||
-					  currentProposal.requestedEffect === 'write'
+					  currentProposal.requestedEffect === 'system_mutation'
 					? routeClassifierOutputSchema.parse(await this.classifier.classify({ text: input.text }))
 					: currentProposal;
-		if (safeProposal.requestedEffect === 'write') {
+		if (safeProposal.requestedEffect === 'system_mutation') {
 			return {
 				routeKind: 'business_write',
 				intent: null,

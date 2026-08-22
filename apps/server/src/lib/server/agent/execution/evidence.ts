@@ -11,7 +11,7 @@ import {
 	operatingRowsMatchRequest,
 	parseOperatingEvidenceRows
 } from './deterministic-operating-answer';
-import { parseEvidenceTable, rowString } from './evidence-table';
+import { parseEvidenceTable, rowString, type EvidenceCell } from './evidence-table';
 import { HOTEL_DATA_SQL_TOOL_NAME } from '../hotel-data-mcp';
 import {
 	hotelDataDomainLabel,
@@ -379,6 +379,25 @@ function verifiedHotelReferences(value: unknown): readonly string[] | null {
 		: [...new Set(hotels.filter((hotel): hotel is string => hotel !== null))];
 }
 
+function aggregateBusinessDate(
+	row: Readonly<Record<string, EvidenceCell>>,
+	boundary: 'start' | 'end'
+): string | null {
+	const explicitAliases =
+		boundary === 'start' ? ['period_start', 'scope_start'] : ['period_end', 'scope_end'];
+	const explicit = isoDate(rowString(row, explicitAliases));
+	if (explicit) return explicit;
+	const boundarySuffixes = boundary === 'start' ? ['_start', '_min'] : ['_end', '_max'];
+	const field = Object.keys(row).find((name) => {
+		const normalized = name.toLowerCase();
+		return (
+			DATA_DATE_FIELDS.some((dateField) => normalized.includes(dateField)) &&
+			boundarySuffixes.some((suffix) => normalized.endsWith(suffix))
+		);
+	});
+	return field ? isoDate(rowString(row, [field])) : null;
+}
+
 function evidenceDateFacts(value: unknown): EvidenceDateFacts {
 	const table = parseEvidenceTable(value);
 	if (!table || table.rows.length === 0) {
@@ -390,8 +409,8 @@ function evidenceDateFacts(value: unknown): EvidenceDateFacts {
 	let completeScope = true;
 	let hasFreshnessProof = false;
 	for (const row of table.rows) {
-		const periodStart = isoDate(rowString(row, ['period_start', 'scope_start']));
-		const periodEnd = isoDate(rowString(row, ['period_end', 'scope_end']));
+		const periodStart = aggregateBusinessDate(row, 'start');
+		const periodEnd = aggregateBusinessDate(row, 'end');
 		const rowDates = DATA_DATE_FIELDS.flatMap((field) => {
 			const date = isoDate(rowString(row, [field]));
 			return date ? [date] : [];
