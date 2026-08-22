@@ -8,6 +8,7 @@ import {
 	groundedAnalysisWritingInstructions,
 	hotelDataCollectionToolChoice,
 	loadMcpToolsWithSingleRefresh,
+	mostCompleteToolArgs,
 	mcpFailureClassFingerprint,
 	mcpFailureFingerprint,
 	isLocalToolAllowed,
@@ -285,6 +286,24 @@ describe('tool evidence capture', () => {
 		accumulator.add({ args: '{"script":"A"}', index: 0 });
 
 		expect(accumulator.take('call-1')?.args).toEqual({ script: 'A' });
+	});
+
+	it('preserves complete streamed arguments when a later tool-call snapshot is empty', () => {
+		expect(
+			mostCompleteToolArgs(
+				{ script: 'SELECT hotel_id, exposure_cnt FROM fact_traffic_scene' },
+				{}
+			)
+		).toEqual({ script: 'SELECT hotel_id, exposure_cnt FROM fact_traffic_scene' });
+	});
+
+	it('prefers a more complete snapshot over partial streamed arguments', () => {
+		expect(
+			mostCompleteToolArgs(
+				{ script: 'SELECT hotel_id' },
+				{ script: 'SELECT hotel_id, exposure_cnt FROM fact_traffic_scene' }
+			)
+		).toEqual({ script: 'SELECT hotel_id, exposure_cnt FROM fact_traffic_scene' });
 	});
 
 	it('tracks unstable streamed ids as one lifecycle call when their index is unchanged', () => {

@@ -184,6 +184,32 @@ export class ToolCallChunkAccumulator {
 	}
 }
 
+function toolArgsCompleteness(value: unknown): number {
+	if (value === null || value === undefined) return 0;
+	if (typeof value === 'string') return value.trim().length;
+	if (Array.isArray(value) && value.length === 0) return 0;
+	if (typeof value === 'object' && !Array.isArray(value) && Object.keys(value).length === 0) {
+		return 0;
+	}
+	try {
+		return JSON.stringify(value)?.length ?? 0;
+	} catch {
+		return typeof value === 'object' ? Object.keys(value).length : 1;
+	}
+}
+
+export function mostCompleteToolArgs(...candidates: readonly unknown[]): unknown | null {
+	let selected: unknown = null;
+	let selectedCompleteness = 0;
+	for (const candidate of candidates) {
+		const completeness = toolArgsCompleteness(candidate);
+		if (completeness <= selectedCompleteness) continue;
+		selected = candidate;
+		selectedCompleteness = completeness;
+	}
+	return selected;
+}
+
 export function normalizeAgentStreamFailure(
 	error: unknown,
 	outstandingMcpToolName: string | null
@@ -842,7 +868,8 @@ export class LangChainAgentRuntime implements AgentRuntime {
 					for (const call of message.tool_calls ?? []) {
 						if (!call.id) continue;
 						const toolCallId = toolCallChunks.trackingId(call.id) ?? call.id;
-						toolArgs.set(toolCallId, call.args);
+						const mergedToolArgs = mostCompleteToolArgs(toolArgs.get(toolCallId), call.args);
+						if (mergedToolArgs !== null) toolArgs.set(toolCallId, mergedToolArgs);
 						if (startedTools.has(toolCallId)) continue;
 						if (shouldSuppressUiRenderCall(call.name, toolCallId, firstUiRenderCallId)) {
 							startedTools.add(toolCallId);
@@ -896,7 +923,11 @@ export class LangChainAgentRuntime implements AgentRuntime {
 					completedTools.add(callId);
 					const toolName =
 						message.name ?? toolNamesByCall.get(callId) ?? bufferedCall?.name ?? 'tool';
-					const capturedToolArgs = toolArgs.get(callId) ?? bufferedCall?.args ?? null;
+					const capturedToolArgs = mostCompleteToolArgs(
+						toolArgs.get(callId),
+						bufferedCall?.args
+					);
+					toolArgs.delete(callId);
 					const failed = message.status === 'error' || mcpResultIsError(message.content);
 					const toolFailure = failed ? describeToolFailure(toolName, message.content) : null;
 					const failureKey = toolFailure
