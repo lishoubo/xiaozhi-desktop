@@ -502,8 +502,11 @@ export function goodsDateKey(goodsId: string, startDate: string, endDate: string
  * | 批量改价 →「日期分开改价」 | **B** |
  *
  * ⚠️ **只认一种的后果是静默丢整条**：另一种模式下这里返回空集 → `rebuildGoodsDetails`
- * 的 `keep` 把全部格子裁光 → `goodsDetails` 上报为空。回放 `批量改房价-高级改价.md`
- * 的真实序列实测复现过（4 次 calc 累积正常，提交时 `keep=0`）。
+ * 的 `keep` 把全部格子裁光 → `goodsDetails` 上报为空。
+ *
+ * 证据强度要说清楚：以 `批量改房价-高级改价.md` 的报文为输入调用本函数，实测返回空集
+ * （单测 `parse — 高级改价（提交体形状 B）` 钉住了这条）。**这是单测级验证，不是真机** ——
+ * 报文取自踩点文档，没有真实点击跑过这条链路。
  *
  * ⚠️ **判据要落在「模式」上，不要落在「端点」上** —— 这条踩过两次坑（形状漏认、
  * `unified/calcPriceV2`），见 design.md 决策 5。

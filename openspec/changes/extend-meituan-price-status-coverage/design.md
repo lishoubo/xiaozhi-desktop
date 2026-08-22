@@ -222,12 +222,17 @@ update 只是 calc 的子集（砍掉 `priceInfos` / `pricePrompt` / `realPriceI
 
 **缺陷**：`submittedGoodsDateKeys()` 只读 `calcPriceUnifiedDateModel`，遇模式 B 全程
 落空 → `keep` 为空集 → `rebuildGoodsDetails` 裁光全部格子 → **`goodsDetails` 上报为空，
-高级模式改价整条静默丢失**。回放 `高级改价` 真实序列实测复现：
+高级模式改价整条静默丢失**。
+
+以 `高级改价` 踩点的报文为输入调用管线函数，实测：
 
 ```
 separate/calcPriceV2 ×4   →  累积 4 格，改前价/改后价/房型/日期段/周次档齐全  ✅
-updatePriceV2             →  keep=0  goodsDetails=0                        ❌
+updatePriceV2             →  submittedGoodsDateKeys() 返回空集 → goodsDetails=[]  ❌
 ```
+
+⚠️ **这是单测级验证，不是真机** —— 输入是踩点文档里的报文，没有起应用真实点击跑过。
+真机验证见 tasks 6.2，**尚未完成**。
 
 **修法**：`submittedGoodsDateKeys()` 加 `calcPriceModels[]` 分支（日期挂在每段里）。
 归一后往下的逻辑不动 —— 这与 calc **响应**侧 `unifiedDatePriceInfos` vs `priceInfos[]`

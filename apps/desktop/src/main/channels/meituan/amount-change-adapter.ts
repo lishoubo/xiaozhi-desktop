@@ -569,8 +569,9 @@ export function createMeituanAmountChangeAdapter(logger: AppLogger): AmountChang
       const goodsDetails = rebuildGoodsDetails(context.cells, submittedKeys);
 
       // ⚠️ 素材为空但用户确实提交了 —— 唯一已知成因是提交体形状没被认出来（`keep` 落空，
-      // 见 `submittedGoodsDateKeys`），高级模式真机踩过。失效方式是**静默上报空素材**，
-      // 所以这里必须留一条能诊断的日志。
+      // 见 `submittedGoodsDateKeys`）。失效方式是**静默上报空素材**，没有日志就查不出来。
+      //
+      // ⚠️ 该成因由**单测**覆盖（踩点报文作输入），高级模式这条链路**尚未真机验证**。
       if (goodsDetails.length === 0) {
         logger.warn('Meituan amount change: rebuilt goodsDetails is empty, reporting anyway', {
           endpointId: observed.endpointId,

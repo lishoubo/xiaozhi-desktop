@@ -44,8 +44,8 @@
       `amount-change-adapter.ts` 的 `updatePriceV2` 分支回到「成功即上报累积素材」
 - [x] 3.8 ⚠️ **`submittedGoodsDateKeys()` 补 `calcPriceModels[]` 分支**（决策 5）——
       提交体日期有两种挂载位置，只读 `calcPriceUnifiedDateModel` 会让高级模式
-      `keep` 为空集、`goodsDetails` 上报为空。已回放 `批量改房价-高级改价.md`
-      真实序列实测复现
+      `keep` 为空集、`goodsDetails` 上报为空。已以 `批量改房价-高级改价.md` 的报文
+      为输入实测（单测级，非真机 —— 真机见 6.2）
 - [x] 3.9 确认 `/product/price/unified/calcPriceV2` **不加入白名单**（决策 3b，零改动）
 
 ## 4. 文档同步

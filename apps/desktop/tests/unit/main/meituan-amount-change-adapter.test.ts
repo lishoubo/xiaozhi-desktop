@@ -1159,7 +1159,8 @@ describe('美团价量态改动适配器', () => {
    *
    * ⚠️ 这是回归用例：`submittedGoodsDateKeys` 早先只认 `calcPriceUnifiedDateModel`，
    * 走这条路时 `keep` 为空集 → `rebuildGoodsDetails` 把全部格子裁光 → **上报空素材**，
-   * 整条改价静默丢失。回放本序列实测复现过（4 次 calc 累积正常，提交时 keep=0）。
+   * 整条改价静默丢失 —— 以本序列的报文为输入实测过：4 次 calc 累积正常，提交时
+   * `submittedGoodsDateKeys()` 返回空集。
    */
   describe('parse — 高级改价（提交体形状 B）', () => {
     it('4 次试算累积后，提交时 4 格素材全在', () => {
