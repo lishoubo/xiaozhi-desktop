@@ -24,6 +24,7 @@ import { buildHotelAgentSystemPrompt } from './hotel-agent-prompt';
 import { HotelAgentToolHandlers } from './hotel-agent-tool-handlers';
 import type { AgentSkill, SkillProvider } from './skill-provider';
 import type { AgentModelGateway } from './model-gateway';
+import { ToolCallLifecycleStore, type ObservedToolCall } from './tool-call-lifecycle';
 import { getIntentDefinition } from './execution/intent-registry';
 import {
 	describeVerifiedHotelDataTables,
@@ -107,107 +108,6 @@ export function mcpFailureFingerprint(
 
 export function mcpFailureClassFingerprint(toolName: string, failureCode: string): string {
 	return `${toolName}:${failureCode}`;
-}
-
-type ToolCallChunkFragment = Readonly<{
-	id?: string;
-	name?: string;
-	args?: string;
-	index?: number;
-}>;
-
-type BufferedToolCall = {
-	trackingId: string;
-	id: string;
-	name: string;
-	args: string;
-	index: number | null;
-};
-
-function mergeStreamFragment(current: string, fragment: string | undefined): string {
-	if (!fragment) return current;
-	if (!current || fragment.startsWith(current)) return fragment;
-	return `${current}${fragment}`;
-}
-
-export class ToolCallChunkAccumulator {
-	readonly #byId = new Map<string, BufferedToolCall>();
-	readonly #byIndex = new Map<number, BufferedToolCall>();
-	#nextTrackingId = 1;
-
-	add(fragment: ToolCallChunkFragment): Readonly<BufferedToolCall> | null {
-		const byId = fragment.id ? this.#byId.get(fragment.id) : undefined;
-		const byIndex = fragment.index === undefined ? undefined : this.#byIndex.get(fragment.index);
-		const current = byId ??
-			byIndex ?? {
-				trackingId: `stream-tool-call-${this.#nextTrackingId++}`,
-				id: '',
-				name: '',
-				args: '',
-				index: fragment.index ?? null
-			};
-		if (!current.id && fragment.id) current.id = fragment.id;
-		current.name = mergeStreamFragment(current.name, fragment.name);
-		current.args = mergeStreamFragment(current.args, fragment.args);
-		if (fragment.index !== undefined) {
-			current.index = fragment.index;
-			this.#byIndex.set(fragment.index, current);
-		}
-		if (fragment.id) this.#byId.set(fragment.id, current);
-		return current.id || current.name || current.args ? current : null;
-	}
-
-	trackingId(toolCallId: string): string | null {
-		return this.#byId.get(toolCallId)?.trackingId ?? null;
-	}
-
-	take(
-		toolCallId: string
-	): Readonly<{ trackingId: string; name: string | null; args: unknown }> | null {
-		const current = this.#byId.get(toolCallId);
-		if (!current) return null;
-		for (const [id, value] of this.#byId) {
-			if (value === current) this.#byId.delete(id);
-		}
-		if (current.index !== null && this.#byIndex.get(current.index) === current) {
-			this.#byIndex.delete(current.index);
-		}
-		let args: unknown = current.args || null;
-		if (current.args) {
-			try {
-				args = JSON.parse(current.args);
-			} catch {
-				// Preserve malformed text so distinct calls are not collapsed into the same null identity.
-			}
-		}
-		return { trackingId: current.trackingId, name: current.name || null, args };
-	}
-}
-
-function toolArgsCompleteness(value: unknown): number {
-	if (value === null || value === undefined) return 0;
-	if (typeof value === 'string') return value.trim().length;
-	if (Array.isArray(value) && value.length === 0) return 0;
-	if (typeof value === 'object' && !Array.isArray(value) && Object.keys(value).length === 0) {
-		return 0;
-	}
-	try {
-		return JSON.stringify(value)?.length ?? 0;
-	} catch {
-		return typeof value === 'object' ? Object.keys(value).length : 1;
-	}
-}
-
-export function mostCompleteToolArgs(...candidates: readonly unknown[]): unknown | null {
-	let selected: unknown = null;
-	let selectedCompleteness = 0;
-	for (const candidate of candidates) {
-		const completeness = toolArgsCompleteness(candidate);
-		if (completeness <= selectedCompleteness) continue;
-		selected = candidate;
-		selectedCompleteness = completeness;
-	}
-	return selected;
 }
 
 export function normalizeAgentStreamFailure(
@@ -724,6 +624,7 @@ export class LangChainAgentRuntime implements AgentRuntime {
 			...hotelDataCatalogTools,
 			...workflowMcpTools
 		];
+		const toolNames = new Set(tools.map((candidate) => candidate.name));
 		const mcpToolNames = new Set(workflowMcpTools.map((tool) => tool.name));
 		const toolCallBudget = workflowToolCallBudget(
 			options.workflowRequest,
@@ -776,16 +677,10 @@ export class LangChainAgentRuntime implements AgentRuntime {
 		});
 
 		let content = '';
-		const startedTools = new Set<string>();
-		const suppressedTools = new Set<string>();
+		const toolCalls = new ToolCallLifecycleStore();
 		let firstUiRenderCallId: string | null = null;
 		let startedWorkflowToolCount = 0;
 		let startedWorkflowBatchToolCount = 0;
-		const completedTools = new Set<string>();
-		const toolArgs = new Map<string, unknown>();
-		const toolCallChunks = new ToolCallChunkAccumulator();
-		const toolNamesByCall = new Map<string, string>();
-		const mcpCallStartedAt = new Map<string, number>();
 		const mcpFailureCounts = new Map<string, number>();
 		const mcpFailureClassCounts = new Map<string, number>();
 		const toolEvidence: Array<{ toolName: string; toolArgs: unknown; result: unknown }> = [];
@@ -793,6 +688,47 @@ export class LangChainAgentRuntime implements AgentRuntime {
 		const modelStartedAt = performance.now();
 		let firstTokenPublished = false;
 		let finishReason: string | null = null;
+		const startObservedToolCall = async (observed: ObservedToolCall): Promise<void> => {
+			const toolCallId = observed.trackingId;
+			const toolName = observed.name;
+			if (!toolName || !toolNames.has(toolName) || toolCalls.hasStarted(toolCallId)) return;
+			if (shouldSuppressUiRenderCall(toolName, toolCallId, firstUiRenderCallId)) {
+				toolCalls.suppress(toolCallId);
+				return;
+			}
+			if (toolName === 'render_hotel_ui') firstUiRenderCallId = toolCallId;
+			if (
+				shouldSuppressWorkflowToolCall(
+					toolName,
+					mcpToolNames,
+					startedWorkflowToolCount,
+					toolCallBudget,
+					startedWorkflowBatchToolCount
+				)
+			) {
+				toolCalls.suppress(toolCallId);
+				return;
+			}
+			const isMcpTool = mcpToolNames.has(toolName);
+			if (isMcpTool) {
+				startedWorkflowToolCount += 1;
+				startedWorkflowBatchToolCount += 1;
+			}
+			toolCalls.start(toolCallId, isMcpTool ? performance.now() : null);
+			if (toolName === 'render_hotel_ui' && generatedUi) return;
+			await options.emit({
+				type: 'tool_started',
+				toolCallId,
+				toolName
+			});
+			if (isMcpTool) {
+				await options.emit({
+					type: 'mcp_call_started',
+					toolCallId,
+					toolName
+				});
+			}
+		};
 		try {
 			const stream = await agent.stream(
 				{ messages },
@@ -821,113 +757,22 @@ export class LangChainAgentRuntime implements AgentRuntime {
 						await options.emit({ type: 'text_delta', delta });
 					}
 					for (const call of message.tool_call_chunks ?? []) {
-						const buffered = toolCallChunks.add(call);
-						const toolCallId = buffered?.trackingId ?? call.id;
-						const toolName = call.name ?? buffered?.name;
-						if (!toolCallId || !toolName || startedTools.has(toolCallId)) continue;
-						if (shouldSuppressUiRenderCall(toolName, toolCallId, firstUiRenderCallId)) {
-							startedTools.add(toolCallId);
-							suppressedTools.add(toolCallId);
-							continue;
-						}
-						if (toolName === 'render_hotel_ui') firstUiRenderCallId = toolCallId;
-						if (
-							shouldSuppressWorkflowToolCall(
-								toolName,
-								mcpToolNames,
-								startedWorkflowToolCount,
-								toolCallBudget,
-								startedWorkflowBatchToolCount
-							)
-						) {
-							startedTools.add(toolCallId);
-							suppressedTools.add(toolCallId);
-							continue;
-						}
-						if (mcpToolNames.has(toolName)) {
-							startedWorkflowToolCount += 1;
-							startedWorkflowBatchToolCount += 1;
-						}
-						startedTools.add(toolCallId);
-						if (toolName === 'render_hotel_ui' && generatedUi) continue;
-						await options.emit({
-							type: 'tool_started',
-							toolCallId,
-							toolName
-						});
-						toolNamesByCall.set(toolCallId, toolName);
-						if (mcpToolNames.has(toolName)) {
-							mcpCallStartedAt.set(toolCallId, performance.now());
-							await options.emit({
-								type: 'mcp_call_started',
-								toolCallId,
-								toolName
-							});
-						}
+						const observed = toolCalls.observeChunk(call);
+						if (observed) await startObservedToolCall(observed);
 					}
 					for (const call of message.tool_calls ?? []) {
 						if (!call.id) continue;
-						const toolCallId = toolCallChunks.trackingId(call.id) ?? call.id;
-						const mergedToolArgs = mostCompleteToolArgs(toolArgs.get(toolCallId), call.args);
-						if (mergedToolArgs !== null) toolArgs.set(toolCallId, mergedToolArgs);
-						if (startedTools.has(toolCallId)) continue;
-						if (shouldSuppressUiRenderCall(call.name, toolCallId, firstUiRenderCallId)) {
-							startedTools.add(toolCallId);
-							suppressedTools.add(toolCallId);
-							continue;
-						}
-						if (call.name === 'render_hotel_ui') firstUiRenderCallId = toolCallId;
-						if (
-							shouldSuppressWorkflowToolCall(
-								call.name,
-								mcpToolNames,
-								startedWorkflowToolCount,
-								toolCallBudget,
-								startedWorkflowBatchToolCount
-							)
-						) {
-							startedTools.add(toolCallId);
-							suppressedTools.add(toolCallId);
-							continue;
-						}
-						if (mcpToolNames.has(call.name)) {
-							startedWorkflowToolCount += 1;
-							startedWorkflowBatchToolCount += 1;
-						}
-						startedTools.add(toolCallId);
-						if (call.name === 'render_hotel_ui' && generatedUi) continue;
-						await options.emit({
-							type: 'tool_started',
-							toolCallId,
-							toolName: call.name
-						});
-						toolNamesByCall.set(toolCallId, call.name);
-						if (mcpToolNames.has(call.name)) {
-							mcpCallStartedAt.set(toolCallId, performance.now());
-							await options.emit({
-								type: 'mcp_call_started',
-								toolCallId,
-								toolName: call.name
-							});
-						}
+						await startObservedToolCall(
+							toolCalls.observeSnapshot({ id: call.id, name: call.name, args: call.args })
+						);
 					}
 					continue;
 				}
 				if (ToolMessage.isInstance(message)) {
-					const rawCallId = message.tool_call_id;
-					const bufferedCall = toolCallChunks.take(rawCallId);
-					const callId = bufferedCall?.trackingId ?? rawCallId;
-					if (suppressedTools.has(callId)) continue;
-					if (completedTools.has(callId)) continue;
+					const completion = toolCalls.complete(message.tool_call_id, message.name);
+					if (completion.kind !== 'completed') continue;
 					startedWorkflowBatchToolCount = 0;
-					completedTools.add(callId);
-					const toolName =
-						message.name ?? toolNamesByCall.get(callId) ?? bufferedCall?.name ?? 'tool';
-					const capturedToolArgs = mostCompleteToolArgs(
-						toolArgs.get(callId),
-						bufferedCall?.args
-					);
-					toolArgs.delete(callId);
+					const { trackingId: callId, name: toolName, args: capturedToolArgs } = completion.call;
 					const failed = message.status === 'error' || mcpResultIsError(message.content);
 					const toolFailure = failed ? describeToolFailure(toolName, message.content) : null;
 					const failureKey = toolFailure
@@ -946,10 +791,10 @@ export class LangChainAgentRuntime implements AgentRuntime {
 						? (mcpFailureClassCounts.get(failureClassKey) ?? 0) + 1
 						: 0;
 					if (failureClassKey) mcpFailureClassCounts.set(failureClassKey, failureClassCount);
-					if (mcpCallStartedAt.has(callId)) {
+					if (completion.call.mcpStartedAt !== null) {
 						const durationMs = Math.max(
 							0,
-							Math.round(performance.now() - (mcpCallStartedAt.get(callId) ?? performance.now()))
+							Math.round(performance.now() - completion.call.mcpStartedAt)
 						);
 						if (failed) {
 							await options.emit({
@@ -1024,17 +869,11 @@ export class LangChainAgentRuntime implements AgentRuntime {
 			) {
 				return { content, ui: generatedUi, toolEvidence, toolCallCount: startedWorkflowToolCount };
 			}
-			const outstandingMcpToolName = graphRecursionFailed
-				? null
-				: ([...mcpCallStartedAt.keys()].flatMap((toolCallId) => {
-						if (completedTools.has(toolCallId)) return [];
-						return [toolNamesByCall.get(toolCallId) ?? 'mcp_tool'];
-					})[0] ?? null);
+			const outstandingMcpCalls = graphRecursionFailed ? [] : toolCalls.outstandingMcpCalls();
+			const outstandingMcpToolName = outstandingMcpCalls[0]?.name ?? null;
 			const normalizedFailure = normalizeAgentStreamFailure(error, outstandingMcpToolName);
 			const failure = describeAgentFailure(normalizedFailure);
-			for (const [toolCallId, startedAt] of graphRecursionFailed ? [] : mcpCallStartedAt) {
-				if (completedTools.has(toolCallId)) continue;
-				const toolName = toolNamesByCall.get(toolCallId) ?? 'mcp_tool';
+			for (const { trackingId: toolCallId, name: toolName, startedAt } of outstandingMcpCalls) {
 				await options.emit({
 					type: 'mcp_call_failed',
 					toolCallId,
