@@ -174,6 +174,7 @@ import type { JsonObject } from '../../../shared/types/json';
 import { isTrustedHotelUrl } from '../trusted-hotel-url';
 import type { AmountChangeAdapter, AmountParseResult } from '../types';
 import {
+  capMeituanCalcCells,
   detectMeituanPriceMode,
   dropRoomTypesNotSubmitted,
   extractMeituanCalcCells,
@@ -605,8 +606,14 @@ export function createMeituanAmountChangeAdapter(logger: AppLogger): AmountChang
             endpointUrl: '',
             cells: {},
             globalPricePrompt: null,
-            // `unified` 只有模式 B 才发 —— 它到达本身就说明当前是高级模式。
-            priceMode: 'separateDate',
+            // `unified` 只有模式 B 才发（五份踩点实测），所以判不出时默认高级模式。
+            //
+            // ⚠️ 但**先从请求体判**，判不出才用这个默认值 —— 「模式 A 从不发 unified」是
+            // 一条**否定式结论**，只由五份踩点支撑。万一模式 A 的某个变体真发了一条，
+            // 硬编码会让模式**粘错**：此后每条模式 A 的 `separate` 都与记着的模式不符，
+            // 于是**每一条 calc 都触发一次清空**，最后只剩最后一条的素材。
+            // 从请求体判则是自纠正的。
+            priceMode: detectMeituanPriceMode(observed.requestBody) ?? 'separateDate',
           },
         };
       }
@@ -623,9 +630,15 @@ export function createMeituanAmountChangeAdapter(logger: AppLogger): AmountChang
 
         const otaHotelId = idToString(observed.requestBody.poiId);
 
+        // 换门店：上一家的格子与这次改动无关（键里没有 poiId，不清会混在一条上报里）。
+        const sameHotel = isCalcContext(context) && context.otaHotelId === otaHotelId;
+
         // 改价模式由**请求体字段**判定，不看端点（`separate/calcPriceV2` 两模式共用）。
-        // 取不到时沿用 context 里记着的，别猜 —— 见 `detectMeituanPriceMode`。
-        const previousMode = isCalcContext(context) ? priceModeOf(context) : null;
+        //
+        // 判不出时沿用 context 里记着的，别猜 —— 但**仅限同一门店**：换店等于新会话，
+        // 把上一家的模式带过来会让本次会话一直按错误的粒度累积，并在提交时决定要不要
+        // 跑 `dropRoomTypesNotSubmitted`。
+        const previousMode = sameHotel ? priceModeOf(context) : null;
         const priceMode = detectMeituanPriceMode(observed.requestBody) ?? previousMode;
         if (priceMode === null) {
           logger.warn('Meituan amount change: unrecognised calc request shape, price mode unknown', {
@@ -634,12 +647,15 @@ export function createMeituanAmountChangeAdapter(logger: AppLogger): AmountChang
           });
         }
 
-        // 重置累积的两种情形，同一口径：**旧素材的语义已经不成立**。
+        // 换模式也要重置，与换门店同一口径：**旧素材的语义已经不成立** —— 两种模式的
+        // 累积粒度不同（整条覆盖 vs 逐格累积），混着累会出错。
         //
-        // - 换门店：上一家的格子与这次改动无关（键里没有 poiId，不清会混在一条上报里）
-        // - 换模式：两种模式的累积粒度不同（整条覆盖 vs 逐格累积），混着累会出错
-        const sameHotel = isCalcContext(context) && context.otaHotelId === otaHotelId;
-        const sameMode = previousMode === null || previousMode === priceMode;
+        // ⚠️ **模式从「未知」变成确定时同样要重置**。未知模式下攒的格子走的是模式 B 的
+        // 逐格语义，此刻若判定为模式 A，留着它们正是这里要防的「混着累」。所以判据就是
+        // 「两次模式是否相同」，未知（`null`）也算一种取值 —— 不能写成
+        // `previousMode === null || previousMode === priceMode`，那会让「首条判不出、
+        // 次条判出模式 A」的会话把模式 B 语义的格子带进整条覆盖。
+        const sameMode = previousMode === priceMode;
         const previous = sameHotel && sameMode ? context.cells : {};
         if (isCalcContext(context) && !sameHotel) {
           logger.info('Meituan amount change: poiId changed, resetting accumulated calc cells', {
@@ -664,23 +680,24 @@ export function createMeituanAmountChangeAdapter(logger: AppLogger): AmountChang
         //   由 `unified` 清空。
         //
         // 模式未知时走模式 B —— 它是更保守的一侧：多留几格顶多多报，整条覆盖用错会误删。
-        //
-        // ⚠️ `MEITUAN_CALC_CELL_LIMIT` 只在模式 B 生效，模式 A **不需要**：那个上限防的是
-        // 「长时间停留在页面反复试算导致累积无限增长」，而模式 A 每次都按 `goodsId` 整条
-        // 覆盖，反复试算同一批房型格数恒定，上界是「房型数 × 当前日期段 × 周次档」，
-        // 由页面本身约束。
-        let cells: Readonly<Record<string, MeituanCalcCell>>;
-        if (priceMode === 'unifiedDate') {
-          cells = mergeMeituanCalcCellsByGoods(previous, incoming);
-        } else {
-          const merged = mergeMeituanCalcCells(previous, incoming);
-          cells = merged.cells;
-          if (merged.dropped > 0) {
-            logger.warn('Meituan amount change: calc cell limit exceeded, dropped oldest', {
-              dropped: merged.dropped,
-              kept: Object.keys(merged.cells).length,
-            });
-          }
+        const merged =
+          priceMode === 'unifiedDate'
+            ? mergeMeituanCalcCellsByGoods(previous, incoming)
+            : mergeMeituanCalcCells(previous, incoming);
+
+        // ⚠️ 上限**两种模式都要**。模式 A 按 `goodsId` 整条覆盖，理论上格数由页面约束
+        // （房型数 × 当前日期段 × 周次档），看起来不需要兜底 —— 但那个「理论上」依赖
+        // 「每条 calc 都带该房型当前全量日期段」这个假设，而形状①的 `dates` 长度 >1 时
+        // 是否仍成立**未实测**（见 `amount-change-payload.ts` 文件头）。假设一旦不成立，
+        // 没有上限就是**无声无息地无限增长**；有上限则至少会 warn。兜底很便宜，去掉它
+        // 换不来任何东西。
+        const { cells, dropped } = capMeituanCalcCells(merged);
+        if (dropped > 0) {
+          logger.warn('Meituan amount change: calc cell limit exceeded, dropped oldest', {
+            dropped,
+            kept: Object.keys(cells).length,
+            priceMode,
+          });
         }
 
         // 门店 ID 只在请求体里、URL 也只有此刻拿得到，一并存下。
@@ -744,11 +761,33 @@ export function createMeituanAmountChangeAdapter(logger: AppLogger): AmountChang
       //
       // 模式 B **不做**这一步：`unified` 已覆盖房型移除的场景，两条路各自闭环，不要交叉。
       const priceMode = priceModeOf(context);
-      const reportedCells =
+      const filteredCells =
         priceMode === 'unifiedDate'
           ? dropRoomTypesNotSubmitted(context.cells, goodsIds)
           : context.cells;
-      const droppedRoomTypes = Object.keys(context.cells).length - Object.keys(reportedCells).length;
+
+      // ⚠️ **裁剪不得把整份素材裁空**。裁空只有两种可能，都不是「用户没改价」：
+      //
+      // - 累积本来就是空的 → 交给下面那条空守卫处理（正确地丢弃）
+      // - 累积非空却一个都没匹配上 → `goodsList` 的形状与累积里的 `goodsId` 对不上，
+      //   说明**裁剪的准绳读错了**，不是用户把房型删光了（那样连提交都提交不了）
+      //
+      // 后一种情况按**不裁**处理：宁可多报几个用户已移除的房型（RMS 侧看得见、可纠正），
+      // 也不能让一次真实的改价**凭空消失**。这正是已废弃的 `keep` 那个「形状不认识 →
+      // 空集 → 整条清零」的失效方式，绝不能在这里重演。
+      const accumulatedCount = Object.keys(context.cells).length;
+      const filteredOutEverything =
+        accumulatedCount > 0 && Object.keys(filteredCells).length === 0;
+      if (filteredOutEverything) {
+        logger.warn('Meituan amount change: submitted goodsList matched no accumulated cell, reporting unfiltered', {
+          endpointId: observed.endpointId,
+          submittedGoodsIds: goodsIds,
+          accumulatedCells: accumulatedCount,
+        });
+      }
+      const reportedCells = filteredOutEverything ? context.cells : filteredCells;
+
+      const droppedRoomTypes = accumulatedCount - Object.keys(reportedCells).length;
       if (droppedRoomTypes > 0) {
         logger.info('Meituan amount change: dropped cells of room types not in submitted goodsList', {
           droppedCells: droppedRoomTypes,

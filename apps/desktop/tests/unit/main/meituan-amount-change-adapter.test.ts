@@ -1910,6 +1910,177 @@ describe('美团价量态改动适配器', () => {
     });
   });
 
+  /* ==========================================================================
+   * code review 修复（2026-08-23）
+   * ========================================================================== */
+
+  describe('parse — 模式状态机的边界', () => {
+    /** 造一条模式 A 的 calc（判据是请求体的 `calcPriceUnifiedDateModel`）。 */
+    function calcA(poiId: string, goodsId: number, startDate: string, endDate: string) {
+      return {
+        endpointId: 'calcPriceV2',
+        endpointUrl: REAL_CALC_URL,
+        requestBody: {
+          poiId,
+          goodsList: [
+            {
+              goodsBaseInfo: { goodsId },
+              calcPriceUnifiedDateModel: { dates: [{ startDate, endDate }], calcPriceWeekModels: [] },
+            },
+          ],
+        } as unknown as JsonObject,
+        responseBody: JSON.stringify({
+          code: 10000,
+          success: true,
+          data: {
+            goodsDetails: [
+              {
+                goodsBaseInfo: { goodsId },
+                unifiedDatePriceInfos: {
+                  dates: [{ startDate, endDate }],
+                  weekPriceInfos: [
+                    {
+                      inWeek: [1, 2],
+                      priceInfo: { salePrice: '65000' },
+                      originalPriceInfo: { salePrice: '65159' },
+                    },
+                  ],
+                },
+                priceInfos: null,
+              },
+            ],
+          },
+        }),
+        pageUrl: REAL_PAGE_URL,
+      };
+    }
+
+    /** 请求体两个模式字段都没有 —— 判不出模式。 */
+    function calcUnknownMode(poiId: string, goodsId: number) {
+      const base = calcA(poiId, goodsId, '2026-09-08', '2026-09-09');
+      return {
+        ...base,
+        requestBody: { poiId, goodsList: [{ goodsBaseInfo: { goodsId } }] } as unknown as JsonObject,
+      };
+    }
+
+    /**
+     * 「模式 A 从不发 `unified`」是一条**否定式结论**，只由五份踩点支撑。硬编码
+     * `priceMode: 'separateDate'` 会在它不成立时让模式**粘错** —— 后续每条模式 A 的
+     * `separate` 都与记着的模式不符，于是每条 calc 都触发一次清空，只剩最后一条素材。
+     */
+    it('unified 的模式从请求体判，不硬编码（判错会让后续每条 calc 都清空）', () => {
+      const adapter = createMeituanAmountChangeAdapter(createLogger());
+
+      // 一条「模式 A 形状」的 unified —— 假设不成立时的样子
+      const reset = contextOf(
+        adapter.parse(
+          {
+            endpointId: 'unifiedCalcPriceV2',
+            endpointUrl: 'https://me.meituan.com/api/gw/v1/product/price/unified/calcPriceV2',
+            requestBody: {
+              poiId: '1834077877',
+              goodsList: [
+                {
+                  goodsBaseInfo: { goodsId: 1135787306 },
+                  calcPriceUnifiedDateModel: { dates: [], calcPriceWeekModels: [] },
+                },
+              ],
+            } as unknown as JsonObject,
+            responseBody: JSON.stringify({ code: 10000, success: true, data: { goodsDetails: [] } }),
+            pageUrl: REAL_PAGE_URL,
+          },
+          null,
+        ),
+      ) as JsonObject;
+
+      expect(reset.priceMode).toBe('unifiedDate');
+
+      // 后续两条模式 A 的 calc 必须能正常累积，而不是互相清空
+      let context = contextOf(
+        adapter.parse(calcA('1834077877', 1135787306, '2026-09-08', '2026-09-09'), reset),
+      ) as JsonObject;
+      context = contextOf(
+        adapter.parse(calcA('1834077877', 1135800654, '2026-09-08', '2026-09-09'), context),
+      ) as JsonObject;
+
+      expect(Object.keys(context.cells as JsonObject)).toHaveLength(2);
+    });
+
+    /**
+     * 换门店等于新会话。模式判不出时若沿用上一家的，本次会话会一直按错误的粒度累积，
+     * 并在提交时错误地决定要不要跑 `dropRoomTypesNotSubmitted`。
+     */
+    it('换门店后不沿用上一家的模式', () => {
+      const adapter = createMeituanAmountChangeAdapter(createLogger());
+
+      const first = contextOf(
+        adapter.parse(calcA('111', 1135787306, '2026-09-08', '2026-09-09'), null),
+      ) as JsonObject;
+      expect(first.priceMode).toBe('unifiedDate');
+
+      // 换店 + 判不出模式 → 不该继承 'unifiedDate'
+      const second = contextOf(adapter.parse(calcUnknownMode('222', 999), first)) as JsonObject;
+
+      expect(second.priceMode).toBeNull();
+    });
+
+    /**
+     * 未知模式下攒的格子走的是模式 B 的逐格语义。此刻若判定为模式 A，留着它们正是
+     * 「混着累」—— 判据必须是「两次模式是否相同」，未知也算一种取值。
+     */
+    it('模式从未知变成确定时同样清空（未知期的格子是模式 B 语义）', () => {
+      const adapter = createMeituanAmountChangeAdapter(createLogger());
+
+      const unknown = contextOf(adapter.parse(calcUnknownMode('111', 1135787306), null)) as JsonObject;
+      expect(unknown.priceMode).toBeNull();
+      expect(Object.keys(unknown.cells as JsonObject)).toHaveLength(1);
+
+      const settled = contextOf(
+        adapter.parse(calcA('111', 1135800654, '2026-09-08', '2026-09-09'), unknown),
+      ) as JsonObject;
+
+      expect(settled.priceMode).toBe('unifiedDate');
+      // 未知期那一格没被带进模式 A 的整条覆盖
+      expect(Object.keys(settled.cells as JsonObject)).toEqual([
+        '1135800654|2026-09-08|2026-09-09|1,2',
+      ]);
+    });
+
+    /**
+     * ⚠️ 裁空时的失效方向必须是**多报**，不是丢弃 —— 那正是已废弃的 `keep` 的失效方式
+     * （形状不认识 → 空集 → 整条清零）。累积非空却一个都没匹配上，说明准绳读错了，
+     * 不是用户把房型删光了（那样连提交都提交不了）。
+     */
+    it('提交清单与累积零交集时按不裁上报，不丢弃这次改价', () => {
+      const logger = createLogger();
+      const adapter = createMeituanAmountChangeAdapter(logger);
+
+      const context = contextOf(
+        adapter.parse(calcA('1834077877', 1135787306, '2026-09-08', '2026-09-09'), null),
+      ) as JsonObject;
+
+      // 提交体里的 goodsId 与累积里的完全对不上
+      const report = reportOf(
+        adapter.parse(
+          observedWith({
+            poiId: '1834077877',
+            createFlag: true,
+            goodsList: [{ goodsBaseInfo: { goodsId: 777000111 } }],
+          } as unknown as JsonObject),
+          context,
+        ),
+      );
+
+      expect(report).toBeDefined();
+      expect((report?.changeRaw as JsonObject).goodsDetails as readonly JsonObject[]).toHaveLength(1);
+      expect(logger.warn).toHaveBeenCalledWith(
+        expect.stringContaining('matched no accumulated cell'),
+        expect.objectContaining({ accumulatedCells: 1 }),
+      );
+    });
+  });
+
   describe('watchedEndpoints', () => {
     it('拦改价三个端点 + 房态房量三个端点', () => {
       const adapter = createMeituanAmountChangeAdapter(createLogger());

@@ -422,12 +422,13 @@ function withOriginalSalePrice(
  *
  * - 同键：**改后价取新的、改前价保留首次**（见 `MeituanCalcCell.originalSalePrice`）
  * - 新键：追加
- * - 超过 `MEITUAN_CALC_CELL_LIMIT`：丢最早的（插入序），返回被丢弃的条数供调用方记日志
+ *
+ * ⚠️ **不管上限** —— 上限由 `capMeituanCalcCells` 单独施加，两种模式的合并都要过它。
  */
 export function mergeMeituanCalcCells(
   accumulated: Readonly<Record<string, MeituanCalcCell>>,
   incoming: readonly MeituanCalcCell[],
-): Readonly<{ cells: Record<string, MeituanCalcCell>; dropped: number }> {
+): Readonly<Record<string, MeituanCalcCell>> {
   const merged: Record<string, MeituanCalcCell> = { ...accumulated };
 
   for (const cell of incoming) {
@@ -448,13 +449,28 @@ export function mergeMeituanCalcCells(
       : cell;
   }
 
-  let dropped = 0;
-  const keys = Object.keys(merged);
-  if (keys.length > MEITUAN_CALC_CELL_LIMIT) {
-    dropped = keys.length - MEITUAN_CALC_CELL_LIMIT;
-    for (const key of keys.slice(0, dropped)) delete merged[key];
-  }
-  return { cells: merged, dropped };
+  return merged;
+}
+
+/**
+ * 施加累积上限，超限丢最早的（`Record` 的插入序）。
+ *
+ * ⚠️ **两种模式都要过这一关**。模式 A 按 `goodsId` 整条覆盖，格数理应由页面约束，
+ * 但那依赖「每条 calc 都带该房型当前全量日期段」这个假设 —— 形状①的 `dates` 长度 >1 时
+ * 是否仍成立**未实测**（见文件头）。假设不成立时，没有上限就是无声无息地无限增长。
+ *
+ * @returns 被丢弃的条数，供调用方记日志。
+ */
+export function capMeituanCalcCells(
+  cells: Readonly<Record<string, MeituanCalcCell>>,
+): Readonly<{ cells: Record<string, MeituanCalcCell>; dropped: number }> {
+  const capped: Record<string, MeituanCalcCell> = { ...cells };
+  const keys = Object.keys(capped);
+  if (keys.length <= MEITUAN_CALC_CELL_LIMIT) return { cells: capped, dropped: 0 };
+
+  const dropped = keys.length - MEITUAN_CALC_CELL_LIMIT;
+  for (const key of keys.slice(0, dropped)) delete capped[key];
+  return { cells: capped, dropped };
 }
 
 /* ============================================================================
@@ -526,8 +542,9 @@ export function detectMeituanPriceMode(requestBody: JsonObject): MeituanPriceMod
  * ⚠️ 仍然**跨房型累积** —— 美团只为当次触碰的房型发 calc（`基础改价` 实测一次改 3 个房型，
  * 最后一条 calc 里只有 1 个）。覆盖的粒度是「一个 goodsId 的整条明细」，不是整个 context。
  *
- * ⚠️ 改前价仍**保留首次**：整条覆盖只丢掉该房型的旧格子，同格的 `originalPriceInfo` 要
- * 从被覆盖的那一份里搬回来，否则连续改同一格时会丢失用户操作前的真实起点。
+ * ⚠️ 改前价仍**保留首次**：整条覆盖只丢掉该房型的旧格子，`originalPriceInfo` 要从被覆盖
+ * 的那一份里搬回来，否则连续改同一格时会丢失用户操作前的真实起点。日期段变了时按
+ * **(goodsId, 周次档)** 回落着找 —— 改范围仍是同一次改动，起点没变。
  */
 export function mergeMeituanCalcCellsByGoods(
   accumulated: Readonly<Record<string, MeituanCalcCell>>,
@@ -546,10 +563,45 @@ export function mergeMeituanCalcCellsByGoods(
 
   // 复用逐格合并拿到「改前价保留首次」的回填，再只挑本次 calc 真正带回来的键 ——
   // `superseded` 里没被 incoming 命中的那些，正是用户删掉的日期段，就此丢弃。
-  const { cells: refilled } = mergeMeituanCalcCells(superseded, incoming);
+  const refilled = mergeMeituanCalcCells(superseded, incoming);
+
+  // ⚠️ 日期段变了时上面那步回填不到 —— 键里含日期段，段一变就是个新键，`refilled` 里
+  // 没有可搬的旧值。此时退一步按 **(goodsId, 周次档)** 找被覆盖的旧格子：用户把范围从
+  // `08-27~08-28` 改成 `08-26~08-29` 仍是同一次改动，改前价的真实起点没变。
+  //
+  // 实测美团的 `originalPriceInfo` 恒定（见 `MeituanCalcCell.originalSalePrice`），所以
+  // 这一步当下是**无操作**；写它是为了让模式 A 在「万一美团改成回填中间态」时与模式 B
+  // 有同样的防护，而不是悄悄少一层。
+  const supersededByWeek = new Map<string, MeituanCalcCell>();
+  for (const cell of Object.values(superseded)) {
+    const weekKey = `${cell.goodsId}|${[...cell.inWeek].sort((a, b) => a - b).join(',')}`;
+    // 保留最早的那条 —— 「改前价保留首次」的首次。
+    if (!supersededByWeek.has(weekKey)) supersededByWeek.set(weekKey, cell);
+  }
+
   for (const cell of incoming) {
     const key = meituanCalcCellKey(cell.goodsId, cell.startDate, cell.endDate, cell.inWeek);
-    kept[key] = refilled[key] ?? cell;
+    const sameKey = refilled[key];
+    if (sameKey && superseded[key]) {
+      // 同段同档：上面已按「保留首次」回填好。
+      kept[key] = sameKey;
+      continue;
+    }
+    const previousSegment = supersededByWeek.get(
+      `${cell.goodsId}|${[...cell.inWeek].sort((a, b) => a - b).join(',')}`,
+    );
+    kept[key] =
+      previousSegment && previousSegment.originalSalePrice !== null
+        ? {
+            ...cell,
+            originalSalePrice: previousSegment.originalSalePrice,
+            weekPriceInfo: withOriginalSalePrice(
+              cell.weekPriceInfo,
+              previousSegment.originalSalePrice,
+              previousSegment.weekPriceInfo,
+            ),
+          }
+        : (sameKey ?? cell);
   }
   return kept;
 }
@@ -572,10 +624,13 @@ export function mergeMeituanCalcCellsByGoods(
  * | 裁剪维度 | `(goodsId, 日期段)` | **只裁 `goodsId`** |
  * | 解决什么 | 日期段变更残留 | **房型移除残留** |
  * | 依赖 | 解读提交体的**日期结构**（两种模式形状不同） | 只读 `goodsBaseInfo.goodsId`（**两种模式路径相同**） |
- * | 失效方式 | 形状不认识 → 空集 → **整条清零** | 读不出 goodsId 时上游守卫已 `return null`，走不到这里 |
+ * | 失效方式 | 形状不认识 → 空集 → **整条清零** | 读不出 goodsId 时上游守卫已 `return null`；万一裁空，调用方**改为不裁**（见 `parse`） |
  *
  * `keep` 的致命缺陷源于「日期结构有两种形状，只认一种就返回空集」，而 `goodsId` 的取法
  * 两个模式完全一致，该缺陷不复存在。
+ *
+ * ⚠️ 即便如此，调用方仍**兜了一层**：累积非空却被裁成空集时按「不裁」上报，而不是丢弃
+ * （见 `parse`）。判据读错时的正确失效方向是**多报**，不是让一次真实改价凭空消失。
  *
  * ⚠️ 模式 B **不用**这个函数 —— `unified` 已覆盖房型移除的场景，两条路各自闭环。
  */
