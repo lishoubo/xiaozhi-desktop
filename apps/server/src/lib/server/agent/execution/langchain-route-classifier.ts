@@ -32,7 +32,8 @@ const temporalReviewSchema = z.strictObject({
 	date: z.string().nullable(),
 	dateRange: z.string().nullable(),
 	checkIn: z.string().nullable(),
-	checkOut: z.string().nullable()
+	checkOut: z.string().nullable(),
+	relativeCompleteDays: z.number().int().min(1).max(366).nullable()
 });
 
 type TemporalReview = z.infer<typeof temporalReviewSchema>;
@@ -40,7 +41,10 @@ const NORMALIZED_DATE = /^\d{4}-\d{2}-\d{2}$/;
 const NORMALIZED_DATE_RANGE = /^\d{4}-\d{2}-\d{2}\/\d{4}-\d{2}-\d{2}$/;
 
 export function normalizedTemporalReviewSlots(
-	temporal: Pick<TemporalReview, 'date' | 'dateRange' | 'checkIn' | 'checkOut'>
+	temporal: Pick<
+		TemporalReview,
+		'date' | 'dateRange' | 'checkIn' | 'checkOut' | 'relativeCompleteDays'
+	>
 ): Readonly<Record<string, string>> {
 	const slots: Record<string, string> = {};
 	for (const [name, value] of Object.entries({
@@ -54,14 +58,10 @@ export function normalizedTemporalReviewSlots(
 			slots[name] = value;
 		}
 	}
+	if (!slots.dateRange && temporal.relativeCompleteDays !== null) {
+		slots.dateRange = `@date:complete-days:${temporal.relativeCompleteDays}`;
+	}
 	return slots;
-}
-
-export function temporalReviewNeedsEscalation(temporal: TemporalReview): boolean {
-	return (
-		temporal.hasExplicitTimeConstraint &&
-		Object.keys(normalizedTemporalReviewSlots(temporal)).length === 0
-	);
 }
 
 export const routeStructuredOutputConfig = {
@@ -137,13 +137,17 @@ export class LangChainRouteClassifier implements RouteClassifier {
 			request: string;
 			schema: z.ZodType<T>;
 			escalate?: (value: T) => boolean;
+			fallbackTier?: 'fast' | 'analysis';
 		}>
 	): Promise<T> {
 		const schemaJson = JSON.stringify(z.toJSONSchema(input.schema));
 		let lastError: unknown;
 		const attempts = [
 			{ model: this.reviewModel, timeoutMs: 35_000 },
-			{ model: this.fallbackReviewModel, timeoutMs: 120_000 }
+			{
+				model: input.fallbackTier === 'fast' ? this.reviewModel : this.fallbackReviewModel,
+				timeoutMs: input.fallbackTier === 'fast' ? 35_000 : 120_000
+			}
 		];
 		for (const [attempt, review] of attempts.entries()) {
 			const response = await runAgentEffect(
@@ -264,10 +268,10 @@ export class LangChainRouteClassifier implements RouteClassifier {
 		const temporal = await this.reviewJson({
 			operation: 'review_route_temporal_scope',
 			systemPrompt:
-				'只复核酒店业务请求的时间范围和回答模式，不分类、不回答。判断当前请求或其直接指代的相关上下文是否明确给出时间约束；相对、模糊、代词式或承接式时间表达也属于时间约束。当前请求承接最近相关业务任务时，优先使用历史上下文 recentBusinessRequests 中已规范化的日期范围；不得留空让后续取证模型自由选择。确实既没有当前时间表达、也没有相关结构化前序范围时，才返回 false 且所有日期为空，绝不默认今天、本月或最近。结合输入中的当前日期和 Asia/Shanghai 规范化。任何酒店业务读中的“最近/近 N 天”默认是截至昨天的 N 个完整自然日，除非用户明确要求包含今天；小时级窗口不适用。酒店经营或通用数据查询使用 dateRange（单日也写成起止相同），公开房价使用 checkIn/checkOut。需要评价、比较、诊断、归因、趋势、原因、建议，或把多个维度综合成画像、结构或结论时 responseMode 为 analysis；只要原始列表、详情或数字时为 data_only。',
+				'只复核酒店业务请求的时间范围和回答模式，不分类、不回答。判断当前请求或其直接指代的相关上下文是否明确给出时间约束；相对、模糊、代词式或承接式时间表达也属于时间约束。当前请求承接最近相关业务任务时，优先使用历史上下文 recentBusinessRequests 中已规范化的日期范围；不得留空让后续取证模型自由选择。确实既没有当前时间表达、也没有相关结构化前序范围时，才返回 false 且所有日期为空，绝不默认今天、本月或最近。结合输入中的当前日期和 Asia/Shanghai 规范化。明确起止日期写入 dateRange；相对完整自然日窗口不要自行计算日期，数量写入 relativeCompleteDays。用户给出 N 天时填 N；只表达泛指的近期窗口且任务是酒店经营、流量、内容等历史分析时，采用产品默认 7 个完整自然日。完整自然日截至昨天，除非用户明确要求包含今天；小时级窗口不适用。公开房价使用 checkIn/checkOut，不使用默认历史窗口。需要评价、比较、诊断、归因、趋势、原因、建议，或把多个维度综合成画像、结构或结论时 responseMode 为 analysis；只要原始列表、详情或数字时为 data_only。',
 			request,
 			schema: temporalReviewSchema,
-			escalate: temporalReviewNeedsEscalation
+			fallbackTier: 'fast'
 		});
 		const nonTemporalSlots = Object.fromEntries(
 			Object.entries(classified.slots).filter(

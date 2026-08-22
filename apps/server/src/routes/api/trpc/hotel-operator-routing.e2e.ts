@@ -55,6 +55,9 @@ function shanghaiDateOffset(days: number): string {
 const todayPattern = new RegExp(`${shanghaiDateOffset(0)}|today`, 'i');
 const yesterdayPattern = new RegExp(`${shanghaiDateOffset(-1)}|yesterday`, 'i');
 const completeSevenDayPattern = new RegExp(`${shanghaiDateOffset(-7)}.*${shanghaiDateOffset(-1)}`);
+const defaultRecentWindowPattern = new RegExp(
+	`@date:complete-days:7|${shanghaiDateOffset(-7)}.*${shanghaiDateOffset(-1)}`
+);
 
 const sevenDayOperatingContext = conversationContext(
 	[
@@ -155,6 +158,20 @@ const scenarios: readonly RoutingScenario[] = [
 			responseMode: 'analysis',
 			slots: { hotelReference: /银际/, metrics: /流量/ },
 			absentSlots: ['dateRange']
+		}
+	},
+	{
+		name: '泛指近期流量使用默认完整七天',
+		prompt: '查询银际酒店近期的流量状况。',
+		expected: {
+			routeKind: 'business_read',
+			intent: 'generic_hotel_data_query',
+			responseMode: 'analysis',
+			slots: {
+				hotelReference: /银际/,
+				dateRange: defaultRecentWindowPattern,
+				metrics: /流量/
+			}
 		}
 	},
 	{

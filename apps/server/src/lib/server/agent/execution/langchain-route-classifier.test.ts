@@ -3,8 +3,7 @@ import { z } from 'zod';
 import {
 	normalizedTemporalReviewSlots,
 	parseReviewedJson,
-	routeStructuredOutputConfig,
-	temporalReviewNeedsEscalation
+	routeStructuredOutputConfig
 } from './langchain-route-classifier';
 
 describe('LangChain route classifier configuration', () => {
@@ -59,7 +58,8 @@ describe('LangChain route classifier configuration', () => {
 				date: null,
 				dateRange: '2026-08-15/2026-08-21',
 				checkIn: '下周五',
-				checkOut: '2026-08-29'
+				checkOut: '2026-08-29',
+				relativeCompleteDays: null
 			})
 		).toEqual({ dateRange: '2026-08-15/2026-08-21', checkOut: '2026-08-29' });
 		expect(
@@ -67,41 +67,30 @@ describe('LangChain route classifier configuration', () => {
 				date: null,
 				dateRange: '@date:complete-days:7',
 				checkIn: null,
-				checkOut: null
+				checkOut: null,
+				relativeCompleteDays: null
 			})
 		).toEqual({});
 	});
 
-	it('escalates only unresolved explicit time constraints to the analysis model', () => {
+	it('turns a model-understood relative window into a deterministic date protocol', () => {
 		expect(
-			temporalReviewNeedsEscalation({
-				hasExplicitTimeConstraint: true,
-				responseMode: 'analysis',
+			normalizedTemporalReviewSlots({
 				date: null,
 				dateRange: null,
 				checkIn: null,
-				checkOut: null
+				checkOut: null,
+				relativeCompleteDays: 7
 			})
-		).toBe(true);
+		).toEqual({ dateRange: '@date:complete-days:7' });
 		expect(
-			temporalReviewNeedsEscalation({
-				hasExplicitTimeConstraint: true,
-				responseMode: 'analysis',
+			normalizedTemporalReviewSlots({
 				date: null,
 				dateRange: '2026-08-15/2026-08-21',
 				checkIn: null,
-				checkOut: null
+				checkOut: null,
+				relativeCompleteDays: 7
 			})
-		).toBe(false);
-		expect(
-			temporalReviewNeedsEscalation({
-				hasExplicitTimeConstraint: false,
-				responseMode: 'data_only',
-				date: null,
-				dateRange: null,
-				checkIn: null,
-				checkOut: null
-			})
-		).toBe(false);
+		).toEqual({ dateRange: '2026-08-15/2026-08-21' });
 	});
 });
