@@ -68,14 +68,17 @@
  * 提交时把累积的格子重建成 `goodsDetails[]`。累积逻辑见 `./amount-change-payload.ts`
  * 的「累积」一节，状态的生命周期见 `../amount-save-capture.ts` 文件头。
  *
- * ## ⚠️ 累积不保证与提交一致，所以要对账
+ * ## ⚠️ 累积不保证与提交完全一致 —— 这是**有意不处理**的
  *
- * 累积再完整也补不齐两种偏离：美团**没为某些档发过 calc**（`missing-calc`），以及用户
- * 改完数值**没再触发 calc** 就提交（`mismatched` —— 上报一个从未生效过的价格，比漏报更
- * 危险）。因此提交时用提交体逐格对照一次，结果挂在 `changeRaw.calcUpdateCheck` 上交给
- * RMS 判断可信度。规格见 `./calc-update-check.ts`。
+ * 累积再完整也补不齐两种偏离：美团**没为某些档发过 calc**，以及用户改完数值**没再触发
+ * calc** 就提交。desktop **不对账、不判断素材可不可信**：
  *
- * 对账**不改变是否上报**：美团确认成功就照发，desktop 只当探针。
+ * - 服务端明确不消费对账结果（`client-feedback.md` §1），改价解析照常读 `goodsDetails`
+ * - 判断「这个价可不可信」需要卖价 + 底价 + 佣金率三元组，只比 `salePrice` 一项得不出
+ *   可靠结论 —— 那是 RMS 的职责，不是探针的
+ *
+ * 唯一做的过滤是**按提交体裁掉过期日期区间**（见 `rebuildGoodsDetails` 的 `keep`），
+ * 那是为了不上报用户已经放弃的中间状态，不是对账。
  *
  * ## ⚠️ 为什么必须看 `createFlag`
  *
@@ -108,7 +111,6 @@ import {
   toMeituanAmountChangeRaw,
   type MeituanCalcCell,
 } from './amount-change-payload';
-import { buildMeituanCalcUpdateCheck } from './calc-update-check';
 
 const MEITUAN_HOTEL_HOSTNAME = 'me.meituan.com';
 
@@ -563,21 +565,19 @@ export function createMeituanAmountChangeAdapter(logger: AppLogger): AmountChang
 
       // 重建上报体：把累积的格子拼回 calc 响应的形状（RMS 现有解析逻辑继续有效），
       // 并按提交体过滤掉用户中途放弃的日期区间（见 `rebuildGoodsDetails` 的 `keep`）。
-      const goodsDetails = rebuildGoodsDetails(
-        context.cells,
-        submittedGoodsDateKeys(observed.requestBody),
-      );
+      const submittedKeys = submittedGoodsDateKeys(observed.requestBody);
+      const goodsDetails = rebuildGoodsDetails(context.cells, submittedKeys);
 
-      // 对账：逐格比 calc 与 update，把「这份素材可不可信」如实交给 RMS 判断。
-      // ⚠️ 对账结果**不改变是否上报** —— 美团确认成功就照发，见 ./calc-update-check.ts。
-      const calcUpdateCheck = buildMeituanCalcUpdateCheck(observed.requestBody, context.cells);
-      const matched = calcUpdateCheck.cells.filter((cell) => cell.status === 'matched').length;
-      logger.info('Meituan amount change: calc/update check done', {
-        comparable: calcUpdateCheck.comparable,
-        updateOperateTypes: calcUpdateCheck.updateOperateTypes,
-        totalCells: calcUpdateCheck.cells.length,
-        matched,
-      });
+      // ⚠️ 素材为空但用户确实提交了 —— 唯一已知成因是提交体形状没被认出来（`keep` 落空，
+      // 见 `submittedGoodsDateKeys`），高级模式真机踩过。失效方式是**静默上报空素材**，
+      // 所以这里必须留一条能诊断的日志。
+      if (goodsDetails.length === 0) {
+        logger.warn('Meituan amount change: rebuilt goodsDetails is empty, reporting anyway', {
+          endpointId: observed.endpointId,
+          accumulatedCells: Object.keys(context.cells).length,
+          submittedKeys: submittedKeys.size,
+        });
+      }
 
       return {
         kind: 'report',
@@ -589,11 +589,9 @@ export function createMeituanAmountChangeAdapter(logger: AppLogger): AmountChang
           endpointUrl: context.endpointUrl,
           otaHotelId,
           // 发的是试算结果，不是提交体 —— 后者只有相对操作，对 RMS 是死信息（见文件头）。
-          // 外加 calcUpdateCheck：desktop 算出来的对照结果，不是美团字段。
           changeRaw: {
             goodsDetails,
             globalPricePrompt: context.globalPricePrompt,
-            calcUpdateCheck,
           },
         },
       };

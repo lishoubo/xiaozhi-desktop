@@ -23,8 +23,8 @@
  * 形状与单次试算响应一致，RMS 现有解析逻辑不受影响。
  *
  * ⚠️ 累积再完整也不保证与用户实际提交的一致（美团可能没为某些档发过试算，用户也可能改完
- * 不再触发试算）。因此上报体里还有一份 **`calcUpdateCheck`** —— 提交时逐格对照的结果，
- * **规格见 `./calc-update-check.ts`**，RMS 据它判断哪些格子可信。
+ * 不再触发试算）。desktop **不对账、不判断素材可不可信** —— 那需要卖价+底价+佣金率三元组，
+ * 是 RMS 的职责。唯一的过滤是按提交体裁掉过期日期区间，见 `rebuildGoodsDetails` 的 `keep`。
  *
  * 保存请求体为什么一个字节都不发：它只有相对操作，而 **RMS 侧没有美团的数据** —— 既没有
  * 基准价可以算出结果，也无从校验。「+1 元」到了那边是死信息。真出现「试算与实际不符」，
@@ -46,15 +46,11 @@
  * │   ├── weekDiff                     用户有没有开「周末差异定价」
  * │   ├── pricePrompt                  语义未知，实测恒空
  * │   └── ratioConfig                  比例联动配置，实测恒 null
- * ├── globalPricePrompt                语义未知，实测恒空
- * └── calcUpdateCheck                  ⚠️ **desktop 计算产物，不是美团字段**
- *                                      calc 与 update 的逐格对照结果
- *                                      **规格见 `./calc-update-check.ts`**
+ * └── globalPricePrompt                语义未知，实测恒空
  * ```
  *
- * ⚠️ **这张图里只有 `calcUpdateCheck` 不是美团发来的** —— 其余全是试算响应的原始内容
- * （忠实透传、只裁不改）。它单独一份规格文件，RMS 对接改价时两份都要读。它是**可选**的：
- * 只有改价提交那一刻才挂上，试算阶段暂存的素材里没有。
+ * ⚠️ **这张图里全是美团发来的原始内容**（忠实透传、只裁不改）—— desktop 不往 `changeRaw`
+ * 里加任何自己算出来的字段。
  *
  * ## 两种日期形状，RMS 必须都认
  *
@@ -93,6 +89,27 @@
  *
  * ⚠️ 形状①里 `dates` 是数组而 `weekPriceInfos` 只有一份 —— 多个日期区间**共享**同一批周次档。
  * 实测只见过 `dates` 长度为 1，长度 >1 时是否仍是共享语义**未实测**。
+ *
+ * ## ⚠️ 请求侧也有两种形状，且**与响应侧一一对应**
+ *
+ * 上面两种是**响应**的形状。**请求**（试算与提交）同样有两种，取决于用户用的改价模式 ——
+ * 形状**随模式走，不随端点走**：同一模式下 `calcPriceV2` 与 `updatePriceV2` 用同一套字段名，
+ * 后者只是前者的子集。
+ *
+ * ```
+ * 模式 A「统一日期」  响应 unifiedDatePriceInfos   ←→  请求 calcPriceUnifiedDateModel
+ * 模式 B「日期分开」  响应 priceInfos[]            ←→  请求 calcPriceModels[]
+ *                    （日期挂在每段里）                 （日期挂在每段里）
+ * ```
+ *
+ * | 页面入口 | 模式 |
+ * |---|---|
+ * | 批量改价（基础） | A |
+ * | 日历页改价 | A |
+ * | 批量改价 →「日期分开改价」 | **B** |
+ *
+ * 解析请求侧的只有 `submittedGoodsDateKeys()`（按提交范围过滤过期日期区间），两种形状都认，
+ * 详见那个函数的注释 —— **只认一种会让另一种模式静默上报空素材**。
  *
  * ## weekPriceInfos[] —— 价格就在这里
  *
@@ -152,7 +169,6 @@
  * - `updatePriceV2` 之外是否还有别的保存端点（房态房量尚未接入）
  */
 import type { JsonObject } from '../../../shared/types/json';
-import type { MeituanCalcUpdateCheck } from './calc-update-check';
 
 /**
  * 美团的 `changeRaw`。
@@ -165,13 +181,6 @@ export type MeituanAmountChangeRaw = JsonObject &
   Readonly<{
     goodsDetails?: readonly JsonObject[];
     globalPricePrompt?: JsonObject | null;
-    /**
-     * calc 与 update 的逐格对照结果。
-     *
-     * ⚠️ **desktop 计算产物，不是美团字段** —— 规格见 `./calc-update-check.ts`。
-     * 可选：只有改价提交那一刻才挂上，试算阶段暂存的素材里没有。
-     */
-    calcUpdateCheck?: MeituanCalcUpdateCheck;
   }>;
 
 function isJsonObject(value: unknown): value is JsonObject {
@@ -231,7 +240,7 @@ export function toMeituanAmountChangeRaw(responseBody: string): MeituanAmountCha
  * calc③  又改了 A      →  {A', B}     ← 同格覆盖，取新值
  * ```
  *
- * 一格（cell）= (房型 × 日期区间 × 周次档)，与 `./calc-update-check.ts` 的口径完全一致。
+ * 一格（cell）= (房型 × 日期区间 × 周次档)。
  */
 
 /** 累积的一格。`detail` 留着重建 `goodsDetails[]` 用，见 `rebuildGoodsDetails`。 */
@@ -470,8 +479,34 @@ export function goodsDateKey(goodsId: string, startDate: string, endDate: string
 /**
  * 从 `updatePriceV2` 的**提交体**里取出全部 `(goodsId × 日期区间)` —— 用户真正提交的范围。
  *
- * 提交体的日期挂在 `calcPriceUnifiedDateModel.dates[]`（字段名与 calc 响应不同，见
- * design.md 决策 6），一个房型可以有多段日期。
+ * ============================================================================
+ * ⚠️ 提交体有**两种形状**，取决于用户用的改价模式，两种都必须认
+ * ============================================================================
+ *
+ * 形状**随改价模式走，不随端点走** —— 同一模式下 calc 与 update 用同一套字段名
+ * （update 只是 calc 的子集，砍掉了 `priceInfos` / `pricePrompt` 等只有试算才需要的字段）：
+ *
+ * ```
+ * 模式 A「统一日期」  calcPriceUnifiedDateModel   日期在**外层**，所有日期段共享周次档
+ *   { dates: [{08-26~08-29}, {09-09~10-08}], calcPriceWeekModels: [...] }
+ *
+ * 模式 B「日期分开」  calcPriceModels[]           日期在**里层**，每段各带各的价
+ *   [ { startDate:09-08, endDate:09-09, calcPriceWeekModels: [...] },
+ *     { startDate:09-10, endDate:09-11, calcPriceWeekModels: [...] } ]
+ * ```
+ *
+ * | 页面入口 | 模式 |
+ * |---|---|
+ * | 批量改价（基础） | A |
+ * | 日历页改价 | A |
+ * | 批量改价 →「日期分开改价」 | **B** |
+ *
+ * ⚠️ **只认一种的后果是静默丢整条**：另一种模式下这里返回空集 → `rebuildGoodsDetails`
+ * 的 `keep` 把全部格子裁光 → `goodsDetails` 上报为空。回放 `批量改房价-高级改价.md`
+ * 的真实序列实测复现过（4 次 calc 累积正常，提交时 `keep=0`）。
+ *
+ * ⚠️ **判据要落在「模式」上，不要落在「端点」上** —— 这条踩过两次坑（形状漏认、
+ * `unified/calcPriceV2`），见 design.md 决策 5。
  */
 export function submittedGoodsDateKeys(requestBody: JsonObject): ReadonlySet<string> {
   const keys = new Set<string>();
@@ -484,16 +519,47 @@ export function submittedGoodsDateKeys(requestBody: JsonObject): ReadonlySet<str
     const goodsId = isJsonObject(baseInfo) ? toIdString(baseInfo.goodsId) : '';
     if (!goodsId) continue;
 
-    const model = goods.calcPriceUnifiedDateModel;
-    if (!isJsonObject(model) || !Array.isArray(model.dates)) continue;
-    for (const date of model.dates) {
-      if (!isJsonObject(date)) continue;
-      const startDate = toIdString(date.startDate);
-      const endDate = toIdString(date.endDate);
-      if (startDate && endDate) keys.add(goodsDateKey(goodsId, startDate, endDate));
+    for (const { startDate, endDate } of submittedDateRanges(goods)) {
+      keys.add(goodsDateKey(goodsId, startDate, endDate));
     }
   }
   return keys;
+}
+
+/** 提交体里一个房型的日期区间。两种形状归一后的结果，见 `submittedGoodsDateKeys`。 */
+type SubmittedDateRange = Readonly<{ startDate: string; endDate: string }>;
+
+/**
+ * 展开一个房型在提交体里的全部日期区间，**两种形状都认**。
+ *
+ * 归一只发生在这里 —— 上层拿到的是统一的 `(startDate, endDate)` 列表。
+ */
+function submittedDateRanges(goods: JsonObject): readonly SubmittedDateRange[] {
+  const ranges: SubmittedDateRange[] = [];
+
+  // 模式 B「日期分开」：日期挂在每个元素上。先判它 —— 两个字段实测不同时出现。
+  const separateModels = goods.calcPriceModels;
+  if (Array.isArray(separateModels)) {
+    for (const model of separateModels) {
+      if (!isJsonObject(model)) continue;
+      const startDate = toIdString(model.startDate);
+      const endDate = toIdString(model.endDate);
+      if (startDate && endDate) ranges.push({ startDate, endDate });
+    }
+    return ranges;
+  }
+
+  // 模式 A「统一日期」：日期挂在外层，全部周次档共享这批日期。
+  const unifiedModel = goods.calcPriceUnifiedDateModel;
+  if (isJsonObject(unifiedModel) && Array.isArray(unifiedModel.dates)) {
+    for (const date of unifiedModel.dates) {
+      if (!isJsonObject(date)) continue;
+      const startDate = toIdString(date.startDate);
+      const endDate = toIdString(date.endDate);
+      if (startDate && endDate) ranges.push({ startDate, endDate });
+    }
+  }
+  return ranges;
 }
 
 /**

@@ -315,6 +315,493 @@ const REAL_CALC_RESPONSE = JSON.stringify({
   success: true,
 });
 
+/* ============================================================================
+ * 高级改价（模式 B）—— `docs/踩点/美团/批量改房价-高级改价.md` 的真实序列
+ * ============================================================================
+ *
+ * 与基础改价的唯一结构差别：日期挂在 `calcPriceModels[]` **每个元素**上，而不是
+ * `calcPriceUnifiedDateModel.dates[]`。只认后者会让 `keep` 落空、上报空素材。
+ *
+ * 用户操作：2 个房型 × 2 个日期段，各加价 1 元 → 美团发 4 次试算（每次一房型一段）
+ * → 提交时 2 个房型各带 2 段。
+ */
+const MODE_B_CALCS = [
+  {
+    req: {
+      "poiId": "1834077877",
+      "partnerId": 4824962,
+      "goodsList": [
+        {
+          "goodsBaseInfo": {
+            "goodsId": 1135787306
+          },
+          "calcPriceModels": [
+            {
+              "startDate": "2026-09-08",
+              "endDate": "2026-09-09",
+              "calcPriceWeekModels": [
+                {
+                  "inWeek": [
+                    2,
+                    3
+                  ],
+                  "calcPriceInfo": {
+                    "salePrice": {
+                      "operateType": 1,
+                      "operateNum": "100"
+                    },
+                    "basePrice": {
+                      "operateType": 3,
+                      "operateNum": ""
+                    },
+                    "subPrice": {
+                      "operateType": 3,
+                      "operateNum": ""
+                    }
+                  },
+                  "calcPriceFactorInfos": []
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    } as unknown as JsonObject,
+    resp: JSON.stringify({
+      "code": 10000,
+      "error": null,
+      "traceId": "-866730487513130627",
+      "success": true,
+      "data": {
+        "goodsDetails": [
+          {
+            "goodsBaseInfo": {
+              "goodsId": 1135787306
+            },
+            "priceRecordWay": 8,
+            "unifiedDatePriceInfos": null,
+            "priceInfos": [
+              {
+                "startDate": "2026-09-08",
+                "endDate": "2026-09-09",
+                "weekPriceInfos": [
+                  {
+                    "inWeek": [
+                      2,
+                      3
+                    ],
+                    "priceInfo": {
+                      "salePrice": "55157"
+                    },
+                    "originalPriceInfo": {
+                      "salePrice": "55057"
+                    }
+                  }
+                ]
+              }
+            ],
+            "weekDiff": false
+          }
+        ],
+        "globalPricePrompt": {
+          "prompts": null,
+          "unifiedSubRatio": null,
+          "unifiedBaseAddRatio": null
+        }
+      }
+    }),
+  },
+  {
+    req: {
+      "poiId": "1834077877",
+      "partnerId": 4824962,
+      "goodsList": [
+        {
+          "goodsBaseInfo": {
+            "goodsId": 1135787306
+          },
+          "calcPriceModels": [
+            {
+              "startDate": "2026-09-10",
+              "endDate": "2026-09-11",
+              "calcPriceWeekModels": [
+                {
+                  "inWeek": [
+                    4,
+                    5
+                  ],
+                  "calcPriceInfo": {
+                    "salePrice": {
+                      "operateType": 1,
+                      "operateNum": "100"
+                    },
+                    "basePrice": {
+                      "operateType": 3,
+                      "operateNum": ""
+                    },
+                    "subPrice": {
+                      "operateType": 3,
+                      "operateNum": ""
+                    }
+                  },
+                  "calcPriceFactorInfos": []
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    } as unknown as JsonObject,
+    resp: JSON.stringify({
+      "code": 10000,
+      "error": null,
+      "traceId": "-866730487404018258",
+      "success": true,
+      "data": {
+        "goodsDetails": [
+          {
+            "goodsBaseInfo": {
+              "goodsId": 1135787306
+            },
+            "priceRecordWay": 8,
+            "unifiedDatePriceInfos": null,
+            "priceInfos": [
+              {
+                "startDate": "2026-09-10",
+                "endDate": "2026-09-11",
+                "weekPriceInfos": [
+                  {
+                    "inWeek": [
+                      4,
+                      5
+                    ],
+                    "priceInfo": {
+                      "salePrice": "55157"
+                    },
+                    "originalPriceInfo": {
+                      "salePrice": "55057"
+                    }
+                  }
+                ]
+              }
+            ],
+            "weekDiff": false
+          }
+        ],
+        "globalPricePrompt": {
+          "prompts": null,
+          "unifiedSubRatio": null,
+          "unifiedBaseAddRatio": null
+        }
+      }
+    }),
+  },
+  {
+    req: {
+      "poiId": "1834077877",
+      "partnerId": 4824962,
+      "goodsList": [
+        {
+          "goodsBaseInfo": {
+            "goodsId": 1135800654
+          },
+          "calcPriceModels": [
+            {
+              "startDate": "2026-09-08",
+              "endDate": "2026-09-09",
+              "calcPriceWeekModels": [
+                {
+                  "inWeek": [
+                    2,
+                    3
+                  ],
+                  "calcPriceInfo": {
+                    "salePrice": {
+                      "operateType": 1,
+                      "operateNum": "100"
+                    },
+                    "basePrice": {
+                      "operateType": 3,
+                      "operateNum": ""
+                    },
+                    "subPrice": {
+                      "operateType": 3,
+                      "operateNum": ""
+                    }
+                  },
+                  "calcPriceFactorInfos": []
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    } as unknown as JsonObject,
+    resp: JSON.stringify({
+      "code": 10000,
+      "error": null,
+      "traceId": "-866730487458800657",
+      "success": true,
+      "data": {
+        "goodsDetails": [
+          {
+            "goodsBaseInfo": {
+              "goodsId": 1135800654
+            },
+            "priceRecordWay": 8,
+            "unifiedDatePriceInfos": null,
+            "priceInfos": [
+              {
+                "startDate": "2026-09-08",
+                "endDate": "2026-09-09",
+                "weekPriceInfos": [
+                  {
+                    "inWeek": [
+                      2,
+                      3
+                    ],
+                    "priceInfo": {
+                      "salePrice": "56123"
+                    },
+                    "originalPriceInfo": {
+                      "salePrice": "56023"
+                    }
+                  }
+                ]
+              }
+            ],
+            "weekDiff": false
+          }
+        ],
+        "globalPricePrompt": {
+          "prompts": null,
+          "unifiedSubRatio": null,
+          "unifiedBaseAddRatio": null
+        }
+      }
+    }),
+  },
+  {
+    req: {
+      "poiId": "1834077877",
+      "partnerId": 4824962,
+      "goodsList": [
+        {
+          "goodsBaseInfo": {
+            "goodsId": 1135800654
+          },
+          "calcPriceModels": [
+            {
+              "startDate": "2026-09-10",
+              "endDate": "2026-09-11",
+              "calcPriceWeekModels": [
+                {
+                  "inWeek": [
+                    4,
+                    5
+                  ],
+                  "calcPriceInfo": {
+                    "salePrice": {
+                      "operateType": 1,
+                      "operateNum": "100"
+                    },
+                    "basePrice": {
+                      "operateType": 3,
+                      "operateNum": ""
+                    },
+                    "subPrice": {
+                      "operateType": 3,
+                      "operateNum": ""
+                    }
+                  },
+                  "calcPriceFactorInfos": []
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    } as unknown as JsonObject,
+    resp: JSON.stringify({
+      "code": 10000,
+      "error": null,
+      "traceId": "-866730487634361777",
+      "success": true,
+      "data": {
+        "goodsDetails": [
+          {
+            "goodsBaseInfo": {
+              "goodsId": 1135800654
+            },
+            "priceRecordWay": 8,
+            "unifiedDatePriceInfos": null,
+            "priceInfos": [
+              {
+                "startDate": "2026-09-10",
+                "endDate": "2026-09-11",
+                "weekPriceInfos": [
+                  {
+                    "inWeek": [
+                      4,
+                      5
+                    ],
+                    "priceInfo": {
+                      "salePrice": "56123"
+                    },
+                    "originalPriceInfo": {
+                      "salePrice": "56023"
+                    }
+                  }
+                ]
+              }
+            ],
+            "weekDiff": false
+          }
+        ],
+        "globalPricePrompt": {
+          "prompts": null,
+          "unifiedSubRatio": null,
+          "unifiedBaseAddRatio": null
+        }
+      }
+    }),
+  },
+] as const;
+
+/** 提交体 —— 用户点确认那次（`createFlag: true`），两个房型各带两个日期段。 */
+const MODE_B_UPDATE = {
+  "poiId": "1834077877",
+  "partnerId": 4824962,
+  "createFlag": true,
+  "goodsList": [
+    {
+      "goodsBaseInfo": {
+        "goodsId": 1135787306
+      },
+      "calcPriceModels": [
+        {
+          "startDate": "2026-09-08",
+          "endDate": "2026-09-09",
+          "calcPriceWeekModels": [
+            {
+              "inWeek": [
+                2,
+                3
+              ],
+              "calcPriceInfo": {
+                "salePrice": {
+                  "operateType": 1,
+                  "operateNum": "100"
+                },
+                "basePrice": {
+                  "operateType": 3,
+                  "operateNum": ""
+                },
+                "subPrice": {
+                  "operateType": 3,
+                  "operateNum": ""
+                }
+              },
+              "calcPriceFactorInfos": null
+            }
+          ]
+        },
+        {
+          "startDate": "2026-09-10",
+          "endDate": "2026-09-11",
+          "calcPriceWeekModels": [
+            {
+              "inWeek": [
+                4,
+                5
+              ],
+              "calcPriceInfo": {
+                "salePrice": {
+                  "operateType": 1,
+                  "operateNum": "100"
+                },
+                "basePrice": {
+                  "operateType": 3,
+                  "operateNum": ""
+                },
+                "subPrice": {
+                  "operateType": 3,
+                  "operateNum": ""
+                }
+              },
+              "calcPriceFactorInfos": null
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "goodsBaseInfo": {
+        "goodsId": 1135800654
+      },
+      "calcPriceModels": [
+        {
+          "startDate": "2026-09-08",
+          "endDate": "2026-09-09",
+          "calcPriceWeekModels": [
+            {
+              "inWeek": [
+                2,
+                3
+              ],
+              "calcPriceInfo": {
+                "salePrice": {
+                  "operateType": 1,
+                  "operateNum": "100"
+                },
+                "basePrice": {
+                  "operateType": 3,
+                  "operateNum": ""
+                },
+                "subPrice": {
+                  "operateType": 3,
+                  "operateNum": ""
+                }
+              },
+              "calcPriceFactorInfos": null
+            }
+          ]
+        },
+        {
+          "startDate": "2026-09-10",
+          "endDate": "2026-09-11",
+          "calcPriceWeekModels": [
+            {
+              "inWeek": [
+                4,
+                5
+              ],
+              "calcPriceInfo": {
+                "salePrice": {
+                  "operateType": 1,
+                  "operateNum": "100"
+                },
+                "basePrice": {
+                  "operateType": 3,
+                  "operateNum": ""
+                },
+                "subPrice": {
+                  "operateType": 3,
+                  "operateNum": ""
+                }
+              },
+              "calcPriceFactorInfos": null
+            }
+          ]
+        }
+      ]
+    }
+  ]
+} as unknown as JsonObject;
+
+const MODE_B_CALC_URL =
+  'https://me.meituan.com/api/gw/v1/product/price/separate/calcPriceV2?yodaReady=h5';
+
 function calcObserved(
   overrides: Partial<AmountSaveObserved> = {},
 ): AmountSaveObserved {
@@ -664,6 +1151,71 @@ describe('美团价量态改动适配器', () => {
 
       expect(REAL_CALC_REQUEST_BODY).not.toHaveProperty('createFlag');
       expect(adapter.parse(calcObserved(), null)?.kind).toBe('context');
+    });
+  });
+
+  /**
+   * 高级改价（「日期分开改价」）—— 提交体用 `calcPriceModels[]`，日期挂在每段里。
+   *
+   * ⚠️ 这是回归用例：`submittedGoodsDateKeys` 早先只认 `calcPriceUnifiedDateModel`，
+   * 走这条路时 `keep` 为空集 → `rebuildGoodsDetails` 把全部格子裁光 → **上报空素材**，
+   * 整条改价静默丢失。回放本序列实测复现过（4 次 calc 累积正常，提交时 keep=0）。
+   */
+  describe('parse — 高级改价（提交体形状 B）', () => {
+    it('4 次试算累积后，提交时 4 格素材全在', () => {
+      const adapter = createMeituanAmountChangeAdapter(createLogger());
+
+      let context: JsonObject | undefined;
+      for (const calc of MODE_B_CALCS) {
+        context = contextOf(
+          adapter.parse(
+            {
+              endpointId: 'calcPriceV2',
+              endpointUrl: MODE_B_CALC_URL,
+              requestBody: calc.req,
+              responseBody: calc.resp,
+              pageUrl: REAL_PAGE_URL,
+            },
+            context ?? null,
+          ),
+        ) as JsonObject;
+      }
+
+      // 2 个房型 × 2 个日期段 = 4 格，互不覆盖（日期段与周次档都在累积键里）
+      expect(Object.keys(context?.cells as JsonObject)).toEqual([
+        '1135787306|2026-09-08|2026-09-09|2,3',
+        '1135787306|2026-09-10|2026-09-11|4,5',
+        '1135800654|2026-09-08|2026-09-09|2,3',
+        '1135800654|2026-09-10|2026-09-11|4,5',
+      ]);
+
+      const report = reportOf(
+        adapter.parse(
+          {
+            endpointId: 'updatePriceV2',
+            endpointUrl: REAL_ENDPOINT_URL,
+            requestBody: MODE_B_UPDATE,
+            responseBody: REAL_SUCCESS_RESPONSE,
+            pageUrl: REAL_PAGE_URL,
+          },
+          context ?? null,
+        ),
+      );
+
+      // ⚠️ 核心断言：goodsDetails 非空 —— 修复前这里是 []
+      const details = report?.changeRaw.goodsDetails as {
+        goodsBaseInfo: { goodsId: number };
+        priceInfos: { startDate: string; endDate: string; weekPriceInfos: unknown[] }[];
+      }[];
+      expect(details).toHaveLength(2);
+      expect(details.map((d) => d.goodsBaseInfo.goodsId)).toEqual([1135787306, 1135800654]);
+      // 每个房型两段日期都在，一段都没被 keep 裁掉
+      for (const detail of details) {
+        expect(detail.priceInfos.map((s) => `${s.startDate}~${s.endDate}`)).toEqual([
+          '2026-09-08~2026-09-09',
+          '2026-09-10~2026-09-11',
+        ]);
+      }
     });
   });
 
