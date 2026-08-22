@@ -43,7 +43,7 @@
  * updatePriceV2 + createFlag === true  → { kind: 'report' }   把**累积的全部格子**发出去
  * ```
  *
- * ## ⚠️ 日期范围变更 —— 用 `unified/calcPriceV2` 清空累积
+ * ## ⚠️ 改动范围变更 —— 用 `unified/calcPriceV2` 清空累积
  *
  * 累积是**只进不出**的：格子按 (房型 × 日期区间 × 周次档) 入键，用户**删掉一个日期段**时
  * 没有任何东西会去删对应的格子，它会一直躺在累积里被一起上报。
@@ -52,12 +52,16 @@
  *
  * ```
  * separate/calcPriceV2   改了某一格的价       响应只带**当次触碰的那一段**
- * unified/calcPriceV2    日期范围的全量快照   响应带**改动后的全部日期段**
+ * unified/calcPriceV2    **改动范围**的全量快照 响应带**改动后的全部日期段**
  * ```
  *
  * 用户每次增删日期段，页面都会发一条 `unified` —— 它带的是改动**之后**的完整日期列表。
  * 所以见到它就把累积**整个清空**：旧范围下攒的格子全部作废，用户改完范围必然要重新改价，
  * 那些 `separate` 会重新到达、累积自然重建。
+ *
+ * ⚠️ **增删房型同理** —— `unified` 是「改动范围」的快照，日期段与房型都属于这个范围。
+ * 实现上**不区分变的是什么**：见到它一律清空。判据是「范围变了」，不是「变的是日期还是
+ * 房型」 —— 多分一次支就多一个判错的机会。
  *
  * 踩点实证（`批量改房价-高级改价-时间段改变.md`）：
  *
@@ -180,8 +184,8 @@ const UPDATE_ENDPOINT_ID = 'updatePriceV2';
 /** 试算端点 —— 不是改价，拦它只为拿价格素材，见文件头「相对操作」。 */
 const CALC_ENDPOINT_ID = 'calcPriceV2';
 /**
- * **日期范围快照** —— 用户每次改动日期范围（增删日期段）时页面会发它，
- * 带的是**改动后的全量日期列表**。拦它只为一件事：**清空累积**，见文件头。
+ * **改动范围的快照** —— 用户每次增删**日期段或房型**时页面会发它，带的是改动后的全量
+ * 范围。拦它只为一件事：**清空累积**，见文件头。
  */
 const RANGE_ENDPOINT_ID = 'unifiedCalcPriceV2';
 /**
@@ -240,7 +244,7 @@ const INVENTORY_ENDPOINT_ID = 'inventory-update';
 const WATCHED_ENDPOINTS: ReadonlyMap<string, string> = new Map([
   [UPDATE_ENDPOINT_ID, '/api/gw/v1/product/price/updatePriceV2'],
   [CALC_ENDPOINT_ID, '/api/gw/v1/product/price/separate/calcPriceV2'],
-  // 日期范围变了 —— 只用来清空累积，不产生上报也不进累积，见文件头。
+  // 改动范围变了 —— 只用来清空累积，不产生上报也不进累积，见文件头。
   [RANGE_ENDPOINT_ID, '/api/gw/v1/product/price/unified/calcPriceV2'],
   [ROOM_STATUS_ENDPOINT_ID, '/api/gw/v1/product/goods/inventory/status/switch'],
   [ROOM_CLOSE_ENDPOINT_ID, '/api/gw/v1/product/goods/inventory/roomstatus/submitaudit'],
@@ -517,7 +521,7 @@ export function createMeituanAmountChangeAdapter(logger: AppLogger): AmountChang
         return parseRoomStatusOrInventory(observed, logger);
       }
 
-      // 日期范围变了 —— 清空累积，从零开始重累。见文件头「日期范围变更」。
+      // 改动范围变了（增删日期段或房型）—— 清空累积，从零重累。见文件头。
       //
       // ⚠️ **不能 `return null`**：机制层对 null 的处理是「什么都不做」（`if (!parsed) return`
       // ，见 `../amount-save-capture.ts`），旧累积会原封不动留着。要真清掉必须交出一份

@@ -460,9 +460,9 @@ export function mergeMeituanCalcCells(
  *
  * ## 为什么不需要按提交体过滤
  *
- * 用户中途**改日期范围**（增删日期段）时，页面会发一条 `unified/calcPriceV2`（日期范围
- * 的全量快照），适配器见到它就把累积**整个清空**、从零重累 —— 废弃的日期段在那一刻就
- * 没了，不需要到提交体里找准绳裁剪。见 `../meituan/amount-change-adapter.ts` 的
+ * 用户中途改**改动范围**（增删日期段或房型）时，页面会发一条 `unified/calcPriceV2`
+ * （改动范围的全量快照），适配器见到它就把累积**整个清空**、从零重累 —— 废弃的格子在
+ * 那一刻就没了，不需要到提交体里找准绳裁剪。见 `../meituan/amount-change-adapter.ts` 的
  * `RANGE_ENDPOINT_ID`。
  *
  */
