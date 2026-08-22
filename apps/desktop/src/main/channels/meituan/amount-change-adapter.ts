@@ -37,23 +37,45 @@
  * 于是 `parse` 的分工与另两个渠道反过来：
  *
  * ```
- * calcPriceV2                          → { kind: 'context' }  存着，此刻不发（用户可能不提交）
- * updatePriceV2 + createFlag !== true  → null                 预检，丢弃
- * updatePriceV2 + createFlag === true  → { kind: 'report' }   把**存着的那条试算**发出去
+ * calcPriceV2                          → { kind: 'context' }  累积，此刻不发（用户可能不提交）
+ * updatePriceV2 + createFlag !== true  → null                 预检，丢弃（累积原样保留）
+ * updatePriceV2 + createFlag === true  → { kind: 'report' }   把**累积的全部格子**发出去
  * ```
  *
  * 上报体的 `endpointId` / `endpointUrl` / `changeRaw` 全部指向**试算**那次 —— 内容出处
  * 要如实，不能一半来自试算一半来自提交。
  *
- * ## 两次请求靠什么配对：页面会话 + 取最新
+ * ## 两次请求靠什么配对：页面会话 + **逐格累积**
  *
  * `calcPriceV2` 与 `updatePriceV2` 的报文里**没有任何共同 ID**（`traceId` 每次请求都不同）
  * —— 美团自己不需要关联，服务端持有当前价，收到「+1」直接算。
  *
- * 我们靠「同一个页面会话里取最新那条试算」配对。**取最新是安全的**：页面上任何影响价格的
- * 条件变更（改数值、勾选房型、改日期区间、开关周末差异定价）都会触发重算，所以最新那条
- * 天然与提交同条件；且每条 calc 本来就带着当前页面上全量的房型，不存在「算 A 算 B 提交 A」。
- * 状态的生命周期见 `../amount-save-capture.ts` 文件头。
+ * 我们靠「同一个页面会话里累积全部试算」配对。
+ *
+ * ⚠️ **早先这里写的是「取最新」，那是错的**（2026-08-22 踩点推翻）。当时基于单房型样本
+ * 以为「每条 calc 都带着页面上全量的房型」，实测**不是** —— 美团只重算用户当次触碰的那
+ * 一部分：
+ *
+ * ```
+ * calc①  勾选 3 个房型      goodsList=[A, B, C]
+ * calc②  开周末差异定价      goodsList=[A]        ← 只重算 A
+ * calc③  改数值             goodsList=[A]
+ * calc④  改第三个房型        goodsList=[C]        ← 取最新的话只剩 C
+ * 提交    3 个房型 6 个价格档                      ← 用户改了 3 个，只报 1 个
+ * ```
+ *
+ * 所以改成按 **(房型 × 日期区间 × 周次档)** 累积、同格后到覆盖先到（改前价保留首次），
+ * 提交时把累积的格子重建成 `goodsDetails[]`。累积逻辑见 `./amount-change-payload.ts`
+ * 的「累积」一节，状态的生命周期见 `../amount-save-capture.ts` 文件头。
+ *
+ * ## ⚠️ 累积不保证与提交一致，所以要对账
+ *
+ * 累积再完整也补不齐两种偏离：美团**没为某些档发过 calc**（`missing-calc`），以及用户
+ * 改完数值**没再触发 calc** 就提交（`mismatched` —— 上报一个从未生效过的价格，比漏报更
+ * 危险）。因此提交时用提交体逐格对照一次，结果挂在 `changeRaw.calcUpdateCheck` 上交给
+ * RMS 判断可信度。规格见 `./calc-update-check.ts`。
+ *
+ * 对账**不改变是否上报**：美团确认成功就照发，desktop 只当探针。
  *
  * ## ⚠️ 为什么必须看 `createFlag`
  *
@@ -78,7 +100,15 @@ import type { AmountSaveObserved } from '../../../shared/types/amount-change';
 import type { JsonObject } from '../../../shared/types/json';
 import { isTrustedHotelUrl } from '../trusted-hotel-url';
 import type { AmountChangeAdapter, AmountParseResult } from '../types';
-import { toMeituanAmountChangeRaw, type MeituanAmountChangeRaw } from './amount-change-payload';
+import {
+  extractMeituanCalcCells,
+  mergeMeituanCalcCells,
+  rebuildGoodsDetails,
+  submittedGoodsDateKeys,
+  toMeituanAmountChangeRaw,
+  type MeituanCalcCell,
+} from './amount-change-payload';
+import { buildMeituanCalcUpdateCheck } from './calc-update-check';
 
 const MEITUAN_HOTEL_HOSTNAME = 'me.meituan.com';
 
@@ -259,24 +289,42 @@ function topLevelRoomIdsOf(requestBody: JsonObject): readonly string[] {
 }
 
 /**
- * 试算素材，连同只在试算请求里才有的两样一起存：门店 ID 与那次试算的 URL。
- * 上报体的每一个字段都要指向**试算**那次，不能一半来自试算一半来自提交。
+ * 累积中的试算素材 —— **进程内暂存，永不外发**。
+ *
+ * ⚠️ 别把它当契约的一部分：它只活在 `amount-save-capture.ts` 的页面会话里（`detach()`
+ * 即销毁），RMS 看不到它。发出去的是 `parse` 在提交时用它**重建**出来的 `changeRaw`。
+ *
+ * ## 为什么存的是「一格一格」而不是「一份成品 changeRaw」
+ *
+ * 美团的 `calcPriceV2` **只重算用户当次触碰的那部分**，不是每次都带全量。整条覆盖会让
+ * 先算的房型被后算的挤掉 —— 用户改 3 个房型只报 1 个。所以按 (房型 × 日期区间 × 周次档)
+ * 累积，见 `amount-change-payload.ts` 的「累积」一节。
+ *
+ * 门店 ID 与试算 URL 也一并存：上报体的每一个字段都要指向**试算**那次，不能一半来自试算
+ * 一半来自提交。
  */
 type CalcContext = Readonly<{
   otaHotelId: string;
   endpointUrl: string;
-  changeRaw: MeituanAmountChangeRaw;
+  /** 键 = `${goodsId}|${startDate}|${endDate}|${inWeek}`，见 `meituanCalcCellKey`。 */
+  cells: Readonly<Record<string, MeituanCalcCell>>;
+  /** 最后一次试算的，重建时沿用。 */
+  globalPricePrompt: JsonObject | null;
 }>;
 
+/**
+ * ⚠️ 必须认 `cells` 而不是旧的 `changeRaw` —— 否则旧形状的 context 会被当成合法值放行，
+ * 重建时拿不到任何格子，静默退化成「一条都不报」。
+ */
 function isCalcContext(value: JsonObject | null): value is JsonObject & CalcContext {
   if (value === null) return false;
-  const raw = value.changeRaw;
+  const cells = value.cells;
   return (
     typeof value.otaHotelId === 'string' &&
     typeof value.endpointUrl === 'string' &&
-    typeof raw === 'object' &&
-    raw !== null &&
-    !Array.isArray(raw)
+    typeof cells === 'object' &&
+    cells !== null &&
+    !Array.isArray(cells)
   );
 }
 
@@ -426,7 +474,7 @@ export function createMeituanAmountChangeAdapter(logger: AppLogger): AmountChang
         return parseRoomStatusOrInventory(observed, logger);
       }
 
-      // 试算：**上报的素材就是它**，但此刻还不能发 —— 用户可能算完不提交。先存着。
+      // 试算：**上报的素材就是它**，但此刻还不能发 —— 用户可能算完不提交。先累积着。
       if (observed.endpointId === CALC_ENDPOINT_ID) {
         const changeRaw = toMeituanAmountChangeRaw(observed.responseBody);
         if (!changeRaw) {
@@ -435,13 +483,39 @@ export function createMeituanAmountChangeAdapter(logger: AppLogger): AmountChang
           });
           return null;
         }
+
+        const otaHotelId = idToString(observed.requestBody.poiId);
+        // 换门店了：上一家的素材与这次无关，从零开始累积。不清会让两家的格子混在一起，
+        // 而键里没有 poiId（同一房型 ID 不会跨店重复，但门店切换时保留旧格子毫无意义）。
+        const previous = isCalcContext(context) && context.otaHotelId === otaHotelId
+          ? context.cells
+          : {};
+        if (isCalcContext(context) && context.otaHotelId !== otaHotelId) {
+          logger.info('Meituan amount change: poiId changed, resetting accumulated calc cells', {
+            previousOtaHotelId: context.otaHotelId,
+            otaHotelId,
+          });
+        }
+
+        const { cells, dropped } = mergeMeituanCalcCells(
+          previous,
+          extractMeituanCalcCells(changeRaw),
+        );
+        if (dropped > 0) {
+          logger.warn('Meituan amount change: calc cell limit exceeded, dropped oldest', {
+            dropped,
+            kept: Object.keys(cells).length,
+          });
+        }
+
         // 门店 ID 只在请求体里、URL 也只有此刻拿得到，一并存下。
         return {
           kind: 'context',
           context: {
-            otaHotelId: idToString(observed.requestBody.poiId),
+            otaHotelId,
             endpointUrl: observed.endpointUrl,
-            changeRaw,
+            cells,
+            globalPricePrompt: changeRaw.globalPricePrompt ?? null,
           },
         };
       }
@@ -487,19 +561,40 @@ export function createMeituanAmountChangeAdapter(logger: AppLogger): AmountChang
         });
       }
 
+      // 重建上报体：把累积的格子拼回 calc 响应的形状（RMS 现有解析逻辑继续有效），
+      // 并按提交体过滤掉用户中途放弃的日期区间（见 `rebuildGoodsDetails` 的 `keep`）。
+      const goodsDetails = rebuildGoodsDetails(
+        context.cells,
+        submittedGoodsDateKeys(observed.requestBody),
+      );
+
+      // 对账：逐格比 calc 与 update，把「这份素材可不可信」如实交给 RMS 判断。
+      // ⚠️ 对账结果**不改变是否上报** —— 美团确认成功就照发，见 ./calc-update-check.ts。
+      const calcUpdateCheck = buildMeituanCalcUpdateCheck(observed.requestBody, context.cells);
+      const matched = calcUpdateCheck.cells.filter((cell) => cell.status === 'matched').length;
+      logger.info('Meituan amount change: calc/update check done', {
+        comparable: calcUpdateCheck.comparable,
+        updateOperateTypes: calcUpdateCheck.updateOperateTypes,
+        totalCells: calcUpdateCheck.cells.length,
+        matched,
+      });
+
       return {
         kind: 'report',
         report: {
           source: MEITUAN_CHANNEL,
-          // 本渠道当前只实装了改价。美团的房态与房量是**两个独立端点**
-          // （`inventory/status/switch` 与 `inventory/update`），二期加时都归 'roomStatus'。
           changeType: 'price',
           // ⚠️ 上报的是**试算**那条，不是提交那条 —— 这两个字段要如实说明内容的出处。
           endpointId: CALC_ENDPOINT_ID,
           endpointUrl: context.endpointUrl,
           otaHotelId,
           // 发的是试算结果，不是提交体 —— 后者只有相对操作，对 RMS 是死信息（见文件头）。
-          changeRaw: context.changeRaw,
+          // 外加 calcUpdateCheck：desktop 算出来的对照结果，不是美团字段。
+          changeRaw: {
+            goodsDetails,
+            globalPricePrompt: context.globalPricePrompt,
+            calcUpdateCheck,
+          },
         },
       };
     },

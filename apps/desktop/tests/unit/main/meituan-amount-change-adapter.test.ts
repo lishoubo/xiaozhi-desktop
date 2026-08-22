@@ -415,10 +415,13 @@ describe('美团价量态改动适配器', () => {
       expect(report?.endpointId).toBe('calcPriceV2');
       expect(report?.endpointUrl).toBe(REAL_CALC_URL);
       expect(report?.otaHotelId).toBe('762662011');
-      // changeRaw 是裁剪后的**试算结果**，不是提交体 —— 后者只有「+1 元」这类相对操作，
-      // RMS 既算不出绝对价也无从校验
-      expect(report?.changeRaw).toEqual(context.changeRaw);
+      // changeRaw 的内容来自**试算**，不是提交体 —— 后者只有「+1 元」这类相对操作，
+      // RMS 既算不出绝对价也无从校验。提交体的字段一个都不该出现在里面。
       expect(report?.changeRaw).not.toHaveProperty('createFlag');
+      expect(report?.changeRaw).not.toHaveProperty('goodsList');
+      // 累积的格子重建成 goodsDetails[]，形状与 calc 响应一致
+      expect(report?.changeRaw.goodsDetails).toBeInstanceOf(Array);
+      expect(Object.keys(context.cells as JsonObject)).toHaveLength(1);
     });
 
     /** 改前 189.66 → 改后 190.66，这是 RMS 跟价唯一要的东西。 */
@@ -428,14 +431,19 @@ describe('美团价量态改动适配器', () => {
       const report = reportOf(
         adapter.parse(observedWith({ ...REAL_REQUEST_BODY }), calcContext()),
       );
+      // 重建统一输出**形状②**（`priceInfos[]`）—— 它能表达多段日期，形状①不能。
       const data = report?.changeRaw as unknown as {
-        goodsDetails: { unifiedDatePriceInfos: { weekPriceInfos: Record<string, unknown>[] } }[];
+        goodsDetails: {
+          priceInfos: { weekPriceInfos: Record<string, unknown>[] }[];
+        }[];
       };
-      const week = data.goodsDetails[0].unifiedDatePriceInfos.weekPriceInfos[0];
+      const week = data.goodsDetails[0].priceInfos[0].weekPriceInfos[0];
 
       expect(week.originalPriceInfo).toMatchObject({ salePrice: '24013' });
       expect(week.priceInfo).toMatchObject({ salePrice: '24113' });
       expect(week.inWeek).toEqual([1, 2, 3, 4, 7]);
+      // ⚠️ 整条原样放回 —— basePrice / subPrice 这些也在，不只 salePrice
+      expect(week.priceInfo).toMatchObject({ basePrice: '20978', subPrice: '3135' });
     });
 
     /**
@@ -551,6 +559,57 @@ describe('美团价量态改动适配器', () => {
       expect(reportOf(result)).toBeUndefined();
     });
 
+    /**
+     * 多次试算按格累积 —— 美团只重算用户当次触碰的那部分，整条覆盖会丢掉先算的房型。
+     */
+    it('多次试算累积到同一份 cells 里', () => {
+      const adapter = createMeituanAmountChangeAdapter(createLogger());
+
+      const first = contextOf(adapter.parse(calcObserved(), null)) as JsonObject;
+      // 第二次试算换一个房型（美团只会带这一个）
+      const second = contextOf(
+        adapter.parse(
+          calcObserved({
+            responseBody: REAL_CALC_RESPONSE.replace('847226645', '847317669'),
+          }),
+          first,
+        ),
+      ) as JsonObject;
+
+      // 两个房型的格子都在，先算的没被挤掉
+      expect(Object.keys(second.cells as JsonObject)).toEqual([
+        '847226645|2026-08-25|2026-08-26|1,2,3,4,7',
+        '847317669|2026-08-25|2026-08-26|1,2,3,4,7',
+      ]);
+    });
+
+    /**
+     * 用户在同一个页面切到另一家门店：上一家的素材与这次改动无关。累积键里没有 poiId，
+     * 不重置会让两家的格子混在一条上报里。
+     */
+    it('门店变了就丢掉已累积的素材', () => {
+      const logger = createLogger();
+      const adapter = createMeituanAmountChangeAdapter(logger);
+
+      const first = contextOf(adapter.parse(calcObserved(), null)) as JsonObject;
+      const second = contextOf(
+        adapter.parse(
+          calcObserved({
+            requestBody: { ...REAL_CALC_REQUEST_BODY, poiId: '999888777' } as JsonObject,
+          }),
+          first,
+        ),
+      ) as JsonObject;
+
+      expect(second.otaHotelId).toBe('999888777');
+      // 上一家的那格不该跟过来
+      expect(Object.keys(second.cells as JsonObject)).toHaveLength(1);
+      expect(logger.info).toHaveBeenCalledWith(
+        'Meituan amount change: poiId changed, resetting accumulated calc cells',
+        expect.objectContaining({ previousOtaHotelId: '762662011', otaHotelId: '999888777' }),
+      );
+    });
+
     /** 门店 ID 与 URL 只有试算这一刻拿得到，要跟结果一起存下。 */
     it('存下试算结果，连同只此刻可得的门店 ID 与 URL', () => {
       const adapter = createMeituanAmountChangeAdapter(createLogger());
@@ -561,17 +620,23 @@ describe('美团价量态改动适配器', () => {
       expect(context?.endpointUrl).toBe(REAL_CALC_URL);
       // 试算请求体整个不留 —— 它那份当前价是「元」，与响应的「分」量纲不一致，且是冗余
       expect(context).not.toHaveProperty('requestBody');
-      const details = (context?.changeRaw as { goodsDetails: Record<string, unknown>[] }).goodsDetails;
-      expect(details).toHaveLength(1);
-      expect(details[0].unifiedDatePriceInfos).toEqual({
-        dates: [{ startDate: '2026-08-25', endDate: '2026-08-26' }],
-        weekPriceInfos: [
-          {
-            inWeek: [1, 2, 3, 4, 7],
-            priceInfo: { salePrice: '24113', basePrice: '20978', subPrice: '3135' },
-            originalPriceInfo: { salePrice: '24013', basePrice: '20891', subPrice: '3122' },
-          },
-        ],
+
+      // 存的是**按格累积**的素材（不再是一份成品 changeRaw）——
+      // 键 = goodsId|startDate|endDate|inWeek，见 meituanCalcCellKey
+      const cells = context?.cells as Record<string, Record<string, unknown>>;
+      expect(Object.keys(cells)).toEqual(['847226645|2026-08-25|2026-08-26|1,2,3,4,7']);
+
+      const cell = Object.values(cells)[0];
+      expect(cell.goodsId).toBe('847226645');
+      expect(cell.startDate).toBe('2026-08-25');
+      expect(cell.endDate).toBe('2026-08-26');
+      expect(cell.inWeek).toEqual([1, 2, 3, 4, 7]);
+      expect(cell.originalSalePrice).toBe('24013');
+      expect(cell.salePrice).toBe('24113');
+      // 整条 weekPriceInfo 原样留着 —— 语义未确认的字段更要留（见 payload 文件头）
+      expect(cell.weekPriceInfo).toMatchObject({
+        priceInfo: { salePrice: '24113', basePrice: '20978', subPrice: '3135' },
+        originalPriceInfo: { salePrice: '24013', basePrice: '20891', subPrice: '3122' },
       });
     });
 

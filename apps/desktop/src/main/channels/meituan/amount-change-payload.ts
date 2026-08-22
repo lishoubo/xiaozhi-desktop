@@ -13,10 +13,18 @@
  * 「卖价 +1 元」，**不说原来多少钱**（`goodsBaseInfo` 的 26 个字段里也没有当前价）。
  *
  * ```
- * ① 用户填写   → calcPriceV2    响应含「改前 189.66 → 改后 190.66」  ← changeRaw 就是它
+ * ① 用户填写   → calcPriceV2    响应含「改前 189.66 → 改后 190.66」  ← changeRaw 来自它
  * ② 第一次发起 → updatePriceV2  createFlag: false  预检，服务端要求弹窗确认
  * ③ 用户点确认 → updatePriceV2  createFlag: true   ← 只当触发器，内容一概不上报
  * ```
+ *
+ * ⚠️ ① **会发很多次，每次只重算用户当次触碰的那一部分** —— 所以 `changeRaw.goodsDetails`
+ * 是把多次试算**按格累积**后重建出来的，不是某一次试算的原样照搬（见下方「累积」一节）。
+ * 形状与单次试算响应一致，RMS 现有解析逻辑不受影响。
+ *
+ * ⚠️ 累积再完整也不保证与用户实际提交的一致（美团可能没为某些档发过试算，用户也可能改完
+ * 不再触发试算）。因此上报体里还有一份 **`calcUpdateCheck`** —— 提交时逐格对照的结果，
+ * **规格见 `./calc-update-check.ts`**，RMS 据它判断哪些格子可信。
  *
  * 保存请求体为什么一个字节都不发：它只有相对操作，而 **RMS 侧没有美团的数据** —— 既没有
  * 基准价可以算出结果，也无从校验。「+1 元」到了那边是死信息。真出现「试算与实际不符」，
@@ -38,8 +46,15 @@
  * │   ├── weekDiff                     用户有没有开「周末差异定价」
  * │   ├── pricePrompt                  语义未知，实测恒空
  * │   └── ratioConfig                  比例联动配置，实测恒 null
- * └── globalPricePrompt                语义未知，实测恒空
+ * ├── globalPricePrompt                语义未知，实测恒空
+ * └── calcUpdateCheck                  ⚠️ **desktop 计算产物，不是美团字段**
+ *                                      calc 与 update 的逐格对照结果
+ *                                      **规格见 `./calc-update-check.ts`**
  * ```
+ *
+ * ⚠️ **这张图里只有 `calcUpdateCheck` 不是美团发来的** —— 其余全是试算响应的原始内容
+ * （忠实透传、只裁不改）。它单独一份规格文件，RMS 对接改价时两份都要读。它是**可选**的：
+ * 只有改价提交那一刻才挂上，试算阶段暂存的素材里没有。
  *
  * ## 两种日期形状，RMS 必须都认
  *
@@ -137,6 +152,7 @@
  * - `updatePriceV2` 之外是否还有别的保存端点（房态房量尚未接入）
  */
 import type { JsonObject } from '../../../shared/types/json';
+import type { MeituanCalcUpdateCheck } from './calc-update-check';
 
 /**
  * 美团的 `changeRaw`。
@@ -149,6 +165,13 @@ export type MeituanAmountChangeRaw = JsonObject &
   Readonly<{
     goodsDetails?: readonly JsonObject[];
     globalPricePrompt?: JsonObject | null;
+    /**
+     * calc 与 update 的逐格对照结果。
+     *
+     * ⚠️ **desktop 计算产物，不是美团字段** —— 规格见 `./calc-update-check.ts`。
+     * 可选：只有改价提交那一刻才挂上，试算阶段暂存的素材里没有。
+     */
+    calcUpdateCheck?: MeituanCalcUpdateCheck;
   }>;
 
 function isJsonObject(value: unknown): value is JsonObject {
@@ -194,3 +217,355 @@ export function toMeituanAmountChangeRaw(responseBody: string): MeituanAmountCha
   return { ...data, goodsDetails: trimmedDetails } as MeituanAmountChangeRaw;
 }
 
+
+/* ============================================================================
+ * 累积：把多次 calc 攒成一份完整素材
+ * ============================================================================
+ *
+ * 美团的 `calcPriceV2` **只重算用户当次触碰的那一部分**，不是每次都带全量（2026-08-22
+ * 踩点推翻了早先「每条 calc 都带页面上全量房型」的判断）。所以不能整条覆盖，必须按格累积：
+ *
+ * ```
+ * calc①  改了 A 房型   →  {A}
+ * calc②  改了 B 房型   →  {A, B}      ← 覆盖的话 A 就丢了
+ * calc③  又改了 A      →  {A', B}     ← 同格覆盖，取新值
+ * ```
+ *
+ * 一格（cell）= (房型 × 日期区间 × 周次档)，与 `./calc-update-check.ts` 的口径完全一致。
+ */
+
+/** 累积的一格。`detail` 留着重建 `goodsDetails[]` 用，见 `rebuildGoodsDetails`。 */
+export type MeituanCalcCell = Readonly<{
+  goodsId: string;
+  startDate: string;
+  endDate: string;
+  /** 升序，与累积键一致。 */
+  inWeek: readonly number[];
+  /**
+   * 改前价，×100 字符串。
+   *
+   * ⚠️ **同格再次出现时保留首次的这一份** —— 第二次 calc 的 `originalPriceInfo` 已经是
+   * 第一次改动的结果，采用它会让 RMS 看到「65100 → 65000」这种中间态，丢失用户操作前的
+   * 真实起点（真实序列：65159 →(calc①) 65100 →(calc②) 65000，正确的改前价是 65159）。
+   */
+  originalSalePrice: string | null;
+  /** 改后价，×100 字符串。同格取最新。 */
+  salePrice: string | null;
+  /**
+   * 该格在 calc 响应里的**整条 `weekPriceInfos[]` 元素**，原样留着。
+   *
+   * ⚠️ 不只存 `salePrice`：同一条里还有 `basePrice` / `subPrice` / `subRatio` /
+   * `baseAddRatio` / `priceFactorInfos`，其中几个语义未确认。裁剪的判据是「与本次改动
+   * 无关」而不是「我们看不看得懂」（见文件头），所以整条留着，重建时原样放回去。
+   */
+  weekPriceInfo: JsonObject;
+  /** 该格所属房型在这次 calc 响应里的完整明细（已裁剪），重建上报体用。 */
+  detail: JsonObject;
+}>;
+
+/**
+ * 累积上限。正常量级是「房型 × 日期段 × 周次档」，实测个位数到几十；这个上限纯属兜底，
+ * 防止长时间停留在页面反复试算导致无限增长。超限丢最早的（`Record` 的插入序）。
+ */
+export const MEITUAN_CALC_CELL_LIMIT = 500;
+
+/** 累积键 —— 四个维度缺一不可，理由见 design.md 决策 1。 */
+export function meituanCalcCellKey(
+  goodsId: string,
+  startDate: string,
+  endDate: string,
+  inWeek: readonly number[],
+): string {
+  return `${goodsId}|${startDate}|${endDate}|${[...inWeek].sort((a, b) => a - b).join(',')}`;
+}
+
+function toIdString(value: unknown): string {
+  if (typeof value === 'number' && Number.isFinite(value)) return String(value);
+  if (typeof value === 'string') return value.trim();
+  return '';
+}
+
+function toPriceString(value: unknown): string | null {
+  if (typeof value === 'string') return value;
+  if (typeof value === 'number' && Number.isFinite(value)) return String(value);
+  return null;
+}
+
+function toWeekNumbers(value: unknown): readonly number[] | null {
+  if (!Array.isArray(value)) return null;
+  const week: number[] = [];
+  for (const item of value) {
+    if (typeof item !== 'number' || !Number.isFinite(item)) return null;
+    week.push(item);
+  }
+  return week.sort((a, b) => a - b);
+}
+
+/**
+ * 把一条 `goodsDetails[]` 的两种日期形状归一成 `(日期区间, 周次档列表)`。
+ *
+ * ```
+ * 形状①  unifiedDatePriceInfos { dates[], weekPriceInfos[] }   dates 共享同一批周次档
+ * 形状②  priceInfos[] { startDate, endDate, weekPriceInfos[] } 日期跟着每段走
+ * ```
+ *
+ * 与文件头「RMS 侧建议的 segmentsOf」同一套逻辑 —— 这里是 desktop 自己累积时用。
+ */
+function segmentsOf(
+  detail: JsonObject,
+): readonly Readonly<{ startDate: string; endDate: string; weekPriceInfos: readonly unknown[] }>[] {
+  const segments: { startDate: string; endDate: string; weekPriceInfos: readonly unknown[] }[] = [];
+
+  // 形状②优先：两者互斥，未使用的那个是 null。
+  if (Array.isArray(detail.priceInfos)) {
+    for (const segment of detail.priceInfos) {
+      if (!isJsonObject(segment)) continue;
+      const weekPriceInfos = segment.weekPriceInfos;
+      if (!Array.isArray(weekPriceInfos)) continue;
+      segments.push({
+        startDate: toIdString(segment.startDate),
+        endDate: toIdString(segment.endDate),
+        weekPriceInfos,
+      });
+    }
+    return segments;
+  }
+
+  const unified = detail.unifiedDatePriceInfos;
+  if (!isJsonObject(unified)) return segments;
+  const weekPriceInfos = unified.weekPriceInfos;
+  if (!Array.isArray(weekPriceInfos) || !Array.isArray(unified.dates)) return segments;
+  for (const date of unified.dates) {
+    if (!isJsonObject(date)) continue;
+    segments.push({
+      startDate: toIdString(date.startDate),
+      endDate: toIdString(date.endDate),
+      // ⚠️ 多个日期区间**共享**同一批周次档，见文件头形状①的说明。
+      weekPriceInfos,
+    });
+  }
+  return segments;
+}
+
+/**
+ * 从一份 calc 素材里展开出全部格子。
+ *
+ * ⚠️ 跳过 `priceInfo` 为 null 的档 —— 某周次档在区间内没有实际日期落入时美团会给 null，
+ * 这是正常情况不是异常（见文件头）。跳过它们，避免把空档当成一次改动记进累积。
+ */
+export function extractMeituanCalcCells(
+  raw: MeituanAmountChangeRaw,
+): readonly MeituanCalcCell[] {
+  const details = raw.goodsDetails;
+  if (!Array.isArray(details)) return [];
+
+  const cells: MeituanCalcCell[] = [];
+  for (const detail of details) {
+    if (!isJsonObject(detail)) continue;
+    const baseInfo = detail.goodsBaseInfo;
+    const goodsId = isJsonObject(baseInfo) ? toIdString(baseInfo.goodsId) : '';
+    if (!goodsId) continue;
+
+    for (const segment of segmentsOf(detail)) {
+      if (!segment.startDate || !segment.endDate) continue;
+      for (const weekPriceInfo of segment.weekPriceInfos) {
+        if (!isJsonObject(weekPriceInfo)) continue;
+        const inWeek = toWeekNumbers(weekPriceInfo.inWeek);
+        if (inWeek === null || inWeek.length === 0) continue;
+
+        const priceInfo = weekPriceInfo.priceInfo;
+        // 空档：该周次在区间内没有实际日期，不是一次改动。
+        if (!isJsonObject(priceInfo)) continue;
+        const originalPriceInfo = weekPriceInfo.originalPriceInfo;
+
+        cells.push({
+          goodsId,
+          startDate: segment.startDate,
+          endDate: segment.endDate,
+          inWeek,
+          originalSalePrice: isJsonObject(originalPriceInfo)
+            ? toPriceString(originalPriceInfo.salePrice)
+            : null,
+          salePrice: toPriceString(priceInfo.salePrice),
+          weekPriceInfo,
+          detail,
+        });
+      }
+    }
+  }
+  return cells;
+}
+
+/**
+ * 同格再次出现时，把**首次那条**的 `originalPriceInfo` 整块搬回来。
+ *
+ * 只回填 `salePrice` 是不够的：`originalPriceInfo` 里的 `basePrice` / `subPrice` 等同样
+ * 是「改动前」的快照，第二次 calc 给的那份已经是第一次改动后的结果。整块搬才自洽。
+ *
+ * 首次那条没有 `originalPriceInfo` 时退回逐字段设 `salePrice`，保证至少改前价是对的。
+ */
+function withOriginalSalePrice(
+  weekPriceInfo: JsonObject,
+  originalSalePrice: string | null,
+  previousWeekPriceInfo: JsonObject,
+): JsonObject {
+  const previousOriginal = previousWeekPriceInfo.originalPriceInfo;
+  if (isJsonObject(previousOriginal)) {
+    return { ...weekPriceInfo, originalPriceInfo: previousOriginal };
+  }
+  const current = weekPriceInfo.originalPriceInfo;
+  return {
+    ...weekPriceInfo,
+    originalPriceInfo: isJsonObject(current)
+      ? { ...current, salePrice: originalSalePrice }
+      : { salePrice: originalSalePrice },
+  };
+}
+
+/**
+ * 把新一批格子并入已累积的。
+ *
+ * - 同键：**改后价取新的、改前价保留首次**（见 `MeituanCalcCell.originalSalePrice`）
+ * - 新键：追加
+ * - 超过 `MEITUAN_CALC_CELL_LIMIT`：丢最早的（插入序），返回被丢弃的条数供调用方记日志
+ */
+export function mergeMeituanCalcCells(
+  accumulated: Readonly<Record<string, MeituanCalcCell>>,
+  incoming: readonly MeituanCalcCell[],
+): Readonly<{ cells: Record<string, MeituanCalcCell>; dropped: number }> {
+  const merged: Record<string, MeituanCalcCell> = { ...accumulated };
+
+  for (const cell of incoming) {
+    const key = meituanCalcCellKey(cell.goodsId, cell.startDate, cell.endDate, cell.inWeek);
+    const previous = merged[key];
+    merged[key] = previous
+      ? {
+          ...cell,
+          // 改前价保留首次那份；首次若为 null 才用新的补上。
+          originalSalePrice: previous.originalSalePrice ?? cell.originalSalePrice,
+          // 整条也要跟着回填 —— 否则重建出来的 originalPriceInfo 仍是中间态。
+          weekPriceInfo: withOriginalSalePrice(
+            cell.weekPriceInfo,
+            previous.originalSalePrice ?? cell.originalSalePrice,
+            previous.weekPriceInfo,
+          ),
+        }
+      : cell;
+  }
+
+  let dropped = 0;
+  const keys = Object.keys(merged);
+  if (keys.length > MEITUAN_CALC_CELL_LIMIT) {
+    dropped = keys.length - MEITUAN_CALC_CELL_LIMIT;
+    for (const key of keys.slice(0, dropped)) delete merged[key];
+  }
+  return { cells: merged, dropped };
+}
+
+/** `(goodsId × 日期区间)` 的键 —— 过期区间过滤用，见 `rebuildGoodsDetails` 的 `keep`。 */
+export function goodsDateKey(goodsId: string, startDate: string, endDate: string): string {
+  return `${goodsId}|${startDate}|${endDate}`;
+}
+
+/**
+ * 从 `updatePriceV2` 的**提交体**里取出全部 `(goodsId × 日期区间)` —— 用户真正提交的范围。
+ *
+ * 提交体的日期挂在 `calcPriceUnifiedDateModel.dates[]`（字段名与 calc 响应不同，见
+ * design.md 决策 6），一个房型可以有多段日期。
+ */
+export function submittedGoodsDateKeys(requestBody: JsonObject): ReadonlySet<string> {
+  const keys = new Set<string>();
+  const goodsList = requestBody.goodsList;
+  if (!Array.isArray(goodsList)) return keys;
+
+  for (const goods of goodsList) {
+    if (!isJsonObject(goods)) continue;
+    const baseInfo = goods.goodsBaseInfo;
+    const goodsId = isJsonObject(baseInfo) ? toIdString(baseInfo.goodsId) : '';
+    if (!goodsId) continue;
+
+    const model = goods.calcPriceUnifiedDateModel;
+    if (!isJsonObject(model) || !Array.isArray(model.dates)) continue;
+    for (const date of model.dates) {
+      if (!isJsonObject(date)) continue;
+      const startDate = toIdString(date.startDate);
+      const endDate = toIdString(date.endDate);
+      if (startDate && endDate) keys.add(goodsDateKey(goodsId, startDate, endDate));
+    }
+  }
+  return keys;
+}
+
+/**
+ * 从累积的格子重建 `goodsDetails[]` —— **形状与单次 calc 响应一致**，RMS 现有解析逻辑
+ * 继续有效（这是硬要求：累积是 desktop 内部的事，不该让 RMS 跟着改）。
+ *
+ * 同一房型的多个格子合并回一条明细：以该房型**最后一次** calc 的 `detail` 为骨架（房型静态
+ * 属性、`priceRecordWay`、`weekDiff` 等都在里面），把日期与周次重写成累积到的全部格子，
+ * 统一用**形状②**（`priceInfos[]`）输出 —— 它能表达多段日期，形状①不能。
+ *
+ * ## ⚠️ `keep` —— 按提交体过滤掉过期的日期区间
+ *
+ * 用户可以在操作途中**改日期范围**，而日期是累积键的一部分，旧区间的格子不会被覆盖而是
+ * 与新区间**并存**。真实序列（`批量改房价-基础改价.md`）：
+ *
+ * ```
+ * calc①   08-27~08-28   ← 用户最初选的
+ * calc②③ 08-26~08-29   ← 用户改了日期范围
+ * 提交     08-26~08-29   ← 只有这个是真正提交的
+ * ```
+ *
+ * 不过滤的话上报体里会出现用户**已经放弃**的中间状态，RMS 若不读对账就会当真。所以传入
+ * 提交体里出现过的 `(goodsId × 日期区间)` 集合，只保留命中的。
+ *
+ * ⚠️ **只按日期区间过滤，不按周次档**：周次档在提交体里缺失是 `missing-calc` 要表达的
+ * 正常情况（用户开周末差异后没重算某档），与「日期区间过期」性质不同 —— 前者是「美团没发
+ * 试算」，后者是「用户改了主意」。
+ *
+ * `keep` 为 `null` 时不过滤（没有提交体可参照的场景，例如单测直接验累积结果）。
+ */
+export function rebuildGoodsDetails(
+  cells: Readonly<Record<string, MeituanCalcCell>>,
+  keep: ReadonlySet<string> | null = null,
+): readonly JsonObject[] {
+  // 按房型分组，保持首次出现的顺序。
+  const byGoods = new Map<string, MeituanCalcCell[]>();
+  for (const cell of Object.values(cells)) {
+    if (keep !== null && !keep.has(goodsDateKey(cell.goodsId, cell.startDate, cell.endDate))) {
+      continue;
+    }
+    const group = byGoods.get(cell.goodsId);
+    if (group) group.push(cell);
+    else byGoods.set(cell.goodsId, [cell]);
+  }
+
+  const details: JsonObject[] = [];
+  for (const group of byGoods.values()) {
+    // 骨架取最后一条 —— 它是该房型最新一次 calc 的明细。
+    const skeleton = group[group.length - 1].detail;
+
+    // 同房型内按日期区间分段，段内按周次档排列。
+    const bySegment = new Map<string, MeituanCalcCell[]>();
+    for (const cell of group) {
+      const segmentKey = `${cell.startDate}|${cell.endDate}`;
+      const segment = bySegment.get(segmentKey);
+      if (segment) segment.push(cell);
+      else bySegment.set(segmentKey, [cell]);
+    }
+
+    const priceInfos = [...bySegment.values()].map((segment) => ({
+      startDate: segment[0].startDate,
+      endDate: segment[0].endDate,
+      // 原样放回整条 —— basePrice / subRatio / priceFactorInfos 等一并保留。
+      weekPriceInfos: segment.map((cell) => cell.weekPriceInfo),
+    }));
+
+    details.push({
+      ...skeleton,
+      // 统一输出形状②：它能表达多段日期，形状①做不到。两者 RMS 都认（见文件头）。
+      priceInfos,
+      unifiedDatePriceInfos: null,
+    } as JsonObject);
+  }
+  return details;
+}

@@ -390,7 +390,10 @@ describe('AmountSaveCapture', () => {
       expect(contextAt(adapter, 1)).toEqual({ calc: 1 });
     });
 
-    /** 页面上任何影响价格的条件变更都会触发重算，所以「取最新」天然与提交体同条件。 */
+    /**
+     * 机制层只是**存与喂**，一律用后来的那份覆盖 —— 「要不要累积」是适配器自己的事
+     * （美团适配器读入旧 context、合并后再交出新的），机制层不解读内容。
+     */
     it('后来的上下文覆盖先前的', async () => {
       const webContents = createFakeWebContents({
         'Network.getResponseBody': { body: SUCCESS_RESPONSE, base64Encoded: false },
@@ -412,6 +415,66 @@ describe('AmountSaveCapture', () => {
     });
 
     /** detach = 页面会话结束。下一次进改价页不该沿用上一次的试算结果。 */
+    /**
+     * 上报即**消费掉**上下文 —— 它是为这一次改动攒的素材，留着会被下一次改动带上。
+     *
+     * 美团的场景：用户连续改两次价，第二次若还能拿到第一次的累积，已上报过的格子会再报
+     * 一遍（`operationId` 不同，RMS 的幂等挡不住，会被当成用户改了两次）。
+     */
+    it('上报之后上下文清空，不带进下一次改动', async () => {
+      const webContents = createFakeWebContents({
+        'Network.getResponseBody': { body: SUCCESS_RESPONSE, base64Encoded: false },
+      });
+      const adapter = createContextAdapter();
+      const capture = new AmountSaveCapture(
+        webContents as never,
+        adapter,
+        createLogger(),
+        vi.fn(),
+      );
+      await capture.attach();
+
+      await roundTrip(webContents, CALC_URL, '2.1', '{"calc":1}');
+      await roundTrip(webContents, SAVE_URL, '2.2');
+      // 第二次改动的第一步：这时不该还看得见上一次的素材
+      await roundTrip(webContents, SAVE_URL, '2.3');
+
+      expect(contextAt(adapter, 1)).toEqual({ calc: 1 });
+      expect(contextAt(adapter, 2)).toBeNull();
+    });
+
+    /**
+     * 丢弃（`parse` 返回 `null`）不是上报 —— 美团的预检请求走的就是这条路，用户可能在
+     * 确认弹窗点取消后继续改，累积必须留着。
+     */
+    it('丢弃的那次不清空上下文', async () => {
+      const webContents = createFakeWebContents({
+        'Network.getResponseBody': { body: SUCCESS_RESPONSE, base64Encoded: false },
+      });
+      const parse = vi.fn(
+        (observed: AmountSaveObserved) =>
+          observed.endpointId === 'calc'
+            ? { kind: 'context' as const, context: observed.requestBody }
+            : null, // 预检：既不上报也不该清空
+      );
+      const adapter = createAdapter({ parse });
+      const capture = new AmountSaveCapture(
+        webContents as never,
+        adapter,
+        createLogger(),
+        vi.fn(),
+      );
+      await capture.attach();
+
+      await roundTrip(webContents, CALC_URL, '3.1', '{"calc":1}');
+      await roundTrip(webContents, SAVE_URL, '3.2');
+      await roundTrip(webContents, SAVE_URL, '3.3');
+
+      // 两次「预检」都还拿得到试算素材
+      expect(contextAt(adapter, 1)).toEqual({ calc: 1 });
+      expect(contextAt(adapter, 2)).toEqual({ calc: 1 });
+    });
+
     it('detach 之后上下文作废', async () => {
       const webContents = createFakeWebContents({
         'Network.getResponseBody': { body: SUCCESS_RESPONSE, base64Encoded: false },
