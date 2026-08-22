@@ -2,6 +2,7 @@ import type { GenerativeUiSpec } from '@hotel-butler/api';
 import { describe, expect, it, vi } from 'vitest';
 import {
 	analysisCompletionIssue,
+	blockedWorkflowToolCalls,
 	DuplicateUiRenderError,
 	completeGroundedAnswerAfterUi,
 	groundedAnalysisWritingInstructions,
@@ -19,6 +20,7 @@ import {
 	shouldCaptureToolEvidence,
 	shouldAbortRepeatedMcpFailure,
 	shouldSuppressUiRenderCall,
+	shouldSuppressWorkflowToolCall,
 	shouldStopHotelDataCollection,
 	shouldStopDuplicateUiRender,
 	ToolCallChunkAccumulator,
@@ -191,6 +193,19 @@ describe('shouldRequireHotelDataQuery', () => {
 		expect(hotelDataCollectionToolChoice(genericRequest, ['query_hotel_operating_data_sql'])).toBe(
 			'auto'
 		);
+	});
+
+	it('queries directly when the routed metric already preloads verified tables', () => {
+		expect(
+			hotelDataCollectionToolChoice(
+				{ ...genericRequest, slots: { metrics: '近日流量和转化情况' } },
+				[],
+				true
+			)
+		).toEqual({
+			type: 'function',
+			function: { name: 'query_hotel_operating_data_sql' }
+		});
 	});
 
 	it('refreshes the MCP catalog once after a failed hotel-data discovery', async () => {
@@ -408,6 +423,36 @@ describe('model-driven collection diagnostics', () => {
 		expect(workflowToolCallBudget(request)).toBe(8);
 		expect(workflowToolCallBudget(request, 3)).toBe(3);
 		expect(workflowToolCallBudget(request, 20)).toBe(8);
+	});
+
+	it('budgets external workflow calls without charging local schema lookup', () => {
+		const mcpTools = new Set(['query_hotel_operating_data_sql']);
+
+		expect(
+			shouldSuppressWorkflowToolCall(
+				'describe_verified_hotel_data_tables',
+				mcpTools,
+				8,
+				8
+			)
+		).toBe(false);
+		expect(
+			shouldSuppressWorkflowToolCall('query_hotel_operating_data_sql', mcpTools, 7, 8)
+		).toBe(false);
+		expect(
+			shouldSuppressWorkflowToolCall('query_hotel_operating_data_sql', mcpTools, 8, 8)
+		).toBe(true);
+		expect(
+			blockedWorkflowToolCalls(
+				Array.from({ length: 9 }, (_, index) => ({
+					id: `query-${index + 1}`,
+					name: 'query_hotel_operating_data_sql'
+				})),
+				mcpTools,
+				0,
+				8
+			)
+		).toEqual([{ id: 'query-9', name: 'query_hotel_operating_data_sql' }]);
 	});
 
 	it('forwards MCP lifecycle events without forwarding collection text', () => {

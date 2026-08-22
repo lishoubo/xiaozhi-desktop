@@ -28,6 +28,7 @@ import { getIntentDefinition } from './execution/intent-registry';
 import {
 	describeVerifiedHotelDataTables,
 	HOTEL_DATA_CATALOG_TOOL_NAME,
+	type HotelDataTableSemantics,
 	verifiedHotelDataTablesForText
 } from './hotel-data-business-catalog';
 import {
@@ -333,7 +334,8 @@ export function shouldStopHotelDataCollection(
 
 export function hotelDataCollectionToolChoice(
 	request: AgentRuntimeRunOptions['workflowRequest'],
-	completedToolNames: readonly string[]
+	completedToolNames: readonly string[],
+	hasPreloadedSchema = false
 ): HotelDataCollectionToolChoice {
 	if (
 		request?.intent !== 'generic_hotel_data_query' &&
@@ -343,6 +345,7 @@ export function hotelDataCollectionToolChoice(
 	}
 	if (
 		request.intent === 'generic_hotel_data_query' &&
+		!hasPreloadedSchema &&
 		!completedToolNames.includes(HOTEL_DATA_SQL_TOOL_NAME) &&
 		!completedToolNames.includes(HOTEL_DATA_CATALOG_TOOL_NAME)
 	) {
@@ -358,6 +361,91 @@ export function hotelDataCollectionToolChoice(
 	};
 }
 
+function preloadedHotelDataSchema(
+	request: AgentRuntimeRunOptions['workflowRequest']
+): readonly HotelDataTableSemantics[] {
+	if (!request) return [];
+	const metrics = request.slots.metrics;
+	const metricText = Array.isArray(metrics)
+		? metrics.filter((item): item is string => typeof item === 'string').join(' ')
+		: typeof metrics === 'string'
+			? metrics
+			: '';
+	const schemaText =
+		metricText ||
+		(request.intent === 'hotel_operating_summary' ? '经营概览 成交 预约 核销 退款' : '');
+	return verifiedHotelDataTablesForText(schemaText);
+}
+
+export function shouldSuppressWorkflowToolCall(
+	toolName: string,
+	mcpToolNames: ReadonlySet<string>,
+	startedWorkflowToolCount: number,
+	toolCallBudget: number
+): boolean {
+	return mcpToolNames.has(toolName) && startedWorkflowToolCount >= toolCallBudget;
+}
+
+type WorkflowToolCallIdentity = Readonly<{ id: string; name: string }>;
+type WorkflowToolCallCandidate = Readonly<{ id?: string; name: string }>;
+
+export function blockedWorkflowToolCalls(
+	toolCalls: readonly WorkflowToolCallCandidate[],
+	mcpToolNames: ReadonlySet<string>,
+	completedWorkflowToolCount: number,
+	toolCallBudget: number
+): readonly WorkflowToolCallIdentity[] {
+	let remaining = Math.max(0, toolCallBudget - completedWorkflowToolCount);
+	const blocked: WorkflowToolCallIdentity[] = [];
+	for (const call of toolCalls) {
+		if (!call.id || !mcpToolNames.has(call.name)) continue;
+		if (remaining > 0) {
+			remaining -= 1;
+			continue;
+		}
+		blocked.push({ id: call.id, name: call.name });
+	}
+	return blocked;
+}
+
+function limitWorkflowToolCallsMiddleware(
+	mcpToolNames: ReadonlySet<string>,
+	toolCallBudget: number
+) {
+	return createMiddleware({
+		name: 'LimitWorkflowToolCalls',
+		afterModel: (state) => {
+			const lastAIMessage = [...state.messages].reverse().find(AIMessage.isInstance);
+			if (!lastAIMessage?.tool_calls?.length) return;
+			const completedWorkflowToolCount = state.messages.filter(
+				(message) =>
+					ToolMessage.isInstance(message) &&
+					message.status !== 'error' &&
+					Boolean(message.name && mcpToolNames.has(message.name)) &&
+					!mcpResultIsError(message.content)
+			).length;
+			const blocked = blockedWorkflowToolCalls(
+				lastAIMessage.tool_calls,
+				mcpToolNames,
+				completedWorkflowToolCount,
+				toolCallBudget
+			);
+			if (blocked.length === 0) return;
+			return {
+				messages: blocked.map(
+					(call) =>
+						new ToolMessage({
+							content: '本轮工具调用超过安全预算，请使用已完成查询继续回答。',
+							tool_call_id: call.id,
+							name: call.name,
+							status: 'error'
+						})
+				)
+			};
+		}
+	});
+}
+
 export async function loadMcpToolsWithSingleRefresh(
 	provider: Pick<McpToolProvider, 'getTools' | 'refreshTools'>,
 	capabilities: readonly import('./agent-config').McpCapability[]
@@ -371,6 +459,7 @@ export async function loadMcpToolsWithSingleRefresh(
 }
 
 function requireHotelDataQueryMiddleware(request: AgentRuntimeRunOptions['workflowRequest']) {
+	const hasPreloadedSchema = preloadedHotelDataSchema(request).length > 0;
 	return createMiddleware({
 		name: 'RequireHotelDataQuery',
 		wrapModelCall: (modelRequest, handler) => {
@@ -384,7 +473,11 @@ function requireHotelDataQueryMiddleware(request: AgentRuntimeRunOptions['workfl
 			);
 			return handler({
 				...modelRequest,
-				toolChoice: hotelDataCollectionToolChoice(request, completedToolNames)
+				toolChoice: hotelDataCollectionToolChoice(
+					request,
+					completedToolNames,
+					hasPreloadedSchema
+				)
 			});
 		}
 	});
@@ -608,18 +701,7 @@ export class LangChainAgentRuntime implements AgentRuntime {
 					? `\n\n当前是证据校验后的回答阶段。不可变请求：${JSON.stringify(options.workflowRequest)}。已验证证据：${JSON.stringify(options.validatedEvidence)}。证据限制：${JSON.stringify(options.evidenceLimitations ?? [])}。不得调用数据工具，不得补造证据中没有的事实；只回答实际覆盖范围，必须写明范围、来源和重要限制。可按需要调用一次 render_hotel_ui。`
 					: options.workflowRequest
 						? (() => {
-								const metrics = options.workflowRequest.slots.metrics;
-								const metricText = Array.isArray(metrics)
-									? metrics.filter((item): item is string => typeof item === 'string').join(' ')
-									: typeof metrics === 'string'
-										? metrics
-										: '';
-								const schemaText =
-									metricText ||
-									(options.workflowRequest.intent === 'hotel_operating_summary'
-										? '经营概览 成交 预约 核销 退款'
-										: '');
-								const preloadedSchema = verifiedHotelDataTablesForText(schemaText).map((table) => ({
+								const preloadedSchema = preloadedHotelDataSchema(options.workflowRequest).map((table) => ({
 									name: table.name,
 									domain: table.domain,
 									grain: table.grain,
@@ -628,13 +710,14 @@ export class LangChainAgentRuntime implements AgentRuntime {
 									columns: table.columns,
 									rules: table.rules
 								}));
-								return `\n\n当前是受限业务取证阶段。意图：${options.workflowRequest.intent}。已解析参数：${JSON.stringify(options.workflowRequest.slots)}。${options.evidenceGap ? `这是定向补证轮次，只补齐：${options.evidenceGap}` : ''}相关表的已验证字段：${JSON.stringify(preloadedSchema)}。只能使用已提供的只读工具，不得调用、建议或模拟写操作。只完成数据获取，当前阶段文字不会直接展示给用户。database_id 由服务端注入，不要填写或猜测。优先直接并行调用 query_hotel_operating_data_sql；只有相关表未被预载或字段仍不足时，才一次调用 describe_verified_hotel_data_tables 补充，不要调用远端 list/describe。先列出用户明确要求的业务域和指标，再规划完整首批 SQL。每个结果必须返回 hotel_id、实际业务日期范围，并用 latest_data_date 或 latest_fetch_time 证明最新完整数据；分析请求还要返回可比基线。只使用已验证字段和语义目录提供的枚举，不得猜测字段名或范围枚举；用户未指定维度值时，首次取证不得自行添加该维度过滤，先取得实际分布再决定是否补证。NULL、空字符串和缺行必须原样保留，不得用 COALESCE 或派生别名伪装为零。派生字段名必须保留原指标口径，归因成交额不得命名为全口径 GMV。跨表先分别聚合到共同粒度，再按 hotel_id 和必要维度关联。不同 source、单位、快照/事件/日报不得直接混加，汇总行与明细行选择单一层级。禁止查询敏感字段、SELECT * 和原始 JSON。只有证据缺失或失败时才追加，最多 3 个 SQL 规划轮次、累计最多 8 次工具调用。数据充分时只回复 DATA_COLLECTION_COMPLETE。`;
+								return `\n\n当前是受限业务取证阶段。意图：${options.workflowRequest.intent}。已解析参数：${JSON.stringify(options.workflowRequest.slots)}。${options.evidenceGap ? `这是定向补证轮次，只补齐：${options.evidenceGap}` : ''}相关表的已验证字段：${JSON.stringify(preloadedSchema)}。只能使用已提供的只读工具，不得调用、建议或模拟写操作。只完成数据获取，当前阶段文字不会直接展示给用户。database_id 由服务端注入，不要填写或猜测。优先直接并行调用 query_hotel_operating_data_sql；只有相关表未被预载或字段仍不足时，才一次调用 describe_verified_hotel_data_tables 补充，不要调用远端 list/describe。先列出用户明确要求的业务域和指标，再规划完整首批 SQL。每个结果必须返回 hotel_id、实际业务日期范围，并用 latest_data_date 或 latest_fetch_time 证明最新完整数据；分析请求还要返回可比基线。只使用已验证字段和语义目录提供的枚举，不得猜测字段名或范围枚举；用户未指定维度值时，首次取证不得自行添加该维度过滤，先取得实际分布再决定是否补证。NULL、空字符串和缺行必须原样保留，不得用 COALESCE 或派生别名伪装为零。派生字段名必须保留原指标口径，归因成交额不得命名为全口径 GMV。跨表先分别聚合到共同粒度，再按 hotel_id 和必要维度关联。不同 source、单位、快照/事件/日报不得直接混加，汇总行与明细行选择单一层级。禁止查询敏感字段、SELECT * 和原始 JSON。只有证据缺失或失败时才追加，最多 3 个 SQL 规划轮次、累计最多 ${toolCallBudget} 次业务数据查询。数据充分时只回复 DATA_COLLECTION_COMPLETE。`;
 							})()
 						: '';
 		const agent = createAgent({
 			model: analysisOnly ? this.analysisModel : this.model,
 			tools,
 			middleware: [
+				limitWorkflowToolCallsMiddleware(mcpToolNames, toolCallBudget),
 				stopCompletedHotelDataCollectionMiddleware(
 					answerOnly ? undefined : options.workflowRequest
 				),
@@ -709,13 +792,19 @@ export class LangChainAgentRuntime implements AgentRuntime {
 							continue;
 						}
 						if (toolName === 'render_hotel_ui') firstUiRenderCallId = toolCallId;
-						if (toolName !== 'render_hotel_ui' && startedWorkflowToolCount >= toolCallBudget) {
-							throw new AgentProtocolError({
-								operation: 'execute_business_workflow',
-								reason: 'Business workflow tool-call budget exceeded'
-							});
+						if (
+							shouldSuppressWorkflowToolCall(
+								toolName,
+								mcpToolNames,
+								startedWorkflowToolCount,
+								toolCallBudget
+							)
+						) {
+							startedTools.add(toolCallId);
+							suppressedTools.add(toolCallId);
+							continue;
 						}
-						if (toolName !== 'render_hotel_ui') startedWorkflowToolCount += 1;
+						if (mcpToolNames.has(toolName)) startedWorkflowToolCount += 1;
 						startedTools.add(toolCallId);
 						if (toolName === 'render_hotel_ui' && generatedUi) continue;
 						await options.emit({
@@ -744,13 +833,19 @@ export class LangChainAgentRuntime implements AgentRuntime {
 							continue;
 						}
 						if (call.name === 'render_hotel_ui') firstUiRenderCallId = toolCallId;
-						if (call.name !== 'render_hotel_ui' && startedWorkflowToolCount >= toolCallBudget) {
-							throw new AgentProtocolError({
-								operation: 'execute_business_workflow',
-								reason: 'Business workflow tool-call budget exceeded'
-							});
+						if (
+							shouldSuppressWorkflowToolCall(
+								call.name,
+								mcpToolNames,
+								startedWorkflowToolCount,
+								toolCallBudget
+							)
+						) {
+							startedTools.add(toolCallId);
+							suppressedTools.add(toolCallId);
+							continue;
 						}
-						if (call.name !== 'render_hotel_ui') startedWorkflowToolCount += 1;
+						if (mcpToolNames.has(call.name)) startedWorkflowToolCount += 1;
 						startedTools.add(toolCallId);
 						if (call.name === 'render_hotel_ui' && generatedUi) continue;
 						await options.emit({
