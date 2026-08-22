@@ -73,6 +73,10 @@ req5  update  goods=[3 个都在] createFlag=true           ← 提交，6 个�
 
 ## Decisions
 
+> ⚠️ **决策 3b / 4 / 5 的部分结论已被 `design-mode-split.md` 修订** —— 那里发现
+> 「所有模式都发 `unified`」这个假设不成立（基础/日历模式不发），改为**按改价模式分支
+> 处理**。读本节时请对照该文件。
+
 ### 决策 1：累积键取 `(goodsId, startDate, endDate, inWeek)`
 
 踩点里同一 goodsId 的两个日期段被分别调整（`批量改房价-高级改价.md` 的 calc0 与 calc2），
