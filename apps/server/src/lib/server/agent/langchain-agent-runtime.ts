@@ -112,6 +112,7 @@ type ToolCallChunkFragment = Readonly<{
 }>;
 
 type BufferedToolCall = {
+	trackingId: string;
 	id: string;
 	name: string;
 	args: string;
@@ -127,29 +128,37 @@ function mergeStreamFragment(current: string, fragment: string | undefined): str
 export class ToolCallChunkAccumulator {
 	readonly #byId = new Map<string, BufferedToolCall>();
 	readonly #byIndex = new Map<number, BufferedToolCall>();
+	#nextTrackingId = 1;
 
 	add(fragment: ToolCallChunkFragment): Readonly<BufferedToolCall> | null {
 		const byId = fragment.id ? this.#byId.get(fragment.id) : undefined;
 		const byIndex = fragment.index === undefined ? undefined : this.#byIndex.get(fragment.index);
 		const current = byId ??
 			byIndex ?? {
+				trackingId: `stream-tool-call-${this.#nextTrackingId++}`,
 				id: '',
 				name: '',
 				args: '',
 				index: fragment.index ?? null
 			};
-		current.id = mergeStreamFragment(current.id, fragment.id);
+		if (!current.id && fragment.id) current.id = fragment.id;
 		current.name = mergeStreamFragment(current.name, fragment.name);
 		current.args = mergeStreamFragment(current.args, fragment.args);
 		if (fragment.index !== undefined) {
 			current.index = fragment.index;
 			this.#byIndex.set(fragment.index, current);
 		}
-		if (current.id) this.#byId.set(current.id, current);
+		if (fragment.id) this.#byId.set(fragment.id, current);
 		return current.id || current.name || current.args ? current : null;
 	}
 
-	take(toolCallId: string): Readonly<{ name: string | null; args: unknown }> | null {
+	trackingId(toolCallId: string): string | null {
+		return this.#byId.get(toolCallId)?.trackingId ?? null;
+	}
+
+	take(
+		toolCallId: string
+	): Readonly<{ trackingId: string; name: string | null; args: unknown }> | null {
 		const current = this.#byId.get(toolCallId);
 		if (!current) return null;
 		for (const [id, value] of this.#byId) {
@@ -166,7 +175,7 @@ export class ToolCallChunkAccumulator {
 				// Preserve malformed text so distinct calls are not collapsed into the same null identity.
 			}
 		}
-		return { name: current.name || null, args };
+		return { trackingId: current.trackingId, name: current.name || null, args };
 	}
 }
 
@@ -193,9 +202,14 @@ export function normalizeAgentStreamFailure(
 export function shouldRecoverPartialCollection(
 	error: unknown,
 	answerOnly: boolean,
-	toolEvidenceCount: number
+	completedToolNames: readonly string[]
 ): boolean {
-	return !answerOnly && toolEvidenceCount > 0 && agentFailureKind(error) !== 'cancelled';
+	const hasBusinessEvidence = completedToolNames.some(
+		(name) =>
+			name === HOTEL_DATA_SQL_TOOL_NAME ||
+			(!isHotelDataToolName(name) && name !== HOTEL_DATA_CATALOG_TOOL_NAME)
+	);
+	return !answerOnly && hasBusinessEvidence && agentFailureKind(error) !== 'cancelled';
 }
 
 export function workflowRecursionLimit(request: AgentRuntimeRunOptions['workflowRequest']): number {
@@ -686,7 +700,7 @@ export class LangChainAgentRuntime implements AgentRuntime {
 					}
 					for (const call of message.tool_call_chunks ?? []) {
 						const buffered = toolCallChunks.add(call);
-						const toolCallId = call.id ?? buffered?.id;
+						const toolCallId = buffered?.trackingId ?? call.id;
 						const toolName = call.name ?? buffered?.name;
 						if (!toolCallId || !toolName || startedTools.has(toolCallId)) continue;
 						if (shouldSuppressUiRenderCall(toolName, toolCallId, firstUiRenderCallId)) {
@@ -721,14 +735,15 @@ export class LangChainAgentRuntime implements AgentRuntime {
 					}
 					for (const call of message.tool_calls ?? []) {
 						if (!call.id) continue;
-						toolArgs.set(call.id, call.args);
-						if (startedTools.has(call.id)) continue;
-						if (shouldSuppressUiRenderCall(call.name, call.id, firstUiRenderCallId)) {
-							startedTools.add(call.id);
-							suppressedTools.add(call.id);
+						const toolCallId = toolCallChunks.trackingId(call.id) ?? call.id;
+						toolArgs.set(toolCallId, call.args);
+						if (startedTools.has(toolCallId)) continue;
+						if (shouldSuppressUiRenderCall(call.name, toolCallId, firstUiRenderCallId)) {
+							startedTools.add(toolCallId);
+							suppressedTools.add(toolCallId);
 							continue;
 						}
-						if (call.name === 'render_hotel_ui') firstUiRenderCallId = call.id;
+						if (call.name === 'render_hotel_ui') firstUiRenderCallId = toolCallId;
 						if (call.name !== 'render_hotel_ui' && startedWorkflowToolCount >= toolCallBudget) {
 							throw new AgentProtocolError({
 								operation: 'execute_business_workflow',
@@ -736,19 +751,19 @@ export class LangChainAgentRuntime implements AgentRuntime {
 							});
 						}
 						if (call.name !== 'render_hotel_ui') startedWorkflowToolCount += 1;
-						startedTools.add(call.id);
+						startedTools.add(toolCallId);
 						if (call.name === 'render_hotel_ui' && generatedUi) continue;
 						await options.emit({
 							type: 'tool_started',
-							toolCallId: call.id,
+							toolCallId,
 							toolName: call.name
 						});
-						toolNamesByCall.set(call.id, call.name);
+						toolNamesByCall.set(toolCallId, call.name);
 						if (mcpToolNames.has(call.name)) {
-							mcpCallStartedAt.set(call.id, performance.now());
+							mcpCallStartedAt.set(toolCallId, performance.now());
 							await options.emit({
 								type: 'mcp_call_started',
-								toolCallId: call.id,
+								toolCallId,
 								toolName: call.name
 							});
 						}
@@ -756,8 +771,9 @@ export class LangChainAgentRuntime implements AgentRuntime {
 					continue;
 				}
 				if (ToolMessage.isInstance(message)) {
-					const callId = message.tool_call_id;
-					const bufferedCall = toolCallChunks.take(callId);
+					const rawCallId = message.tool_call_id;
+					const bufferedCall = toolCallChunks.take(rawCallId);
+					const callId = bufferedCall?.trackingId ?? rawCallId;
 					if (suppressedTools.has(callId)) continue;
 					if (completedTools.has(callId)) continue;
 					completedTools.add(callId);
@@ -844,7 +860,13 @@ export class LangChainAgentRuntime implements AgentRuntime {
 			}
 		} catch (error) {
 			const graphRecursionFailed = agentErrorType(error) === 'GraphRecursionError';
-			if (shouldRecoverPartialCollection(error, answerOnly, toolEvidence.length)) {
+			if (
+				shouldRecoverPartialCollection(
+					error,
+					answerOnly,
+					toolEvidence.map((item) => item.toolName)
+				)
+			) {
 				return { content, ui: generatedUi, toolEvidence, toolCallCount: startedWorkflowToolCount };
 			}
 			const outstandingMcpToolName = graphRecursionFailed

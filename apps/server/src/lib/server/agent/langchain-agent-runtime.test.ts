@@ -244,6 +244,7 @@ describe('tool evidence capture', () => {
 		accumulator.add({ args: 'FROM fact_traffic_scene"}', index: 0 });
 
 		expect(accumulator.take('call-1')).toEqual({
+			trackingId: expect.any(String),
 			name: 'query_hotel_operating_data_sql',
 			args: { script: 'SELECT hotel_id, exposure_cnt FROM fact_traffic_scene' }
 		});
@@ -268,6 +269,42 @@ describe('tool evidence capture', () => {
 		accumulator.add({ args: '{"script":"A"}', index: 0 });
 
 		expect(accumulator.take('call-1')?.args).toEqual({ script: 'A' });
+	});
+
+	it('tracks unstable streamed ids as one lifecycle call when their index is unchanged', () => {
+		const accumulator = new ToolCallChunkAccumulator();
+
+		const first = accumulator.add({
+			id: 'query_hotel_operating_data_sql_1',
+			name: 'query_hotel_operating_data_sql',
+			args: '{"script":"SELECT ',
+			index: 0
+		});
+		const second = accumulator.add({
+			id: 'query_hotel_operating_data_sql_2',
+			args: 'hotel_id FROM fact_conversion_funnel"}',
+			index: 0
+		});
+
+		expect(second?.trackingId).toBe(first?.trackingId);
+		expect(accumulator.trackingId('query_hotel_operating_data_sql_2')).toBe(
+			first?.trackingId
+		);
+		expect(accumulator.take('query_hotel_operating_data_sql_2')).toEqual({
+			trackingId: first?.trackingId,
+			name: 'query_hotel_operating_data_sql',
+			args: { script: 'SELECT hotel_id FROM fact_conversion_funnel' }
+		});
+	});
+
+	it('assigns a new lifecycle identity when a later model round reuses the same index', () => {
+		const accumulator = new ToolCallChunkAccumulator();
+		const first = accumulator.add({ id: 'call-1', name: 'query', args: '{}', index: 0 });
+
+		accumulator.take('call-1');
+		const second = accumulator.add({ id: 'call-2', name: 'query', args: '{}', index: 0 });
+
+		expect(second?.trackingId).not.toBe(first?.trackingId);
 	});
 
 	it('does not treat an error ToolMessage as business evidence', () => {
@@ -451,15 +488,28 @@ describe('model-driven collection diagnostics', () => {
 			name: 'GraphRecursionError'
 		});
 
-		expect(shouldRecoverPartialCollection(graphLimit, false, 1)).toBe(true);
-		expect(shouldRecoverPartialCollection(graphLimit, false, 0)).toBe(false);
-		expect(shouldRecoverPartialCollection(graphLimit, true, 1)).toBe(false);
-		expect(shouldRecoverPartialCollection(new Error('network failed'), false, 1)).toBe(true);
+		expect(
+			shouldRecoverPartialCollection(graphLimit, false, ['query_hotel_operating_data_sql'])
+		).toBe(true);
+		expect(shouldRecoverPartialCollection(graphLimit, false, [])).toBe(false);
+		expect(
+			shouldRecoverPartialCollection(graphLimit, true, ['query_hotel_operating_data_sql'])
+		).toBe(false);
+		expect(
+			shouldRecoverPartialCollection(new Error('network failed'), false, [
+				'query_hotel_operating_data_sql'
+			])
+		).toBe(true);
+		expect(
+			shouldRecoverPartialCollection(new Error('budget exceeded'), false, [
+				'describe_verified_hotel_data_tables'
+			])
+		).toBe(false);
 		expect(
 			shouldRecoverPartialCollection(
 				Object.assign(new Error('cancelled'), { name: 'AbortError' }),
 				false,
-				1
+				['query_hotel_operating_data_sql']
 			)
 		).toBe(false);
 	});
