@@ -1585,6 +1585,331 @@ describe('美团价量态改动适配器', () => {
     });
   });
 
+  /* ==========================================================================
+   * 按改价模式分支（`design-mode-split.md`）
+   * ========================================================================== */
+
+  describe('parse — 基础改价（模式 A）', () => {
+    /**
+     * 模式 A 的真实序列 —— `docs/踩点/美团/批量改房价-基础改价.md`。
+     *
+     * 用户先在 `08-27~08-28` 上改价（3 个房型），中途把日期范围改成 `08-26~08-29` 后
+     * 又改了一遍。判据是**请求体字段** `calcPriceUnifiedDateModel`（模式 A 独有）。
+     *
+     * ⚠️ 模式 A **一条 `unified/calcPriceV2` 都不发**（五份踩点实测），所以废弃的日期段
+     * 只能靠「按 goodsId 整条覆盖」自愈 —— 这是本节钉住的核心行为。
+     */
+    function modeACalc(
+      goodsId: number,
+      startDate: string,
+      endDate: string,
+      salePrice: string,
+      originalSalePrice: string,
+    ): AmountSaveObserved {
+      return {
+        endpointId: 'calcPriceV2',
+        endpointUrl: REAL_CALC_URL,
+        requestBody: {
+          poiId: '1834077877',
+          partnerId: 4824962,
+          goodsList: [
+            {
+              goodsBaseInfo: { goodsId },
+              priceRecordWay: 8,
+              weekDiff: false,
+              operateType: 6,
+              // ⚠️ 模式 A 的判据就是这个字段。
+              calcPriceUnifiedDateModel: {
+                dates: [{ startDate, endDate }],
+                calcPriceWeekModels: [
+                  {
+                    inWeek: [1, 2, 3, 4, 5, 6, 7],
+                    calcPriceInfo: { salePrice: { operateType: 6, operateNum: salePrice } },
+                  },
+                ],
+              },
+            },
+          ],
+        } as unknown as JsonObject,
+        responseBody: JSON.stringify({
+          code: 10000,
+          success: true,
+          data: {
+            goodsDetails: [
+              {
+                goodsBaseInfo: { goodsId },
+                priceRecordWay: 8,
+                // ⚠️ 模式 A 的响应用形状①（日期集中在 `dates`）。
+                unifiedDatePriceInfos: {
+                  dates: [{ startDate, endDate }],
+                  weekPriceInfos: [
+                    {
+                      inWeek: [1, 2, 3, 4, 5, 6, 7],
+                      priceInfo: { salePrice, basePrice: '57200' },
+                      originalPriceInfo: { salePrice: originalSalePrice, basePrice: '57340' },
+                    },
+                  ],
+                },
+                priceInfos: null,
+                weekDiff: false,
+              },
+            ],
+            globalPricePrompt: null,
+          },
+        }),
+        pageUrl: REAL_PAGE_URL,
+      };
+    }
+
+    /** 模式 A 的提交体 —— `goodsList` 是用户实际提交的全量房型清单。 */
+    function modeAUpdate(goodsIds: readonly number[]): AmountSaveObserved {
+      return observedWith({
+        poiId: '1834077877',
+        createFlag: true,
+        goodsList: goodsIds.map((goodsId) => ({
+          goodsBaseInfo: { goodsId },
+          priceRecordWay: 8,
+          calcPriceUnifiedDateModel: {
+            dates: [{ startDate: '2026-08-26', endDate: '2026-08-29' }],
+            calcPriceWeekModels: [],
+          },
+        })),
+      } as unknown as JsonObject);
+    }
+
+    /**
+     * 本 change 引入的回归（A/B 已实测）：删掉 `keep` 之后，模式 A 没有任何范围变更信号，
+     * 用户改日期范围后旧日期段的格子一直留在累积里被一起上报。
+     *
+     * 真实序列：`08-27~08-28` 改价 → 用户把范围改成 `08-26~08-29` → 再改价 → 提交。
+     * 正确行为是**只报 `08-26~08-29`**。
+     */
+    it('用户改日期范围后，废弃的日期段不出现在上报里', () => {
+      const adapter = createMeituanAmountChangeAdapter(createLogger());
+
+      // 旧范围 08-27~08-28 上改了 3 个房型
+      let context: JsonObject | null = null;
+      for (const goodsId of [1135787306, 1135800654, 1135818026]) {
+        context = contextOf(
+          adapter.parse(modeACalc(goodsId, '2026-08-27', '2026-08-28', '65000', '65159'), context),
+        ) as JsonObject;
+      }
+      expect(Object.keys(context?.cells as JsonObject)).toHaveLength(3);
+
+      // 用户把日期范围改成 08-26~08-29，又改了同样 3 个房型 —— 模式 A 的 calc 带的是
+      // **当前全量日期段**，所以每条都只有新范围。
+      for (const goodsId of [1135787306, 1135800654, 1135818026]) {
+        context = contextOf(
+          adapter.parse(modeACalc(goodsId, '2026-08-26', '2026-08-29', '65100', '65159'), context),
+        ) as JsonObject;
+      }
+
+      const report = reportOf(adapter.parse(modeAUpdate([1135787306, 1135800654, 1135818026]), context));
+      const goodsDetails = (report?.changeRaw as JsonObject).goodsDetails as readonly JsonObject[];
+
+      // 3 个房型都在（跨房型累积仍然生效）
+      expect(goodsDetails).toHaveLength(3);
+      // ⚠️ 每个房型**只有新范围那一段**，被放弃的 08-27~08-28 一段都不剩
+      for (const detail of goodsDetails) {
+        const priceInfos = detail.priceInfos as readonly JsonObject[];
+        expect(priceInfos.map((segment) => `${segment.startDate as string}~${segment.endDate as string}`)).toEqual([
+          '2026-08-26~2026-08-29',
+        ]);
+      }
+    });
+
+    /**
+     * 模式 A **删房型不触发任何请求**（`基础模式02` 实证），又没有 `unified`，所以只能靠
+     * 提交体的 `goodsList` 裁 —— 见 `dropRoomTypesNotSubmitted`。
+     */
+    it('提交清单里没有的房型被裁掉', () => {
+      const logger = createLogger();
+      const adapter = createMeituanAmountChangeAdapter(logger);
+
+      let context: JsonObject | null = null;
+      for (const goodsId of [1135787306, 1135800654]) {
+        context = contextOf(
+          adapter.parse(modeACalc(goodsId, '2026-09-08', '2026-09-09', '55257', '55157'), context),
+        ) as JsonObject;
+      }
+      expect(Object.keys(context?.cells as JsonObject)).toHaveLength(2);
+
+      // 用户提交前删掉了 1135800654 —— 美团不重算，提交体的 goodsList 是唯一准绳。
+      const report = reportOf(adapter.parse(modeAUpdate([1135787306]), context));
+      const goodsDetails = (report?.changeRaw as JsonObject).goodsDetails as readonly JsonObject[];
+
+      expect(goodsDetails).toHaveLength(1);
+      expect(((goodsDetails[0].goodsBaseInfo as JsonObject).goodsId)).toBe(1135787306);
+      expect(logger.info).toHaveBeenCalledWith(
+        expect.stringContaining('not in submitted goodsList'),
+        expect.objectContaining({ droppedCells: 1 }),
+      );
+    });
+
+    /** 累积仍然跨房型 —— 覆盖的粒度是「一个 goodsId 的整条明细」，不是整个 context。 */
+    it('按 goodsId 覆盖时不影响别的房型', () => {
+      const adapter = createMeituanAmountChangeAdapter(createLogger());
+
+      let context = contextOf(
+        adapter.parse(modeACalc(1135787306, '2026-09-08', '2026-09-09', '55257', '55157'), null),
+      ) as JsonObject;
+      context = contextOf(
+        adapter.parse(modeACalc(1135800654, '2026-09-08', '2026-09-09', '67100', '67091'), context),
+      ) as JsonObject;
+      // 再改一次第一个房型，换了日期段 —— 只有它自己的旧格子作废。
+      context = contextOf(
+        adapter.parse(modeACalc(1135787306, '2026-09-11', '2026-09-12', '55300', '55157'), context),
+      ) as JsonObject;
+
+      expect(Object.keys(context.cells as JsonObject).sort()).toEqual([
+        '1135787306|2026-09-11|2026-09-12|1,2,3,4,5,6,7',
+        '1135800654|2026-09-08|2026-09-09|1,2,3,4,5,6,7',
+      ]);
+    });
+
+    /** 同格再次出现时改前价仍保留首次 —— 整条覆盖不该把这个语义丢掉。 */
+    it('同格覆盖时改前价保留首次', () => {
+      const adapter = createMeituanAmountChangeAdapter(createLogger());
+
+      let context = contextOf(
+        adapter.parse(modeACalc(1135787306, '2026-08-26', '2026-08-29', '65000', '65159'), null),
+      ) as JsonObject;
+      // 第二次美团给的 original 实测仍是 65159（不会回填成 65000），这里用 65000 造一个
+      // 「万一美团回填中间态」的极端输入，钉住我们保留首次的口径。
+      context = contextOf(
+        adapter.parse(modeACalc(1135787306, '2026-08-26', '2026-08-29', '65100', '65000'), context),
+      ) as JsonObject;
+
+      const report = reportOf(adapter.parse(modeAUpdate([1135787306]), context));
+      const goodsDetails = (report?.changeRaw as JsonObject).goodsDetails as readonly JsonObject[];
+      const week = ((goodsDetails[0].priceInfos as readonly JsonObject[])[0]
+        .weekPriceInfos as readonly JsonObject[])[0];
+
+      expect((week.originalPriceInfo as JsonObject).salePrice).toBe('65159');
+      expect((week.priceInfo as JsonObject).salePrice).toBe('65100');
+    });
+
+    /**
+     * 模式在同一页面会话里切换（用户在基础与高级之间来回切）：两种模式的累积粒度不同，
+     * 混着累会出错，所以清空重来 —— 与门店切换同口径。
+     */
+    it('模式变了就清空累积重来', () => {
+      const logger = createLogger();
+      const adapter = createMeituanAmountChangeAdapter(logger);
+
+      const context = contextOf(
+        adapter.parse(modeACalc(1135787306, '2026-09-08', '2026-09-09', '55257', '55157'), null),
+      ) as JsonObject;
+      expect(context.priceMode).toBe('unifiedDate');
+
+      // 切到高级模式（`calcPriceModels`）—— 旧素材的语义已经不成立
+      const switched = contextOf(
+        adapter.parse(
+          {
+            endpointId: 'calcPriceV2',
+            endpointUrl: REAL_CALC_URL,
+            requestBody: MODE_B_CALCS[0].req as unknown as JsonObject,
+            // ⚠️ `MODE_B_CALCS[*].resp` 本来就是 JSON 串，别再 stringify 一次。
+            responseBody: MODE_B_CALCS[0].resp,
+            pageUrl: REAL_PAGE_URL,
+          },
+          context,
+        ),
+      ) as JsonObject;
+
+      expect(switched.priceMode).toBe('separateDate');
+      // 基础模式那一格没被带过来
+      expect(Object.keys(switched.cells as JsonObject)).not.toContain(
+        '1135787306|2026-09-08|2026-09-09|1,2,3,4,5,6,7',
+      );
+      expect(logger.info).toHaveBeenCalledWith(
+        expect.stringContaining('price mode changed'),
+        expect.objectContaining({ previousMode: 'unifiedDate', priceMode: 'separateDate' }),
+      );
+    });
+  });
+
+  describe('parse — 空素材不上报', () => {
+    /**
+     * 本 change 引入的回归：`unified` 交出的空 context **结构合法**（`isCalcContext` 只
+     * 校验 `cells` 是对象），于是会一路走到重建、产出一条 `goodsDetails: []` 的空上报，
+     * 且 `endpointUrl` 指向 `unified` 而 `endpointId` 写 `calcPriceV2`，自相矛盾。
+     */
+    it('unified 清空后直接提交时返回 null 并 warn', () => {
+      const logger = createLogger();
+      const adapter = createMeituanAmountChangeAdapter(logger);
+
+      const context = contextOf(
+        adapter.parse(
+          {
+            endpointId: 'unifiedCalcPriceV2',
+            endpointUrl:
+              'https://me.meituan.com/api/gw/v1/product/price/unified/calcPriceV2?yodaReady=h5',
+            requestBody: RANGE_CHANGE_SEQ[0].req as unknown as JsonObject,
+            responseBody: JSON.stringify(RANGE_CHANGE_SEQ[0].resp),
+            pageUrl: REAL_PAGE_URL,
+          },
+          null,
+        ),
+      ) as JsonObject;
+
+      const result = adapter.parse(
+        observedWith({
+          poiId: '1834077877',
+          createFlag: true,
+          goodsList: [{ goodsBaseInfo: { goodsId: 1135787306 } }],
+        } as unknown as JsonObject),
+        context,
+      );
+
+      expect(result).toBeNull();
+      expect(logger.warn).toHaveBeenCalledWith(
+        expect.stringContaining('no calc cells left to report'),
+        expect.objectContaining({ accumulatedCells: 0 }),
+      );
+    });
+
+    /**
+     * `unified` 是清空信号，不该把自己的 URL 留在 context 里 —— 上报体的 `endpointId`
+     * 恒为 `calcPriceV2`（指 `separate`），`endpointUrl` 写 `unified/...` 自相矛盾。
+     */
+    it('unified 重置时不写 endpointUrl，由后续 separate 填', () => {
+      const adapter = createMeituanAmountChangeAdapter(createLogger());
+
+      const reset = contextOf(
+        adapter.parse(
+          {
+            endpointId: 'unifiedCalcPriceV2',
+            endpointUrl:
+              'https://me.meituan.com/api/gw/v1/product/price/unified/calcPriceV2?yodaReady=h5',
+            requestBody: RANGE_CHANGE_SEQ[0].req as unknown as JsonObject,
+            responseBody: JSON.stringify(RANGE_CHANGE_SEQ[0].resp),
+            pageUrl: REAL_PAGE_URL,
+          },
+          null,
+        ),
+      ) as JsonObject;
+
+      expect(reset.endpointUrl).toBe('');
+
+      // 后续 separate 到达后填上它自己的 URL
+      const filled = contextOf(
+        adapter.parse(
+          {
+            endpointId: 'calcPriceV2',
+            endpointUrl: 'https://me.meituan.com/api/gw/v1/product/price/separate/calcPriceV2',
+            requestBody: RANGE_CHANGE_SEQ[1].req as unknown as JsonObject,
+            responseBody: JSON.stringify(RANGE_CHANGE_SEQ[1].resp),
+            pageUrl: REAL_PAGE_URL,
+          },
+          reset,
+        ),
+      ) as JsonObject;
+
+      expect(filled.endpointUrl).toContain('/separate/calcPriceV2');
+    });
+  });
+
   describe('watchedEndpoints', () => {
     it('拦改价三个端点 + 房态房量三个端点', () => {
       const adapter = createMeituanAmountChangeAdapter(createLogger());

@@ -27,7 +27,7 @@
 
 - `apps/desktop/src/main/channels/meituan/amount-change-adapter.ts`：`parse` 的 context 语义由覆盖改为累积 + 上报后清空。
 - `apps/desktop/src/main/channels/meituan/calc-update-check.ts`：**删除**（对账方案取消）。
-- `apps/desktop/src/main/channels/meituan/amount-change-payload.ts`：累积键提取、同键合并、`goodsDetails[]` 重建；`submittedGoodsDateKeys()` 支持两种提交体形状。
+- `apps/desktop/src/main/channels/meituan/amount-change-payload.ts`：改价模式判定（`detectMeituanPriceMode`）、累积键提取、同键合并与模式 A 的按 `goodsId` 整条覆盖、`goodsDetails[]` 重建、模式 A 提交时按 `goodsList` 裁房型（`dropRoomTypesNotSubmitted`）。
 - `packages/api/`：**不改** —— 上报契约在 `apps/desktop/src/shared/types/amount-change.ts`，`changeRaw` 形状零变化。
 - 单测：`meituan-amount-change-adapter.test.ts`、`meituan-amount-change-payload.test.ts`。
 - **RMS 侧**：**零改动**。`changeRaw` 形状不变，只是 `goodsDetails` 内容变多（以前漏收的房型进来）。

@@ -43,12 +43,34 @@
  * updatePriceV2 + createFlag === true  → { kind: 'report' }   把**累积的全部格子**发出去
  * ```
  *
- * ## ⚠️ 改动范围变更 —— 用 `unified/calcPriceV2` 清空累积
+ * ## ⚠️ 改动范围变更 —— **两种改价模式，两条清理路径**
  *
  * 累积是**只进不出**的：格子按 (房型 × 日期区间 × 周次档) 入键，用户**删掉一个日期段**时
  * 没有任何东西会去删对应的格子，它会一直躺在累积里被一起上报。
  *
- * 美团有两个试算端点，语义不同：
+ * ⚠️ 但**两种改价模式的渠道行为完全不同**，不能用同一条路径清理（2026-08-22 复核五份
+ * 踩点后确认，设计见
+ * `openspec/changes/extend-meituan-price-status-coverage/design-mode-split.md`）：
+ *
+ * ```
+ *                 模式 A「基础 / 日历」          模式 B「高级（日期分开改价）」
+ * 判据（请求体）   calcPriceUnifiedDateModel      calcPriceModels[]
+ * calc 带的日期段  **当前全量**                   只带当次触碰的一段
+ * unified 端点     ❌ 不发                        ✅ 发（改动范围的快照）
+ * 累积粒度         按 goodsId **整条覆盖**        按 (房型,日期段,周次) 累积
+ * 删日期段         覆盖自动解决                   见到 unified 即清空
+ * 删房型           提交时按 goodsList 裁          见到 unified 即清空
+ * ```
+ *
+ * ⚠️ **模式 A 一条 `unified` 都不发** —— 它靠「每次 calc 带全量日期段」自愈。早先假设
+ * 「所有模式都会发 unified」，结果基础模式裸奔：用户把日期范围从 `08-27~08-28` 改成
+ * `08-26~08-29` 后，两个日期段被一起上报（A/B 实测）。判据必须取**请求体字段**而不是
+ * 端点路径 —— `separate/calcPriceV2` 两个模式共用，端点区分不了。
+ *
+ * 模式 A 唯一自愈不了的是**删房型**（美团不重算、不发任何请求），靠提交体的 `goodsList`
+ * 裁掉，见 `dropRoomTypesNotSubmitted`。
+ *
+ * 下面讲模式 B 的 `unified`。美团有两个试算端点，语义不同：
  *
  * ```
  * separate/calcPriceV2   改了某一格的价       响应只带**当次触碰的那一段**
@@ -75,6 +97,13 @@
  * ⚠️ **不能 `return null` 来表达「清空」** —— 机制层对 null 的处理是「什么都不做」
  * （`if (!parsed) return`，见 `../amount-save-capture.ts`），旧累积会原封不动留着。
  * 必须交出一份**空的 context** 覆盖过去。
+ *
+ * ⚠️ 空 context 的 `endpointUrl` **留空串**，不写 `unified` 自己的 URL —— 上报体的
+ * `endpointId` 恒为 `calcPriceV2`（指 `separate`），写成 `unified/...` 会自相矛盾。
+ *
+ * ⚠️ 空 context 的结构是**合法**的（`isCalcContext` 只校验 `cells` 是对象），所以它不会
+ * 被守卫拦下。清空之后用户若直接提交，重建出来的 `goodsDetails` 是空数组 —— 此时
+ * **必须 `return null` 丢弃**，不能照发一条空素材的上报，见 `parse` 结尾那条守卫。
  *
  * ⚠️ 曾经用「按提交体过滤过期日期区间」解决这个问题（读 `updatePriceV2` 的提交体，只保留
  * 出现过的日期段）。那个方案已废弃：它要求 desktop **解读提交体语义**，而提交体有两种
@@ -116,8 +145,10 @@
  * - 判断「这个价可不可信」需要卖价 + 底价 + 佣金率三元组，只比 `salePrice` 一项得不出
  *   可靠结论 —— 那是 RMS 的职责，不是探针的
  *
- * 唯一做的过滤是**按提交体裁掉过期日期区间**（见 `rebuildGoodsDetails` 的 `keep`），
- * 那是为了不上报用户已经放弃的中间状态，不是对账。
+ * 唯一做的过滤是**模式 A 提交时按 `goodsList` 裁掉不在提交清单里的房型**（见
+ * `dropRoomTypesNotSubmitted`），那是为了不上报用户已经移除的房型，不是对账。
+ * 早先这里写的「按提交体裁掉过期日期区间（`rebuildGoodsDetails` 的 `keep`）」已废弃，
+ * `keep` 与 `rebuildGoodsDetails` 的那个参数都已删除。
  *
  * ## ⚠️ 为什么必须看 `createFlag`
  *
@@ -143,11 +174,15 @@ import type { JsonObject } from '../../../shared/types/json';
 import { isTrustedHotelUrl } from '../trusted-hotel-url';
 import type { AmountChangeAdapter, AmountParseResult } from '../types';
 import {
+  detectMeituanPriceMode,
+  dropRoomTypesNotSubmitted,
   extractMeituanCalcCells,
   mergeMeituanCalcCells,
+  mergeMeituanCalcCellsByGoods,
   rebuildGoodsDetails,
   toMeituanAmountChangeRaw,
   type MeituanCalcCell,
+  type MeituanPriceMode,
 } from './amount-change-payload';
 
 const MEITUAN_HOTEL_HOSTNAME = 'me.meituan.com';
@@ -352,11 +387,28 @@ function topLevelRoomIdsOf(requestBody: JsonObject): readonly string[] {
  */
 type CalcContext = Readonly<{
   otaHotelId: string;
+  /**
+   * 试算那次的 URL。
+   *
+   * ⚠️ `unified` 重置时**留空串**、不写它自己的 URL —— 上报体的 `endpointId` 恒为
+   * `calcPriceV2`（= `separate`），`endpointUrl` 写成 `unified/...` 会自相矛盾。
+   * 由后续的 `separate` 填上。
+   */
   endpointUrl: string;
   /** 键 = `${goodsId}|${startDate}|${endDate}|${inWeek}`，见 `meituanCalcCellKey`。 */
   cells: Readonly<Record<string, MeituanCalcCell>>;
   /** 最后一次试算的，重建时沿用。 */
   globalPricePrompt: JsonObject | null;
+  /**
+   * 本次会话的改价模式，由首条 calc 的**请求体字段**确定（见 `detectMeituanPriceMode`）。
+   *
+   * 两种模式的渠道行为不同，累积方式也不同 —— 混着累会出错，所以要记住。模式变了就
+   * 清空重来（与门店切换同口径）：用户在基础与高级之间切换时旧素材的语义已经不成立。
+   *
+   * 形状不认识（两个字段都没有）时为 `null`，此时按模式 B 的逐格累积处理 —— 它是更保守
+   * 的一侧：多留几格顶多多报，模式 A 的整条覆盖若用错会误删。
+   */
+  priceMode: MeituanPriceMode | null;
 }>;
 
 /**
@@ -373,6 +425,17 @@ function isCalcContext(value: JsonObject | null): value is JsonObject & CalcCont
     cells !== null &&
     !Array.isArray(cells)
   );
+}
+
+/**
+ * 读出 context 里记着的改价模式。
+ *
+ * ⚠️ **不放进 `isCalcContext`**：`unified` 交出的空 context 与旧形状的 context 都可能没有
+ * 这个字段，要求它存在会把合法的空 context 判成非法。取不到就当 `null`（未知模式）。
+ */
+function priceModeOf(context: JsonObject & CalcContext): MeituanPriceMode | null {
+  const mode = context.priceMode;
+  return mode === 'unifiedDate' || mode === 'separateDate' ? mode : null;
 }
 
 /**
@@ -536,9 +599,14 @@ export function createMeituanAmountChangeAdapter(logger: AppLogger): AmountChang
           kind: 'context',
           context: {
             otaHotelId,
-            endpointUrl: observed.endpointUrl,
+            // ⚠️ **留空串，不写 unified 自己的 URL** —— 上报体的 `endpointId` 恒为
+            // `calcPriceV2`（指 `separate`），这里写 `unified/...` 会与它自相矛盾，
+            // RMS 拿着这个 URL 回溯会找错端点。由后续的 `separate` 填上。
+            endpointUrl: '',
             cells: {},
             globalPricePrompt: null,
+            // `unified` 只有模式 B 才发 —— 它到达本身就说明当前是高级模式。
+            priceMode: 'separateDate',
           },
         };
       }
@@ -554,27 +622,65 @@ export function createMeituanAmountChangeAdapter(logger: AppLogger): AmountChang
         }
 
         const otaHotelId = idToString(observed.requestBody.poiId);
-        // 换门店了：上一家的素材与这次无关，从零开始累积。不清会让两家的格子混在一起，
-        // 而键里没有 poiId（同一房型 ID 不会跨店重复，但门店切换时保留旧格子毫无意义）。
-        const previous = isCalcContext(context) && context.otaHotelId === otaHotelId
-          ? context.cells
-          : {};
-        if (isCalcContext(context) && context.otaHotelId !== otaHotelId) {
+
+        // 改价模式由**请求体字段**判定，不看端点（`separate/calcPriceV2` 两模式共用）。
+        // 取不到时沿用 context 里记着的，别猜 —— 见 `detectMeituanPriceMode`。
+        const previousMode = isCalcContext(context) ? priceModeOf(context) : null;
+        const priceMode = detectMeituanPriceMode(observed.requestBody) ?? previousMode;
+        if (priceMode === null) {
+          logger.warn('Meituan amount change: unrecognised calc request shape, price mode unknown', {
+            endpointId: observed.endpointId,
+            requestBodyKeys: Object.keys(observed.requestBody),
+          });
+        }
+
+        // 重置累积的两种情形，同一口径：**旧素材的语义已经不成立**。
+        //
+        // - 换门店：上一家的格子与这次改动无关（键里没有 poiId，不清会混在一条上报里）
+        // - 换模式：两种模式的累积粒度不同（整条覆盖 vs 逐格累积），混着累会出错
+        const sameHotel = isCalcContext(context) && context.otaHotelId === otaHotelId;
+        const sameMode = previousMode === null || previousMode === priceMode;
+        const previous = sameHotel && sameMode ? context.cells : {};
+        if (isCalcContext(context) && !sameHotel) {
           logger.info('Meituan amount change: poiId changed, resetting accumulated calc cells', {
             previousOtaHotelId: context.otaHotelId,
             otaHotelId,
           });
+        } else if (isCalcContext(context) && !sameMode) {
+          logger.info('Meituan amount change: price mode changed, resetting accumulated calc cells', {
+            previousMode,
+            priceMode,
+            dropped: Object.keys(context.cells).length,
+          });
         }
 
-        const { cells, dropped } = mergeMeituanCalcCells(
-          previous,
-          extractMeituanCalcCells(changeRaw),
-        );
-        if (dropped > 0) {
-          logger.warn('Meituan amount change: calc cell limit exceeded, dropped oldest', {
-            dropped,
-            kept: Object.keys(cells).length,
-          });
+        const incoming = extractMeituanCalcCells(changeRaw);
+
+        // ⚠️ 两种模式的合并方式不同，见 `amount-change-payload.ts` 的「改价模式」一节：
+        //
+        // - 模式 A（`calcPriceUnifiedDateModel`）：calc 每次带该房型**当前全量日期段**，
+        //   所以按 `goodsId` **整条覆盖** —— 累积日期段会让用户删掉的段永久残留。
+        // - 模式 B（`calcPriceModels`）：calc 每次只带一段，必须**逐格累积**；范围变更
+        //   由 `unified` 清空。
+        //
+        // 模式未知时走模式 B —— 它是更保守的一侧：多留几格顶多多报，整条覆盖用错会误删。
+        //
+        // ⚠️ `MEITUAN_CALC_CELL_LIMIT` 只在模式 B 生效，模式 A **不需要**：那个上限防的是
+        // 「长时间停留在页面反复试算导致累积无限增长」，而模式 A 每次都按 `goodsId` 整条
+        // 覆盖，反复试算同一批房型格数恒定，上界是「房型数 × 当前日期段 × 周次档」，
+        // 由页面本身约束。
+        let cells: Readonly<Record<string, MeituanCalcCell>>;
+        if (priceMode === 'unifiedDate') {
+          cells = mergeMeituanCalcCellsByGoods(previous, incoming);
+        } else {
+          const merged = mergeMeituanCalcCells(previous, incoming);
+          cells = merged.cells;
+          if (merged.dropped > 0) {
+            logger.warn('Meituan amount change: calc cell limit exceeded, dropped oldest', {
+              dropped: merged.dropped,
+              kept: Object.keys(merged.cells).length,
+            });
+          }
         }
 
         // 门店 ID 只在请求体里、URL 也只有此刻拿得到，一并存下。
@@ -585,6 +691,7 @@ export function createMeituanAmountChangeAdapter(logger: AppLogger): AmountChang
             endpointUrl: observed.endpointUrl,
             cells,
             globalPricePrompt: changeRaw.globalPricePrompt ?? null,
+            priceMode,
           },
         };
       }
@@ -630,17 +737,42 @@ export function createMeituanAmountChangeAdapter(logger: AppLogger): AmountChang
         });
       }
 
-      // 重建上报体：把累积的格子拼回 calc 响应的形状（RMS 现有解析逻辑继续有效）。
-      // **不做任何过滤** —— 累积到什么就发什么，废弃的日期段已在 `unified` 那一刻清掉了。
-      const goodsDetails = rebuildGoodsDetails(context.cells);
-
-      // 素材为空但用户确实提交了 —— 理论上进不来（提交前必然试算过），留一条日志兜底：
-      // 失效方式是**静默上报空素材**，没有日志就查不出来。
-      if (goodsDetails.length === 0) {
-        logger.warn('Meituan amount change: rebuilt goodsDetails is empty, reporting anyway', {
-          endpointId: observed.endpointId,
-          accumulatedCells: Object.keys(context.cells).length,
+      // ⚠️ **模式 A 专属的裁剪**：模式 A 删房型时美团**不重算**（不发任何请求），又没有
+      // `unified` 快照，被删的房型会一直躺在累积里。唯一可靠的准绳是提交体的 `goodsList`
+      // —— 它是用户实际提交的全量房型清单。见 `dropRoomTypesNotSubmitted` 的说明，那里
+      // 也写清了它与已废弃的 `keep` 的区别（只裁 goodsId，不碰日期结构）。
+      //
+      // 模式 B **不做**这一步：`unified` 已覆盖房型移除的场景，两条路各自闭环，不要交叉。
+      const priceMode = priceModeOf(context);
+      const reportedCells =
+        priceMode === 'unifiedDate'
+          ? dropRoomTypesNotSubmitted(context.cells, goodsIds)
+          : context.cells;
+      const droppedRoomTypes = Object.keys(context.cells).length - Object.keys(reportedCells).length;
+      if (droppedRoomTypes > 0) {
+        logger.info('Meituan amount change: dropped cells of room types not in submitted goodsList', {
+          droppedCells: droppedRoomTypes,
+          submittedGoodsIds: goodsIds,
         });
+      }
+
+      // 重建上报体：把累积的格子拼回 calc 响应的形状（RMS 现有解析逻辑继续有效）。
+      const goodsDetails = rebuildGoodsDetails(reportedCells);
+
+      // ⚠️ **素材为空就不上报** —— 与上面 `!isCalcContext(context)` 同口径：没有试算结果
+      // 就没有可上报的内容。
+      //
+      // 这条守卫不是多余的：`unified` 交出的空 context **结构合法**，`isCalcContext()`
+      // 只校验 `cells` 是对象，于是会一路走到这里产出一条 `goodsDetails: []` 的空上报。
+      // 曾经这里只记 warn 然后照发，那是本次改动引入的回归。
+      if (goodsDetails.length === 0) {
+        logger.warn('Meituan amount change: no calc cells left to report, dropping', {
+          endpointId: observed.endpointId,
+          goodsIds,
+          accumulatedCells: Object.keys(context.cells).length,
+          priceMode,
+        });
+        return null;
       }
 
       return {

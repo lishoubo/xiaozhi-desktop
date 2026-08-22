@@ -68,8 +68,10 @@ req5  update  goods=[3 个都在] createFlag=true           ← 提交，6 个�
 - **不做语义换算**。素材原样透传，不把 `operateType: 1`（加价）换算成绝对值。
 - **不做 calc/update 对账**。desktop 不复现美团的定价计算，也不判断素材可不可信 ——
   见决策 3。
-- **不解析请求体**。desktop 只读 calc 的**响应**；请求侧一律不解析（决策 4 推翻了原
-  「按提交体过滤」的做法）。
+- **请求体只用来判模式，不用来算价**。价格素材一律取 calc 的**响应**；请求侧只读两个
+  字段判改价模式（`calcPriceUnifiedDateModel` / `calcPriceModels`），以及提交体的
+  `goodsList[].goodsBaseInfo.goodsId`（模式 A 裁被删房型用）。⚠️ 早先这里写「请求侧一律
+  不解析」，已被 `design-mode-split.md` 推翻。
 
 ## Decisions
 
@@ -93,15 +95,22 @@ req5  update  goods=[3 个都在] createFlag=true           ← 提交，6 个�
 
 ### 决策 2：改前价保留首次，改后价取最新
 
-req1（65159 → 65100）后 req2 又改同一档，此时 req2 的 `originalPriceInfo` 已是 65100
-（前一次的结果）。直接整条覆盖会让 RMS 看到「65100 → 65100」这个中间态，丢失真实起点。
+> ⚠️ **本节的论据已被 `design-mode-split.md` 决策 D 订正**（结论与代码不变）。
+
+早先这里写「第二次 calc 的 `originalPriceInfo` 已是第一次改动的结果」，并给了一串
+「65159 →(calc①) 65100 →(calc②) 65000」的所谓真实序列。**复核踩点后确认该序列不存在。**
+`批量改房价-基础改价` 里 `787306` 被改三次，`original` 恒为 `65159`：
 
 ```
-首次入键   { original: 65159, new: 65100 }
-再次同键   { original: 65100, new: 65000 }   ← 美团给的
-合并结果   { original: 65159, new: 65000 }   ← 我们存的
-           ↑ 保留首次        ↑ 取最新
+calc#0  original=65159  new=65000
+calc#1  original=65159  new=65100    ← original 没有变成 65000
+calc#2  original=65159  new=65100
 ```
+
+美团给的 `originalPriceInfo` 始终是**用户本次操作前的真实起点**，不随重算变化。
+
+**结论仍是「保留首次、取最新」**：值恒定时两种取法等价，而保留首次是更保守的一侧 ——
+万一将来美团改成回填中间态，这里仍然给出真实起点。改的只是论据，不是实现。
 
 ### 决策 3：不做 calc/update 对账 —— desktop 只合并，不判断
 
@@ -134,6 +143,10 @@ updatePriceV2  →  确认成功 → 发出累积素材 → 清空
 RMS 侧零改动、无需等待 desktop 发版。
 
 ### 决策 3b：认 `/product/price/unified/calcPriceV2`，用它清空累积
+
+> ⚠️ **已被 `design-mode-split.md` 决策 B1 限定适用范围**：本节结论**只对模式 B（高级）
+> 成立**。`unified` 只在高级模式出现，基础/日历模式一条都不发 —— 那边靠「按 `goodsId`
+> 整条覆盖」自愈（决策 A1）与「按提交清单裁房型」（决策 A2）。
 
 **这一条推翻了本 change 的前一版决策**（原文：「不认 `unified`」）。推翻的理由是
 `批量改房价-高级改价-时间段改变.md` 这份踩点 —— 它揭示了 `unified` 的真实语义。
@@ -186,6 +199,11 @@ updatePriceV2 cf=true → 原样发出去，清空
 
 ### 决策 4：不按提交体过滤 —— 废弃的日期段在 `unified` 那一刻就清掉了
 
+> ⚠️ **已被 `design-mode-split.md` 决策 A2 部分推翻**：模式 A 没有 `unified`，且删房型
+> 不触发任何请求，所以那边**必须**读提交体的 `goodsList` 裁掉被移除的房型。
+> 但**只裁 `goodsId`、不碰日期结构** —— 本节批评的「解读提交体的日期语义」仍然不做，
+> 那个失效方式（形状不认识 → 空集 → 整条清零）不复存在。
+
 **这一条推翻了本 change 的前一版决策**（原文：「重建 `goodsDetails` 时按提交体过滤掉
 过期区间」）。
 
@@ -214,7 +232,7 @@ updatePriceV2 cf=true → 原样发出去，清空
 **结论：`rebuildGoodsDetails` 不做任何过滤，累积到什么就发什么。**
 删除 `submittedGoodsDateKeys()`、`goodsDateKey()` 与 `keep` 参数。
 
-### 决策 5：请求侧的两种形状 —— 不再需要解析，但要记着
+### 决策 5：请求侧的两种形状 —— ⚠️ **已重新成为判据**
 
 美团有两种改价模式，**请求体形状不同**：
 
@@ -232,8 +250,12 @@ updatePriceV2 cf=true → 原样发出去，清空
 形状**随改价模式走，不随端点走** —— 同一模式下 `calcPriceV2` 与 `updatePriceV2` 用同一套
 字段名（后者是前者的子集）。
 
-**决策 4 之后，desktop 不再解析请求侧的任何东西**，所以这两种形状对实现无影响。
-保留这一节是因为它记录了一个反复踩到的教训：
+> ⚠️ **本节结尾原写「desktop 不再解析请求侧的任何东西」，已被 `design-mode-split.md`
+> 推翻。** 这两种形状现在是**改价模式的判据**：`calcPriceUnifiedDateModel` = 模式 A，
+> `calcPriceModels` = 模式 B，两个字段五份踩点零重叠。累积方式随模式分流（模式 A 按
+> `goodsId` 整条覆盖，模式 B 逐格累积），见 `detectMeituanPriceMode`。
+
+下面这个教训**依然成立**，而且正是它指向了现在的判据：
 
 ⚠️ **判据要落在「请求体结构 / 渠道语义」上，不要落在「端点路径」上。**
 本 change 里两个被推翻的决策都源于此 ——「不认 `unified`」是拿端点当判据，

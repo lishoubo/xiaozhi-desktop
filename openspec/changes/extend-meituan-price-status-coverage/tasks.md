@@ -81,32 +81,32 @@
 ⚠️ code review 发现「删除 `keep`」在基础模式下造成回归 —— 追查后确认根因是**两种改价
 模式的渠道行为不同，却被塞进同一条处理路径**。本节推翻决策 3b/4/5 的部分结论。
 
-- [ ] 5b.1 **模式判定**：从 calc 请求体取模式 —— `calcPriceUnifiedDateModel` = A（基础/
+- [x] 5b.1 **模式判定**：从 calc 请求体取模式 —— `calcPriceUnifiedDateModel` = A（基础/
       日历），`calcPriceModels` = B（高级）。⚠️ 判据取**请求体字段**，不取端点路径
       （`separate/calcPriceV2` 两模式共用）
-- [ ] 5b.2 `CalcContext` 记录本次会话的模式；模式变了就清空重来（与门店切换同口径）
-- [ ] 5b.3 **模式 A：按 `goodsId` 整条覆盖**，不累积日期维度（决策 A1）——
+- [x] 5b.2 `CalcContext` 记录本次会话的模式；模式变了就清空重来（与门店切换同口径）
+- [x] 5b.3 **模式 A：按 `goodsId` 整条覆盖**，不累积日期维度（决策 A1）——
       模式 A 的 calc 每次带当前全量日期段，累积日期段会让删掉的段永久残留
-- [ ] 5b.4 **模式 A：按 `update.goodsList` 裁掉被移除的房型**（决策 A2）——
+- [x] 5b.4 **模式 A：按 `update.goodsList` 裁掉被移除的房型**（决策 A2）——
       新函数 `dropRoomTypesNotSubmitted()`，复用已有的 `goodsIdsOf()`。
       ⚠️ 只用 `createFlag === true` 那条。**不是把 `keep` 加回来**：只裁 goodsId、
       不碰日期结构，故不存在 `keep` 那个「形状不认识→清零」的失效方式
-- [ ] 5b.5 **模式 B 维持现状**（三维累积 + `unified` 清空），不需要 8.4 的裁剪 ——
+- [x] 5b.5 **模式 B 维持现状**（三维累积 + `unified` 清空），不需要 8.4 的裁剪 ——
       两条路各自闭环，不要交叉
-- [ ] 5b.6 ⚠️ **空素材不得上报**（决策 C，本 change 引入的回归）：`unified` 交出的空
+- [x] 5b.6 ⚠️ **空素材不得上报**（决策 C，本 change 引入的回归）：`unified` 交出的空
       context 通过了 `isCalcContext()`，导致空 `goodsDetails` 照样上报。改为按
       「没有试算结果」处理，`return null` + warn
-- [ ] 5b.7 `unified` 重置时**不写 `endpointUrl`**（留空串），由后续 `separate` 填 ——
+- [x] 5b.7 `unified` 重置时**不写 `endpointUrl`**（留空串），由后续 `separate` 填 ——
       现在上报体的 `endpointUrl` 指向 unified 而 `endpointId` 写 `calcPriceV2`，自相矛盾
-- [ ] 5b.8 ⚠️ **订正 `originalPriceInfo` 注释**（决策 D，代码不变）：`design.md` 决策 2
+- [x] 5b.8 ⚠️ **订正 `originalPriceInfo` 注释**（决策 D，代码不变）：`design.md` 决策 2
       与 `MeituanCalcCell.originalSalePrice` 编造了「65159→65100→65000」的序列。
       实测 `original` 恒为 65159 不随重算变化，注释必须改
-- [ ] 5b.9 单测：模式 A 真实序列（`批量改房价-基础改价`）—— 用户改日期范围后，
+- [x] 5b.9 单测：模式 A 真实序列（`批量改房价-基础改价`）—— 用户改日期范围后，
       废弃的 `08-27~08-28` **不在**上报里（这是 review 发现的回归，A/B 已实测）
-- [ ] 5b.10 单测：模式 A 删房型（`批量改房价-基础模式02`）—— `update.goodsList` 少一个
+- [x] 5b.10 单测：模式 A 删房型（`批量改房价-基础模式02`）—— `update.goodsList` 少一个
       房型时，累积里那个房型被裁掉
-- [ ] 5b.11 单测：空素材不上报；`unified` 后直接提交返回 null
-- [ ] 5b.12 文档同步：`design.md` 决策 3b/4/5 标注被 `design-mode-split.md` 修订；
+- [x] 5b.11 单测：空素材不上报；`unified` 后直接提交返回 null
+- [x] 5b.12 文档同步：`design.md` 决策 3b/4/5 标注被 `design-mode-split.md` 修订；
       `proposal.md` 仍列着已删的 `submittedGoodsDateKeys()`（review #5）；
       `amount-change-adapter.ts` 文件头 118 行仍写「唯一做的过滤是 keep」（review #4）
 
@@ -126,8 +126,8 @@
 
 ## 7. 完成门禁
 
-- [ ] 7.1 跑一次 desktop 全量单测（5b 完成后需重跑）
-- [ ] 7.4 ⚠️ 5b 完成后重新核对 `openspec/specs/ota-amount-change-report/spec.md` ——
+- [x] 7.1 跑一次 desktop 全量单测（2026-08-23：`npm run test:unit` 100 文件 764 用例全过）（5b 完成后需重跑）
+- [x] 7.4 ⚠️ 5b 完成后重新核对 `openspec/specs/ota-amount-change-report/spec.md` ——
       「同一渠道的多种操作形态」那条 Requirement 现在只描述了「靠范围快照重置」，
       需补上「渠道不提供该信号时靠提交清单裁剪」这一支
 - [x] 7.2 ⚠️ 本次**不再新增契约字段** —— 重新核对
