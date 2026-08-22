@@ -37,10 +37,45 @@
  * 于是 `parse` 的分工与另两个渠道反过来：
  *
  * ```
- * calcPriceV2                          → { kind: 'context' }  累积，此刻不发（用户可能不提交）
+ * unified/calcPriceV2                  → { kind: 'context' }  **空** context —— 清空累积，见下
+ * separate/calcPriceV2                 → { kind: 'context' }  累积，此刻不发（用户可能不提交）
  * updatePriceV2 + createFlag !== true  → null                 预检，丢弃（累积原样保留）
  * updatePriceV2 + createFlag === true  → { kind: 'report' }   把**累积的全部格子**发出去
  * ```
+ *
+ * ## ⚠️ 日期范围变更 —— 用 `unified/calcPriceV2` 清空累积
+ *
+ * 累积是**只进不出**的：格子按 (房型 × 日期区间 × 周次档) 入键，用户**删掉一个日期段**时
+ * 没有任何东西会去删对应的格子，它会一直躺在累积里被一起上报。
+ *
+ * 美团有两个试算端点，语义不同：
+ *
+ * ```
+ * separate/calcPriceV2   改了某一格的价       响应只带**当次触碰的那一段**
+ * unified/calcPriceV2    日期范围的全量快照   响应带**改动后的全部日期段**
+ * ```
+ *
+ * 用户每次增删日期段，页面都会发一条 `unified` —— 它带的是改动**之后**的完整日期列表。
+ * 所以见到它就把累积**整个清空**：旧范围下攒的格子全部作废，用户改完范围必然要重新改价，
+ * 那些 `separate` 会重新到达、累积自然重建。
+ *
+ * 踩点实证（`批量改房价-高级改价-时间段改变.md`）：
+ *
+ * ```
+ * #0 unified   两段：09-02~03, 09-08~09     ← 用户选了两个日期段
+ * #1 separate  改 09-02~03 的价
+ * #2 unified   ★ 只剩 09-02~03              ← 用户删掉了 09-08~09
+ * #3 separate  又改 09-02~03 的价
+ * ```
+ *
+ * ⚠️ **不能 `return null` 来表达「清空」** —— 机制层对 null 的处理是「什么都不做」
+ * （`if (!parsed) return`，见 `../amount-save-capture.ts`），旧累积会原封不动留着。
+ * 必须交出一份**空的 context** 覆盖过去。
+ *
+ * ⚠️ 曾经用「按提交体过滤过期日期区间」解决这个问题（读 `updatePriceV2` 的提交体，只保留
+ * 出现过的日期段）。那个方案已废弃：它要求 desktop **解读提交体语义**，而提交体有两种
+ * 形状（基础/日历模式与高级模式字段名不同），只认一种就会返回空集 —— 空集在过滤器里等于
+ * 「一格都不保留」，**整条上报清零**。用渠道自己发的快照做判据，失效方式温和得多。
  *
  * 上报体的 `endpointId` / `endpointUrl` / `changeRaw` 全部指向**试算**那次 —— 内容出处
  * 要如实，不能一半来自试算一半来自提交。
@@ -107,7 +142,6 @@ import {
   extractMeituanCalcCells,
   mergeMeituanCalcCells,
   rebuildGoodsDetails,
-  submittedGoodsDateKeys,
   toMeituanAmountChangeRaw,
   type MeituanCalcCell,
 } from './amount-change-payload';
@@ -145,6 +179,11 @@ const WATCH_PATH = '/ebooking/merchant/product';
 const UPDATE_ENDPOINT_ID = 'updatePriceV2';
 /** 试算端点 —— 不是改价，拦它只为拿价格素材，见文件头「相对操作」。 */
 const CALC_ENDPOINT_ID = 'calcPriceV2';
+/**
+ * **日期范围快照** —— 用户每次改动日期范围（增删日期段）时页面会发它，
+ * 带的是**改动后的全量日期列表**。拦它只为一件事：**清空累积**，见文件头。
+ */
+const RANGE_ENDPOINT_ID = 'unifiedCalcPriceV2';
 /**
  * 单独**开房**（把某房型某日期的可售状态打开）。
  *
@@ -201,6 +240,8 @@ const INVENTORY_ENDPOINT_ID = 'inventory-update';
 const WATCHED_ENDPOINTS: ReadonlyMap<string, string> = new Map([
   [UPDATE_ENDPOINT_ID, '/api/gw/v1/product/price/updatePriceV2'],
   [CALC_ENDPOINT_ID, '/api/gw/v1/product/price/separate/calcPriceV2'],
+  // 日期范围变了 —— 只用来清空累积，不产生上报也不进累积，见文件头。
+  [RANGE_ENDPOINT_ID, '/api/gw/v1/product/price/unified/calcPriceV2'],
   [ROOM_STATUS_ENDPOINT_ID, '/api/gw/v1/product/goods/inventory/status/switch'],
   [ROOM_CLOSE_ENDPOINT_ID, '/api/gw/v1/product/goods/inventory/roomstatus/submitaudit'],
   // ⚠️ 只认 `/inventory/update`，**不认** `/inventory/check`（见上方说明）。
@@ -476,6 +517,28 @@ export function createMeituanAmountChangeAdapter(logger: AppLogger): AmountChang
         return parseRoomStatusOrInventory(observed, logger);
       }
 
+      // 日期范围变了 —— 清空累积，从零开始重累。见文件头「日期范围变更」。
+      //
+      // ⚠️ **不能 `return null`**：机制层对 null 的处理是「什么都不做」（`if (!parsed) return`
+      // ，见 `../amount-save-capture.ts`），旧累积会原封不动留着。要真清掉必须交出一份
+      // **空的 context** 覆盖过去。
+      if (observed.endpointId === RANGE_ENDPOINT_ID) {
+        const otaHotelId = idToString(observed.requestBody.poiId);
+        logger.info('Meituan amount change: date range changed, resetting accumulated cells', {
+          endpointId: observed.endpointId,
+          dropped: isCalcContext(context) ? Object.keys(context.cells).length : 0,
+        });
+        return {
+          kind: 'context',
+          context: {
+            otaHotelId,
+            endpointUrl: observed.endpointUrl,
+            cells: {},
+            globalPricePrompt: null,
+          },
+        };
+      }
+
       // 试算：**上报的素材就是它**，但此刻还不能发 —— 用户可能算完不提交。先累积着。
       if (observed.endpointId === CALC_ENDPOINT_ID) {
         const changeRaw = toMeituanAmountChangeRaw(observed.responseBody);
@@ -563,20 +626,16 @@ export function createMeituanAmountChangeAdapter(logger: AppLogger): AmountChang
         });
       }
 
-      // 重建上报体：把累积的格子拼回 calc 响应的形状（RMS 现有解析逻辑继续有效），
-      // 并按提交体过滤掉用户中途放弃的日期区间（见 `rebuildGoodsDetails` 的 `keep`）。
-      const submittedKeys = submittedGoodsDateKeys(observed.requestBody);
-      const goodsDetails = rebuildGoodsDetails(context.cells, submittedKeys);
+      // 重建上报体：把累积的格子拼回 calc 响应的形状（RMS 现有解析逻辑继续有效）。
+      // **不做任何过滤** —— 累积到什么就发什么，废弃的日期段已在 `unified` 那一刻清掉了。
+      const goodsDetails = rebuildGoodsDetails(context.cells);
 
-      // ⚠️ 素材为空但用户确实提交了 —— 唯一已知成因是提交体形状没被认出来（`keep` 落空，
-      // 见 `submittedGoodsDateKeys`）。失效方式是**静默上报空素材**，没有日志就查不出来。
-      //
-      // ⚠️ 该成因由**单测**覆盖（踩点报文作输入），高级模式这条链路**尚未真机验证**。
+      // 素材为空但用户确实提交了 —— 理论上进不来（提交前必然试算过），留一条日志兜底：
+      // 失效方式是**静默上报空素材**，没有日志就查不出来。
       if (goodsDetails.length === 0) {
         logger.warn('Meituan amount change: rebuilt goodsDetails is empty, reporting anyway', {
           endpointId: observed.endpointId,
           accumulatedCells: Object.keys(context.cells).length,
-          submittedKeys: submittedKeys.size,
         });
       }
 

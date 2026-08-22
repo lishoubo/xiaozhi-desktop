@@ -24,7 +24,7 @@
  *
  * ⚠️ 累积再完整也不保证与用户实际提交的一致（美团可能没为某些档发过试算，用户也可能改完
  * 不再触发试算）。desktop **不对账、不判断素材可不可信** —— 那需要卖价+底价+佣金率三元组，
- * 是 RMS 的职责。唯一的过滤是按提交体裁掉过期日期区间，见 `rebuildGoodsDetails` 的 `keep`。
+ * 是 RMS 的职责 —— 累积到什么就发什么，不做任何过滤。
  *
  * 保存请求体为什么一个字节都不发：它只有相对操作，而 **RMS 侧没有美团的数据** —— 既没有
  * 基准价可以算出结果，也无从校验。「+1 元」到了那边是死信息。真出现「试算与实际不符」，
@@ -89,27 +89,6 @@
  *
  * ⚠️ 形状①里 `dates` 是数组而 `weekPriceInfos` 只有一份 —— 多个日期区间**共享**同一批周次档。
  * 实测只见过 `dates` 长度为 1，长度 >1 时是否仍是共享语义**未实测**。
- *
- * ## ⚠️ 请求侧也有两种形状，且**与响应侧一一对应**
- *
- * 上面两种是**响应**的形状。**请求**（试算与提交）同样有两种，取决于用户用的改价模式 ——
- * 形状**随模式走，不随端点走**：同一模式下 `calcPriceV2` 与 `updatePriceV2` 用同一套字段名，
- * 后者只是前者的子集。
- *
- * ```
- * 模式 A「统一日期」  响应 unifiedDatePriceInfos   ←→  请求 calcPriceUnifiedDateModel
- * 模式 B「日期分开」  响应 priceInfos[]            ←→  请求 calcPriceModels[]
- *                    （日期挂在每段里）                 （日期挂在每段里）
- * ```
- *
- * | 页面入口 | 模式 |
- * |---|---|
- * | 批量改价（基础） | A |
- * | 日历页改价 | A |
- * | 批量改价 →「日期分开改价」 | **B** |
- *
- * 解析请求侧的只有 `submittedGoodsDateKeys()`（按提交范围过滤过期日期区间），两种形状都认，
- * 详见那个函数的注释 —— **只认一种会让另一种模式静默上报空素材**。
  *
  * ## weekPriceInfos[] —— 价格就在这里
  *
@@ -471,100 +450,6 @@ export function mergeMeituanCalcCells(
   return { cells: merged, dropped };
 }
 
-/** `(goodsId × 日期区间)` 的键 —— 过期区间过滤用，见 `rebuildGoodsDetails` 的 `keep`。 */
-export function goodsDateKey(goodsId: string, startDate: string, endDate: string): string {
-  return `${goodsId}|${startDate}|${endDate}`;
-}
-
-/**
- * 从 `updatePriceV2` 的**提交体**里取出全部 `(goodsId × 日期区间)` —— 用户真正提交的范围。
- *
- * ============================================================================
- * ⚠️ 提交体有**两种形状**，取决于用户用的改价模式，两种都必须认
- * ============================================================================
- *
- * 形状**随改价模式走，不随端点走** —— 同一模式下 calc 与 update 用同一套字段名
- * （update 只是 calc 的子集，砍掉了 `priceInfos` / `pricePrompt` 等只有试算才需要的字段）：
- *
- * ```
- * 模式 A「统一日期」  calcPriceUnifiedDateModel   日期在**外层**，所有日期段共享周次档
- *   { dates: [{08-26~08-29}, {09-09~10-08}], calcPriceWeekModels: [...] }
- *
- * 模式 B「日期分开」  calcPriceModels[]           日期在**里层**，每段各带各的价
- *   [ { startDate:09-08, endDate:09-09, calcPriceWeekModels: [...] },
- *     { startDate:09-10, endDate:09-11, calcPriceWeekModels: [...] } ]
- * ```
- *
- * | 页面入口 | 模式 |
- * |---|---|
- * | 批量改价（基础） | A |
- * | 日历页改价 | A |
- * | 批量改价 →「日期分开改价」 | **B** |
- *
- * ⚠️ **只认一种的后果是静默丢整条**：另一种模式下这里返回空集 → `rebuildGoodsDetails`
- * 的 `keep` 把全部格子裁光 → `goodsDetails` 上报为空。
- *
- * 证据强度要说清楚：以 `批量改房价-高级改价.md` 的报文为输入调用本函数，实测返回空集
- * （单测 `parse — 高级改价（提交体形状 B）` 钉住了这条）。**这是单测级验证，不是真机** ——
- * 报文取自踩点文档，没有真实点击跑过这条链路。
- *
- * ⚠️ **判据要落在「模式」上，不要落在「端点」上** —— 这条踩过两次坑（形状漏认、
- * `unified/calcPriceV2`），见 design.md 决策 5。
- */
-export function submittedGoodsDateKeys(requestBody: JsonObject): ReadonlySet<string> {
-  const keys = new Set<string>();
-  const goodsList = requestBody.goodsList;
-  if (!Array.isArray(goodsList)) return keys;
-
-  for (const goods of goodsList) {
-    if (!isJsonObject(goods)) continue;
-    const baseInfo = goods.goodsBaseInfo;
-    const goodsId = isJsonObject(baseInfo) ? toIdString(baseInfo.goodsId) : '';
-    if (!goodsId) continue;
-
-    for (const { startDate, endDate } of submittedDateRanges(goods)) {
-      keys.add(goodsDateKey(goodsId, startDate, endDate));
-    }
-  }
-  return keys;
-}
-
-/** 提交体里一个房型的日期区间。两种形状归一后的结果，见 `submittedGoodsDateKeys`。 */
-type SubmittedDateRange = Readonly<{ startDate: string; endDate: string }>;
-
-/**
- * 展开一个房型在提交体里的全部日期区间，**两种形状都认**。
- *
- * 归一只发生在这里 —— 上层拿到的是统一的 `(startDate, endDate)` 列表。
- */
-function submittedDateRanges(goods: JsonObject): readonly SubmittedDateRange[] {
-  const ranges: SubmittedDateRange[] = [];
-
-  // 模式 B「日期分开」：日期挂在每个元素上。先判它 —— 两个字段实测不同时出现。
-  const separateModels = goods.calcPriceModels;
-  if (Array.isArray(separateModels)) {
-    for (const model of separateModels) {
-      if (!isJsonObject(model)) continue;
-      const startDate = toIdString(model.startDate);
-      const endDate = toIdString(model.endDate);
-      if (startDate && endDate) ranges.push({ startDate, endDate });
-    }
-    return ranges;
-  }
-
-  // 模式 A「统一日期」：日期挂在外层，全部周次档共享这批日期。
-  const unifiedModel = goods.calcPriceUnifiedDateModel;
-  if (isJsonObject(unifiedModel) && Array.isArray(unifiedModel.dates)) {
-    for (const date of unifiedModel.dates) {
-      if (!isJsonObject(date)) continue;
-      const startDate = toIdString(date.startDate);
-      const endDate = toIdString(date.endDate);
-      if (startDate && endDate) ranges.push({ startDate, endDate });
-    }
-  }
-  return ranges;
-}
-
 /**
  * 从累积的格子重建 `goodsDetails[]` —— **形状与单次 calc 响应一致**，RMS 现有解析逻辑
  * 继续有效（这是硬要求：累积是 desktop 内部的事，不该让 RMS 跟着改）。
@@ -573,36 +458,20 @@ function submittedDateRanges(goods: JsonObject): readonly SubmittedDateRange[] {
  * 属性、`priceRecordWay`、`weekDiff` 等都在里面），把日期与周次重写成累积到的全部格子，
  * 统一用**形状②**（`priceInfos[]`）输出 —— 它能表达多段日期，形状①不能。
  *
- * ## ⚠️ `keep` —— 按提交体过滤掉过期的日期区间
+ * ## 为什么不需要按提交体过滤
  *
- * 用户可以在操作途中**改日期范围**，而日期是累积键的一部分，旧区间的格子不会被覆盖而是
- * 与新区间**并存**。真实序列（`批量改房价-基础改价.md`）：
+ * 用户中途**改日期范围**（增删日期段）时，页面会发一条 `unified/calcPriceV2`（日期范围
+ * 的全量快照），适配器见到它就把累积**整个清空**、从零重累 —— 废弃的日期段在那一刻就
+ * 没了，不需要到提交体里找准绳裁剪。见 `../meituan/amount-change-adapter.ts` 的
+ * `RANGE_ENDPOINT_ID`。
  *
- * ```
- * calc①   08-27~08-28   ← 用户最初选的
- * calc②③ 08-26~08-29   ← 用户改了日期范围
- * 提交     08-26~08-29   ← 只有这个是真正提交的
- * ```
- *
- * 不过滤的话上报体里会出现用户**已经放弃**的中间状态，RMS 若不读对账就会当真。所以传入
- * 提交体里出现过的 `(goodsId × 日期区间)` 集合，只保留命中的。
- *
- * ⚠️ **只按日期区间过滤，不按周次档**：周次档在提交体里缺失是 `missing-calc` 要表达的
- * 正常情况（用户开周末差异后没重算某档），与「日期区间过期」性质不同 —— 前者是「美团没发
- * 试算」，后者是「用户改了主意」。
- *
- * `keep` 为 `null` 时不过滤（没有提交体可参照的场景，例如单测直接验累积结果）。
  */
 export function rebuildGoodsDetails(
   cells: Readonly<Record<string, MeituanCalcCell>>,
-  keep: ReadonlySet<string> | null = null,
 ): readonly JsonObject[] {
   // 按房型分组，保持首次出现的顺序。
   const byGoods = new Map<string, MeituanCalcCell[]>();
   for (const cell of Object.values(cells)) {
-    if (keep !== null && !keep.has(goodsDateKey(cell.goodsId, cell.startDate, cell.endDate))) {
-      continue;
-    }
     const group = byGoods.get(cell.goodsId);
     if (group) group.push(cell);
     else byGoods.set(cell.goodsId, [cell]);

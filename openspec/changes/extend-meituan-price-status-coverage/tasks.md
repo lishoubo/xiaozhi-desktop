@@ -23,9 +23,10 @@
 - [x] 2.5 从累积结果重建 `goodsDetails[]`，形状与 calc 响应一致（RMS 现有解析逻辑必须继续
       有效）。⚠️ **整条 `weekPriceInfos[]` 元素原样放回** —— 不只 `salePrice`，还有
       `basePrice`/`subRatio`/`priceFactorInfos` 等（语义未确认的更要留）
-- [x] 2.6 **按提交体过滤过期日期区间**（决策 4b）：只保留提交体里出现过的
-      (goodsId × 日期区间)，用户中途改日期范围留下的旧区间丢弃。⚠️ 只按日期区间过滤，
-      **不按周次档** —— 周次档缺失是 `missing-calc` 的正常情况
+- [x] 2.6 ~~按提交体过滤过期日期区间~~ —— **已废弃**，改用 `unified` 清空累积，见 2.9
+- [x] 2.9 ⚠️ **认 `unified/calcPriceV2`，到达即清空累积**（决策 3b）：用户增删日期段时
+      页面重发它，带改动后的全量日期列表。**必须交出空 context，不能 `return null`** ——
+      机制层对 null 是「什么都不做」，旧累积会留着
 - [x] 2.7 改 `amount-change-adapter.ts` 的 `parse`：`calcPriceV2` 分支由「整条覆盖」改为
       「读入旧 context → 合并 → 交出新 context」
 - [x] 2.8 `createFlag: true` 且已产出 report 后清空累积；`createFlag: false`（预检）**不清**
@@ -42,11 +43,12 @@
 - [x] 3.6 ~~确认对账不改变是否上报~~ —— **已作废**（无对账，本就照常上报）
 - [x] 3.7 **删除** `extractUpdateCells()` 与 `buildMeituanCalcUpdateCheck()` 的调用，
       `amount-change-adapter.ts` 的 `updatePriceV2` 分支回到「成功即上报累积素材」
-- [x] 3.8 ⚠️ **`submittedGoodsDateKeys()` 补 `calcPriceModels[]` 分支**（决策 5）——
-      提交体日期有两种挂载位置，只读 `calcPriceUnifiedDateModel` 会让高级模式
-      `keep` 为空集、`goodsDetails` 上报为空。已以 `批量改房价-高级改价.md` 的报文
-      为输入实测（单测级，非真机 —— 真机见 6.2）
-- [x] 3.9 确认 `/product/price/unified/calcPriceV2` **不加入白名单**（决策 3b，零改动）
+- [x] 3.8 ~~`submittedGoodsDateKeys()` 补 `calcPriceModels[]` 分支~~ —— **已废弃**：
+      整个 `keep` 方案被 `unified` 清空取代（决策 4），不再解析提交体
+- [x] 3.10 **删除** `submittedGoodsDateKeys()`、`goodsDateKey()` 与 `rebuildGoodsDetails`
+      的 `keep` 参数
+- [x] 3.9 ~~确认 `unified/calcPriceV2` 不加入白名单~~ —— **已推翻**，见 2.9：它承载
+      日期范围语义，必须认
 
 ## 4. 文档同步
 
@@ -77,8 +79,9 @@
 ## 6. 真机验证
 
 - [ ] 6.1 批量改价页：改 3 个房型 × 区分周末，确认上报覆盖全部 6 个价格档
-- [ ] 6.2 ⚠️ **高级模式（「日期分开改价」）真机验证**：改 2 个房型 × 2 个日期段，
-      确认上报的 `goodsDetails` 非空且覆盖全部 4 格 —— 这是 3.8 修复的场景
+- [ ] 6.2 ⚠️ **日期范围变更真机验证**：选两个日期段 → 各改价 → **删掉一个** → 提交，
+      确认上报里没有被删那段的格子（决策 3b）
+- [ ] 6.6 高级模式（「日期分开改价」）真机验证：改 2 房型 × 2 日期段，确认 4 格齐全
 - [ ] 6.3 确认连续两次改价互不污染
 - [ ] 6.4 确认关房仍只产生一条上报（回归，本次未改动关房链路）
 - [ ] 6.5 把验证证据写入 `verification.md`

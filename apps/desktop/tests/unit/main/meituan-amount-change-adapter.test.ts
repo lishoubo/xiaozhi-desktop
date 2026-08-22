@@ -802,6 +802,321 @@ const MODE_B_UPDATE = {
 const MODE_B_CALC_URL =
   'https://me.meituan.com/api/gw/v1/product/price/separate/calcPriceV2?yodaReady=h5';
 
+/* ============================================================================
+ * 日期范围变更 —— `docs/踩点/美团/批量改房价-高级改价-时间段改变.md` 的真实序列
+ * ============================================================================
+ *
+ * ```
+ * #0 unified   两段：09-02~03, 09-08~09     ← 用户选了两个日期段
+ * #1 separate  改 09-02~03 的价
+ * #2 unified   ★ 只剩 09-02~03              ← 用户删掉了 09-08~09
+ * #3 separate  又改 09-02~03 的价
+ * ```
+ */
+const RANGE_CHANGE_SEQ = [
+  {
+    "endpointId": "unifiedCalcPriceV2",
+    "req": {
+      "poiId": "1834077877",
+      "partnerId": 4824962
+    },
+    "resp": {
+      "code": 10000,
+      "error": null,
+      "traceId": "7535153309122687798",
+      "success": true,
+      "data": {
+        "goodsDetails": [
+          {
+            "goodsBaseInfo": {
+              "goodsId": 1135787306
+            },
+            "priceRecordWay": 8,
+            "unifiedDatePriceInfos": null,
+            "priceInfos": [
+              {
+                "startDate": "2026-09-02",
+                "endDate": "2026-09-03",
+                "weekPriceInfos": [
+                  {
+                    "inWeek": [
+                      1,
+                      2,
+                      3,
+                      4,
+                      5,
+                      6,
+                      7
+                    ],
+                    "priceInfo": {
+                      "salePrice": "55057"
+                    },
+                    "originalPriceInfo": {
+                      "salePrice": "55057"
+                    }
+                  }
+                ]
+              },
+              {
+                "startDate": "2026-09-08",
+                "endDate": "2026-09-09",
+                "weekPriceInfos": [
+                  {
+                    "inWeek": [
+                      1,
+                      2,
+                      3,
+                      4,
+                      5,
+                      6,
+                      7
+                    ],
+                    "priceInfo": {
+                      "salePrice": "55157"
+                    },
+                    "originalPriceInfo": {
+                      "salePrice": "55157"
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        ],
+        "globalPricePrompt": {
+          "prompts": null,
+          "unifiedSubRatio": null,
+          "unifiedBaseAddRatio": null
+        }
+      }
+    }
+  },
+  {
+    "endpointId": "calcPriceV2",
+    "req": {
+      "poiId": "1834077877",
+      "partnerId": 4824962,
+      "goodsList": [
+        {
+          "goodsBaseInfo": {
+            "goodsId": 1135787306
+          },
+          "calcPriceModels": [
+            {
+              "startDate": "2026-09-02",
+              "endDate": "2026-09-03",
+              "calcPriceWeekModels": [
+                {
+                  "inWeek": [
+                    3,
+                    4
+                  ],
+                  "calcPriceInfo": {
+                    "salePrice": {
+                      "operateType": 6,
+                      "operateNum": "55157"
+                    },
+                    "basePrice": {
+                      "operateType": 3,
+                      "operateNum": ""
+                    },
+                    "subPrice": {
+                      "operateType": 3,
+                      "operateNum": ""
+                    }
+                  },
+                  "calcPriceFactorInfos": []
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "resp": {
+      "code": 10000,
+      "error": null,
+      "traceId": "7535153308960011415",
+      "success": true,
+      "data": {
+        "goodsDetails": [
+          {
+            "goodsBaseInfo": {
+              "goodsId": 1135787306
+            },
+            "priceRecordWay": 8,
+            "unifiedDatePriceInfos": null,
+            "priceInfos": [
+              {
+                "startDate": "2026-09-02",
+                "endDate": "2026-09-03",
+                "weekPriceInfos": [
+                  {
+                    "inWeek": [
+                      3,
+                      4
+                    ],
+                    "priceInfo": {
+                      "salePrice": "55157"
+                    },
+                    "originalPriceInfo": {
+                      "salePrice": "55057"
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        ],
+        "globalPricePrompt": {
+          "prompts": null,
+          "unifiedSubRatio": null,
+          "unifiedBaseAddRatio": null
+        }
+      }
+    }
+  },
+  {
+    "endpointId": "unifiedCalcPriceV2",
+    "req": {
+      "poiId": "1834077877",
+      "partnerId": 4824962
+    },
+    "resp": {
+      "code": 10000,
+      "error": null,
+      "traceId": "7535153309041258869",
+      "success": true,
+      "data": {
+        "goodsDetails": [
+          {
+            "goodsBaseInfo": {
+              "goodsId": 1135787306
+            },
+            "priceRecordWay": 8,
+            "unifiedDatePriceInfos": null,
+            "priceInfos": [
+              {
+                "startDate": "2026-09-02",
+                "endDate": "2026-09-03",
+                "weekPriceInfos": [
+                  {
+                    "inWeek": [
+                      1,
+                      2,
+                      3,
+                      4,
+                      5,
+                      6,
+                      7
+                    ],
+                    "priceInfo": {
+                      "salePrice": "55057"
+                    },
+                    "originalPriceInfo": {
+                      "salePrice": "55057"
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        ],
+        "globalPricePrompt": {
+          "prompts": null,
+          "unifiedSubRatio": null,
+          "unifiedBaseAddRatio": null
+        }
+      }
+    }
+  },
+  {
+    "endpointId": "calcPriceV2",
+    "req": {
+      "poiId": "1834077877",
+      "partnerId": 4824962,
+      "goodsList": [
+        {
+          "goodsBaseInfo": {
+            "goodsId": 1135787306
+          },
+          "calcPriceModels": [
+            {
+              "startDate": "2026-09-02",
+              "endDate": "2026-09-03",
+              "calcPriceWeekModels": [
+                {
+                  "inWeek": [
+                    3,
+                    4
+                  ],
+                  "calcPriceInfo": {
+                    "salePrice": {
+                      "operateType": 6,
+                      "operateNum": "55157"
+                    },
+                    "basePrice": {
+                      "operateType": 3,
+                      "operateNum": ""
+                    },
+                    "subPrice": {
+                      "operateType": 3,
+                      "operateNum": ""
+                    }
+                  },
+                  "calcPriceFactorInfos": []
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "resp": {
+      "code": 10000,
+      "error": null,
+      "traceId": "7535135716810102874",
+      "success": true,
+      "data": {
+        "goodsDetails": [
+          {
+            "goodsBaseInfo": {
+              "goodsId": 1135787306
+            },
+            "priceRecordWay": 8,
+            "unifiedDatePriceInfos": null,
+            "priceInfos": [
+              {
+                "startDate": "2026-09-02",
+                "endDate": "2026-09-03",
+                "weekPriceInfos": [
+                  {
+                    "inWeek": [
+                      3,
+                      4
+                    ],
+                    "priceInfo": {
+                      "salePrice": "55157"
+                    },
+                    "originalPriceInfo": {
+                      "salePrice": "55057"
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        ],
+        "globalPricePrompt": {
+          "prompts": null,
+          "unifiedSubRatio": null,
+          "unifiedBaseAddRatio": null
+        }
+      }
+    }
+  }
+] as const;
+
 function calcObserved(
   overrides: Partial<AmountSaveObserved> = {},
 ): AmountSaveObserved {
@@ -1155,14 +1470,12 @@ describe('美团价量态改动适配器', () => {
   });
 
   /**
-   * 高级改价（「日期分开改价」）—— 提交体用 `calcPriceModels[]`，日期挂在每段里。
+   * 高级改价（「日期分开改价」）—— 用户分多次改多个房型的多个日期段。
    *
-   * ⚠️ 这是回归用例：`submittedGoodsDateKeys` 早先只认 `calcPriceUnifiedDateModel`，
-   * 走这条路时 `keep` 为空集 → `rebuildGoodsDetails` 把全部格子裁光 → **上报空素材**，
-   * 整条改价静默丢失 —— 以本序列的报文为输入实测过：4 次 calc 累积正常，提交时
-   * `submittedGoodsDateKeys()` 返回空集。
+   * 累积不受改价模式影响：`separate/calcPriceV2` 的响应形状两种模式一致，
+   * 上报体也照常重建。
    */
-  describe('parse — 高级改价（提交体形状 B）', () => {
+  describe('parse — 高级改价', () => {
     it('4 次试算累积后，提交时 4 格素材全在', () => {
       const adapter = createMeituanAmountChangeAdapter(createLogger());
 
@@ -1203,14 +1516,14 @@ describe('美团价量态改动适配器', () => {
         ),
       );
 
-      // ⚠️ 核心断言：goodsDetails 非空 —— 修复前这里是 []
+      // 4 格素材全部重建进上报体
       const details = report?.changeRaw.goodsDetails as {
         goodsBaseInfo: { goodsId: number };
         priceInfos: { startDate: string; endDate: string; weekPriceInfos: unknown[] }[];
       }[];
       expect(details).toHaveLength(2);
       expect(details.map((d) => d.goodsBaseInfo.goodsId)).toEqual([1135787306, 1135800654]);
-      // 每个房型两段日期都在，一段都没被 keep 裁掉
+      // 每个房型两段日期都在
       for (const detail of details) {
         expect(detail.priceInfos.map((s) => `${s.startDate}~${s.endDate}`)).toEqual([
           '2026-09-08~2026-09-09',
@@ -1220,13 +1533,66 @@ describe('美团价量态改动适配器', () => {
     });
   });
 
+  /**
+   * 日期范围变更 —— 累积是**只进不出**的，用户删掉一个日期段时没有任何东西会去删对应的
+   * 格子。靠 `unified/calcPriceV2`（日期范围全量快照）到达时**整个清空**来解决。
+   *
+   * ⚠️ 回归护栏：`return null` 表达不了「清空」—— 机制层对 null 是「什么都不做」，
+   * 旧累积会原封不动留着。必须交出**空 context**。
+   */
+  describe('parse — 日期范围变更（unified/calcPriceV2）', () => {
+    function observedOf(step: (typeof RANGE_CHANGE_SEQ)[number]) {
+      return {
+        endpointId: step.endpointId,
+        endpointUrl: `https://me.meituan.com/api/gw/v1/product/price/x/calcPriceV2`,
+        requestBody: step.req as unknown as JsonObject,
+        responseBody: JSON.stringify(step.resp),
+        pageUrl: REAL_PAGE_URL,
+      };
+    }
+
+    it('unified 到达时清空累积，不是保留', () => {
+      const adapter = createMeituanAmountChangeAdapter(createLogger());
+
+      // #0 unified → 空 context（此刻本来就没累积）
+      let context = contextOf(adapter.parse(observedOf(RANGE_CHANGE_SEQ[0]), null)) as JsonObject;
+      expect(Object.keys(context.cells as JsonObject)).toEqual([]);
+
+      // #1 separate → 累积一格
+      context = contextOf(adapter.parse(observedOf(RANGE_CHANGE_SEQ[1]), context)) as JsonObject;
+      expect(Object.keys(context.cells as JsonObject)).toEqual([
+        '1135787306|2026-09-02|2026-09-03|3,4',
+      ]);
+
+      // #2 unified（用户删掉了一个日期段）→ ⚠️ 必须清空，不能保留上面那一格
+      context = contextOf(adapter.parse(observedOf(RANGE_CHANGE_SEQ[2]), context)) as JsonObject;
+      expect(Object.keys(context.cells as JsonObject)).toEqual([]);
+
+      // #3 separate → 重新累积
+      context = contextOf(adapter.parse(observedOf(RANGE_CHANGE_SEQ[3]), context)) as JsonObject;
+      expect(Object.keys(context.cells as JsonObject)).toEqual([
+        '1135787306|2026-09-02|2026-09-03|3,4',
+      ]);
+    });
+
+    it('unified 本身不产生上报', () => {
+      const adapter = createMeituanAmountChangeAdapter(createLogger());
+
+      const result = adapter.parse(observedOf(RANGE_CHANGE_SEQ[0]), null);
+
+      expect(result?.kind).toBe('context');
+      expect(reportOf(result)).toBeUndefined();
+    });
+  });
+
   describe('watchedEndpoints', () => {
-    it('拦改价两个端点 + 房态房量三个端点', () => {
+    it('拦改价三个端点 + 房态房量三个端点', () => {
       const adapter = createMeituanAmountChangeAdapter(createLogger());
 
       expect([...adapter.watchedEndpoints.entries()]).toEqual([
         ['updatePriceV2', '/api/gw/v1/product/price/updatePriceV2'],
         ['calcPriceV2', '/api/gw/v1/product/price/separate/calcPriceV2'],
+        ['unifiedCalcPriceV2', '/api/gw/v1/product/price/unified/calcPriceV2'],
         ['inventory-status-switch', '/api/gw/v1/product/goods/inventory/status/switch'],
         [
           'inventory-roomstatus-submitaudit',
