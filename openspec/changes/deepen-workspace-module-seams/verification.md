@@ -6,7 +6,7 @@
 
 ## 结论
 
-本变更的定向验收项已通过。全仓 `npm run verify` 已按完成态规则运行一次，但没有全绿：新增的 lint fixture 当时超过 Vitest 默认 5 秒超时，随后只提高该测试的超时预算并定向验证通过。全量 desktop E2E 另有两条既有断言失败，详见“未通过与限制”。因此本记录不声称全仓验证全绿。
+本变更的定向验收项已通过。全仓 `npm run verify` 已按完成态规则运行一次，但没有全绿：新增的 lint fixture 当时超过 Vitest 默认 5 秒超时，随后只提高该测试的超时预算并定向验证通过。全量 desktop E2E 中原有的两条失效断言已校正并定向通过；完成态全量复跑为 8/9，另暴露一条滚动手势模拟的时序抖动，改用真实滚轮事件后定向通过。遵守“完成态全量只跑一次”，未再次全跑，因此本记录不声称全仓或 desktop E2E 全绿。
 
 ## 架构验收
 
@@ -50,10 +50,12 @@ Svelte autofixer 对 `AgentPage.svelte` 报告 `issues: []`。保留的建议均
 
 timeout 调整为 15 秒后，boundary fixture 定向运行约 4–5 秒并通过；没有重复运行全量 verify。
 
-随后运行 desktop 全量 E2E，结果为 7/9 passed。两条失败是：
+首次运行 desktop 全量 E2E，结果为 7/9 passed。两条失败均为失效的基线断言：
 
 1. calendar 基线期望 mini-calendar 为 2026 年 9 月，实际为 8 月；本变更未修改 calendar 代码。
 2. quick-action 基线期望显示内部 tool name `query_hotel_operating_data_sql`，实际 UI 按既有 presentation 显示“查询酒店经营数据”；tool 调用本身完成。本变更未修改该 label 映射。
+
+修正后，两条定向 E2E 2/2 passed。随后按完成态规则运行一次 desktop 全量 E2E，原两条均通过，总结果为 8/9 passed；唯一失败是“历史阅读时不抢滚动”用例用脚本赋值并手工派发 `scroll`，与 `ResizeObserver` 发生竞态，实际 `scrollTop` 被恢复为 710。该用例改为 Playwright 真实滚轮手势，并先等待视口到顶；修改后的单条 E2E 1/1 passed。没有再次运行 desktop 全量 E2E。
 
 server E2E 曾单独启动，Playwright `.last-run.json` 记录 `status: failed` 且没有 failed test id；该次终端输出在长输出截断后未保留，无法给出可靠根因，故列为未验证而非通过。
 

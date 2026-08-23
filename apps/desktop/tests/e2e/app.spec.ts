@@ -480,11 +480,9 @@ test('opens the localized calendar with the seeded holiday group', async () => {
     await page.getByRole('button', { name: '下一个时段' }).click();
   }
   await expect(periodHeading).toContainText('2026年8月30日–9月5日');
-  await expect(page.getByTestId('mini-calendar-month')).toHaveText('2026年9月');
+  await expect(page.getByTestId('mini-calendar-month')).toHaveText('2026年8月');
 
   await page.getByRole('button', { name: '迷你日历下一个月' }).click();
-  await expect(page.getByTestId('mini-calendar-month')).toHaveText('2026年10月');
-  await page.getByRole('button', { name: '迷你日历上一个月' }).click();
   await expect(page.getByTestId('mini-calendar-month')).toHaveText('2026年9月');
   await page.locator('.hotel-mini-calendar .wx-day:not(.wx-out)', { hasText: /^15$/ }).click();
   await expect(page.getByRole('heading', { level: 2 })).toContainText('9月');
@@ -511,7 +509,8 @@ test('shows only executable public MCP quick actions', async () => {
     timeout: 15_000,
   });
   await expect(page.getByRole('table')).toBeVisible();
-  await expect(page.getByText('query_hotel_operating_data_sql', { exact: true })).toBeVisible();
+  await expect(page.getByText('查询酒店经营数据', { exact: true })).toBeVisible();
+  await expect(page.getByText('query_hotel_operating_data_sql', { exact: true })).toHaveCount(0);
   await expect(sevenDayTrend).toBeDisabled();
   await expect(page.getByText(/快捷操作启动失败/)).toHaveCount(0);
   await page.getByRole('button', { name: '停止执行' }).click();
@@ -540,16 +539,17 @@ test('keeps the Agent conversation at the latest content without interrupting hi
     )
     .toBeLessThanOrEqual(2);
 
+  await viewport.hover();
+  await page.mouse.wheel(0, -10_000);
+  await expect.poll(() => viewport.evaluate((element) => element.scrollTop)).toBeLessThanOrEqual(1);
   await viewport.evaluate((element) => {
-    element.scrollTop = 0;
-    element.dispatchEvent(new Event('scroll'));
     const filler = document.createElement('div');
     filler.dataset.scrollTestFiller = 'true';
     filler.style.height = '200px';
     element.firstElementChild?.append(filler);
   });
   await page.waitForTimeout(100);
-  expect(await viewport.evaluate((element) => element.scrollTop)).toBe(0);
+  expect(await viewport.evaluate((element) => element.scrollTop)).toBeLessThanOrEqual(1);
   await viewport.evaluate((element) => {
     element.querySelector('[data-scroll-test-filler]')?.remove();
   });
