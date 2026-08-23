@@ -14,20 +14,15 @@
  */
 import type { AppLogger } from '../../shared/logging';
 import type { RmsAuthClient, RmsTokenPair } from './rms-auth-client';
+import { RmsSessionMissingError } from './rms-session-missing-error';
 import type { StaffTokenStore, StoredStaffTokens } from './token-store';
+export { RmsSessionMissingError } from './rms-session-missing-error';
 
 /**
  * 判断 access 是否过期时预留的余量：卡在过期点上发出的请求，到达服务端时可能
  * 刚好越线，白白浪费一次往返。
  */
 const EXPIRY_SKEW_MS = 30_000;
-
-export class RmsSessionMissingError extends Error {
-  constructor() {
-    super('尚未登录');
-    this.name = 'RmsSessionMissingError';
-  }
-}
 
 export interface RmsTokenProvider {
   /** 取一个当前可用的 access token，必要时先刷新。无有效会话时抛错。 */

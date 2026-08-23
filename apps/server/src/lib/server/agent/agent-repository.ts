@@ -3,12 +3,12 @@ import type {
 	AgentConversationSummary,
 	AgentBusinessExecutionSummary,
 	AgentMessage,
-	AgentPrincipal,
 	AgentRunEvent,
 	CancelAgentBusinessExecutionResult,
 	GenerativeUiSpec,
 	StartAgentRunResponse
 } from '@hotel-butler/api';
+import type { AgentPrincipal } from '@hotel-butler/api/router';
 import { and, asc, desc, eq, gt, inArray, isNull, notInArray } from 'drizzle-orm';
 import { randomUUID } from 'node:crypto';
 import { db } from '$lib/server/db';

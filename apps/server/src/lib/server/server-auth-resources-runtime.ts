@@ -1,5 +1,5 @@
 import { env } from '$env/dynamic/private';
-import type { PhoneOtpGateway } from '@hotel-butler/api';
+import type { PhoneOtpGateway } from './desktop-api-endpoint';
 import { safeErrorType, serverLogger } from './logging/logger';
 import { createServerAuthResources, type ServerAuthResources } from './server-auth-resources';
 import { createTemporaryPhoneOtpGateway } from './temporary-phone-otp-gateway';

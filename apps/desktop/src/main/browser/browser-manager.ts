@@ -18,7 +18,14 @@ import {
   type BrowserTabFailure,
 } from '../../shared/browser';
 import type { AppLogger } from '../../shared/logging';
-import { SessionFactory } from './session-factory';
+
+export interface BrowserSessionFactory {
+  sessionForAccount(partitionName: string): Session;
+  sessionForLogin(
+    channel: ChannelId,
+  ): Readonly<{ session: Session; partitionName: string }>;
+  clearAccountSession(partitionName: string): Promise<void>;
+}
 
 /** 标签页发生一次导航（含 SPA 内部路由变化）后广播的原始事实，不含任何登录语义判断。 */
 export type TabNavigatedEvent = Readonly<{
@@ -38,7 +45,7 @@ export type BrowserManagerOptions = Readonly<{
    *
    * 窄回调而非仓储：`BrowserManager` 属于 window scope、不认识数据库，
    * 由 composition root 接到 `OtaCredentialRepository.findByPartitionName`
-   * （与 `setPartitionRetirer` 同一套路）。
+   * （与窗口能力注册表的 partition 退休能力同一套路）。
    *
    * 缺省实现返回 false —— 只在测试等未装配场景出现；生产装配**必须**传入，
    * 否则退休清理会退化成事故前的行为。
@@ -108,7 +115,7 @@ function assertWebUrl(url: string): void {
 
 export class BrowserManager extends EventEmitter {
   /** @deprecated 旧的全局共享 session（D1 缺陷本身）。仅供未迁移的调用方过渡使用。 */
-  private readonly sessionFactory: SessionFactory;
+  private readonly sessionFactory: BrowserSessionFactory;
   private readonly tabs = new Map<string, ManagedTab>();
   private readonly retiredPartitions = new Set<string>();
   private readonly managedWebContentsIds = new Set<number>();
@@ -139,7 +146,7 @@ export class BrowserManager extends EventEmitter {
   constructor(
     private readonly window: BrowserWindow,
     private readonly logger: AppLogger,
-    sessionFactory: SessionFactory = new SessionFactory(logger),
+    sessionFactory: BrowserSessionFactory,
     options: BrowserManagerOptions = {},
   ) {
     super();

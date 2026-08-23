@@ -51,7 +51,21 @@ export type WindowScope = Readonly<{
   dispose(): void;
 }>;
 
-export function createWindowScope(scope: AppScope): WindowScope {
+type WindowScopeDependencies = Pick<
+  AppScope,
+  | 'logger'
+  | 'userDataDir'
+  | 'sessionFactory'
+  | 'calendarRepository'
+  | 'otaCredentialRepository'
+  | 'hotelManagementService'
+  | 'otaCredentialService'
+  | 'channelRegistry'
+  | 'rms'
+  | 'windowCapabilities'
+>;
+
+export function createWindowScope(scope: WindowScopeDependencies): WindowScope {
   const { logger } = scope;
   const disposers: (() => void)[] = [];
   const onDispose = (dispose: () => void): void => {
@@ -71,17 +85,15 @@ export function createWindowScope(scope: AppScope): WindowScope {
   });
   onDispose(() => browserManager.destroy());
 
-  // 回填 app scope 需要的窗口级能力，窗口销毁时撤回。
-  scope.setPartitionRetirer((partitionName) => browserManager.retirePartition(partitionName));
-  scope.setAccountBoundNotifier((channel) => {
-    if (!window.isDestroyed()) {
-      window.webContents.send(IPC_CHANNELS.otaCredential.discoveryCompleted, { channel });
-    }
+  const windowCapabilityRegistration = scope.windowCapabilities.attach({
+    retirePartition: (partitionName) => browserManager.retirePartition(partitionName),
+    notifyAccountBound: (channel) => {
+      if (!window.isDestroyed()) {
+        window.webContents.send(IPC_CHANNELS.otaCredential.discoveryCompleted, { channel });
+      }
+    },
   });
-  onDispose(() => {
-    scope.setPartitionRetirer(null);
-    scope.setAccountBoundNotifier(null);
-  });
+  onDispose(() => windowCapabilityRegistration.dispose());
 
   // dispatcher 在 channels/，不认识 electron 与 ipc；这里把窄回调接到窗口上。
   // 两个 dispatcher 共用同一条通道，靠信封的 kind 与 requestId 区分。

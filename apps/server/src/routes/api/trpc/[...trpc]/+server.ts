@@ -1,4 +1,4 @@
-import { appRouter, type ApiContext } from '@hotel-butler/api';
+import { appRouter, type ApiContext } from '@hotel-butler/api/router';
 import { fetchRequestHandler } from '@trpc/server/adapters/fetch';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { env } from '$env/dynamic/private';
@@ -8,6 +8,7 @@ import {
 	DESKTOP_SESSION_COOKIE_NAME
 } from '$lib/server/desktop-session';
 import { DrizzleDesktopSessionRepository } from '$lib/server/desktop-session-repository';
+import { createDesktopApiEndpoint } from '$lib/server/desktop-api-endpoint';
 import { initializeServerAuthResources } from '$lib/server/server-auth-resources-runtime';
 import { logTrpcFailure } from '$lib/server/logging/trpc-logging';
 import { serverLogger } from '$lib/server/logging/logger';
@@ -120,10 +121,14 @@ const handleTrpcRequest: RequestHandler = ({ locals, request }) =>
 						)
 					};
 				},
-				desktopSession,
-				employeeDirectory,
-				phoneOtp,
-				phoneIdentitySourceConfigured,
+				desktopApi: createDesktopApiEndpoint({
+					desktopSession,
+					employeeDirectory,
+					logger: locals.logger,
+					phoneOtp,
+					phoneIdentitySourceConfigured,
+					requestId: locals.requestId
+				}),
 				logger: locals.logger,
 				requestId: locals.requestId
 			};

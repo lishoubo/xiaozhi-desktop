@@ -4,7 +4,6 @@
     AgentExecutionTrace,
     AgentQuickAction,
     AgentQuickActionId,
-    AgentRunEvent,
   } from '@hotel-butler/api';
   import ArrowUp from '@lucide/svelte/icons/arrow-up';
   import Hotel from '@lucide/svelte/icons/hotel';
@@ -20,7 +19,6 @@
   import Trash2 from '@lucide/svelte/icons/trash-2';
   import { autoAnimate } from '@formkit/auto-animate';
   import { onMount, tick } from 'svelte';
-  import { SvelteMap } from 'svelte/reactivity';
   import AgentAvatar from '../components/agent/AgentAvatar.svelte';
   import AgentClarificationCard from '../components/agent/AgentClarificationCard.svelte';
   import AgentExecutionTimeline from '../components/agent/AgentExecutionTimeline.svelte';
@@ -28,20 +26,15 @@
   import HotelGenerativeUi from '../components/agent/HotelGenerativeUi.svelte';
   import UserAvatar from '../components/agent/UserAvatar.svelte';
   import {
-    addStartedRun,
-    applyRunEvent,
-    createEmptyConversationView,
-    hydrateConversationView,
-    withConversationError,
-    type AgentConversationViewState,
-  } from '../agent-conversation-state';
+    createAgentController,
+    shouldFollowConversationAfterAction,
+  } from '../agent-controller';
   import {
     AGENT_CHAT_DISPLAY_NAME,
     agentFailureTitle,
     chatUserDisplayName,
     executionForDisplayedMessage,
     formatConversationUpdatedAt,
-    isPendingBusinessExecutionConflict,
     messageOwnsPendingClarification,
     shouldDisplayExecutionTrace,
     shouldOfferFailureRetry,
@@ -77,27 +70,28 @@
 
   let prompt = $state('');
   let currentUserDisplayName = $derived(chatUserDisplayName(greetingName()));
-  let conversations = $state.raw<AgentConversationSummary[]>([]);
-  let quickActions = $state.raw<AgentQuickAction[]>([]);
-  let activeConversationId = $state<string | null>(null);
-  let pendingConversationId = $state<string | null>(null);
-  const conversationViews = new SvelteMap<string, AgentConversationViewState>();
-  let loading = $state(true);
-  let starting = $state(false);
-  let stoppingRunId = $state<string | null>(null);
-  let retryingRunId = $state<string | null>(null);
-  let clarificationSubmitting = $state(false);
-  let pageErrorMessage = $state('');
+  const controller = createAgentController(window.hotelButler.agent);
+  let controllerState = $state.raw(controller.state);
+  const conversations = $derived(controllerState.conversations);
+  const quickActions = $derived(controllerState.quickActions);
+  const activeConversationId = $derived(controllerState.activeConversationId);
+  const pendingConversationId = $derived(controllerState.pendingConversationId);
+  const conversationViews = $derived(controllerState.conversationViews);
+  const loading = $derived(controllerState.loading);
+  const starting = $derived(controllerState.starting);
+  const stoppingRunId = $derived(controllerState.stoppingRunId);
+  const retryingRunId = $derived(controllerState.retryingRunId);
+  const clarificationSubmitting = $derived(controllerState.clarificationSubmitting);
+  const pageErrorMessage = $derived(controllerState.pageErrorMessage);
+  const deleting = $derived(controllerState.deleting);
   let deleteTarget = $state.raw<AgentConversationSummary | null>(null);
   let clearHistoryOpen = $state(false);
-  let deleting = $state(false);
   let composer = $state<HTMLTextAreaElement | null>(null);
   let conversationViewport = $state<HTMLElement | null>(null);
   let conversationContent = $state<HTMLElement | null>(null);
   let conversationBottomAnchor = $state<HTMLElement | null>(null);
   let followLatestContent = true;
   let lastConversationScrollTop = 0;
-  const pendingRunEvents = new SvelteMap<string, AgentRunEvent[]>();
 
   const activeView = $derived(
     activeConversationId ? (conversationViews.get(activeConversationId) ?? null) : null,
@@ -125,7 +119,6 @@
   );
   const activeBusinessExecution = $derived(activeView?.activeBusinessExecution ?? null);
   const pendingClarification = $derived(activeBusinessExecution?.pendingClarification ?? null);
-  const quickActionsBlocked = $derived(activeBusinessExecution !== null);
   const hasActiveRuns = $derived(conversations.some((conversation) => conversation.activeRunId));
   const activeConversation = $derived(
     conversations.find((conversation) => conversation.id === activeConversationId) ?? null,
@@ -134,10 +127,18 @@
     quickActions.map((action) => ({ ...action, ...quickActionPresentation[action.id] })),
   );
   onMount(() => {
-    const unsubscribe = window.hotelButler.agent.onStreamEvent(handleStreamEnvelope);
-    void initialize();
+    const unsubscribe = controller.subscribe((state) => {
+      controllerState = state;
+      if (followLatestContent) {
+        void tick().then(() => {
+          if (followLatestContent) scrollConversationToBottom();
+        });
+      }
+    });
+    void controller.initialize();
     return () => {
       unsubscribe();
+      controller.dispose();
     };
   });
 
@@ -149,7 +150,7 @@
       if (!followLatestContent || pendingFrame !== null) return;
       pendingFrame = requestAnimationFrame(() => {
         pendingFrame = null;
-        scrollConversationToBottom();
+        if (followLatestContent) scrollConversationToBottom();
       });
     });
     observer.observe(content);
@@ -179,399 +180,88 @@
     lastConversationScrollTop = viewport.scrollTop;
   }
 
-  async function activateConversation(conversationId: string): Promise<void> {
-    followLatestContent = true;
-    lastConversationScrollTop = 0;
-    activeConversationId = conversationId;
-    await tick();
-    if (activeConversationId === conversationId) scrollConversationToBottom();
-  }
-
-  async function initialize(): Promise<void> {
-    loading = true;
-    pageErrorMessage = '';
-    try {
-      const [nextQuickActions, nextConversations] = await Promise.all([
-        window.hotelButler.agent.quickActions(),
-        window.hotelButler.agent.listConversations(),
-      ]);
-      quickActions = nextQuickActions;
-      conversations = nextConversations;
-      await Promise.all(
-        nextConversations
-          .filter((conversation) => conversation.activeRunId !== null)
-          .map((conversation) => loadConversationState(conversation.id)),
-      );
-    } catch {
-      pageErrorMessage = 'Agent 服务暂时不可用，请确认 server 已启动且当前账号已登录。';
-    } finally {
-      loading = false;
-    }
-  }
-
-  async function refreshConversations(): Promise<void> {
-    conversations = await window.hotelButler.agent.listConversations();
-  }
-
   function startNewConversation(): void {
-    pageErrorMessage = '';
-    pendingConversationId = null;
-    activeConversationId = null;
+    controller.startNewConversation();
     followLatestContent = true;
     lastConversationScrollTop = 0;
     composer?.focus();
   }
 
-  function resetActiveConversation(): void {
-    pageErrorMessage = '';
-    pendingConversationId = null;
-    activeConversationId = null;
+  async function openConversation(conversationId: string): Promise<void> {
     followLatestContent = true;
     lastConversationScrollTop = 0;
+    await controller.openConversation(conversationId);
+    if (controller.state.activeConversationId === conversationId) {
+      await tick();
+      scrollConversationToBottom();
+    }
   }
 
   async function confirmDeleteConversation(): Promise<void> {
     const target = deleteTarget;
-    if (!target || deleting || target.activeRunId) return;
-    deleting = true;
-    pageErrorMessage = '';
-    try {
-      await window.hotelButler.agent.deleteConversation(target.id);
-      conversations = conversations.filter((conversation) => conversation.id !== target.id);
-      conversationViews.delete(target.id);
-      if (activeConversationId === target.id) resetActiveConversation();
+    if (!target) return;
+    await controller.deleteConversation(target.id);
+    if (!controller.state.conversations.some((conversation) => conversation.id === target.id)) {
       deleteTarget = null;
-    } catch {
-      pageErrorMessage = '删除会话失败，请稍后重试。';
-    } finally {
-      deleting = false;
     }
   }
 
   async function confirmClearConversations(): Promise<void> {
-    if (deleting || hasActiveRuns) return;
-    deleting = true;
-    pageErrorMessage = '';
-    try {
-      await window.hotelButler.agent.clearConversations();
-      conversations = [];
-      conversationViews.clear();
-      resetActiveConversation();
-      clearHistoryOpen = false;
-    } catch {
-      pageErrorMessage = '清空历史会话失败，请稍后重试。';
-    } finally {
-      deleting = false;
-    }
-  }
-
-  async function openConversation(conversationId: string): Promise<void> {
-    if (conversationId === activeConversationId || conversationId === pendingConversationId) return;
-    pageErrorMessage = '';
-    const cached = conversationViews.get(conversationId);
-    if (cached) {
-      pendingConversationId = null;
-      await activateConversation(conversationId);
-      if (cached.errorMessage) void loadConversationState(conversationId);
-      return;
-    }
-    pendingConversationId = conversationId;
-    try {
-      await loadConversationState(conversationId);
-      if (pendingConversationId === conversationId) await activateConversation(conversationId);
-    } catch {
-      if (pendingConversationId === conversationId) {
-        pageErrorMessage = '无法读取该会话，或它不属于当前登录用户。';
-      }
-    } finally {
-      if (pendingConversationId === conversationId) pendingConversationId = null;
-    }
-  }
-
-  async function loadConversationState(conversationId: string): Promise<void> {
-    const snapshot = await window.hotelButler.agent.getConversation(conversationId);
-    conversations = conversations.map((conversation) =>
-      conversation.id === conversationId ? snapshot.conversation : conversation,
-    );
-    const view = hydrateConversationView(snapshot);
-    conversationViews.set(conversationId, view);
-    if (!snapshot.activeRun) {
-      return;
-    }
-    pendingRunEvents.delete(snapshot.activeRun.runId);
-    void window.hotelButler.agent
-      .resumeRun(snapshot.activeRun.runId, conversationId, snapshot.activeRun.lastEventId)
-      .catch(() => {
-        const current = conversationViews.get(conversationId);
-        if (current) {
-          conversationViews.set(
-            conversationId,
-            withConversationError(current, '实时进度恢复失败，请稍后重新打开会话。'),
-          );
-        }
-      });
-    drainPendingRunEvents(snapshot.activeRun.runId);
+    await controller.clearConversations();
+    if (controller.state.conversations.length === 0) clearHistoryOpen = false;
   }
 
   async function cancelActiveRun(): Promise<void> {
-    const runId = activeRunId;
-    const conversationId = activeConversationId;
-    if (!runId || !conversationId || stoppingRunId) return;
     const shouldFollow = followLatestContent;
-    stoppingRunId = runId;
-    pageErrorMessage = '';
-    try {
-      await window.hotelButler.agent.cancelRun(runId);
-      await loadConversationState(conversationId);
-      if (shouldFollow && activeConversationId === conversationId) {
-        followLatestContent = true;
-        await tick();
-        scrollConversationToBottom();
-      }
-      composer?.focus();
-    } catch {
-      pageErrorMessage = '停止当前执行失败，任务仍在继续，请稍后重试。';
-    } finally {
-      stoppingRunId = null;
+    const conversationId = controller.state.activeConversationId;
+    await controller.cancelActiveRun();
+    if (
+      shouldFollowConversationAfterAction(
+        shouldFollow,
+        conversationId,
+        controller.state.activeConversationId,
+      )
+    ) {
+      followLatestContent = true;
+      await tick();
+      scrollConversationToBottom();
     }
+    composer?.focus();
   }
 
-  async function retryFailedRun(): Promise<void> {
-    const conversationId = activeConversationId;
-    const failedRun = latestFailure;
-    if (!conversationId || !failedRun?.failure?.retryable || activeRunId || retryingRunId) return;
-    retryingRunId = failedRun.runId;
-    pageErrorMessage = '';
-    try {
-      const currentView = conversationViews.get(conversationId);
-      if (!currentView) throw new Error('Agent conversation view is unavailable');
-      const started = await window.hotelButler.agent.retryRun({
-        failedRunId: failedRun.runId,
-        clientRequestId: crypto.randomUUID(),
-      });
-      conversationViews.set(
-        conversationId,
-        addStartedRun({ ...currentView, errorMessage: '' }, started, new Date().toISOString()),
-      );
-      conversations = conversations.map((conversation) =>
-        conversation.id === conversationId
-          ? { ...conversation, activeRunId: started.runId }
-          : conversation,
-      );
-      drainPendingRunEvents(started.runId);
-      await refreshConversations();
-    } catch {
-      pageErrorMessage = '重新执行失败，原执行记录未改变，请稍后再试。';
-    } finally {
-      retryingRunId = null;
-    }
+  function retryFailedRun(): Promise<void> {
+    followLatestContent = true;
+    return controller.retryFailedRun();
   }
 
   async function submitPrompt(): Promise<void> {
     const content = prompt.trim();
     if (!content || sending) return;
     prompt = '';
-    if (pendingClarification && activeBusinessExecution) {
-      await submitClarification({ responseText: content }, content);
-      return;
-    }
-    await startRun({ prompt: content }, content);
+    followLatestContent = true;
+    const accepted = pendingClarification
+      ? await controller.submitClarification({ responseText: content })
+      : await controller.startRun({ prompt: content });
+    if (!accepted) prompt = content;
   }
 
   async function submitClarification(
     response:
       | { responseText: string }
       | { answers: Readonly<Record<string, string | number | { start: string; end: string }>> },
-    restorePrompt = '',
   ): Promise<void> {
-    const conversationId = activeConversationId;
-    const execution = activeBusinessExecution;
-    const clarification = pendingClarification;
-    if (!conversationId || !execution || !clarification || clarificationSubmitting) return;
-    clarificationSubmitting = true;
     followLatestContent = true;
-    pageErrorMessage = '';
-    try {
-      const currentView = conversationViews.get(conversationId);
-      if (!currentView) throw new Error('Agent conversation view is unavailable');
-      const started = await window.hotelButler.agent.submitClarification({
-        businessExecutionId: execution.id,
-        interactionId: clarification.interactionId,
-        expectedVersion: clarification.version,
-        clientRequestId: crypto.randomUUID(),
-        ...response,
-      });
-      conversationViews.set(
-        conversationId,
-        addStartedRun(currentView, started, new Date().toISOString()),
-      );
-      conversations = conversations.map((conversation) =>
-        conversation.id === conversationId
-          ? { ...conversation, activeRunId: started.runId }
-          : conversation,
-      );
-      drainPendingRunEvents(started.runId);
-      await refreshConversations();
-    } catch {
-      if (restorePrompt) prompt = restorePrompt;
-      pageErrorMessage = '补充信息提交失败，可能已过期；请刷新会话后重试。';
-    } finally {
-      clarificationSubmitting = false;
-    }
+    await controller.submitClarification(response);
   }
 
-  async function cancelPendingBusinessExecution(): Promise<void> {
-    const conversationId = activeConversationId;
-    const execution = activeBusinessExecution;
-    const clarification = pendingClarification;
-    if (!conversationId || !execution || !clarification || clarificationSubmitting) return;
-    clarificationSubmitting = true;
+  function cancelPendingBusinessExecution(): Promise<void> {
     followLatestContent = true;
-    pageErrorMessage = '';
-    try {
-      const cancelled = await window.hotelButler.agent.cancelBusinessExecution(
-        execution.id,
-        clarification.version,
-      );
-      const currentView = conversationViews.get(conversationId);
-      if (currentView) {
-        conversationViews.set(conversationId, {
-          ...currentView,
-          messages: [...currentView.messages, cancelled.userMessage, cancelled.assistantMessage],
-          activeBusinessExecution: null,
-        });
-      }
-      await loadConversationState(conversationId);
-    } catch {
-      pageErrorMessage = '取消任务失败，请刷新会话后重试。';
-    } finally {
-      clarificationSubmitting = false;
-    }
+    return controller.cancelPendingBusinessExecution();
   }
 
-  async function executeQuickAction(action: AgentQuickAction): Promise<void> {
-    if (!action.available || sending) return;
-    if (quickActionsBlocked) {
-      pageErrorMessage = '当前任务正在等待补充信息，请先确认或取消当前任务。';
-      return;
-    }
-    await startRun({ quickActionId: action.id });
-  }
-
-  async function startRun(
-    request: { prompt: string } | { quickActionId: AgentQuickActionId },
-    restorePrompt = '',
-  ): Promise<void> {
-    pageErrorMessage = '';
-    starting = true;
+  function executeQuickAction(action: AgentQuickAction): Promise<void> {
     followLatestContent = true;
-
-    try {
-      let conversationId = activeConversationId;
-      if (!conversationId) {
-        const conversation = await window.hotelButler.agent.createConversation();
-        conversations = [conversation, ...conversations];
-        await activateConversation(conversation.id);
-        conversationId = conversation.id;
-        conversationViews.set(conversationId, createEmptyConversationView(conversationId));
-      }
-      const currentView = conversationViews.get(conversationId);
-      if (!currentView) throw new Error('Agent conversation view is unavailable');
-      conversationViews.set(conversationId, { ...currentView, errorMessage: '' });
-      const started = await window.hotelButler.agent.startRun({
-        conversationId,
-        ...request,
-        clientRequestId: crypto.randomUUID(),
-      });
-      conversationViews.set(
-        conversationId,
-        addStartedRun(currentView, started, new Date().toISOString()),
-      );
-      conversations = conversations.map((conversation) =>
-        conversation.id === conversationId
-          ? { ...conversation, activeRunId: started.runId }
-          : conversation,
-      );
-      drainPendingRunEvents(started.runId);
-      await refreshConversations();
-    } catch (error) {
-      if (restorePrompt) prompt = restorePrompt;
-      if ('quickActionId' in request && isPendingBusinessExecutionConflict(error)) {
-        pageErrorMessage = '当前任务正在等待补充信息，请先确认或取消当前任务。';
-        if (activeConversationId) {
-          try {
-            await loadConversationState(activeConversationId);
-          } catch {
-            pageErrorMessage =
-              '当前任务正在等待补充信息，但状态刷新失败；请重新打开会话后确认或取消。';
-          }
-        }
-      } else {
-        pageErrorMessage =
-          'quickActionId' in request
-            ? '快捷操作启动失败，请确认所需酒店 MCP 数据源已配置。'
-            : '消息发送失败，请检查登录状态或稍后重试。';
-      }
-    } finally {
-      starting = false;
-    }
-  }
-
-  function handleStreamEnvelope(
-    envelope: Parameters<Parameters<typeof window.hotelButler.agent.onStreamEvent>[0]>[0],
-  ): void {
-    if (envelope.kind === 'transport_error') {
-      const entry = [...conversationViews.entries()].find(
-        ([, state]) => state.activeRunId === envelope.runId,
-      );
-      if (entry) conversationViews.set(entry[0], withConversationError(entry[1], envelope.message));
-      return;
-    }
-    handleRunEvent(envelope.event);
-  }
-
-  function handleRunEvent(event: AgentRunEvent): void {
-    const view = conversationViews.get(event.conversationId);
-    if (!view || view.activeRunId !== event.runId) {
-      bufferRunEvent(event);
-      return;
-    }
-    const shouldFollowAfterRender = followLatestContent;
-    conversationViews.set(event.conversationId, applyRunEvent(view, event));
-    if (shouldFollowAfterRender) {
-      void tick().then(() => {
-        followLatestContent = true;
-        scrollConversationToBottom();
-      });
-    }
-    if (
-      event.type === 'run_completed' ||
-      event.type === 'run_failed' ||
-      event.type === 'run_cancelled'
-    ) {
-      conversations = conversations.map((conversation) =>
-        conversation.id === event.conversationId
-          ? { ...conversation, activeRunId: null, updatedAt: event.createdAt }
-          : conversation,
-      );
-      void refreshConversations();
-      if (event.type === 'run_completed') {
-        setTimeout(() => void refreshConversations(), 1_500);
-      }
-      if (event.type === 'run_failed') void loadConversationState(event.conversationId);
-    }
-  }
-
-  function bufferRunEvent(event: AgentRunEvent): void {
-    if (pendingRunEvents.size >= 16 && !pendingRunEvents.has(event.runId)) return;
-    const events = pendingRunEvents.get(event.runId) ?? [];
-    pendingRunEvents.set(event.runId, [...events.slice(-511), event]);
-  }
-
-  function drainPendingRunEvents(runId: string): void {
-    const events = pendingRunEvents.get(runId) ?? [];
-    pendingRunEvents.delete(runId);
-    for (const event of events) handleRunEvent(event);
+    return controller.executeQuickAction(action);
   }
 
   function activeExecution(): AgentExecutionTrace | null {

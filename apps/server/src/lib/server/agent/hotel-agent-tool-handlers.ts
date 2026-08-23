@@ -1,4 +1,5 @@
-import type { AgentPrincipal, GenerativeUiSpec } from '@hotel-butler/api';
+import type { GenerativeUiSpec } from '@hotel-butler/api';
+import type { AgentPrincipal } from '@hotel-butler/api/router';
 import { validateHotelUi } from './hotel-ui-validator';
 
 type RememberInput = Readonly<{ key: string; content: string; importance: number }>;

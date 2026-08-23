@@ -1,9 +1,9 @@
 import type {
 	AgentMessage,
 	AgentPendingClarification,
-	AgentPrincipal,
 	GenerativeUiSpec
 } from '@hotel-butler/api';
+import type { AgentPrincipal } from '@hotel-butler/api/router';
 import type { EvidenceRecord, ResolvedBusinessRequest } from './execution/business-execution-state';
 import type { McpCapability } from './agent-config';
 import type { McpResultSummary } from './mcp-observability';

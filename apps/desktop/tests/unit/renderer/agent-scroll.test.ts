@@ -14,14 +14,14 @@ describe('Agent conversation scroll following', () => {
     ).toBe(false);
   });
 
-  it('keeps following content growth and stops after an upward scroll', () => {
+  it('stops following when an away-from-bottom scroll does not advance downward', () => {
     expect(
       shouldFollowAgentViewport(
         { scrollHeight: 1_200, scrollTop: 552, clientHeight: 400 },
         552,
         true,
       ),
-    ).toBe(true);
+    ).toBe(false);
     expect(
       shouldFollowAgentViewport(
         { scrollHeight: 1_200, scrollTop: 300, clientHeight: 400 },

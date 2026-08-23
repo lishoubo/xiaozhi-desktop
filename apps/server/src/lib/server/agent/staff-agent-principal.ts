@@ -1,4 +1,5 @@
-import { staffIdentitySchema, type AgentPrincipal } from '@hotel-butler/api';
+import { staffIdentitySchema } from '@hotel-butler/api';
+import type { AgentPrincipal } from '@hotel-butler/api/router';
 import { z } from 'zod';
 import { safeErrorDetails, serverLogger } from '$lib/server/logging/logger';
 import type { RequestLogger } from '$lib/server/logging/request-logging';

@@ -11,7 +11,9 @@ The renderer accesses Agent capabilities only through preload. Electron main val
 delegates to `AgentService`, and calls the shared tRPC contract over HTTPS. The server resolves the
 authenticated employee before delegating to `HotelAgentGateway`.
 
-`HotelAgentGateway` owns orchestration and depends on the SDK-neutral `AgentRuntime` port.
+`HotelAgentGateway` preserves the external Agent interface while private `RunLifecycle`,
+`BusinessExecution` and `RunEventStream` modules own stateful execution seams. The gateway depends
+on the SDK-neutral `AgentRuntime` port.
 `LangChainAgentRuntime` is the current Kimi/LangChain adapter; prompts, local tool handlers,
 generative-UI validation and conversation-context policy remain independent modules rather than
 SDK-owned application logic.
@@ -43,8 +45,11 @@ preload, and Electron main SHALL own the HTTPS tRPC client and SSE subscription.
 
 ### Requirement: Replaceable runtime boundary
 
-Run orchestration SHALL depend on the SDK-neutral `AgentRuntime` interface. SDK-specific model,
-message-stream and tool-call behavior SHALL remain in an adapter implementation.
+The server SHALL preserve one external Agent gateway interface while keeping Run lifecycle,
+business execution and event streaming as private internal modules. Run orchestration SHALL depend
+on the SDK-neutral `AgentRuntime` interface. SDK-specific model, message-stream and tool-call
+behavior SHALL remain in an adapter implementation. Internal seams SHALL NOT be added to the shared
+client contract.
 
 #### Scenario: Replace the Agent SDK
 
@@ -52,6 +57,18 @@ message-stream and tool-call behavior SHALL remain in an adapter implementation.
 - **THEN** it implements `AgentRuntime.run` and emits normalized runtime events
 - **AND** conversation persistence, context compression, prompt construction, tool handlers, UI
   validation, tRPC/SSE delivery and desktop rendering do not require a rewrite
+
+#### Scenario: Change business execution orchestration
+
+- **WHEN** routing, slot resolution, evidence collection or answer transition changes
+- **THEN** the change is localized to the server-owned business execution module
+- **AND** callers and client contract continue to use the existing Agent gateway operations
+
+#### Scenario: Test Agent behavior
+
+- **WHEN** a behavior is observable through the Agent gateway
+- **THEN** tests exercise it through that interface
+- **AND** tests do not reach past the interface solely to preserve the previous file structure
 
 ### Requirement: Centralized model-provider gateway
 
@@ -192,6 +209,18 @@ an active Run; only an explicit Stop action SHALL request cancellation.
 - **THEN** the server immediately derives a bounded fallback topic from the first prompt
 - **AND** asks the fast Kimi tier in parallel for a semantic topic without delaying or failing the Run
 - **AND** replaces only the unchanged fallback title
+
+### Requirement: Renderer Agent orchestration is instance-scoped
+
+Conversation selection, Run subscription, retries, cancellation and stream reduction SHALL be
+owned by an instance-scoped renderer controller with an injected desktop Agent adapter. DOM
+measurement and scrolling SHALL remain owned by the Svelte page.
+
+#### Scenario: Agent page is mounted twice in separate lifecycles
+
+- **WHEN** one page controller is disposed and another is created
+- **THEN** subscriptions and mutable conversation state are not shared between the instances
+- **AND** the new controller uses the same serializable Agent contract and IPC adapter
 
 ### Requirement: Session-derived ownership
 

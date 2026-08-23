@@ -1,9 +1,9 @@
 import { randomUUID } from 'node:crypto';
 import type {
 	AgentBusinessIntent,
-	AgentHotelAccess,
 	AgentPendingClarification
 } from '@hotel-butler/api';
+import type { AgentHotelAccess } from '@hotel-butler/api/router';
 import type { IntentDefinition } from './intent-registry';
 import type {
 	JsonValue,

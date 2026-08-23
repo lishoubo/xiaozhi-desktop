@@ -18,6 +18,7 @@ export function shouldFollowAgentViewport(
   previousScrollTop: number,
   wasFollowing: boolean,
 ): boolean {
-  if (viewport.scrollTop < previousScrollTop - 1) return false;
-  return isAgentViewportNearBottom(viewport) ? true : wasFollowing;
+  const nearBottom = isAgentViewportNearBottom(viewport);
+  if (!nearBottom && viewport.scrollTop <= previousScrollTop + 1) return false;
+  return nearBottom ? true : wasFollowing;
 }

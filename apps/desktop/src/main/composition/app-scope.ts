@@ -38,6 +38,10 @@ import { createRmsTokenProvider, type RmsTokenProvider } from '../staff-auth/rms
 import { createStaffTokenStore } from '../staff-auth/token-store';
 import { HotelManagementService } from '../services/hotel-management-service';
 import { OtaCredentialService } from '../services/ota-credential-service';
+import {
+  createWindowCapabilityRegistry,
+  type WindowCapabilityRegistry,
+} from './window-capability-registry';
 
 export type AppScope = Readonly<{
   logger: AppLogger;
@@ -58,13 +62,7 @@ export type AppScope = Readonly<{
     /** 已注入 Bearer / UA、并在 401 时重试一次的 fetch。 */
     fetch: typeof globalThis.fetch;
   }>;
-  /**
-   * 由 window scope 在创建 BrowserManager 后回填 —— credential 归并时需要
-   * 让旧 partition 退休，而 BrowserManager 是窗口级的。窗口不存在时为空操作。
-   */
-  setPartitionRetirer(retire: ((partitionName: string) => Promise<void>) | null): void;
-  /** 由 window scope 回填：账号绑定成功后通知渲染进程刷新。 */
-  setAccountBoundNotifier(notify: ((channel: ChannelId) => void) | null): void;
+  windowCapabilities: WindowCapabilityRegistry;
   /** 启动时回收退休与孤儿 partition；失败不阻断启动。 */
   cleanupPartitionsOnStartup(): Promise<void>;
   /**
@@ -133,9 +131,7 @@ export function createAppScope(logger: AppLogger): AppScope {
     logger,
   });
 
-  // 窗口级能力的回填槽位：window scope 建好 BrowserManager / 主窗口后写入。
-  let retirePartition: ((partitionName: string) => Promise<void>) | null = null;
-  let notifyAccountBound: ((channel: ChannelId) => void) | null = null;
+  const windowCapabilities = createWindowCapabilityRegistry();
 
   const otaCredentialService = new OtaCredentialService({
     discoverCtrip: createCtripDiscovery(logger),
@@ -154,10 +150,10 @@ export function createAppScope(logger: AppLogger): AppScope {
         kind: 'retired',
         retiredAt: new Date().toISOString(),
       });
-      await retirePartition?.(previousPartitionName);
+      await windowCapabilities.requireCurrent().retirePartition(previousPartitionName);
     },
     logger,
-    onAccountBound: (channel) => notifyAccountBound?.(channel),
+    onAccountBound: (channel) => windowCapabilities.requireCurrent().notifyAccountBound(channel),
   });
 
   return {
@@ -187,6 +183,7 @@ export function createAppScope(logger: AppLogger): AppScope {
     }),
     otaCredentialService,
     channelRegistry: createChannelRegistry(logger),
+    windowCapabilities,
     rms: {
       origin: rmsOrigin,
       authClient: rmsAuthClient,
@@ -227,12 +224,6 @@ export function createAppScope(logger: AppLogger): AppScope {
           errorName: error instanceof Error ? error.name : 'UnknownError',
         });
       }
-    },
-    setPartitionRetirer(retire) {
-      retirePartition = retire;
-    },
-    setAccountBoundNotifier(notify) {
-      notifyAccountBound = notify;
     },
     dispose() {
       database.close();

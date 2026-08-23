@@ -1,4 +1,4 @@
-import type { ApiLogger } from '@hotel-butler/api';
+import type { ApiLogger } from '@hotel-butler/api/router';
 import { BaseCallbackHandler } from '@langchain/core/callbacks/base';
 import type { BaseChatModel } from '@langchain/core/language_models/chat_models';
 import { ChatOpenAI } from '@langchain/openai';

@@ -77,6 +77,20 @@
   },
   "overrides": [
     {
+      "files": ["*.svelte", "src/**/*.svelte"],
+      "parser": "svelte-eslint-parser",
+      "parserOptions": {
+        "parser": "@typescript-eslint/parser",
+        "extraFileExtensions": [".svelte"],
+        "sourceType": "module"
+      },
+      "rules": {
+        "import/no-duplicates": "off",
+        "import/no-unresolved": "off",
+        "no-inner-declarations": "off"
+      }
+    },
+    {
       // ids.ts 是标识符校验，跨层共用，必须零框架依赖
       "files": ["src/main/ids.ts", "src/shared/types/**/*.ts"],
       "rules": {
@@ -105,13 +119,42 @@
       "files": ["src/main/**/*.ts"],
       "excludedFiles": ["src/main/composition/**/*.ts"],
       "rules": {
-        "no-restricted-imports": [
+        "no-restricted-imports": "off",
+        "@typescript-eslint/no-restricted-imports": [
           "error",
           {
             "patterns": [
               {
-                "group": ["**/calendar/calendar-repository", "**/browser/browser-manager"],
-                "message": "实现类只能在 composition root（src/main/composition/）装配；这里请依赖窄接口"
+                "group": [
+                  "**/calendar/calendar-repository",
+                  "**/browser/browser-manager",
+                  "**/browser/session-factory",
+                  "**/channels/*/discovery",
+                  "**/cookie-import/browser-cookie-importer",
+                  "**/database/application-database",
+                  "**/database/*-repository",
+                  "**/gateway/**/*-gateway-http",
+                  "**/server-client/trpc-client",
+                  "**/server-client/staff-server-fetch",
+                  "**/staff-auth/authenticated-rms-fetch",
+                  "**/staff-auth/rms-auth-client",
+                  "**/staff-auth/rms-token-provider",
+                  "**/staff-auth/token-store",
+                  "../browser/session-factory",
+                  "../channels/*/discovery",
+                  "../cookie-import/browser-cookie-importer",
+                  "../database/application-database",
+                  "../database/*-repository",
+                  "../gateway/**/*-gateway-http",
+                  "../server-client/trpc-client",
+                  "../server-client/staff-server-fetch",
+                  "../staff-auth/authenticated-rms-fetch",
+                  "../staff-auth/rms-auth-client",
+                  "../staff-auth/rms-token-provider",
+                  "../staff-auth/token-store"
+                ],
+                "message": "实现类只能在 composition root（src/main/composition/）装配；这里请依赖窄接口",
+                "allowTypeImports": true
               }
             ]
           }
@@ -153,13 +196,46 @@
       // service 是业务编排，不碰 Electron，也不自己开 tab
       "files": ["src/main/services/**/*.ts"],
       "rules": {
-        "no-restricted-imports": [
+        "no-restricted-imports": "off",
+        "@typescript-eslint/no-restricted-imports": [
           "error",
           {
             "patterns": [
               {
                 "group": ["**/browser/browser-manager", "**/ota-tab/**"],
                 "message": "service 不直接开 tab；OTA 标签页的唯一开口是 main/ota-tab/"
+              },
+              {
+                "group": [
+                  "**/calendar/calendar-repository",
+                  "**/browser/browser-manager",
+                  "**/browser/session-factory",
+                  "**/channels/*/discovery",
+                  "**/cookie-import/browser-cookie-importer",
+                  "**/database/application-database",
+                  "**/database/*-repository",
+                  "**/gateway/**/*-gateway-http",
+                  "**/server-client/trpc-client",
+                  "**/server-client/staff-server-fetch",
+                  "**/staff-auth/authenticated-rms-fetch",
+                  "**/staff-auth/rms-auth-client",
+                  "**/staff-auth/rms-token-provider",
+                  "**/staff-auth/token-store",
+                  "../browser/session-factory",
+                  "../channels/*/discovery",
+                  "../cookie-import/browser-cookie-importer",
+                  "../database/application-database",
+                  "../database/*-repository",
+                  "../gateway/**/*-gateway-http",
+                  "../server-client/trpc-client",
+                  "../server-client/staff-server-fetch",
+                  "../staff-auth/authenticated-rms-fetch",
+                  "../staff-auth/rms-auth-client",
+                  "../staff-auth/rms-token-provider",
+                  "../staff-auth/token-store"
+                ],
+                "message": "实现类只能在 composition root（src/main/composition/）装配；这里请依赖窄接口",
+                "allowTypeImports": true
               }
             ]
           }
@@ -185,7 +261,7 @@
     },
     {
       // renderer 只能通过 preload 访问主进程
-      "files": ["src/renderer/**/*.ts"],
+      "files": ["src/renderer/**/*.ts", "src/renderer/**/*.svelte"],
       "rules": {
         "no-restricted-imports": [
           "error",

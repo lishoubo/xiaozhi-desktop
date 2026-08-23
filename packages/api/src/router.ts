@@ -140,26 +140,24 @@ export interface ApiLogger {
   error: ApiLogMethod;
 }
 
-export interface EmployeeIdentityDirectory {
-  // eslint-disable-next-line no-unused-vars -- parameter name documents the directory contract.
-  findActiveById(id: string): Promise<EmployeeIdentity | null>;
-  // eslint-disable-next-line no-unused-vars -- parameter name documents the directory contract.
-  findActiveByPhone(phone: string): Promise<EmployeeIdentity | null>;
+/* eslint-disable no-unused-vars -- parameter names document the server transport adapter. */
+export interface DesktopApiEndpoint {
+  requestPhoneCode(input: Readonly<{ phone: string }>): Promise<
+    Readonly<{ accepted: true; expiresInSeconds: number }>
+  >;
+  loginWithPhoneCode(input: Readonly<{ phone: string; code: string }>): Promise<EmployeeIdentity>;
+  currentSession(): Promise<EmployeeIdentity | null>;
+  logout(): Promise<Readonly<{ success: true }>>;
+  health(): Readonly<{
+    status: 'ok';
+    authentication: Readonly<{
+      staff: true;
+      phone: true;
+      phoneIdentitySourceConfigured: boolean;
+    }>;
+  }>;
 }
-
-export interface PhoneOtpGateway {
-  // eslint-disable-next-line no-unused-vars -- parameter name documents the gateway contract.
-  requestCode(phone: string): Promise<Readonly<{ expiresInSeconds: number }>>;
-  // eslint-disable-next-line no-unused-vars -- parameter names document the gateway contract.
-  verifyCode(phone: string, code: string): Promise<boolean>;
-}
-
-export interface DesktopSessionGateway {
-  currentEmployee(): Promise<EmployeeIdentity | null>;
-  // eslint-disable-next-line no-unused-vars -- parameter name documents the session contract.
-  issue(employee: EmployeeIdentity): Promise<void>;
-  revoke(): Promise<void>;
-}
+/* eslint-enable no-unused-vars */
 
 export type AgentHotelAccess = Readonly<{
   kind: 'staff_managed_hotels';
@@ -208,10 +206,7 @@ export interface AgentGateway {
 export interface ApiContext {
   agent: AgentGateway;
   agentPrincipal(): Promise<AgentPrincipal | null>;
-  desktopSession: DesktopSessionGateway;
-  employeeDirectory: EmployeeIdentityDirectory;
-  phoneOtp: PhoneOtpGateway;
-  phoneIdentitySourceConfigured: boolean;
+  desktopApi: DesktopApiEndpoint;
   logger: ApiLogger;
   requestId: string;
 }
@@ -250,21 +245,6 @@ const publicProcedure = t.procedure.use(async ({ ctx, next, path, type }) => {
   return result;
 });
 
-const protectedProcedure = publicProcedure.use(async ({ ctx, next }) => {
-  let employee: EmployeeIdentity | null;
-  try {
-    employee = await ctx.desktopSession.currentEmployee();
-  } catch (cause) {
-    throw serviceUnavailableError('会话服务暂时不可用，请稍后重试', cause);
-  }
-
-  if (!employee) {
-    throw new TRPCError({ code: 'UNAUTHORIZED', message: '请先登录' });
-  }
-
-  return next({ ctx: { ...ctx, employee } });
-});
-
 const agentProcedure = publicProcedure.use(async ({ ctx, next }) => {
   let principal: AgentPrincipal | null;
   try {
@@ -284,12 +264,6 @@ const healthResponseSchema = z.object({
     phoneIdentitySourceConfigured: z.boolean(),
   }),
 });
-
-const invalidPhoneCodeError = (): TRPCError =>
-  new TRPCError({
-    code: 'UNAUTHORIZED',
-    message: '手机号或验证码不正确',
-  });
 
 export const appRouter = t.router({
   agent: t.router({
@@ -361,71 +335,20 @@ export const appRouter = t.router({
     requestPhoneCode: publicProcedure
       .input(z.strictObject({ phone: phoneNumberSchema }))
       .output(phoneCodeRequestResponseSchema)
-      .mutation(async ({ ctx, input }) => {
-        try {
-          const result = await ctx.phoneOtp.requestCode(input.phone);
-          return { accepted: true, expiresInSeconds: result.expiresInSeconds };
-        } catch (cause) {
-          throw serviceUnavailableError('验证码服务暂时不可用，请稍后重试', cause);
-        }
-      }),
+      .mutation(({ ctx, input }) => ctx.desktopApi.requestPhoneCode(input)),
     loginWithPhoneCode: publicProcedure
       .input(z.strictObject({ phone: phoneNumberSchema, code: phoneCodeSchema }))
       .output(employeeIdentitySchema)
-      .mutation(async ({ ctx, input }) => {
-        let verified: boolean;
-        try {
-          verified = await ctx.phoneOtp.verifyCode(input.phone, input.code);
-        } catch (cause) {
-          throw serviceUnavailableError('验证码服务暂时不可用，请稍后重试', cause);
-        }
-        if (!verified) throw invalidPhoneCodeError();
-
-        let employee: EmployeeIdentity | null;
-        try {
-          employee = await ctx.employeeDirectory.findActiveByPhone(input.phone);
-        } catch (cause) {
-          throw new TRPCError({
-            code: 'SERVICE_UNAVAILABLE',
-            message: '手机号身份数据源暂时不可用，请稍后重试或联系管理员',
-            cause,
-          });
-        }
-        if (!employee) throw invalidPhoneCodeError();
-        try {
-          await ctx.desktopSession.issue(employee);
-        } catch (cause) {
-          throw serviceUnavailableError('登录服务暂时不可用，请稍后重试', cause);
-        }
-        return employee;
-      }),
+      .mutation(({ ctx, input }) => ctx.desktopApi.loginWithPhoneCode(input)),
     currentSession: publicProcedure
       .output(employeeIdentitySchema.nullable())
-      .query(async ({ ctx }) => {
-        try {
-          return await ctx.desktopSession.currentEmployee();
-        } catch (cause) {
-          throw serviceUnavailableError('会话服务暂时不可用，请稍后重试', cause);
-        }
-      }),
-    logout: protectedProcedure.output(logoutResponseSchema).mutation(async ({ ctx }) => {
-      try {
-        await ctx.desktopSession.revoke();
-      } catch (cause) {
-        throw serviceUnavailableError('退出登录暂时不可用，请稍后重试', cause);
-      }
-      return { success: true };
-    }),
+      .query(({ ctx }) => ctx.desktopApi.currentSession()),
+    logout: publicProcedure
+      .output(logoutResponseSchema)
+      .mutation(({ ctx }) => ctx.desktopApi.logout()),
   }),
   system: t.router({
-    health: publicProcedure.output(healthResponseSchema).query(({ ctx }) => ({
-      status: 'ok',
-      authentication: {
-        staff: true,
-        phone: true,
-        phoneIdentitySourceConfigured: ctx.phoneIdentitySourceConfigured,
-      },
-    })),
+    health: publicProcedure.output(healthResponseSchema).query(({ ctx }) => ctx.desktopApi.health()),
   }),
 });
 

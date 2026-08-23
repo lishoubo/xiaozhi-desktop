@@ -1,5 +1,6 @@
-import type { ApiLogger, PhoneOtpGateway } from '@hotel-butler/api';
+import type { ApiLogger } from '@hotel-butler/api/router';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { PhoneOtpGateway } from './desktop-api-endpoint';
 import { createServerAuthResources } from './server-auth-resources';
 
 const logger = {

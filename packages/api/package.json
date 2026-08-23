@@ -11,6 +11,10 @@
     "./contracts": {
       "types": "./src/contracts.ts",
       "default": "./src/contracts.ts"
+    },
+    "./router": {
+      "types": "./src/router.ts",
+      "default": "./src/router.ts"
     }
   },
   "scripts": {

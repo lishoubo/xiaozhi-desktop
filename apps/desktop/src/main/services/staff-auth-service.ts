@@ -13,7 +13,8 @@ import {
   isAccessTokenRejected,
   messageForRmsError,
 } from '../staff-auth/rms-auth-errors';
-import { RmsSessionMissingError, type RmsTokenProvider } from '../staff-auth/rms-token-provider';
+import { RmsSessionMissingError } from '../staff-auth/rms-session-missing-error';
+import type { RmsTokenProvider } from '../staff-auth/rms-token-provider';
 
 export type StaffAuthServiceDependencies = Readonly<{
   client: RmsAuthClient;

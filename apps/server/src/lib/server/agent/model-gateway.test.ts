@@ -1,4 +1,4 @@
-import type { ApiLogger } from '@hotel-butler/api';
+import type { ApiLogger } from '@hotel-butler/api/router';
 import { describe, expect, it } from 'vitest';
 import { ModelInvocationTelemetry, modelPolicyForPurpose } from './model-gateway';
 

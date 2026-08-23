@@ -89,6 +89,7 @@ vi.mock('electron', () => ({
 }));
 
 import { BrowserManager } from '../../../src/main/browser/browser-manager';
+import { SessionFactory } from '../../../src/main/browser/session-factory';
 import { toChannelId } from '../../../src/main/ids';
 
 function createLogger() {
@@ -121,6 +122,13 @@ function createWindow() {
   };
 }
 
+function createBrowserManager(
+  window: ReturnType<typeof createWindow>,
+  logger: ReturnType<typeof createLogger>,
+) {
+  return new BrowserManager(window as never, logger, new SessionFactory(logger));
+}
+
 beforeEach(() => {
   electron.views.splice(0);
   electron.session.fromPartition.mockClear();
@@ -134,7 +142,7 @@ beforeEach(() => {
 
 describe('BrowserManager', () => {
   it('applies one audio state to every existing tab and lets new tabs inherit it', () => {
-    const manager = new BrowserManager(createWindow() as never, createLogger());
+    const manager = createBrowserManager(createWindow(), createLogger());
     manager.createWithAlreadyPartition(
       'persist:test-shared',
       'ctrip',
@@ -163,7 +171,7 @@ describe('BrowserManager', () => {
 
   it('keeps the global preference and updates remaining tabs when one tab cannot be muted', () => {
     const logger = createLogger();
-    const manager = new BrowserManager(createWindow() as never, logger);
+    const manager = createBrowserManager(createWindow(), logger);
     manager.createWithAlreadyPartition(
       'persist:test-shared',
       'ctrip',
@@ -190,7 +198,7 @@ describe('BrowserManager', () => {
   it('creates secure managed tabs and releases them explicitly', () => {
     const logger = createLogger();
     const window = createWindow();
-    const manager = new BrowserManager(window as never, logger);
+    const manager = createBrowserManager(window, logger);
 
     // 复用构造器创建的默认 session，断言权限 handler 只被安装一次。
     const tab = manager.createWithAlreadyPartition(
@@ -221,7 +229,7 @@ describe('BrowserManager', () => {
   });
 
   it('退休 partition 仍有标签时延迟到最后一个标签关闭后清空', async () => {
-    const manager = new BrowserManager(createWindow() as never, createLogger());
+    const manager = createBrowserManager(createWindow(), createLogger());
     const partitionName = 'persist:xiaozhi:prod:meituan:retired';
     const tab = manager.createWithAlreadyPartition(
       partitionName,
@@ -241,7 +249,7 @@ describe('BrowserManager', () => {
   it('reports page load failures without logging the rejected URL or error message', async () => {
     electron.setNextLoadError(new Error('failed https://private.example/path?token=secret'));
     const logger = createLogger();
-    const manager = new BrowserManager(createWindow() as never, logger);
+    const manager = createBrowserManager(createWindow(), logger);
 
     manager.createWithAlreadyPartition(
       'persist:test-shared',
@@ -260,7 +268,7 @@ describe('BrowserManager', () => {
 
   it('blocks non-web navigation and records only the channel category', () => {
     const logger = createLogger();
-    const manager = new BrowserManager(createWindow() as never, logger);
+    const manager = createBrowserManager(createWindow(), logger);
     manager.createWithAlreadyPartition(
       'persist:test-shared',
       'ctrip',
@@ -278,7 +286,7 @@ describe('BrowserManager', () => {
 
   it('reattaches an active tab when the workspace activates it after being hidden', () => {
     const window = createWindow();
-    const manager = new BrowserManager(window as never, createLogger());
+    const manager = createBrowserManager(window, createLogger());
     const tab = manager.createWithAlreadyPartition(
       'persist:test-shared',
       'ctrip',
@@ -294,7 +302,7 @@ describe('BrowserManager', () => {
 
   it('routes Cmd+R to the active embedded tab and blocks it outside the browser workspace', () => {
     const window = createWindow();
-    const manager = new BrowserManager(window as never, createLogger());
+    const manager = createBrowserManager(window, createLogger());
     manager.createWithAlreadyPartition(
       'persist:test-shared',
       'ctrip',
@@ -325,7 +333,7 @@ describe('BrowserManager', () => {
 
   it('does not intercept unrelated main-window shortcuts', () => {
     const window = createWindow();
-    new BrowserManager(window as never, createLogger());
+    createBrowserManager(window, createLogger());
     const preventDefault = vi.fn();
 
     window.handlers.get('before-input-event')?.(
@@ -348,7 +356,7 @@ describe('BrowserManager viewport visibility', () => {
    * 现在可见性独立表达：让位**不得**改动尺寸。
    */
   it('hides the active view without touching its bounds', () => {
-    const manager = new BrowserManager(createWindow() as never, createLogger());
+    const manager = createBrowserManager(createWindow(), createLogger());
     manager.createWithAlreadyPartition('persist:xiaozhi:prod:ctrip:a', 'ctrip', CTRIP);
     manager.setBounds({ x: 0, y: 64, width: 1200, height: 700 });
     const view = electron.views[0];
@@ -365,7 +373,7 @@ describe('BrowserManager viewport visibility', () => {
    * 这个形状（弹窗先让位，再在弹窗里开标签页）。
    */
   it('makes a tab activated while suspended inherit the hidden state', () => {
-    const manager = new BrowserManager(createWindow() as never, createLogger());
+    const manager = createBrowserManager(createWindow(), createLogger());
     manager.setViewportVisible(false);
 
     manager.createWithAlreadyPartition('persist:xiaozhi:prod:ctrip:a', 'ctrip', CTRIP);
@@ -380,7 +388,7 @@ describe('BrowserManager viewport visibility', () => {
    * 复位的责任在渲染进程 `releaseViewportSession()`，那个方法的语义就是离开工作区。
    */
   it('does not resurrect visibility on hide, since hide has non-workspace callers', () => {
-    const manager = new BrowserManager(createWindow() as never, createLogger());
+    const manager = createBrowserManager(createWindow(), createLogger());
     manager.createWithAlreadyPartition('persist:xiaozhi:prod:ctrip:a', 'ctrip', CTRIP);
     manager.setViewportVisible(false);
 
@@ -405,7 +413,7 @@ describe('BrowserManager viewport visibility', () => {
    * 执行，旧标签页会永久隐身。
    */
   it('re-asserts visibility on every activate, even for an already-active tab', () => {
-    const manager = new BrowserManager(createWindow() as never, createLogger());
+    const manager = createBrowserManager(createWindow(), createLogger());
     const first = manager.createWithAlreadyPartition('persist:xiaozhi:prod:ctrip:a', 'ctrip', CTRIP);
     manager.setViewportVisible(false);
     // 让位期间开第二个标签页：它顶掉了 first，此后 setViewportVisible 再也够不到 first。
@@ -420,7 +428,7 @@ describe('BrowserManager viewport visibility', () => {
   });
 
   it('restores visibility on resume', () => {
-    const manager = new BrowserManager(createWindow() as never, createLogger());
+    const manager = createBrowserManager(createWindow(), createLogger());
     manager.createWithAlreadyPartition('persist:xiaozhi:prod:ctrip:a', 'ctrip', CTRIP);
 
     manager.setViewportVisible(false);
@@ -440,7 +448,7 @@ describe('BrowserManager page-opened tabs', () => {
    */
   it('creates the tab without activating it and notifies the renderer', () => {
     const window = createWindow();
-    const manager = new BrowserManager(window as never, createLogger());
+    const manager = createBrowserManager(window, createLogger());
     manager.createWithAlreadyPartition('persist:xiaozhi:prod:ctrip:a', 'ctrip', CTRIP);
     window.contentView.addChildView.mockClear();
     window.webContents.send.mockClear();
@@ -458,7 +466,7 @@ describe('BrowserManager page-opened tabs', () => {
   });
 
   it('keeps the opener partition so popups stay in the same login session', () => {
-    const manager = new BrowserManager(createWindow() as never, createLogger());
+    const manager = createBrowserManager(createWindow(), createLogger());
     manager.createWithAlreadyPartition('persist:xiaozhi:prod:ctrip:a', 'ctrip', CTRIP);
 
     electron.views[0].windowOpenHandler({ url: 'https://ebooking.ctrip.com/order' });
@@ -468,7 +476,7 @@ describe('BrowserManager page-opened tabs', () => {
 
   it('throttles a page that opens windows in a tight loop', () => {
     const logger = createLogger();
-    const manager = new BrowserManager(createWindow() as never, logger);
+    const manager = createBrowserManager(createWindow(), logger);
     manager.createWithAlreadyPartition('persist:xiaozhi:prod:ctrip:a', 'ctrip', CTRIP);
 
     for (let index = 0; index < 6; index += 1) {
@@ -483,7 +491,7 @@ describe('BrowserManager page-opened tabs', () => {
 
 describe('BrowserManager tab limit', () => {
   it('refuses to exceed the tab ceiling on every creation path', () => {
-    const manager = new BrowserManager(createWindow() as never, createLogger());
+    const manager = createBrowserManager(createWindow(), createLogger());
     for (let index = 0; index < 12; index += 1) {
       manager.createWithAlreadyPartition(
         `persist:xiaozhi:prod:ctrip:a${index}`,
@@ -508,7 +516,7 @@ describe('BrowserManager tab limit', () => {
    * 引用、也没进账本，就成了孤儿 —— 本仓库出过事故的那一类。
    */
   it('refuses before creating a partition, so nothing is orphaned', async () => {
-    const manager = new BrowserManager(createWindow() as never, createLogger());
+    const manager = createBrowserManager(createWindow(), createLogger());
     for (let index = 0; index < 12; index += 1) {
       manager.createWithAlreadyPartition(
         `persist:xiaozhi:prod:ctrip:a${index}`,
@@ -532,7 +540,7 @@ describe('BrowserManager failure state', () => {
 
   function openTab() {
     const window = createWindow();
-    const manager = new BrowserManager(window as never, createLogger());
+    const manager = createBrowserManager(window, createLogger());
     manager.createWithAlreadyPartition('persist:xiaozhi:prod:ctrip:a', 'ctrip', CTRIP);
     return { manager, view: electron.views[0] };
   }
@@ -605,7 +613,7 @@ describe('BrowserManager close hand-off', () => {
    */
   it('activates a same-channel neighbour when the active tab closes', () => {
     const window = createWindow();
-    const manager = new BrowserManager(window as never, createLogger());
+    const manager = createBrowserManager(window, createLogger());
     manager.createWithAlreadyPartition('persist:xiaozhi:prod:ctrip:a', 'ctrip', CTRIP);
     const second = manager.createWithAlreadyPartition(
       'persist:xiaozhi:prod:ctrip:b',
@@ -628,7 +636,7 @@ describe('BrowserManager close hand-off', () => {
 
   it('does not hand off when the closed tab was not active', () => {
     const window = createWindow();
-    const manager = new BrowserManager(window as never, createLogger());
+    const manager = createBrowserManager(window, createLogger());
     const first = manager.createWithAlreadyPartition(
       'persist:xiaozhi:prod:ctrip:a',
       'ctrip',
@@ -644,7 +652,7 @@ describe('BrowserManager close hand-off', () => {
 
   it('leaves the content area empty when the last tab of a channel closes', () => {
     const window = createWindow();
-    const manager = new BrowserManager(window as never, createLogger());
+    const manager = createBrowserManager(window, createLogger());
     const only = manager.createWithAlreadyPartition(
       'persist:xiaozhi:prod:ctrip:a',
       'ctrip',
@@ -673,7 +681,7 @@ describe('BrowserManager closed-tab silence', () => {
    */
   it('stops broadcasting state for a tab that was already closed', () => {
     const window = createWindow();
-    const manager = new BrowserManager(window as never, createLogger());
+    const manager = createBrowserManager(window, createLogger());
     const tab = manager.createWithAlreadyPartition('persist:xiaozhi:prod:ctrip:a', 'ctrip', CTRIP);
     manager.close(tab.id);
     window.webContents.send.mockClear();
@@ -686,7 +694,7 @@ describe('BrowserManager closed-tab silence', () => {
   });
 
   it('stops broadcasting navigation for a closed tab', () => {
-    const manager = new BrowserManager(createWindow() as never, createLogger());
+    const manager = createBrowserManager(createWindow(), createLogger());
     const tab = manager.createWithAlreadyPartition('persist:xiaozhi:prod:ctrip:a', 'ctrip', CTRIP);
     const navigated = vi.fn();
     manager.on('tab:navigated', navigated);
@@ -707,7 +715,7 @@ describe('BrowserManager failure precedence', () => {
    * unresponsive）—— 崩溃就此从界面消失，用户只剩一块空白页且没有恢复入口。
    */
   it('does not let unresponsive downgrade a crash', () => {
-    const manager = new BrowserManager(createWindow() as never, createLogger());
+    const manager = createBrowserManager(createWindow(), createLogger());
     manager.createWithAlreadyPartition('persist:xiaozhi:prod:ctrip:a', 'ctrip', CTRIP);
     const view = electron.views[0];
 
@@ -719,7 +727,7 @@ describe('BrowserManager failure precedence', () => {
   });
 
   it('does not let unresponsive downgrade a load failure', () => {
-    const manager = new BrowserManager(createWindow() as never, createLogger());
+    const manager = createBrowserManager(createWindow(), createLogger());
     manager.createWithAlreadyPartition('persist:xiaozhi:prod:ctrip:a', 'ctrip', CTRIP);
     const view = electron.views[0];
 

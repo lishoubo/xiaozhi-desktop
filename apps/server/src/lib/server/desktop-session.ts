@@ -1,9 +1,6 @@
 import { createHash } from 'node:crypto';
-import type {
-	DesktopSessionGateway,
-	EmployeeIdentity,
-	EmployeeIdentityDirectory
-} from '@hotel-butler/api';
+import type { EmployeeIdentity } from '@hotel-butler/api';
+import type { DesktopSessionGateway, EmployeeIdentityDirectory } from './desktop-api-endpoint';
 
 export const DESKTOP_SESSION_COOKIE_NAME = '__Host-xiaozhi_desktop_session';
 export const DESKTOP_SESSION_DURATION_SECONDS = 7 * 24 * 60 * 60;

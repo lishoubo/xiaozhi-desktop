@@ -1,4 +1,5 @@
-import type { AgentMessage, AgentPrincipal } from '@hotel-butler/api';
+import type { AgentMessage } from '@hotel-butler/api';
+import type { AgentPrincipal } from '@hotel-butler/api/router';
 
 export type ConversationContextPolicy = Readonly<{
 	contextWindowTokens: number;

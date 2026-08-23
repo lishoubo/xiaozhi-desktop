@@ -1,4 +1,4 @@
-import type { PhoneOtpGateway } from '@hotel-butler/api';
+import type { PhoneOtpGateway } from './desktop-api-endpoint';
 
 const TEMPORARY_CODE_LIFETIME_SECONDS = 5 * 60;
 

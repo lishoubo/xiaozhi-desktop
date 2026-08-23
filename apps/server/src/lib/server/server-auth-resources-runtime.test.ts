@@ -1,4 +1,4 @@
-import type { EmployeeIdentityDirectory, PhoneOtpGateway } from '@hotel-butler/api';
+import type { EmployeeIdentityDirectory, PhoneOtpGateway } from './desktop-api-endpoint';
 import { describe, expect, it, vi } from 'vitest';
 import type { ServerAuthResources } from './server-auth-resources';
 import type { EmployeeHotelAccessDirectory } from './employee-identity-directory';

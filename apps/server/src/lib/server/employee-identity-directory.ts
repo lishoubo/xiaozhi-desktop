@@ -1,9 +1,7 @@
-import type {
-	AgentHotelAccess,
-	EmployeeIdentity,
-	EmployeeIdentityDirectory
-} from '@hotel-butler/api';
+import type { EmployeeIdentity } from '@hotel-butler/api';
+import type { AgentHotelAccess } from '@hotel-butler/api/router';
 import type { ExecuteValues } from 'mysql2';
+import type { EmployeeIdentityDirectory } from './desktop-api-endpoint';
 
 export interface EmployeeQueryExecutor {
 	execute(sql: string, values: ExecuteValues): Promise<readonly [unknown, unknown]>;

@@ -1,4 +1,4 @@
-import type { AgentPrincipal } from '@hotel-butler/api';
+import type { AgentPrincipal } from '@hotel-butler/api/router';
 import { randomUUID } from 'node:crypto';
 import type { RuntimeEvent } from '../agent-runtime';
 import {
