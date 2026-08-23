@@ -315,6 +315,808 @@ const REAL_CALC_RESPONSE = JSON.stringify({
   success: true,
 });
 
+/* ============================================================================
+ * 高级改价（模式 B）—— `docs/踩点/美团/批量改房价-高级改价.md` 的真实序列
+ * ============================================================================
+ *
+ * 与基础改价的唯一结构差别：日期挂在 `calcPriceModels[]` **每个元素**上，而不是
+ * `calcPriceUnifiedDateModel.dates[]`。只认后者会让 `keep` 落空、上报空素材。
+ *
+ * 用户操作：2 个房型 × 2 个日期段，各加价 1 元 → 美团发 4 次试算（每次一房型一段）
+ * → 提交时 2 个房型各带 2 段。
+ */
+const MODE_B_CALCS = [
+  {
+    req: {
+      "poiId": "1834077877",
+      "partnerId": 4824962,
+      "goodsList": [
+        {
+          "goodsBaseInfo": {
+            "goodsId": 1135787306
+          },
+          "calcPriceModels": [
+            {
+              "startDate": "2026-09-08",
+              "endDate": "2026-09-09",
+              "calcPriceWeekModels": [
+                {
+                  "inWeek": [
+                    2,
+                    3
+                  ],
+                  "calcPriceInfo": {
+                    "salePrice": {
+                      "operateType": 1,
+                      "operateNum": "100"
+                    },
+                    "basePrice": {
+                      "operateType": 3,
+                      "operateNum": ""
+                    },
+                    "subPrice": {
+                      "operateType": 3,
+                      "operateNum": ""
+                    }
+                  },
+                  "calcPriceFactorInfos": []
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    } as unknown as JsonObject,
+    resp: JSON.stringify({
+      "code": 10000,
+      "error": null,
+      "traceId": "-866730487513130627",
+      "success": true,
+      "data": {
+        "goodsDetails": [
+          {
+            "goodsBaseInfo": {
+              "goodsId": 1135787306
+            },
+            "priceRecordWay": 8,
+            "unifiedDatePriceInfos": null,
+            "priceInfos": [
+              {
+                "startDate": "2026-09-08",
+                "endDate": "2026-09-09",
+                "weekPriceInfos": [
+                  {
+                    "inWeek": [
+                      2,
+                      3
+                    ],
+                    "priceInfo": {
+                      "salePrice": "55157"
+                    },
+                    "originalPriceInfo": {
+                      "salePrice": "55057"
+                    }
+                  }
+                ]
+              }
+            ],
+            "weekDiff": false
+          }
+        ],
+        "globalPricePrompt": {
+          "prompts": null,
+          "unifiedSubRatio": null,
+          "unifiedBaseAddRatio": null
+        }
+      }
+    }),
+  },
+  {
+    req: {
+      "poiId": "1834077877",
+      "partnerId": 4824962,
+      "goodsList": [
+        {
+          "goodsBaseInfo": {
+            "goodsId": 1135787306
+          },
+          "calcPriceModels": [
+            {
+              "startDate": "2026-09-10",
+              "endDate": "2026-09-11",
+              "calcPriceWeekModels": [
+                {
+                  "inWeek": [
+                    4,
+                    5
+                  ],
+                  "calcPriceInfo": {
+                    "salePrice": {
+                      "operateType": 1,
+                      "operateNum": "100"
+                    },
+                    "basePrice": {
+                      "operateType": 3,
+                      "operateNum": ""
+                    },
+                    "subPrice": {
+                      "operateType": 3,
+                      "operateNum": ""
+                    }
+                  },
+                  "calcPriceFactorInfos": []
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    } as unknown as JsonObject,
+    resp: JSON.stringify({
+      "code": 10000,
+      "error": null,
+      "traceId": "-866730487404018258",
+      "success": true,
+      "data": {
+        "goodsDetails": [
+          {
+            "goodsBaseInfo": {
+              "goodsId": 1135787306
+            },
+            "priceRecordWay": 8,
+            "unifiedDatePriceInfos": null,
+            "priceInfos": [
+              {
+                "startDate": "2026-09-10",
+                "endDate": "2026-09-11",
+                "weekPriceInfos": [
+                  {
+                    "inWeek": [
+                      4,
+                      5
+                    ],
+                    "priceInfo": {
+                      "salePrice": "55157"
+                    },
+                    "originalPriceInfo": {
+                      "salePrice": "55057"
+                    }
+                  }
+                ]
+              }
+            ],
+            "weekDiff": false
+          }
+        ],
+        "globalPricePrompt": {
+          "prompts": null,
+          "unifiedSubRatio": null,
+          "unifiedBaseAddRatio": null
+        }
+      }
+    }),
+  },
+  {
+    req: {
+      "poiId": "1834077877",
+      "partnerId": 4824962,
+      "goodsList": [
+        {
+          "goodsBaseInfo": {
+            "goodsId": 1135800654
+          },
+          "calcPriceModels": [
+            {
+              "startDate": "2026-09-08",
+              "endDate": "2026-09-09",
+              "calcPriceWeekModels": [
+                {
+                  "inWeek": [
+                    2,
+                    3
+                  ],
+                  "calcPriceInfo": {
+                    "salePrice": {
+                      "operateType": 1,
+                      "operateNum": "100"
+                    },
+                    "basePrice": {
+                      "operateType": 3,
+                      "operateNum": ""
+                    },
+                    "subPrice": {
+                      "operateType": 3,
+                      "operateNum": ""
+                    }
+                  },
+                  "calcPriceFactorInfos": []
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    } as unknown as JsonObject,
+    resp: JSON.stringify({
+      "code": 10000,
+      "error": null,
+      "traceId": "-866730487458800657",
+      "success": true,
+      "data": {
+        "goodsDetails": [
+          {
+            "goodsBaseInfo": {
+              "goodsId": 1135800654
+            },
+            "priceRecordWay": 8,
+            "unifiedDatePriceInfos": null,
+            "priceInfos": [
+              {
+                "startDate": "2026-09-08",
+                "endDate": "2026-09-09",
+                "weekPriceInfos": [
+                  {
+                    "inWeek": [
+                      2,
+                      3
+                    ],
+                    "priceInfo": {
+                      "salePrice": "56123"
+                    },
+                    "originalPriceInfo": {
+                      "salePrice": "56023"
+                    }
+                  }
+                ]
+              }
+            ],
+            "weekDiff": false
+          }
+        ],
+        "globalPricePrompt": {
+          "prompts": null,
+          "unifiedSubRatio": null,
+          "unifiedBaseAddRatio": null
+        }
+      }
+    }),
+  },
+  {
+    req: {
+      "poiId": "1834077877",
+      "partnerId": 4824962,
+      "goodsList": [
+        {
+          "goodsBaseInfo": {
+            "goodsId": 1135800654
+          },
+          "calcPriceModels": [
+            {
+              "startDate": "2026-09-10",
+              "endDate": "2026-09-11",
+              "calcPriceWeekModels": [
+                {
+                  "inWeek": [
+                    4,
+                    5
+                  ],
+                  "calcPriceInfo": {
+                    "salePrice": {
+                      "operateType": 1,
+                      "operateNum": "100"
+                    },
+                    "basePrice": {
+                      "operateType": 3,
+                      "operateNum": ""
+                    },
+                    "subPrice": {
+                      "operateType": 3,
+                      "operateNum": ""
+                    }
+                  },
+                  "calcPriceFactorInfos": []
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    } as unknown as JsonObject,
+    resp: JSON.stringify({
+      "code": 10000,
+      "error": null,
+      "traceId": "-866730487634361777",
+      "success": true,
+      "data": {
+        "goodsDetails": [
+          {
+            "goodsBaseInfo": {
+              "goodsId": 1135800654
+            },
+            "priceRecordWay": 8,
+            "unifiedDatePriceInfos": null,
+            "priceInfos": [
+              {
+                "startDate": "2026-09-10",
+                "endDate": "2026-09-11",
+                "weekPriceInfos": [
+                  {
+                    "inWeek": [
+                      4,
+                      5
+                    ],
+                    "priceInfo": {
+                      "salePrice": "56123"
+                    },
+                    "originalPriceInfo": {
+                      "salePrice": "56023"
+                    }
+                  }
+                ]
+              }
+            ],
+            "weekDiff": false
+          }
+        ],
+        "globalPricePrompt": {
+          "prompts": null,
+          "unifiedSubRatio": null,
+          "unifiedBaseAddRatio": null
+        }
+      }
+    }),
+  },
+] as const;
+
+/** 提交体 —— 用户点确认那次（`createFlag: true`），两个房型各带两个日期段。 */
+const MODE_B_UPDATE = {
+  "poiId": "1834077877",
+  "partnerId": 4824962,
+  "createFlag": true,
+  "goodsList": [
+    {
+      "goodsBaseInfo": {
+        "goodsId": 1135787306
+      },
+      "calcPriceModels": [
+        {
+          "startDate": "2026-09-08",
+          "endDate": "2026-09-09",
+          "calcPriceWeekModels": [
+            {
+              "inWeek": [
+                2,
+                3
+              ],
+              "calcPriceInfo": {
+                "salePrice": {
+                  "operateType": 1,
+                  "operateNum": "100"
+                },
+                "basePrice": {
+                  "operateType": 3,
+                  "operateNum": ""
+                },
+                "subPrice": {
+                  "operateType": 3,
+                  "operateNum": ""
+                }
+              },
+              "calcPriceFactorInfos": null
+            }
+          ]
+        },
+        {
+          "startDate": "2026-09-10",
+          "endDate": "2026-09-11",
+          "calcPriceWeekModels": [
+            {
+              "inWeek": [
+                4,
+                5
+              ],
+              "calcPriceInfo": {
+                "salePrice": {
+                  "operateType": 1,
+                  "operateNum": "100"
+                },
+                "basePrice": {
+                  "operateType": 3,
+                  "operateNum": ""
+                },
+                "subPrice": {
+                  "operateType": 3,
+                  "operateNum": ""
+                }
+              },
+              "calcPriceFactorInfos": null
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "goodsBaseInfo": {
+        "goodsId": 1135800654
+      },
+      "calcPriceModels": [
+        {
+          "startDate": "2026-09-08",
+          "endDate": "2026-09-09",
+          "calcPriceWeekModels": [
+            {
+              "inWeek": [
+                2,
+                3
+              ],
+              "calcPriceInfo": {
+                "salePrice": {
+                  "operateType": 1,
+                  "operateNum": "100"
+                },
+                "basePrice": {
+                  "operateType": 3,
+                  "operateNum": ""
+                },
+                "subPrice": {
+                  "operateType": 3,
+                  "operateNum": ""
+                }
+              },
+              "calcPriceFactorInfos": null
+            }
+          ]
+        },
+        {
+          "startDate": "2026-09-10",
+          "endDate": "2026-09-11",
+          "calcPriceWeekModels": [
+            {
+              "inWeek": [
+                4,
+                5
+              ],
+              "calcPriceInfo": {
+                "salePrice": {
+                  "operateType": 1,
+                  "operateNum": "100"
+                },
+                "basePrice": {
+                  "operateType": 3,
+                  "operateNum": ""
+                },
+                "subPrice": {
+                  "operateType": 3,
+                  "operateNum": ""
+                }
+              },
+              "calcPriceFactorInfos": null
+            }
+          ]
+        }
+      ]
+    }
+  ]
+} as unknown as JsonObject;
+
+const MODE_B_CALC_URL =
+  'https://me.meituan.com/api/gw/v1/product/price/separate/calcPriceV2?yodaReady=h5';
+
+/* ============================================================================
+ * 日期范围变更 —— `docs/踩点/美团/批量改房价-高级改价-时间段改变.md` 的真实序列
+ * ============================================================================
+ *
+ * ```
+ * #0 unified   两段：09-02~03, 09-08~09     ← 用户选了两个日期段
+ * #1 separate  改 09-02~03 的价
+ * #2 unified   ★ 只剩 09-02~03              ← 用户删掉了 09-08~09
+ * #3 separate  又改 09-02~03 的价
+ * ```
+ */
+const RANGE_CHANGE_SEQ = [
+  {
+    "endpointId": "unifiedCalcPriceV2",
+    "req": {
+      "poiId": "1834077877",
+      "partnerId": 4824962
+    },
+    "resp": {
+      "code": 10000,
+      "error": null,
+      "traceId": "7535153309122687798",
+      "success": true,
+      "data": {
+        "goodsDetails": [
+          {
+            "goodsBaseInfo": {
+              "goodsId": 1135787306
+            },
+            "priceRecordWay": 8,
+            "unifiedDatePriceInfos": null,
+            "priceInfos": [
+              {
+                "startDate": "2026-09-02",
+                "endDate": "2026-09-03",
+                "weekPriceInfos": [
+                  {
+                    "inWeek": [
+                      1,
+                      2,
+                      3,
+                      4,
+                      5,
+                      6,
+                      7
+                    ],
+                    "priceInfo": {
+                      "salePrice": "55057"
+                    },
+                    "originalPriceInfo": {
+                      "salePrice": "55057"
+                    }
+                  }
+                ]
+              },
+              {
+                "startDate": "2026-09-08",
+                "endDate": "2026-09-09",
+                "weekPriceInfos": [
+                  {
+                    "inWeek": [
+                      1,
+                      2,
+                      3,
+                      4,
+                      5,
+                      6,
+                      7
+                    ],
+                    "priceInfo": {
+                      "salePrice": "55157"
+                    },
+                    "originalPriceInfo": {
+                      "salePrice": "55157"
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        ],
+        "globalPricePrompt": {
+          "prompts": null,
+          "unifiedSubRatio": null,
+          "unifiedBaseAddRatio": null
+        }
+      }
+    }
+  },
+  {
+    "endpointId": "calcPriceV2",
+    "req": {
+      "poiId": "1834077877",
+      "partnerId": 4824962,
+      "goodsList": [
+        {
+          "goodsBaseInfo": {
+            "goodsId": 1135787306
+          },
+          "calcPriceModels": [
+            {
+              "startDate": "2026-09-02",
+              "endDate": "2026-09-03",
+              "calcPriceWeekModels": [
+                {
+                  "inWeek": [
+                    3,
+                    4
+                  ],
+                  "calcPriceInfo": {
+                    "salePrice": {
+                      "operateType": 6,
+                      "operateNum": "55157"
+                    },
+                    "basePrice": {
+                      "operateType": 3,
+                      "operateNum": ""
+                    },
+                    "subPrice": {
+                      "operateType": 3,
+                      "operateNum": ""
+                    }
+                  },
+                  "calcPriceFactorInfos": []
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "resp": {
+      "code": 10000,
+      "error": null,
+      "traceId": "7535153308960011415",
+      "success": true,
+      "data": {
+        "goodsDetails": [
+          {
+            "goodsBaseInfo": {
+              "goodsId": 1135787306
+            },
+            "priceRecordWay": 8,
+            "unifiedDatePriceInfos": null,
+            "priceInfos": [
+              {
+                "startDate": "2026-09-02",
+                "endDate": "2026-09-03",
+                "weekPriceInfos": [
+                  {
+                    "inWeek": [
+                      3,
+                      4
+                    ],
+                    "priceInfo": {
+                      "salePrice": "55157"
+                    },
+                    "originalPriceInfo": {
+                      "salePrice": "55057"
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        ],
+        "globalPricePrompt": {
+          "prompts": null,
+          "unifiedSubRatio": null,
+          "unifiedBaseAddRatio": null
+        }
+      }
+    }
+  },
+  {
+    "endpointId": "unifiedCalcPriceV2",
+    "req": {
+      "poiId": "1834077877",
+      "partnerId": 4824962
+    },
+    "resp": {
+      "code": 10000,
+      "error": null,
+      "traceId": "7535153309041258869",
+      "success": true,
+      "data": {
+        "goodsDetails": [
+          {
+            "goodsBaseInfo": {
+              "goodsId": 1135787306
+            },
+            "priceRecordWay": 8,
+            "unifiedDatePriceInfos": null,
+            "priceInfos": [
+              {
+                "startDate": "2026-09-02",
+                "endDate": "2026-09-03",
+                "weekPriceInfos": [
+                  {
+                    "inWeek": [
+                      1,
+                      2,
+                      3,
+                      4,
+                      5,
+                      6,
+                      7
+                    ],
+                    "priceInfo": {
+                      "salePrice": "55057"
+                    },
+                    "originalPriceInfo": {
+                      "salePrice": "55057"
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        ],
+        "globalPricePrompt": {
+          "prompts": null,
+          "unifiedSubRatio": null,
+          "unifiedBaseAddRatio": null
+        }
+      }
+    }
+  },
+  {
+    "endpointId": "calcPriceV2",
+    "req": {
+      "poiId": "1834077877",
+      "partnerId": 4824962,
+      "goodsList": [
+        {
+          "goodsBaseInfo": {
+            "goodsId": 1135787306
+          },
+          "calcPriceModels": [
+            {
+              "startDate": "2026-09-02",
+              "endDate": "2026-09-03",
+              "calcPriceWeekModels": [
+                {
+                  "inWeek": [
+                    3,
+                    4
+                  ],
+                  "calcPriceInfo": {
+                    "salePrice": {
+                      "operateType": 6,
+                      "operateNum": "55157"
+                    },
+                    "basePrice": {
+                      "operateType": 3,
+                      "operateNum": ""
+                    },
+                    "subPrice": {
+                      "operateType": 3,
+                      "operateNum": ""
+                    }
+                  },
+                  "calcPriceFactorInfos": []
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "resp": {
+      "code": 10000,
+      "error": null,
+      "traceId": "7535135716810102874",
+      "success": true,
+      "data": {
+        "goodsDetails": [
+          {
+            "goodsBaseInfo": {
+              "goodsId": 1135787306
+            },
+            "priceRecordWay": 8,
+            "unifiedDatePriceInfos": null,
+            "priceInfos": [
+              {
+                "startDate": "2026-09-02",
+                "endDate": "2026-09-03",
+                "weekPriceInfos": [
+                  {
+                    "inWeek": [
+                      3,
+                      4
+                    ],
+                    "priceInfo": {
+                      "salePrice": "55157"
+                    },
+                    "originalPriceInfo": {
+                      "salePrice": "55057"
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        ],
+        "globalPricePrompt": {
+          "prompts": null,
+          "unifiedSubRatio": null,
+          "unifiedBaseAddRatio": null
+        }
+      }
+    }
+  }
+] as const;
+
 function calcObserved(
   overrides: Partial<AmountSaveObserved> = {},
 ): AmountSaveObserved {
@@ -415,10 +1217,13 @@ describe('美团价量态改动适配器', () => {
       expect(report?.endpointId).toBe('calcPriceV2');
       expect(report?.endpointUrl).toBe(REAL_CALC_URL);
       expect(report?.otaHotelId).toBe('762662011');
-      // changeRaw 是裁剪后的**试算结果**，不是提交体 —— 后者只有「+1 元」这类相对操作，
-      // RMS 既算不出绝对价也无从校验
-      expect(report?.changeRaw).toEqual(context.changeRaw);
+      // changeRaw 的内容来自**试算**，不是提交体 —— 后者只有「+1 元」这类相对操作，
+      // RMS 既算不出绝对价也无从校验。提交体的字段一个都不该出现在里面。
       expect(report?.changeRaw).not.toHaveProperty('createFlag');
+      expect(report?.changeRaw).not.toHaveProperty('goodsList');
+      // 累积的格子重建成 goodsDetails[]，形状与 calc 响应一致
+      expect(report?.changeRaw.goodsDetails).toBeInstanceOf(Array);
+      expect(Object.keys(context.cells as JsonObject)).toHaveLength(1);
     });
 
     /** 改前 189.66 → 改后 190.66，这是 RMS 跟价唯一要的东西。 */
@@ -428,14 +1233,19 @@ describe('美团价量态改动适配器', () => {
       const report = reportOf(
         adapter.parse(observedWith({ ...REAL_REQUEST_BODY }), calcContext()),
       );
+      // 重建统一输出**形状②**（`priceInfos[]`）—— 它能表达多段日期，形状①不能。
       const data = report?.changeRaw as unknown as {
-        goodsDetails: { unifiedDatePriceInfos: { weekPriceInfos: Record<string, unknown>[] } }[];
+        goodsDetails: {
+          priceInfos: { weekPriceInfos: Record<string, unknown>[] }[];
+        }[];
       };
-      const week = data.goodsDetails[0].unifiedDatePriceInfos.weekPriceInfos[0];
+      const week = data.goodsDetails[0].priceInfos[0].weekPriceInfos[0];
 
       expect(week.originalPriceInfo).toMatchObject({ salePrice: '24013' });
       expect(week.priceInfo).toMatchObject({ salePrice: '24113' });
       expect(week.inWeek).toEqual([1, 2, 3, 4, 7]);
+      // ⚠️ 整条原样放回 —— basePrice / subPrice 这些也在，不只 salePrice
+      expect(week.priceInfo).toMatchObject({ basePrice: '20978', subPrice: '3135' });
     });
 
     /**
@@ -551,6 +1361,57 @@ describe('美团价量态改动适配器', () => {
       expect(reportOf(result)).toBeUndefined();
     });
 
+    /**
+     * 多次试算按格累积 —— 美团只重算用户当次触碰的那部分，整条覆盖会丢掉先算的房型。
+     */
+    it('多次试算累积到同一份 cells 里', () => {
+      const adapter = createMeituanAmountChangeAdapter(createLogger());
+
+      const first = contextOf(adapter.parse(calcObserved(), null)) as JsonObject;
+      // 第二次试算换一个房型（美团只会带这一个）
+      const second = contextOf(
+        adapter.parse(
+          calcObserved({
+            responseBody: REAL_CALC_RESPONSE.replace('847226645', '847317669'),
+          }),
+          first,
+        ),
+      ) as JsonObject;
+
+      // 两个房型的格子都在，先算的没被挤掉
+      expect(Object.keys(second.cells as JsonObject)).toEqual([
+        '847226645|2026-08-25|2026-08-26|1,2,3,4,7',
+        '847317669|2026-08-25|2026-08-26|1,2,3,4,7',
+      ]);
+    });
+
+    /**
+     * 用户在同一个页面切到另一家门店：上一家的素材与这次改动无关。累积键里没有 poiId，
+     * 不重置会让两家的格子混在一条上报里。
+     */
+    it('门店变了就丢掉已累积的素材', () => {
+      const logger = createLogger();
+      const adapter = createMeituanAmountChangeAdapter(logger);
+
+      const first = contextOf(adapter.parse(calcObserved(), null)) as JsonObject;
+      const second = contextOf(
+        adapter.parse(
+          calcObserved({
+            requestBody: { ...REAL_CALC_REQUEST_BODY, poiId: '999888777' } as JsonObject,
+          }),
+          first,
+        ),
+      ) as JsonObject;
+
+      expect(second.otaHotelId).toBe('999888777');
+      // 上一家的那格不该跟过来
+      expect(Object.keys(second.cells as JsonObject)).toHaveLength(1);
+      expect(logger.info).toHaveBeenCalledWith(
+        'Meituan amount change: poiId changed, resetting accumulated calc cells',
+        expect.objectContaining({ previousOtaHotelId: '762662011', otaHotelId: '999888777' }),
+      );
+    });
+
     /** 门店 ID 与 URL 只有试算这一刻拿得到，要跟结果一起存下。 */
     it('存下试算结果，连同只此刻可得的门店 ID 与 URL', () => {
       const adapter = createMeituanAmountChangeAdapter(createLogger());
@@ -561,17 +1422,23 @@ describe('美团价量态改动适配器', () => {
       expect(context?.endpointUrl).toBe(REAL_CALC_URL);
       // 试算请求体整个不留 —— 它那份当前价是「元」，与响应的「分」量纲不一致，且是冗余
       expect(context).not.toHaveProperty('requestBody');
-      const details = (context?.changeRaw as { goodsDetails: Record<string, unknown>[] }).goodsDetails;
-      expect(details).toHaveLength(1);
-      expect(details[0].unifiedDatePriceInfos).toEqual({
-        dates: [{ startDate: '2026-08-25', endDate: '2026-08-26' }],
-        weekPriceInfos: [
-          {
-            inWeek: [1, 2, 3, 4, 7],
-            priceInfo: { salePrice: '24113', basePrice: '20978', subPrice: '3135' },
-            originalPriceInfo: { salePrice: '24013', basePrice: '20891', subPrice: '3122' },
-          },
-        ],
+
+      // 存的是**按格累积**的素材（不再是一份成品 changeRaw）——
+      // 键 = goodsId|startDate|endDate|inWeek，见 meituanCalcCellKey
+      const cells = context?.cells as Record<string, Record<string, unknown>>;
+      expect(Object.keys(cells)).toEqual(['847226645|2026-08-25|2026-08-26|1,2,3,4,7']);
+
+      const cell = Object.values(cells)[0];
+      expect(cell.goodsId).toBe('847226645');
+      expect(cell.startDate).toBe('2026-08-25');
+      expect(cell.endDate).toBe('2026-08-26');
+      expect(cell.inWeek).toEqual([1, 2, 3, 4, 7]);
+      expect(cell.originalSalePrice).toBe('24013');
+      expect(cell.salePrice).toBe('24113');
+      // 整条 weekPriceInfo 原样留着 —— 语义未确认的字段更要留（见 payload 文件头）
+      expect(cell.weekPriceInfo).toMatchObject({
+        priceInfo: { salePrice: '24113', basePrice: '20978', subPrice: '3135' },
+        originalPriceInfo: { salePrice: '24013', basePrice: '20891', subPrice: '3122' },
       });
     });
 
@@ -602,13 +1469,626 @@ describe('美团价量态改动适配器', () => {
     });
   });
 
+  /**
+   * 高级改价（「日期分开改价」）—— 用户分多次改多个房型的多个日期段。
+   *
+   * 累积不受改价模式影响：`separate/calcPriceV2` 的响应形状两种模式一致，
+   * 上报体也照常重建。
+   */
+  describe('parse — 高级改价', () => {
+    it('4 次试算累积后，提交时 4 格素材全在', () => {
+      const adapter = createMeituanAmountChangeAdapter(createLogger());
+
+      let context: JsonObject | undefined;
+      for (const calc of MODE_B_CALCS) {
+        context = contextOf(
+          adapter.parse(
+            {
+              endpointId: 'calcPriceV2',
+              endpointUrl: MODE_B_CALC_URL,
+              requestBody: calc.req,
+              responseBody: calc.resp,
+              pageUrl: REAL_PAGE_URL,
+            },
+            context ?? null,
+          ),
+        ) as JsonObject;
+      }
+
+      // 2 个房型 × 2 个日期段 = 4 格，互不覆盖（日期段与周次档都在累积键里）
+      expect(Object.keys(context?.cells as JsonObject)).toEqual([
+        '1135787306|2026-09-08|2026-09-09|2,3',
+        '1135787306|2026-09-10|2026-09-11|4,5',
+        '1135800654|2026-09-08|2026-09-09|2,3',
+        '1135800654|2026-09-10|2026-09-11|4,5',
+      ]);
+
+      const report = reportOf(
+        adapter.parse(
+          {
+            endpointId: 'updatePriceV2',
+            endpointUrl: REAL_ENDPOINT_URL,
+            requestBody: MODE_B_UPDATE,
+            responseBody: REAL_SUCCESS_RESPONSE,
+            pageUrl: REAL_PAGE_URL,
+          },
+          context ?? null,
+        ),
+      );
+
+      // 4 格素材全部重建进上报体
+      const details = report?.changeRaw.goodsDetails as {
+        goodsBaseInfo: { goodsId: number };
+        priceInfos: { startDate: string; endDate: string; weekPriceInfos: unknown[] }[];
+      }[];
+      expect(details).toHaveLength(2);
+      expect(details.map((d) => d.goodsBaseInfo.goodsId)).toEqual([1135787306, 1135800654]);
+      // 每个房型两段日期都在
+      for (const detail of details) {
+        expect(detail.priceInfos.map((s) => `${s.startDate}~${s.endDate}`)).toEqual([
+          '2026-09-08~2026-09-09',
+          '2026-09-10~2026-09-11',
+        ]);
+      }
+    });
+  });
+
+  /**
+   * 日期范围变更 —— 累积是**只进不出**的，用户删掉一个日期段时没有任何东西会去删对应的
+   * 格子。靠 `unified/calcPriceV2`（日期范围全量快照）到达时**整个清空**来解决。
+   *
+   * ⚠️ 回归护栏：`return null` 表达不了「清空」—— 机制层对 null 是「什么都不做」，
+   * 旧累积会原封不动留着。必须交出**空 context**。
+   */
+  describe('parse — 日期范围变更（unified/calcPriceV2）', () => {
+    function observedOf(step: (typeof RANGE_CHANGE_SEQ)[number]) {
+      return {
+        endpointId: step.endpointId,
+        endpointUrl: `https://me.meituan.com/api/gw/v1/product/price/x/calcPriceV2`,
+        requestBody: step.req as unknown as JsonObject,
+        responseBody: JSON.stringify(step.resp),
+        pageUrl: REAL_PAGE_URL,
+      };
+    }
+
+    it('unified 到达时清空累积，不是保留', () => {
+      const adapter = createMeituanAmountChangeAdapter(createLogger());
+
+      // #0 unified → 空 context（此刻本来就没累积）
+      let context = contextOf(adapter.parse(observedOf(RANGE_CHANGE_SEQ[0]), null)) as JsonObject;
+      expect(Object.keys(context.cells as JsonObject)).toEqual([]);
+
+      // #1 separate → 累积一格
+      context = contextOf(adapter.parse(observedOf(RANGE_CHANGE_SEQ[1]), context)) as JsonObject;
+      expect(Object.keys(context.cells as JsonObject)).toEqual([
+        '1135787306|2026-09-02|2026-09-03|3,4',
+      ]);
+
+      // #2 unified（用户删掉了一个日期段）→ ⚠️ 必须清空，不能保留上面那一格
+      context = contextOf(adapter.parse(observedOf(RANGE_CHANGE_SEQ[2]), context)) as JsonObject;
+      expect(Object.keys(context.cells as JsonObject)).toEqual([]);
+
+      // #3 separate → 重新累积
+      context = contextOf(adapter.parse(observedOf(RANGE_CHANGE_SEQ[3]), context)) as JsonObject;
+      expect(Object.keys(context.cells as JsonObject)).toEqual([
+        '1135787306|2026-09-02|2026-09-03|3,4',
+      ]);
+    });
+
+    it('unified 本身不产生上报', () => {
+      const adapter = createMeituanAmountChangeAdapter(createLogger());
+
+      const result = adapter.parse(observedOf(RANGE_CHANGE_SEQ[0]), null);
+
+      expect(result?.kind).toBe('context');
+      expect(reportOf(result)).toBeUndefined();
+    });
+  });
+
+  /* ==========================================================================
+   * 按改价模式分支（`design-mode-split.md`）
+   * ========================================================================== */
+
+  describe('parse — 基础改价（模式 A）', () => {
+    /**
+     * 模式 A 的真实序列 —— `docs/踩点/美团/批量改房价-基础改价.md`。
+     *
+     * 用户先在 `08-27~08-28` 上改价（3 个房型），中途把日期范围改成 `08-26~08-29` 后
+     * 又改了一遍。判据是**请求体字段** `calcPriceUnifiedDateModel`（模式 A 独有）。
+     *
+     * ⚠️ 模式 A **一条 `unified/calcPriceV2` 都不发**（五份踩点实测），所以废弃的日期段
+     * 只能靠「按 goodsId 整条覆盖」自愈 —— 这是本节钉住的核心行为。
+     */
+    function modeACalc(
+      goodsId: number,
+      startDate: string,
+      endDate: string,
+      salePrice: string,
+      originalSalePrice: string,
+    ): AmountSaveObserved {
+      return {
+        endpointId: 'calcPriceV2',
+        endpointUrl: REAL_CALC_URL,
+        requestBody: {
+          poiId: '1834077877',
+          partnerId: 4824962,
+          goodsList: [
+            {
+              goodsBaseInfo: { goodsId },
+              priceRecordWay: 8,
+              weekDiff: false,
+              operateType: 6,
+              // ⚠️ 模式 A 的判据就是这个字段。
+              calcPriceUnifiedDateModel: {
+                dates: [{ startDate, endDate }],
+                calcPriceWeekModels: [
+                  {
+                    inWeek: [1, 2, 3, 4, 5, 6, 7],
+                    calcPriceInfo: { salePrice: { operateType: 6, operateNum: salePrice } },
+                  },
+                ],
+              },
+            },
+          ],
+        } as unknown as JsonObject,
+        responseBody: JSON.stringify({
+          code: 10000,
+          success: true,
+          data: {
+            goodsDetails: [
+              {
+                goodsBaseInfo: { goodsId },
+                priceRecordWay: 8,
+                // ⚠️ 模式 A 的响应用形状①（日期集中在 `dates`）。
+                unifiedDatePriceInfos: {
+                  dates: [{ startDate, endDate }],
+                  weekPriceInfos: [
+                    {
+                      inWeek: [1, 2, 3, 4, 5, 6, 7],
+                      priceInfo: { salePrice, basePrice: '57200' },
+                      originalPriceInfo: { salePrice: originalSalePrice, basePrice: '57340' },
+                    },
+                  ],
+                },
+                priceInfos: null,
+                weekDiff: false,
+              },
+            ],
+            globalPricePrompt: null,
+          },
+        }),
+        pageUrl: REAL_PAGE_URL,
+      };
+    }
+
+    /** 模式 A 的提交体 —— `goodsList` 是用户实际提交的全量房型清单。 */
+    function modeAUpdate(goodsIds: readonly number[]): AmountSaveObserved {
+      return observedWith({
+        poiId: '1834077877',
+        createFlag: true,
+        goodsList: goodsIds.map((goodsId) => ({
+          goodsBaseInfo: { goodsId },
+          priceRecordWay: 8,
+          calcPriceUnifiedDateModel: {
+            dates: [{ startDate: '2026-08-26', endDate: '2026-08-29' }],
+            calcPriceWeekModels: [],
+          },
+        })),
+      } as unknown as JsonObject);
+    }
+
+    /**
+     * 本 change 引入的回归（A/B 已实测）：删掉 `keep` 之后，模式 A 没有任何范围变更信号，
+     * 用户改日期范围后旧日期段的格子一直留在累积里被一起上报。
+     *
+     * 真实序列：`08-27~08-28` 改价 → 用户把范围改成 `08-26~08-29` → 再改价 → 提交。
+     * 正确行为是**只报 `08-26~08-29`**。
+     */
+    it('用户改日期范围后，废弃的日期段不出现在上报里', () => {
+      const adapter = createMeituanAmountChangeAdapter(createLogger());
+
+      // 旧范围 08-27~08-28 上改了 3 个房型
+      let context: JsonObject | null = null;
+      for (const goodsId of [1135787306, 1135800654, 1135818026]) {
+        context = contextOf(
+          adapter.parse(modeACalc(goodsId, '2026-08-27', '2026-08-28', '65000', '65159'), context),
+        ) as JsonObject;
+      }
+      expect(Object.keys(context?.cells as JsonObject)).toHaveLength(3);
+
+      // 用户把日期范围改成 08-26~08-29，又改了同样 3 个房型 —— 模式 A 的 calc 带的是
+      // **当前全量日期段**，所以每条都只有新范围。
+      for (const goodsId of [1135787306, 1135800654, 1135818026]) {
+        context = contextOf(
+          adapter.parse(modeACalc(goodsId, '2026-08-26', '2026-08-29', '65100', '65159'), context),
+        ) as JsonObject;
+      }
+
+      const report = reportOf(adapter.parse(modeAUpdate([1135787306, 1135800654, 1135818026]), context));
+      const goodsDetails = (report?.changeRaw as JsonObject).goodsDetails as readonly JsonObject[];
+
+      // 3 个房型都在（跨房型累积仍然生效）
+      expect(goodsDetails).toHaveLength(3);
+      // ⚠️ 每个房型**只有新范围那一段**，被放弃的 08-27~08-28 一段都不剩
+      for (const detail of goodsDetails) {
+        const priceInfos = detail.priceInfos as readonly JsonObject[];
+        expect(priceInfos.map((segment) => `${segment.startDate as string}~${segment.endDate as string}`)).toEqual([
+          '2026-08-26~2026-08-29',
+        ]);
+      }
+    });
+
+    /**
+     * 模式 A **删房型不触发任何请求**（`基础模式02` 实证），又没有 `unified`，所以只能靠
+     * 提交体的 `goodsList` 裁 —— 见 `dropRoomTypesNotSubmitted`。
+     */
+    it('提交清单里没有的房型被裁掉', () => {
+      const logger = createLogger();
+      const adapter = createMeituanAmountChangeAdapter(logger);
+
+      let context: JsonObject | null = null;
+      for (const goodsId of [1135787306, 1135800654]) {
+        context = contextOf(
+          adapter.parse(modeACalc(goodsId, '2026-09-08', '2026-09-09', '55257', '55157'), context),
+        ) as JsonObject;
+      }
+      expect(Object.keys(context?.cells as JsonObject)).toHaveLength(2);
+
+      // 用户提交前删掉了 1135800654 —— 美团不重算，提交体的 goodsList 是唯一准绳。
+      const report = reportOf(adapter.parse(modeAUpdate([1135787306]), context));
+      const goodsDetails = (report?.changeRaw as JsonObject).goodsDetails as readonly JsonObject[];
+
+      expect(goodsDetails).toHaveLength(1);
+      expect(((goodsDetails[0].goodsBaseInfo as JsonObject).goodsId)).toBe(1135787306);
+      expect(logger.info).toHaveBeenCalledWith(
+        expect.stringContaining('not in submitted goodsList'),
+        expect.objectContaining({ droppedCells: 1 }),
+      );
+    });
+
+    /** 累积仍然跨房型 —— 覆盖的粒度是「一个 goodsId 的整条明细」，不是整个 context。 */
+    it('按 goodsId 覆盖时不影响别的房型', () => {
+      const adapter = createMeituanAmountChangeAdapter(createLogger());
+
+      let context = contextOf(
+        adapter.parse(modeACalc(1135787306, '2026-09-08', '2026-09-09', '55257', '55157'), null),
+      ) as JsonObject;
+      context = contextOf(
+        adapter.parse(modeACalc(1135800654, '2026-09-08', '2026-09-09', '67100', '67091'), context),
+      ) as JsonObject;
+      // 再改一次第一个房型，换了日期段 —— 只有它自己的旧格子作废。
+      context = contextOf(
+        adapter.parse(modeACalc(1135787306, '2026-09-11', '2026-09-12', '55300', '55157'), context),
+      ) as JsonObject;
+
+      expect(Object.keys(context.cells as JsonObject).sort()).toEqual([
+        '1135787306|2026-09-11|2026-09-12|1,2,3,4,5,6,7',
+        '1135800654|2026-09-08|2026-09-09|1,2,3,4,5,6,7',
+      ]);
+    });
+
+    /** 同格再次出现时改前价仍保留首次 —— 整条覆盖不该把这个语义丢掉。 */
+    it('同格覆盖时改前价保留首次', () => {
+      const adapter = createMeituanAmountChangeAdapter(createLogger());
+
+      let context = contextOf(
+        adapter.parse(modeACalc(1135787306, '2026-08-26', '2026-08-29', '65000', '65159'), null),
+      ) as JsonObject;
+      // 第二次美团给的 original 实测仍是 65159（不会回填成 65000），这里用 65000 造一个
+      // 「万一美团回填中间态」的极端输入，钉住我们保留首次的口径。
+      context = contextOf(
+        adapter.parse(modeACalc(1135787306, '2026-08-26', '2026-08-29', '65100', '65000'), context),
+      ) as JsonObject;
+
+      const report = reportOf(adapter.parse(modeAUpdate([1135787306]), context));
+      const goodsDetails = (report?.changeRaw as JsonObject).goodsDetails as readonly JsonObject[];
+      const week = ((goodsDetails[0].priceInfos as readonly JsonObject[])[0]
+        .weekPriceInfos as readonly JsonObject[])[0];
+
+      expect((week.originalPriceInfo as JsonObject).salePrice).toBe('65159');
+      expect((week.priceInfo as JsonObject).salePrice).toBe('65100');
+    });
+
+    /**
+     * 模式在同一页面会话里切换（用户在基础与高级之间来回切）：两种模式的累积粒度不同，
+     * 混着累会出错，所以清空重来 —— 与门店切换同口径。
+     */
+    it('模式变了就清空累积重来', () => {
+      const logger = createLogger();
+      const adapter = createMeituanAmountChangeAdapter(logger);
+
+      const context = contextOf(
+        adapter.parse(modeACalc(1135787306, '2026-09-08', '2026-09-09', '55257', '55157'), null),
+      ) as JsonObject;
+      expect(context.priceMode).toBe('unifiedDate');
+
+      // 切到高级模式（`calcPriceModels`）—— 旧素材的语义已经不成立
+      const switched = contextOf(
+        adapter.parse(
+          {
+            endpointId: 'calcPriceV2',
+            endpointUrl: REAL_CALC_URL,
+            requestBody: MODE_B_CALCS[0].req as unknown as JsonObject,
+            // ⚠️ `MODE_B_CALCS[*].resp` 本来就是 JSON 串，别再 stringify 一次。
+            responseBody: MODE_B_CALCS[0].resp,
+            pageUrl: REAL_PAGE_URL,
+          },
+          context,
+        ),
+      ) as JsonObject;
+
+      expect(switched.priceMode).toBe('separateDate');
+      // 基础模式那一格没被带过来
+      expect(Object.keys(switched.cells as JsonObject)).not.toContain(
+        '1135787306|2026-09-08|2026-09-09|1,2,3,4,5,6,7',
+      );
+      expect(logger.info).toHaveBeenCalledWith(
+        expect.stringContaining('price mode changed'),
+        expect.objectContaining({ previousMode: 'unifiedDate', priceMode: 'separateDate' }),
+      );
+    });
+  });
+
+  describe('parse — 空素材不上报', () => {
+    /**
+     * 本 change 引入的回归：`unified` 交出的空 context **结构合法**（`isCalcContext` 只
+     * 校验 `cells` 是对象），于是会一路走到重建、产出一条 `goodsDetails: []` 的空上报，
+     * 且 `endpointUrl` 指向 `unified` 而 `endpointId` 写 `calcPriceV2`，自相矛盾。
+     */
+    it('unified 清空后直接提交时返回 null 并 warn', () => {
+      const logger = createLogger();
+      const adapter = createMeituanAmountChangeAdapter(logger);
+
+      const context = contextOf(
+        adapter.parse(
+          {
+            endpointId: 'unifiedCalcPriceV2',
+            endpointUrl:
+              'https://me.meituan.com/api/gw/v1/product/price/unified/calcPriceV2?yodaReady=h5',
+            requestBody: RANGE_CHANGE_SEQ[0].req as unknown as JsonObject,
+            responseBody: JSON.stringify(RANGE_CHANGE_SEQ[0].resp),
+            pageUrl: REAL_PAGE_URL,
+          },
+          null,
+        ),
+      ) as JsonObject;
+
+      const result = adapter.parse(
+        observedWith({
+          poiId: '1834077877',
+          createFlag: true,
+          goodsList: [{ goodsBaseInfo: { goodsId: 1135787306 } }],
+        } as unknown as JsonObject),
+        context,
+      );
+
+      expect(result).toBeNull();
+      expect(logger.warn).toHaveBeenCalledWith(
+        expect.stringContaining('no calc cells left to report'),
+        expect.objectContaining({ accumulatedCells: 0 }),
+      );
+    });
+
+    /**
+     * `unified` 是清空信号，不该把自己的 URL 留在 context 里 —— 上报体的 `endpointId`
+     * 恒为 `calcPriceV2`（指 `separate`），`endpointUrl` 写 `unified/...` 自相矛盾。
+     */
+    it('unified 重置时不写 endpointUrl，由后续 separate 填', () => {
+      const adapter = createMeituanAmountChangeAdapter(createLogger());
+
+      const reset = contextOf(
+        adapter.parse(
+          {
+            endpointId: 'unifiedCalcPriceV2',
+            endpointUrl:
+              'https://me.meituan.com/api/gw/v1/product/price/unified/calcPriceV2?yodaReady=h5',
+            requestBody: RANGE_CHANGE_SEQ[0].req as unknown as JsonObject,
+            responseBody: JSON.stringify(RANGE_CHANGE_SEQ[0].resp),
+            pageUrl: REAL_PAGE_URL,
+          },
+          null,
+        ),
+      ) as JsonObject;
+
+      expect(reset.endpointUrl).toBe('');
+
+      // 后续 separate 到达后填上它自己的 URL
+      const filled = contextOf(
+        adapter.parse(
+          {
+            endpointId: 'calcPriceV2',
+            endpointUrl: 'https://me.meituan.com/api/gw/v1/product/price/separate/calcPriceV2',
+            requestBody: RANGE_CHANGE_SEQ[1].req as unknown as JsonObject,
+            responseBody: JSON.stringify(RANGE_CHANGE_SEQ[1].resp),
+            pageUrl: REAL_PAGE_URL,
+          },
+          reset,
+        ),
+      ) as JsonObject;
+
+      expect(filled.endpointUrl).toContain('/separate/calcPriceV2');
+    });
+  });
+
+  /* ==========================================================================
+   * code review 修复（2026-08-23）
+   * ========================================================================== */
+
+  describe('parse — 模式状态机的边界', () => {
+    /** 造一条模式 A 的 calc（判据是请求体的 `calcPriceUnifiedDateModel`）。 */
+    function calcA(poiId: string, goodsId: number, startDate: string, endDate: string) {
+      return {
+        endpointId: 'calcPriceV2',
+        endpointUrl: REAL_CALC_URL,
+        requestBody: {
+          poiId,
+          goodsList: [
+            {
+              goodsBaseInfo: { goodsId },
+              calcPriceUnifiedDateModel: { dates: [{ startDate, endDate }], calcPriceWeekModels: [] },
+            },
+          ],
+        } as unknown as JsonObject,
+        responseBody: JSON.stringify({
+          code: 10000,
+          success: true,
+          data: {
+            goodsDetails: [
+              {
+                goodsBaseInfo: { goodsId },
+                unifiedDatePriceInfos: {
+                  dates: [{ startDate, endDate }],
+                  weekPriceInfos: [
+                    {
+                      inWeek: [1, 2],
+                      priceInfo: { salePrice: '65000' },
+                      originalPriceInfo: { salePrice: '65159' },
+                    },
+                  ],
+                },
+                priceInfos: null,
+              },
+            ],
+          },
+        }),
+        pageUrl: REAL_PAGE_URL,
+      };
+    }
+
+    /** 请求体两个模式字段都没有 —— 判不出模式。 */
+    function calcUnknownMode(poiId: string, goodsId: number) {
+      const base = calcA(poiId, goodsId, '2026-09-08', '2026-09-09');
+      return {
+        ...base,
+        requestBody: { poiId, goodsList: [{ goodsBaseInfo: { goodsId } }] } as unknown as JsonObject,
+      };
+    }
+
+    /**
+     * 「模式 A 从不发 `unified`」是一条**否定式结论**，只由五份踩点支撑。硬编码
+     * `priceMode: 'separateDate'` 会在它不成立时让模式**粘错** —— 后续每条模式 A 的
+     * `separate` 都与记着的模式不符，于是每条 calc 都触发一次清空，只剩最后一条素材。
+     */
+    it('unified 的模式从请求体判，不硬编码（判错会让后续每条 calc 都清空）', () => {
+      const adapter = createMeituanAmountChangeAdapter(createLogger());
+
+      // 一条「模式 A 形状」的 unified —— 假设不成立时的样子
+      const reset = contextOf(
+        adapter.parse(
+          {
+            endpointId: 'unifiedCalcPriceV2',
+            endpointUrl: 'https://me.meituan.com/api/gw/v1/product/price/unified/calcPriceV2',
+            requestBody: {
+              poiId: '1834077877',
+              goodsList: [
+                {
+                  goodsBaseInfo: { goodsId: 1135787306 },
+                  calcPriceUnifiedDateModel: { dates: [], calcPriceWeekModels: [] },
+                },
+              ],
+            } as unknown as JsonObject,
+            responseBody: JSON.stringify({ code: 10000, success: true, data: { goodsDetails: [] } }),
+            pageUrl: REAL_PAGE_URL,
+          },
+          null,
+        ),
+      ) as JsonObject;
+
+      expect(reset.priceMode).toBe('unifiedDate');
+
+      // 后续两条模式 A 的 calc 必须能正常累积，而不是互相清空
+      let context = contextOf(
+        adapter.parse(calcA('1834077877', 1135787306, '2026-09-08', '2026-09-09'), reset),
+      ) as JsonObject;
+      context = contextOf(
+        adapter.parse(calcA('1834077877', 1135800654, '2026-09-08', '2026-09-09'), context),
+      ) as JsonObject;
+
+      expect(Object.keys(context.cells as JsonObject)).toHaveLength(2);
+    });
+
+    /**
+     * 换门店等于新会话。模式判不出时若沿用上一家的，本次会话会一直按错误的粒度累积，
+     * 并在提交时错误地决定要不要跑 `dropRoomTypesNotSubmitted`。
+     */
+    it('换门店后不沿用上一家的模式', () => {
+      const adapter = createMeituanAmountChangeAdapter(createLogger());
+
+      const first = contextOf(
+        adapter.parse(calcA('111', 1135787306, '2026-09-08', '2026-09-09'), null),
+      ) as JsonObject;
+      expect(first.priceMode).toBe('unifiedDate');
+
+      // 换店 + 判不出模式 → 不该继承 'unifiedDate'
+      const second = contextOf(adapter.parse(calcUnknownMode('222', 999), first)) as JsonObject;
+
+      expect(second.priceMode).toBeNull();
+    });
+
+    /**
+     * 未知模式下攒的格子走的是模式 B 的逐格语义。此刻若判定为模式 A，留着它们正是
+     * 「混着累」—— 判据必须是「两次模式是否相同」，未知也算一种取值。
+     */
+    it('模式从未知变成确定时同样清空（未知期的格子是模式 B 语义）', () => {
+      const adapter = createMeituanAmountChangeAdapter(createLogger());
+
+      const unknown = contextOf(adapter.parse(calcUnknownMode('111', 1135787306), null)) as JsonObject;
+      expect(unknown.priceMode).toBeNull();
+      expect(Object.keys(unknown.cells as JsonObject)).toHaveLength(1);
+
+      const settled = contextOf(
+        adapter.parse(calcA('111', 1135800654, '2026-09-08', '2026-09-09'), unknown),
+      ) as JsonObject;
+
+      expect(settled.priceMode).toBe('unifiedDate');
+      // 未知期那一格没被带进模式 A 的整条覆盖
+      expect(Object.keys(settled.cells as JsonObject)).toEqual([
+        '1135800654|2026-09-08|2026-09-09|1,2',
+      ]);
+    });
+
+    /**
+     * ⚠️ 裁空时的失效方向必须是**多报**，不是丢弃 —— 那正是已废弃的 `keep` 的失效方式
+     * （形状不认识 → 空集 → 整条清零）。累积非空却一个都没匹配上，说明准绳读错了，
+     * 不是用户把房型删光了（那样连提交都提交不了）。
+     */
+    it('提交清单与累积零交集时按不裁上报，不丢弃这次改价', () => {
+      const logger = createLogger();
+      const adapter = createMeituanAmountChangeAdapter(logger);
+
+      const context = contextOf(
+        adapter.parse(calcA('1834077877', 1135787306, '2026-09-08', '2026-09-09'), null),
+      ) as JsonObject;
+
+      // 提交体里的 goodsId 与累积里的完全对不上
+      const report = reportOf(
+        adapter.parse(
+          observedWith({
+            poiId: '1834077877',
+            createFlag: true,
+            goodsList: [{ goodsBaseInfo: { goodsId: 777000111 } }],
+          } as unknown as JsonObject),
+          context,
+        ),
+      );
+
+      expect(report).toBeDefined();
+      expect((report?.changeRaw as JsonObject).goodsDetails as readonly JsonObject[]).toHaveLength(1);
+      expect(logger.warn).toHaveBeenCalledWith(
+        expect.stringContaining('matched no accumulated cell'),
+        expect.objectContaining({ accumulatedCells: 1 }),
+      );
+    });
+  });
+
   describe('watchedEndpoints', () => {
-    it('拦改价两个端点 + 房态房量三个端点', () => {
+    it('拦改价三个端点 + 房态房量三个端点', () => {
       const adapter = createMeituanAmountChangeAdapter(createLogger());
 
       expect([...adapter.watchedEndpoints.entries()]).toEqual([
         ['updatePriceV2', '/api/gw/v1/product/price/updatePriceV2'],
         ['calcPriceV2', '/api/gw/v1/product/price/separate/calcPriceV2'],
+        ['unifiedCalcPriceV2', '/api/gw/v1/product/price/unified/calcPriceV2'],
         ['inventory-status-switch', '/api/gw/v1/product/goods/inventory/status/switch'],
         [
           'inventory-roomstatus-submitaudit',

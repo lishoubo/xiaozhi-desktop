@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { toMeituanAmountChangeRaw } from '../../../src/main/channels/meituan/amount-change-payload';
+import {
+  extractMeituanCalcCells,
+  mergeMeituanCalcCellsByGoods,
+  toMeituanAmountChangeRaw,
+} from '../../../src/main/channels/meituan/amount-change-payload';
 
 /** 真机响应（2026-08-12，门店 762662011）的骨架，只截去与解析无关的静态字段。 */
 function calcResponse(goodsDetail: Record<string, unknown>): string {
@@ -154,5 +158,72 @@ describe('美团 changeRaw 模型', () => {
     expect(toMeituanAmountChangeRaw('{"code":10000,"data":null}')).toBeNull();
     // data 是字符串（`updatePriceV2` 的响应就是这样，别把它当试算）
     expect(toMeituanAmountChangeRaw('{"code":10000,"data":"hotel_sc_dealing__x"}')).toBeNull();
+  });
+});
+
+describe('mergeMeituanCalcCellsByGoods —— 模式 A 的整条覆盖', () => {
+  /** 模式 A 的一份 calc 素材：形状①（日期集中在 `dates`）。 */
+  function rawOf(startDate: string, endDate: string, salePrice: string, original: string) {
+    return {
+      goodsDetails: [
+        {
+          goodsBaseInfo: { goodsId: 'G' },
+          unifiedDatePriceInfos: {
+            dates: [{ startDate, endDate }],
+            weekPriceInfos: [
+              {
+                inWeek: [1, 2],
+                priceInfo: { salePrice },
+                originalPriceInfo: { salePrice: original },
+              },
+            ],
+          },
+        },
+      ],
+    } as never;
+  }
+
+  /**
+   * ⚠️ 日期段变了时改前价也要保留首次。累积键含日期段，段一变就是个新键，按键回填
+   * 找不到旧值 —— 必须按 (goodsId, 周次档) 回落着找：用户把范围从 `08-27~08-28` 改成
+   * `08-26~08-29` 仍是同一次改动，改前价的真实起点没变。
+   *
+   * 实测美团的 `originalPriceInfo` 恒定，所以这条当下是防御性的；写它是为了让模式 A
+   * 与模式 B 有同样的防护，而不是悄悄少一层。
+   */
+  it('日期段变了时改前价仍保留首次', () => {
+    const first = mergeMeituanCalcCellsByGoods(
+      {},
+      extractMeituanCalcCells(rawOf('2026-08-27', '2026-08-28', '65000', '65159')),
+    );
+    // 第二次美团若回填了中间态（999），我们仍要给出真实起点 65159
+    const second = mergeMeituanCalcCellsByGoods(
+      first,
+      extractMeituanCalcCells(rawOf('2026-08-26', '2026-08-29', '65100', '999')),
+    );
+
+    const cells = Object.values(second);
+    expect(cells).toHaveLength(1);
+    expect(cells[0].startDate).toBe('2026-08-26');
+    expect(cells[0].originalSalePrice).toBe('65159');
+    // 整条 originalPriceInfo 也要跟着搬，不只 salePrice
+    expect((cells[0].weekPriceInfo.originalPriceInfo as { salePrice: string }).salePrice).toBe(
+      '65159',
+    );
+  });
+
+  it('同段同档覆盖时改前价同样保留首次', () => {
+    const first = mergeMeituanCalcCellsByGoods(
+      {},
+      extractMeituanCalcCells(rawOf('2026-08-26', '2026-08-29', '65000', '65159')),
+    );
+    const second = mergeMeituanCalcCellsByGoods(
+      first,
+      extractMeituanCalcCells(rawOf('2026-08-26', '2026-08-29', '65100', '999')),
+    );
+
+    const cells = Object.values(second);
+    expect(cells[0].originalSalePrice).toBe('65159');
+    expect(cells[0].salePrice).toBe('65100');
   });
 });

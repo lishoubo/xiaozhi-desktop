@@ -159,6 +159,7 @@ describe('createDesktopApi', () => {
       canGoForward: false,
       loading: false,
       partitionName: 'persist:xiaozhi:prod:ctrip:short',
+      failure: null,
     };
     const invoke = vi.fn(async (channel: string) => {
       if (channel === IPC_CHANNELS.browser.activate) return tab;
@@ -306,6 +307,7 @@ describe('createDesktopApi', () => {
       canGoForward: false,
       loading: false,
       partitionName: credential.partitionName,
+      failure: null,
     };
     const invoke = vi.fn(async (channel: string) => {
       if (channel === IPC_CHANNELS.otaCredential.listByChannel) return [credential];

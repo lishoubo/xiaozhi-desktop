@@ -40,9 +40,6 @@ class BrowserOtaTabsStore {
    */
   #explicitlyActivated = false;
 
-  /** 弹窗占用内容区期间，视图被缩为零尺寸；此时任何 `syncBounds` 都要让路。 */
-  #viewportSuspended = false;
-
   /**
    * 浏览器工作区挂载时把视口元素交给 store，卸载时撤销。没有注册视口时
    * `syncBounds` 静默跳过——此时浏览器页不在前台，本来也无处可画。
@@ -183,10 +180,21 @@ class BrowserOtaTabsStore {
     return pickRestoreTarget(tabs, this.activeChannelId, this.activeTabIds[this.activeChannelId]);
   }
 
-  /** 离开浏览器工作区：下次进来重新按「默认激活」处理，让位状态也一并复位。 */
+  /**
+   * 离开浏览器工作区：下次进来重新按「默认激活」处理，并把让位状态还原。
+   *
+   * **必须复位可见性**：弹窗开着时用户从侧边栏跳走，组件树连同弹窗一起卸载，
+   * `closeDialog()`（唯一的 resume 出口）永远不会跑。不复位的话主进程的
+   * `viewportVisible` 停在 false，下次回到工作区 `activate()` 会照着它把视图设为
+   * 不可见 —— 内容区一片空白，且用户无法自行恢复。
+   *
+   * 放这里而不是主进程的 `hide()`：`hide()` 有三个调用方，另外两个（切到空渠道、
+   * 账号切换弹窗）并不表示离开工作区，在那里复位会清掉别人的让位状态。本方法的
+   * 语义就是「离开工作区」，只有卸载路径调它。
+   */
   releaseViewportSession(): void {
     this.#explicitlyActivated = false;
-    this.#viewportSuspended = false;
+    void window.hotelButler.browser.setViewportVisible(true);
   }
 
   /** 切换渠道：没有已打开的 tab 时必须显式 `hide`，否则上一个渠道的视图会留在原地。 */
@@ -242,6 +250,16 @@ class BrowserOtaTabsStore {
     }
   }
 
+  /**
+   * 主进程建了一个界面还不知道的标签页（网页自身 `window.open`）。走与其他入口
+   * **完全相同**的收尾流程——这正是修复的要点：此前这条路由主进程直接激活，界面
+   * 不知情、无人为它同步视口尺寸，新视图拿到的是主进程当前的 `bounds`（让位期间
+   * 就是零），表现为「标题变了但看不见内容」。
+   */
+  async adoptOpenedByPage(tab: BrowserTab): Promise<void> {
+    await this.adopt(tab);
+  }
+
   /** 把主进程已有的 tab 灌进来（浏览器页首次挂载时对账用）。 */
   hydrate(tabs: readonly BrowserTab[]): void {
     for (const tab of tabs) this.updateTab(tab);
@@ -250,23 +268,28 @@ class BrowserOtaTabsStore {
   /**
    * 让出内容区给 HTML 弹窗。`WebContentsView` 是原生视图，挂在
    * `window.contentView` 上，**永远浮在所有 HTML 之上**——CSS 的 z-index 管不
-   * 到它，弹窗会被网页整个盖住。这里把视图缩成零尺寸腾出位置（不用 `hide()`：
-   * 那会把 `activeTabId` 置 null，恢复时还得重新 activate）。
+   * 到它，弹窗会被网页整个盖住。
+   *
+   * ⚠️ **不再用零尺寸表达让位**（2026-08-21 修复）：此前这里下发
+   * `setBounds({0,0,0,0})`，于是「让位」与「同步尺寸」共用同一个通道，靠一个
+   * 进程内布尔量互斥。但两者是并发的异步链，`syncBounds` 的守卫只在入口读一次，
+   * 读完到 IPC 落地之间守卫可能已翻转——两个 `setBounds` 到达主进程的顺序不确定，
+   * 零尺寸最后落地时视图就此不可见。零尺寸视图照常上报标题与加载状态，故障表现为
+   * 「标签页标题变了、内容区却什么都看不见」，且不可稳定复现。
+   *
+   * 改用独立的可见性通道后，尺寸同步在让位期间照常发生也无害——它改不了可见性。
+   * 也不用 `hide()`：那会把主进程的 `activeTabId` 置 null，恢复时还得重新 activate。
    */
   async suspendViewport(): Promise<void> {
-    this.#viewportSuspended = true;
-    await window.hotelButler.browser.setBounds({ x: 0, y: 0, width: 0, height: 0 });
+    await window.hotelButler.browser.setViewportVisible(false);
   }
 
-  /** 弹窗关闭后按视口 DOM 的真实尺寸恢复。 */
+  /** 弹窗关闭后恢复可见。尺寸一直是对的，不需要重新下发。 */
   async resumeViewport(): Promise<void> {
-    this.#viewportSuspended = false;
-    await this.syncBounds();
+    await window.hotelButler.browser.setViewportVisible(true);
   }
 
   async syncBounds(): Promise<void> {
-    // 让位期间 ResizeObserver / resize 事件不得把视图又撑回来。
-    if (this.#viewportSuspended) return;
     const read = this.#readViewport;
     if (!read) return;
     const bounds = read();

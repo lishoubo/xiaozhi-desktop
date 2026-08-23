@@ -30,6 +30,17 @@ export const browserCreateInputSchema = z.strictObject({
 
 export const browserTabIdSchema = nonEmptyStringSchema;
 
+/**
+ * 标签页的故障事实。三者都是「页面还在、但用户看到的东西不对」，需要界面给出
+ * 显式的重新加载入口，而不是让用户对着白板猜。
+ *
+ * `unresponsive` 与另外两个不同：它通常自行恢复（`responsive` 事件到达即清除），
+ * 不一定需要用户介入。
+ */
+export const browserTabFailureSchema = z.enum(['crashed', 'load-failed', 'unresponsive']);
+
+export type BrowserTabFailure = z.infer<typeof browserTabFailureSchema>;
+
 export const browserTabSchema = z.strictObject({
   id: nonEmptyStringSchema,
   channelId: nonEmptyStringSchema,
@@ -39,6 +50,14 @@ export const browserTabSchema = z.strictObject({
   canGoForward: z.boolean(),
   loading: z.boolean(),
   partitionName: nonEmptyStringSchema,
+  /**
+   * 当前故障状态，`null` 表示正常。
+   *
+   * ⚠️ 用 `nullable` 而**不是** `optional`：本 schema 是 `strictObject`，`optional`
+   * 会让「字段缺失」与「无故障」两种形状都合法，界面必须写两种判断。构造点只有
+   * `BrowserManager.snapshot()` 一处，统一给出 `null` 没有额外成本。
+   */
+  failure: browserTabFailureSchema.nullable(),
 });
 
 export type BrowserTab = Readonly<z.infer<typeof browserTabSchema>>;

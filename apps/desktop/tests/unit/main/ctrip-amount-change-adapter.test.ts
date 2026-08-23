@@ -188,6 +188,74 @@ const ROOM_STATUS_SUCCESS_RESPONSE = JSON.stringify({
   extendData: [],
 });
 
+/**
+ * 「统一加减价」的真实请求体 —— 踩点 `docs/踩点/携程/房价维护菜单踩点.md` 第三例。
+ * 与 `setRCRoomPrice` 同构，只多三个 `adjustmentPrice*` 字段；`relationRoomProducts`
+ * 是联动房型（与 `excludedRelationRoomProductIds` 语义相反）。
+ */
+const UNIFORM_PRICE_REQUEST_BODY = {
+  roomPriceInfos: [
+    {
+      roomProductId: '1569052067',
+      startDate: '2026-08-26',
+      endDate: '2026-08-28',
+      salePrice: 365,
+      costPrice: 310.25,
+      commissionRate: 0.15,
+      priceChangeMode: 'sale_commissionRate',
+      mealNum: 0,
+      weekDays: ['MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY', 'SUNDAY'],
+      currency: 'RMB',
+      excludedRelationRoomProductIds: [],
+      relationRoomProducts: [{ roomProductId: '1602330627', mealNum: 0 }],
+    },
+  ],
+  adjustmentPriceType: 'salePrice',
+  adjustmentPriceOperationsType: 'subtract',
+  adjustmentPriceValue: 1,
+  dateRanges: [{ startDate: '2026-08-26', endDate: '2026-08-28' }],
+  weekDays: ['MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY', 'SUNDAY'],
+  cipher: { '1569052067': 'AAEAAQAPMTU2OTA1MjA2Nyxo-tripsign' },
+  head: { cid: '09031162210038262124', ctok: '', auth: '', extension: [] },
+} satisfies JsonObject;
+
+/** 房态房量菜单的页面 URL —— 踩点 `docs/踩点/携程/房态房量菜单.md` 的 referer。 */
+const ROOM_STATUS_QUANTITY_PAGE_URL =
+  'https://ebooking.ctrip.com/rateplan/batchSetRoomStatusAndQuantity?microJump=true';
+
+/**
+ * 房态房量菜单的真实**开房**请求体（`roomStatus: 1`）。
+ * ⚠️ 与日历菜单房态端点零字段同名：房型在顶层 `roomProductIds`、日期在 `dates`、
+ * 且**没有任何门店标识**。
+ */
+const ROOM_STATUS_QUANTITY_OPEN_BODY = {
+  roomProductIds: ['1602330530', '1569052068'],
+  dates: {
+    dateRanges: [{ startDate: '2026-08-27', endDate: '2026-08-28' }],
+    weekDays: ['SUNDAY', 'MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY'],
+    applyAllDates: false,
+  },
+  roomStatus: 1,
+  roomQuantityLimitType: -100,
+  remainRoomQuantityType: -100,
+  syncRoomQuantityWithSharedInventory: true,
+  cipher: { '1569052068': 'AAEAAQAPMTU2OTA1MjA2OCxo-tripsign' },
+  head: { cid: '09031162210038262124', ctok: '', auth: '', extension: [] },
+} satisfies JsonObject;
+
+/** 同一份踩点的**关房**请求体 —— 与开房逐字段相同，只有 `roomStatus` 变成 `2`。 */
+const ROOM_STATUS_QUANTITY_CLOSE_BODY = {
+  ...ROOM_STATUS_QUANTITY_OPEN_BODY,
+  roomStatus: 2,
+} satisfies JsonObject;
+
+/** 房态房量端点的成功响应 —— 标准 SOA 信封，与改价新模块同构（**不是**老房态那套）。 */
+const ROOM_STATUS_QUANTITY_SUCCESS_RESPONSE = JSON.stringify({
+  taskId: '0b840204-ca59-4ee1-a6a3-b0d292ddc8e8_202608',
+  resStatus: { rcode: 200, rmsg: '' },
+  ResponseStatus: { Timestamp: '/Date(1787305409578+0800)/', Ack: 'Success', Errors: [] },
+});
+
 function createLogger() {
   return { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
 }
@@ -414,16 +482,18 @@ describe('ctrip amount change adapter', () => {
 
   describe('watchedEndpoints', () => {
     /**
-     * 携程有两套并存的改价模块，端点完全不同（2026-08-11 真机验证发现）：
-     * 踩点覆盖的是老的 `ebkovsroom`，而走菜单「批量设价」进的是新的 `rateplan`。
-     * 只认踩点那个端点会一次都拦不到。
+     * 携程的价量态操作分散在**三个菜单、五个端点**上，任一漏认都会静默漏报：
+     * 改价两套并存模块（2026-08-11 真机发现），房价维护页同页还有「统一加减价」变体，
+     * 房态则有日历菜单与房态房量菜单两个完全不同的端点。
      */
-    it('两套改价模块的端点都要拦', () => {
+    it('三个菜单的五个端点都要拦', () => {
       const adapter = createCtripAmountChangeAdapter(createLogger());
       expect([...adapter.watchedEndpoints.values()]).toEqual([
         '/ebkovsroom/api/inventory/batchsetroomprice',
         '/setRCRoomPrice',
+        '/setUniformRCRoomPrice',
         '/ebkovsroom/api/inventory/setbatchroombookablestatus',
+        '/batchUpdateRoomStatusAndQuantity',
       ]);
     });
 
@@ -433,7 +503,7 @@ describe('ctrip amount change adapter', () => {
      * （都含 batch、room），真串了会把房态当改价解析 —— 而两者请求体没有一个字段同名，
      * 结果是每次房态都被当成「没有房型标识」丢弃，且失效方式是静默的。
      */
-    it('房态端点与两个改价端点互不为子串，分发不会串味', () => {
+    it('五个端点两两互不为子串，分发不会串味', () => {
       const adapter = createCtripAmountChangeAdapter(createLogger());
       const fragments = [...adapter.watchedEndpoints.values()];
 
@@ -445,7 +515,7 @@ describe('ctrip amount change adapter', () => {
       }
     });
 
-    it('三个端点各自只命中自己的 URL', () => {
+    it('五个端点各自只命中自己的 URL', () => {
       const adapter = createCtripAmountChangeAdapter(createLogger());
       const match = (url: string) =>
         [...adapter.watchedEndpoints.entries()].filter(([, fragment]) => url.includes(fragment));
@@ -459,6 +529,14 @@ describe('ctrip amount change adapter', () => {
       expect(match('https://ebooking.ctrip.com/restapi/soa2/23783/setRCRoomPrice')).toEqual([
         ['setRCRoomPrice', '/setRCRoomPrice'],
       ]);
+      // ⚠️ 最易串的一对：`setUniformRCRoomPrice` 里不含 `setRCRoomPrice`（`Uniform` 插在
+      // `set` 与 `RCRoomPrice` 之间），所以统一加减价的 URL 只命中它自己。
+      expect(
+        match('https://ebooking.ctrip.com/restapi/soa2/23783/setUniformRCRoomPrice'),
+      ).toEqual([['setUniformRCRoomPrice', '/setUniformRCRoomPrice']]);
+      expect(
+        match('https://ebooking.ctrip.com/restapi/soa2/23783/batchUpdateRoomStatusAndQuantity'),
+      ).toEqual([['batchUpdateRoomStatusAndQuantity', '/batchUpdateRoomStatusAndQuantity']]);
     });
 
     /**
@@ -637,6 +715,272 @@ describe('ctrip amount change adapter', () => {
         expect(report?.otaHotelId).toBe('115348672');
         expect(logger.info).toHaveBeenCalled();
       });
+    });
+  });
+  /**
+   * 「统一加减价」（A 块）—— 踩点 `docs/踩点/携程/房价维护菜单踩点.md`。
+   *
+   * 与逐项设价同页面、同响应形状，只是端点不同、请求体多三个 `adjustmentPrice*` 字段。
+   * 只认逐项设价那个端点，用户走统一加减价改的价会**静默漏报**。
+   */
+  describe('改价·统一加减价', () => {
+    const uniformObserved = (requestBody: JsonObject = UNIFORM_PRICE_REQUEST_BODY) =>
+      observed({
+        endpointId: 'setUniformRCRoomPrice',
+        endpointUrl: 'https://ebooking.ctrip.com/restapi/soa2/23783/setUniformRCRoomPrice',
+        requestBody,
+        responseBody: NEW_MODULE_SUCCESS_RESPONSE,
+        pageUrl: 'https://ebooking.ctrip.com/rateplan/batchPriceSetting?microJump=true',
+      });
+
+    it('上报为改价，endpointId 用自己的', () => {
+      const adapter = createCtripAmountChangeAdapter(createLogger());
+      const report = reportOf(adapter.parse(uniformObserved(), null));
+
+      expect(report?.changeType).toBe('price');
+      expect(report?.endpointId).toBe('setUniformRCRoomPrice');
+      expect(report?.source).toBe('ctrip');
+    });
+
+    /** 与逐项设价同样没有门店 ID，RMS 按 roomProductId 反查。 */
+    it('请求体没有门店 ID 时 otaHotelId 为空串且不丢弃', () => {
+      const logger = createLogger();
+      const adapter = createCtripAmountChangeAdapter(logger);
+      const report = reportOf(adapter.parse(uniformObserved(), null));
+
+      expect(report).toBeDefined();
+      expect(report?.otaHotelId).toBe('');
+      expect(logger.info).toHaveBeenCalled();
+      expect(logger.warn).not.toHaveBeenCalled();
+    });
+
+    /** 响应与逐项设价完全同构，复用改价新模块的判据即可。 */
+    it('成功响应判为成功', () => {
+      const adapter = createCtripAmountChangeAdapter(createLogger());
+      expect(
+        adapter.isSuccessful(NEW_MODULE_SUCCESS_RESPONSE, 'setUniformRCRoomPrice'),
+      ).toBe(true);
+    });
+
+    /** 三个加减价字段是本端点独有的业务信息，必须原样透传给 RMS。 */
+    it('changeRaw 保留加减价三字段，剔除框架噪音', () => {
+      const adapter = createCtripAmountChangeAdapter(createLogger());
+      const raw = reportOf(adapter.parse(uniformObserved(), null))?.changeRaw as
+        | Record<string, unknown>
+        | undefined;
+
+      expect(raw?.adjustmentPriceType).toBe('salePrice');
+      expect(raw?.adjustmentPriceOperationsType).toBe('subtract');
+      expect(raw?.adjustmentPriceValue).toBe(1);
+      expect(raw).not.toHaveProperty('cipher');
+      expect(raw).not.toHaveProperty('head');
+      expect(raw).not.toHaveProperty('reqHead');
+    });
+  });
+
+  /**
+   * 联动房型（B 块）—— 既有缺陷修复，2026-08-21。
+   *
+   * 改价新模块有**两个语义相反**的联动房型字段：`relationRoomProducts`（一并改了这些，
+   * 对应老模块的 `refRoomIDs`）与 `excludedRelationRoomProductIds`（排除这些）。
+   * 修复前只收 `roomProductId`，漏了前者。
+   */
+  describe('改价·联动房型', () => {
+    const priceObserved = (requestBody: JsonObject) =>
+      observed({
+        endpointId: 'setRCRoomPrice',
+        endpointUrl: 'https://ebooking.ctrip.com/restapi/soa2/23783/setRCRoomPrice',
+        requestBody,
+        responseBody: NEW_MODULE_SUCCESS_RESPONSE,
+        pageUrl: 'https://ebooking.ctrip.com/rateplan/batchPriceSetting?microJump=true',
+      });
+
+    /**
+     * 修复前的失效方式：只有联动房型时取不到任何房型标识，整次改价被当成「拦到的不是
+     * 改价请求」而丢弃 —— 用户确实改了价，RMS 却收不到。
+     */
+    it('只有联动房型时不被丢弃', () => {
+      const logger = createLogger();
+      const adapter = createCtripAmountChangeAdapter(logger);
+      const report = reportOf(
+        adapter.parse(
+          priceObserved({
+            roomPriceInfos: [
+              { relationRoomProducts: [{ roomProductId: '1602330627', mealNum: 0 }] },
+            ],
+          }),
+          null,
+        ),
+      );
+
+      expect(report).toBeDefined();
+      expect(report?.changeType).toBe('price');
+      expect(logger.warn).not.toHaveBeenCalled();
+    });
+
+    /**
+     * ⛔ 反向回归：排除列表是「这些房型**不**跟着改」，收进来会把用户明确排除掉的房型
+     * 当成改过的报给 RMS —— 方向完全反了。
+     */
+    it('排除列表不能当作定位依据', () => {
+      const logger = createLogger();
+      const adapter = createCtripAmountChangeAdapter(logger);
+      const result = adapter.parse(
+        priceObserved({
+          roomPriceInfos: [{ excludedRelationRoomProductIds: ['1602330627', '1602330629'] }],
+        }),
+        null,
+      );
+
+      expect(result).toBeNull();
+      expect(logger.warn).toHaveBeenCalled();
+    });
+
+    /** 真实报文里两者并存：`relationRoomProducts` 有值、排除列表为空。 */
+    it('真实统一加减价报文里的联动房型被采纳', () => {
+      const logger = createLogger();
+      const adapter = createCtripAmountChangeAdapter(logger);
+      const report = reportOf(
+        adapter.parse(
+          observed({
+            endpointId: 'setUniformRCRoomPrice',
+            endpointUrl: 'https://ebooking.ctrip.com/restapi/soa2/23783/setUniformRCRoomPrice',
+            requestBody: UNIFORM_PRICE_REQUEST_BODY,
+            responseBody: NEW_MODULE_SUCCESS_RESPONSE,
+            pageUrl: 'https://ebooking.ctrip.com/rateplan/batchPriceSetting?microJump=true',
+          }),
+          null,
+        ),
+      );
+
+      expect(report).toBeDefined();
+      expect(logger.warn).not.toHaveBeenCalled();
+    });
+  });
+
+  /**
+   * 房态房量菜单（C 块）—— 踩点 `docs/踩点/携程/房态房量菜单.md`。
+   *
+   * ⚠️ 与日历菜单房态端点是**两个完全不同的端点**：请求体零字段同名、开关房取值形式不同
+   * （`1`/`2` 数字 vs `"G"`/`"N"` 字符串）、响应信封也不同。
+   */
+  describe('房态房量菜单', () => {
+    const rsqObserved = (
+      requestBody: JsonObject,
+      responseBody = ROOM_STATUS_QUANTITY_SUCCESS_RESPONSE,
+    ) =>
+      observed({
+        endpointId: 'batchUpdateRoomStatusAndQuantity',
+        endpointUrl:
+          'https://ebooking.ctrip.com/restapi/soa2/23783/batchUpdateRoomStatusAndQuantity',
+        requestBody,
+        responseBody,
+        pageUrl: ROOM_STATUS_QUANTITY_PAGE_URL,
+      });
+
+    /**
+     * ⚠️ 页面必须放开：`AmountChangeWatcher` 见到不可监听的 URL 会 stopWatching → detach，
+     * 此后整个 tab 都拦不到 —— 与 2026-08-11 `batchPriceSetting` 是同一个坑。
+     */
+    it('页面可监听，且与房价维护页互不为前缀', () => {
+      const adapter = createCtripAmountChangeAdapter(createLogger());
+
+      expect(adapter.isWatchableUrl(ROOM_STATUS_QUANTITY_PAGE_URL)).toBe(true);
+      expect(
+        adapter.isWatchableUrl('https://ebooking.ctrip.com/rateplan/batchPriceSetting?microJump=true'),
+      ).toBe(true);
+      // 两条前缀第二段就分叉，不会互相覆盖。
+      expect(
+        'https://ebooking.ctrip.com/rateplan/batchSetRoomStatusAndQuantity'.startsWith(
+          'https://ebooking.ctrip.com/rateplan/batchPriceSetting',
+        ),
+      ).toBe(false);
+    });
+
+    it('上报为量态改动，endpointId 用自己的', () => {
+      const adapter = createCtripAmountChangeAdapter(createLogger());
+      const report = reportOf(adapter.parse(rsqObserved(ROOM_STATUS_QUANTITY_OPEN_BODY), null));
+
+      expect(report?.changeType).toBe('roomStatus');
+      expect(report?.endpointId).toBe('batchUpdateRoomStatusAndQuantity');
+    });
+
+    /** 该端点请求体里根本没有门店标识 —— 空串是正常情况，记 info 不记 warn。 */
+    it('otaHotelId 恒为空串，且不判为错误', () => {
+      const logger = createLogger();
+      const adapter = createCtripAmountChangeAdapter(logger);
+      const report = reportOf(adapter.parse(rsqObserved(ROOM_STATUS_QUANTITY_OPEN_BODY), null));
+
+      expect(report?.otaHotelId).toBe('');
+      expect(logger.info).toHaveBeenCalled();
+      expect(logger.warn).not.toHaveBeenCalled();
+    });
+
+    /**
+     * ⚠️ 开关房**同一个 endpointId**，方向靠 `changeRaw.roomStatus` 区分，且**不归一化**
+     * 成日历菜单那套 `"G"`/`"N"` —— 归一化属于语义转换，RMS 按 endpointId 自己解读。
+     * 把关房当开房处理会造成超售。
+     */
+    it('开房与关房共用 endpointId，roomStatus 原样保留 1 与 2', () => {
+      const adapter = createCtripAmountChangeAdapter(createLogger());
+      const open = reportOf(adapter.parse(rsqObserved(ROOM_STATUS_QUANTITY_OPEN_BODY), null));
+      const close = reportOf(adapter.parse(rsqObserved(ROOM_STATUS_QUANTITY_CLOSE_BODY), null));
+
+      expect(open?.endpointId).toBe(close?.endpointId);
+      expect((open?.changeRaw as Record<string, unknown>).roomStatus).toBe(1);
+      expect((close?.changeRaw as Record<string, unknown>).roomStatus).toBe(2);
+    });
+
+    /** 房量三字段本次 RMS 不解析，但 desktop 照常透传（透传是既定语义）。 */
+    it('changeRaw 保留房量三字段与 dates，剔除框架噪音', () => {
+      const adapter = createCtripAmountChangeAdapter(createLogger());
+      const raw = reportOf(adapter.parse(rsqObserved(ROOM_STATUS_QUANTITY_OPEN_BODY), null))
+        ?.changeRaw as Record<string, unknown>;
+
+      expect(raw.roomQuantityLimitType).toBe(-100);
+      expect(raw.remainRoomQuantityType).toBe(-100);
+      expect(raw.syncRoomQuantityWithSharedInventory).toBe(true);
+      expect(raw.dates).toEqual(ROOM_STATUS_QUANTITY_OPEN_BODY.dates);
+      expect(raw.roomProductIds).toEqual(['1602330530', '1569052068']);
+      expect(raw).not.toHaveProperty('cipher');
+      expect(raw).not.toHaveProperty('head');
+    });
+
+    it('取不到房型时丢弃并告警', () => {
+      const logger = createLogger();
+      const adapter = createCtripAmountChangeAdapter(logger);
+
+      expect(adapter.parse(rsqObserved({ roomStatus: 1 }), null)).toBeNull();
+      expect(logger.warn).toHaveBeenCalled();
+    });
+
+    /**
+     * ⚠️ 成功判据必须按 endpointId 钉死，不能靠响应形状自辨：该端点的信封与老房态端点
+     * 完全不同，走错分支会卡在缺失的 `code` 上判成失败 —— 失效方式是静默漏报。
+     */
+    it('成功判定走 SOA 信封，而非老房态端点那套', () => {
+      const adapter = createCtripAmountChangeAdapter(createLogger());
+
+      expect(
+        adapter.isSuccessful(
+          ROOM_STATUS_QUANTITY_SUCCESS_RESPONSE,
+          'batchUpdateRoomStatusAndQuantity',
+        ),
+      ).toBe(true);
+      // 同一份响应喂给老房态端点的判据会失败（没有 code 字段），证明两套判据确实不同。
+      expect(
+        adapter.isSuccessful(ROOM_STATUS_QUANTITY_SUCCESS_RESPONSE, 'setbatchroombookablestatus'),
+      ).toBe(false);
+    });
+
+    it('业务码非 200 判为失败', () => {
+      const adapter = createCtripAmountChangeAdapter(createLogger());
+      const failed = JSON.stringify({
+        resStatus: { rcode: 500, rmsg: '操作失败' },
+        ResponseStatus: { Ack: 'Failed', Errors: [{ Message: 'x' }] },
+      });
+
+      expect(adapter.isSuccessful(failed, 'batchUpdateRoomStatusAndQuantity')).toBe(false);
     });
   });
 });

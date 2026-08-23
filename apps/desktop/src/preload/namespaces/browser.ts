@@ -21,7 +21,12 @@ export function createBrowserApi(invoke: ValidatedInvoke, subscribe: ValidatedSu
       invoke(voidSchema, IPC_CHANNELS.browser.setBounds, bounds),
     setAudioMuted: (muted: boolean) =>
       invoke(booleanSchema, IPC_CHANNELS.browser.setAudioMuted, muted),
+    setViewportVisible: (visible: boolean) =>
+      invoke(voidSchema, IPC_CHANNELS.browser.setViewportVisible, visible),
     onStateChanged: (listener: (tab: BrowserTab) => void) =>
       subscribe(browserTabSchema, IPC_CHANNELS.browser.stateChanged, listener),
+    /** 主进程建了一个界面还不知道的标签页（网页自身 `window.open`）。 */
+    onTabOpened: (listener: (tab: BrowserTab) => void) =>
+      subscribe(browserTabSchema, IPC_CHANNELS.browser.tabOpened, listener),
   });
 }

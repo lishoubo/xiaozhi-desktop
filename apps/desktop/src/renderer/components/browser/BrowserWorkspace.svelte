@@ -8,6 +8,7 @@
   import Import from '@lucide/svelte/icons/import';
   import Plus from '@lucide/svelte/icons/plus';
   import RotateCw from '@lucide/svelte/icons/rotate-cw';
+  import TriangleAlert from '@lucide/svelte/icons/triangle-alert';
   import Volume2 from '@lucide/svelte/icons/volume-2';
   import VolumeX from '@lucide/svelte/icons/volume-x';
   import X from '@lucide/svelte/icons/x';
@@ -22,6 +23,7 @@
   import { dismissAppNotification, showAppNotification } from '../../notifications';
   import { browserOtaTabs } from './browser-ota-tabs.svelte';
   import { cookieListAutoOpen, tabActivation } from './cross-route-intents';
+  import { displayTabTitle } from './tab-title';
   import { Button } from '$lib/components/ui/button';
   import { Spinner } from '$lib/components/ui/spinner';
   import AccountSwitcherDialog from './AccountSwitcherDialog.svelte';
@@ -211,6 +213,16 @@
     }
   }
 
+  /** 就地重新加载某个标签页（故障恢复入口，不要求它是当前激活的那个）。 */
+  async function reloadTab(tab: BrowserTab): Promise<void> {
+    dismissAppNotification('browser-operation-error');
+    try {
+      await window.hotelButler.browser.reload(tab.id);
+    } catch (error) {
+      reportBrowserFailure('Browser tab could not be reloaded', '页面重新加载失败，请重试', error);
+    }
+  }
+
   async function closeTab(tab: BrowserTab): Promise<void> {
     dismissAppNotification('browser-operation-error');
     try {
@@ -316,6 +328,19 @@
     const unsubscribe = window.hotelButler.browser.onStateChanged((tab) => {
       browserOtaTabs.updateTab(tab);
     });
+    // 网页自己开的标签页（`window.open`）。主进程只建不激活，收尾由这里做——
+    // 与用户点「新建标签页」走的是同一条路。
+    const unsubscribeTabOpened = window.hotelButler.browser.onTabOpened((tab) => {
+      void browserOtaTabs.adoptOpenedByPage(tab).catch((error: unknown) => {
+        if (mounted) {
+          reportBrowserFailure(
+            'Page-opened tab could not be adopted',
+            '新标签页打开失败，请重试',
+            error,
+          );
+        }
+      });
+    });
     const unsubscribeDiscoveryCompleted = window.hotelButler.otaCredential.onDiscoveryCompleted(
       ({ channel }) => {
         if (channel === activeChannelId) void loadCredentials(channel);
@@ -375,6 +400,7 @@
         });
       });
       unsubscribe();
+      unsubscribeTabOpened();
       unsubscribeDiscoveryCompleted();
       observer.disconnect();
       resizeObserver = undefined;
@@ -477,12 +503,21 @@
         use:autoAnimate={LAYOUT_ANIMATION_OPTIONS}
       >
         {#each activeTabs as tab (tab.id)}
+          <!-- 标题一律走 displayTabTitle：标签文字与辅助文本同一个来源，否则
+               「关闭 ${tab.title}」在加载中会读成「关闭 正在加载…」。
+               刻意**不加** title 属性做 tooltip：悬停弹层在标签栏上扫过时会一路
+               弹出来，比截断本身更烦人（产品决策，2026-08-21）。 -->
+          {@const tabTitle = displayTabTitle(tab)}
           <div
             class={[
-              'group flex h-8 min-w-[132px] max-w-[200px] items-center rounded-lg border text-xs transition-[background-color,border-color,color,box-shadow] duration-150 ease-out motion-reduce:transition-none',
-              activeTab?.id === tab.id
-                ? 'border-border bg-card text-foreground shadow-sm'
-                : 'border-transparent text-muted-foreground hover:bg-background/70 hover:text-foreground',
+              // flex-1 + basis 让标签数量少时占更大宽度（标题能多显示几个字），
+              // 多起来再各自收缩到 min-w；max-w 仍然封顶，避免一个标签独占整条。
+              'group flex h-8 min-w-[132px] max-w-[240px] flex-1 basis-[200px] items-center rounded-lg border text-xs transition-[background-color,border-color,color,box-shadow] duration-150 ease-out motion-reduce:transition-none',
+              tab.failure
+                ? 'border-destructive/40 bg-destructive/5 text-destructive'
+                : activeTab?.id === tab.id
+                  ? 'border-[#e2e6ec] bg-white text-[#242936] shadow-sm'
+                  : 'border-transparent text-[#5f6673] hover:bg-[#e8ebef] hover:text-[#242936]',
             ]}
           >
             <button
@@ -493,14 +528,29 @@
               onclick={() => void selectTab(tab)}
             >
               {#if tab.loading}
-                <Spinner class="size-[13px] shrink-0" aria-label={`${tab.title}正在加载`} />
+                <Spinner class="size-[13px] shrink-0" aria-label={`${tabTitle}正在加载`} />
+              {:else if tab.failure}
+                <TriangleAlert class="shrink-0" size={13} strokeWidth={2} aria-hidden="true" />
               {/if}
-              <span class="min-w-0 flex-1 truncate">{tab.title}</span>
+              <span class="min-w-0 flex-1 truncate">{tabTitle}</span>
             </button>
+            {#if tab.failure}
+              <!-- 故障标签页需要一个**就地**的恢复入口：顶部那个刷新按钮只作用于
+                   当前激活的标签页，崩掉的那个未必是它。 -->
+              <button
+                class="grid size-6 shrink-0 place-items-center rounded hover:bg-destructive/15"
+                type="button"
+                aria-label={`重新加载 ${tabTitle}`}
+                title="重新加载"
+                onclick={() => void reloadTab(tab)}
+              >
+                <RotateCw size={13} />
+              </button>
+            {/if}
             <button
               class="mr-1 grid size-6 shrink-0 place-items-center rounded hover:bg-black/10"
               type="button"
-              aria-label={`关闭 ${tab.title}`}
+              aria-label={`关闭 ${tabTitle}`}
               onclick={() => void closeTab(tab)}
             >
               <X size={13} />

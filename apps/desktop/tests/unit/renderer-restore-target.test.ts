@@ -12,6 +12,7 @@ function tab(id: string, channelId: string): BrowserTab {
     canGoForward: false,
     loading: false,
     partitionName: `persist:xiaozhi:dev:${channelId}:${id}`,
+    failure: null,
   };
 }
 
