@@ -39,18 +39,35 @@ jobs:
 
       # 用 ci 而非 install：锁定 lockfile，避免 CI 与本地解析出不同依赖树。
       #
-      # `--ignore-scripts` 是必须的：better-sqlite3 的 install 会跑 `node-gyp rebuild`，
-      # 而 runner 上的 node-gyp@10 认不出镜像自带的 VS 18（报 unknown version
-      # "undefined"），编译必然失败。但**这次编译本来就是多余的**——better-sqlite3
-      # 随包发布全平台预编译产物，其 binding.js 里 prebuilds/ 的优先级高于
-      # build/Release，本地 macOS 上也从来走的是 prebuilds 这条路。跳过即可。
+      # 不能用 `--ignore-scripts`：几个依赖的 install 脚本是**必需**的，尤其
+      # electron-winstaller 的 `select-7z-arch.js`——它把 `vendor/7z-<arch>.exe`
+      # 拷成 `7z.exe`，跳过后 Squirrel 打包时报 "The system cannot find the file
+      # specified"。esbuild 的 postinstall 同理。
+      #
+      # 真正要禁的只有 better-sqlite3：它的 install 会跑 `node-gyp rebuild`，而
+      # runner 上的 node-gyp@10 认不出镜像自带的 VS 18（报 unknown version
+      # "undefined"）必然失败——且这次编译本来就多余，该包随包发布全平台预编译
+      # 产物，binding.js 里 prebuilds/ 的优先级高于 build/Release。
+      # npm 支持按包关闭构建，只精确禁掉它一个。
       - name: 安装依赖
         run: npm ci --ignore-scripts
 
-      # 上一步把所有 install 脚本都跳了，SvelteKit 的类型产物（.svelte-kit/）也没生成。
-      # desktop 的 check 会读它，补跑一次；`|| echo ''` 与 server 的 prepare 保持一致。
-      - name: 生成 SvelteKit 类型
-        run: npm run prepare --workspace @hotel-butler/server || echo ''
+      # `--ignore-scripts` 是为了绕开 better-sqlite3：它带 binding.gyp，npm 会隐式
+      # 跑 node-gyp rebuild，而 runner 上的 node-gyp@10 认不出镜像自带的 VS 18
+      # （报 unknown version "undefined"）必然失败。这次编译本来也是多余的——该包
+      # 随包发布全平台预编译产物，binding.js 里 prebuilds/ 优先级高于 build/Release。
+      # npm 没有"只禁某个包的脚本"的选项，所以全禁之后把**必需的**几个补回来。
+      - name: 补跑必需的安装脚本
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Squirrel 打包要用 vendor/7z.exe，这个脚本负责按架构从 7z-<arch>.exe 拷过去。
+          # 少了它报 "The system cannot find the file specified"。
+          ( cd node_modules/electron-winstaller && node ./script/select-7z-arch.js )
+          # Vite 依赖 esbuild 的原生二进制，其 postinstall 负责就位。
+          ( cd node_modules/esbuild && node install.js )
+          # SvelteKit 类型产物（.svelte-kit/），desktop 的 check 会读。
+          npm run prepare --workspace @hotel-butler/server || echo ''
 
       # 打包脚本自己会校验环境、回显 RMS 地址，非法值当场失败，不必在这里重复判断。
       - name: 打包
