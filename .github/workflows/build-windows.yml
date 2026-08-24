@@ -75,7 +75,8 @@ jobs:
         env:
           XIAOZHI_AUTH_VARIANT: ${{ inputs.auth_variant }}
 
-      # Squirrel 产物落在 out/make/squirrel.windows/x64/ 下，
+      # 产物路径里那层 `<variant>/` 来自 forge.config.ts 的 `buildIdentifier`，
+      # 别漏掉——Forge 收尾会打印 "Artifacts available at:" 指向真实位置。
       # 同时收 nupkg 与 RELEASES：有它们才能做后续增量更新，只留 exe 会丢掉这个能力。
       - name: 上传安装包
         uses: actions/upload-artifact@v4
@@ -84,6 +85,6 @@ jobs:
           if-no-files-found: error
           retention-days: 14
           path: |
-            apps/desktop/out/make/squirrel.windows/x64/*.exe
-            apps/desktop/out/make/squirrel.windows/x64/*.nupkg
-            apps/desktop/out/make/squirrel.windows/x64/RELEASES
+            apps/desktop/out/${{ inputs.auth_variant }}/make/squirrel.windows/x64/*.exe
+            apps/desktop/out/${{ inputs.auth_variant }}/make/squirrel.windows/x64/*.nupkg
+            apps/desktop/out/${{ inputs.auth_variant }}/make/squirrel.windows/x64/RELEASES
