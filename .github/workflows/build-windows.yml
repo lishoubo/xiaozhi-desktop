@@ -1,0 +1,61 @@
+# 在真 Windows 上打桌面端安装包。
+#
+# 为什么需要 CI：Squirrel 打安装包在非 Windows 上要 Mono + Wine，macOS(arm64)
+# 上要经 Rosetta 模拟 x86，成功率存疑；而 `wine-stable` 这个 cask 已被 Homebrew
+# 标记 deprecated。用 windows-latest 走原生路径，产物可靠性和本机 Windows 一致。
+#
+# 触发方式是**手动**（workflow_dispatch）：出包是发布动作，不该由 push 隐式触发。
+name: 构建 Windows 安装包
+
+on:
+  workflow_dispatch:
+    inputs:
+      app_env:
+        description: 构建环境（决定应用名 / bundleId / RMS 地址）
+        type: choice
+        required: true
+        default: pre
+        options: [pre, online]
+      auth_variant:
+        description: 登录变体（staff = 员工登录，phone = 手机号登录）
+        type: choice
+        required: true
+        default: staff
+        options: [staff, phone]
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 45
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # engines 要求 node >=24 <25，这里跟着仓库约束走，不另立版本。
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      # 用 ci 而非 install：锁定 lockfile，避免 CI 与本地解析出不同依赖树。
+      - name: 安装依赖
+        run: npm ci
+
+      # 打包脚本自己会校验环境、回显 RMS 地址，非法值当场失败，不必在这里重复判断。
+      - name: 打包
+        run: npm run make:desktop:${{ inputs.app_env }}:win64
+        env:
+          XIAOZHI_AUTH_VARIANT: ${{ inputs.auth_variant }}
+
+      # Squirrel 产物落在 out/make/squirrel.windows/x64/ 下，
+      # 同时收 nupkg 与 RELEASES：有它们才能做后续增量更新，只留 exe 会丢掉这个能力。
+      - name: 上传安装包
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-${{ inputs.app_env }}-${{ inputs.auth_variant }}
+          if-no-files-found: error
+          retention-days: 14
+          path: |
+            apps/desktop/out/make/squirrel.windows/x64/*.exe
+            apps/desktop/out/make/squirrel.windows/x64/*.nupkg
+            apps/desktop/out/make/squirrel.windows/x64/RELEASES
