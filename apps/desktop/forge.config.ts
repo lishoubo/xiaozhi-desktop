@@ -109,7 +109,15 @@ const config: ForgeConfig = {
       }
     },
   },
-  rebuildConfig: {},
+  /**
+   * 不让 @electron/rebuild 碰 better-sqlite3：它随包发布的 prebuilds 已经是按
+   * Electron ABI 编译好的，重编纯属多余，而且在没有 Visual Studio 的机器上必然
+   * 失败（打包机、CI 都是这种）。`lib/binding.js` 里 prebuilds/ 的解析优先级本来
+   * 就高于 build/Release，重编产物即使生成了也不会被加载。
+   */
+  rebuildConfig: {
+    onlyModules: [],
+  },
   makers: [
     // Squirrel 用 `name` 决定 `%LOCALAPPDATA%\<name>` 与注册表卸载项，三环境必须不同
     // 才不会互相覆盖安装。这里用 ASCII slug 而非中文展示名：Squirrel 对非 ASCII
