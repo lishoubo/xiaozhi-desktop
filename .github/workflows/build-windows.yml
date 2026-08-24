@@ -38,8 +38,19 @@ jobs:
           cache: npm
 
       # 用 ci 而非 install：锁定 lockfile，避免 CI 与本地解析出不同依赖树。
+      #
+      # `--ignore-scripts` 是必须的：better-sqlite3 的 install 会跑 `node-gyp rebuild`，
+      # 而 runner 上的 node-gyp@10 认不出镜像自带的 VS 18（报 unknown version
+      # "undefined"），编译必然失败。但**这次编译本来就是多余的**——better-sqlite3
+      # 随包发布全平台预编译产物，其 binding.js 里 prebuilds/ 的优先级高于
+      # build/Release，本地 macOS 上也从来走的是 prebuilds 这条路。跳过即可。
       - name: 安装依赖
-        run: npm ci
+        run: npm ci --ignore-scripts
+
+      # 上一步把所有 install 脚本都跳了，SvelteKit 的类型产物（.svelte-kit/）也没生成。
+      # desktop 的 check 会读它，补跑一次；`|| echo ''` 与 server 的 prepare 保持一致。
+      - name: 生成 SvelteKit 类型
+        run: npm run prepare --workspace @hotel-butler/server || echo ''
 
       # 打包脚本自己会校验环境、回显 RMS 地址，非法值当场失败，不必在这里重复判断。
       - name: 打包
