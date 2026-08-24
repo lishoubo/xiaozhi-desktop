@@ -89,9 +89,13 @@ const config: ForgeConfig = {
      * 触发条件较劲，不如在这里显式做，行为可预期、失败也看得见。
      *
      * ⚠️ `--deep` 是必须的：Helper 等内嵌可执行文件也要一并重签，只签外层 .app 不够。
+     *
+     * 判据是**目标平台**（`platform`）而非宿主平台：在 macOS 上打 Windows 包时宿主
+     * 仍是 darwin，只看宿主会去 codesign 一个根本不存在的 `.app`，整条 make 直接失败。
+     * 宿主也要一并判断——`codesign` 只有 macOS 上才有。
      */
-    postPackage: async (_forgeConfig, { outputPaths }) => {
-      if (process.platform !== 'darwin') return;
+    postPackage: async (_forgeConfig, { platform, outputPaths }) => {
+      if (platform !== 'darwin' || process.platform !== 'darwin') return;
       const bundleId = isPhone ? `${profile.bundleId}.phone` : profile.bundleId;
       for (const outputPath of outputPaths) {
         const appName = isPhone ? `${profile.productName}(手机登录)` : profile.productName;
