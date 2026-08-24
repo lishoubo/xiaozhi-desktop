@@ -125,6 +125,10 @@ const config: ForgeConfig = {
     new MakerSquirrel({
       name: isPhone ? `${profile.squirrelName}-phone` : profile.squirrelName,
       setupExe: `${profile.productName}${isPhone ? '-phone' : ''}-setup.exe`,
+      // NuGet 规范要求 authors 必填，缺了 Squirrel 会在生成 .nuspec 时报
+      // "Authors is required" 直接失败。package.json 里没有 author 字段，
+      // 在这里显式给出，不为一个 Windows 打包细节去动通用的包元数据。
+      authors: '小智科技',
     }),
     new MakerZIP({}, ['darwin']),
     new MakerRpm({}),
