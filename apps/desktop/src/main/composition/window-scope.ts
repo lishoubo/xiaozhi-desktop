@@ -5,7 +5,7 @@
  * 一份清理清单，两份已经不一致（`otaCredentialService` 只在其中一份被置空），
  * 而且每加一个 handler 就要在三处同步改动（声明、注册、两处清理）。
  */
-import { app, type BrowserWindow } from 'electron';
+import { app, shell, type BrowserWindow } from 'electron';
 import { BrowserManager } from '../browser/browser-manager';
 import { amountChangeAdapters, hotelProbes, loginUrlMatchers } from '../channels/registry';
 import { BrowserCookieImporter } from '../cookie-import/browser-cookie-importer';
@@ -206,7 +206,18 @@ export function createWindowScope(scope: WindowScopeDependencies): WindowScope {
   );
   onDispose(registerOtaCredentialHandlers({ window, service: scope.otaCredentialService, logger }));
   onDispose(
-    registerSystemHandlers({ window, service: new SystemService({ app, logger }), logger }),
+    registerSystemHandlers({
+      window,
+      // `getPath('logs')` 此刻已经是带登录变体那一层的最终目录——`main/index.ts`
+      // 启动时就 `setAppLogsPath` 定死了，这里取到的和日志实际落盘的是同一个。
+      service: new SystemService({
+        app,
+        shell,
+        logsDirectory: app.getPath('logs'),
+        logger,
+      }),
+      logger,
+    }),
   );
   onDispose(registerOtaTabHandlers({ window, service: otaTabService, logger }));
   onDispose(

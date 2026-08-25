@@ -85,6 +85,17 @@ export const cookieImportResultSchema = z.strictObject({
   imported: z.number().int().nonnegative(),
   failed: z.number().int().nonnegative(),
   error: nonEmptyStringSchema.optional(),
+  /**
+   * 原始错误详情，**只在内测构建里下发**（见 `shared/diagnostics.ts`）。
+   *
+   * 与 `error` 的分工：`error` 是给用户看的友好文案，措辞稳定、可本地化；
+   * `diagnostic` 是给我们看的原始 message + 堆栈首行，形状不保证、随实现变。
+   * 界面把它折叠在「详情」里，不参与任何判断逻辑。
+   *
+   * 不复用 `nonEmptyStringSchema`：那个上限 256 字符，会把最有价值的
+   * powershell 报错正文截掉。
+   */
+  diagnostic: z.string().max(4_096).optional(),
 });
 
 export type CookieImportResult = Readonly<z.infer<typeof cookieImportResultSchema>>;

@@ -70,8 +70,14 @@
         showAppNotification({
           id: 'cookie-import-error',
           title: 'Cookie 导入失败',
-          message: result.error,
+          // `diagnostic` 只在内测构建里有值（见 shared/diagnostics.ts）。附上它是为了
+          // 让测试同学截个图就能定位——友好文案会把不同根因归成同一句话。
+          message: result.diagnostic
+            ? `${result.error}\n\n详情：${result.diagnostic}`
+            : result.error,
           tone: 'error',
+          // 带详情时不自动消失：5 秒读不完，更来不及截图。
+          ...(result.diagnostic ? { durationMs: 0 } : {}),
         });
         return;
       }

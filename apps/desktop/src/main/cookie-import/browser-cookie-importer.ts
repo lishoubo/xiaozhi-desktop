@@ -8,7 +8,7 @@ import type { CookiesSetDetails } from 'electron';
 import { z, type ZodType } from 'zod';
 import type { ChannelId } from '../ids';
 import type { BrowserCookieSource, BrowserCookieSourceId } from '../../shared/browser';
-import type { AppLogger } from '../../shared/logging';
+import { safeLogErrorDetails, type AppLogger } from '../../shared/logging';
 import {
   channelForCookieDomain,
   chromiumTimestampToUnix,
@@ -315,10 +315,36 @@ function runFile(command: string, args: string[]): Promise<string> {
   });
 }
 
+/**
+ * 同 `runFile`，但把 `input` 写进 stdin，且**失败时把 stderr 并进错误信息**。
+ * `execFile` 默认只给 "Command failed: <cmd>"，被调用方真正的报错全在 stderr，
+ * 丢掉它等于丢掉唯一的线索。
+ */
+function runWithInput(command: string, args: string[], input: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const child = execFile(
+      command,
+      args,
+      { encoding: 'utf8', windowsHide: true },
+      (error, stdout, stderr) => {
+        if (!error) {
+          resolve(stdout.trim());
+          return;
+        }
+        const detail = stderr.trim();
+        reject(detail ? new Error(`${error.message.trim()} | stderr: ${detail}`) : error);
+      },
+    );
+    child.stdin?.on('error', reject);
+    child.stdin?.end(input);
+  });
+}
+
 async function chromiumPassword(
   definition: ChromiumDefinition,
   platform: SupportedPlatform,
   databasePath: string,
+  environment: NodeJS.ProcessEnv,
 ): Promise<Buffer> {
   if (platform === 'darwin') {
     const password = await runFile('/usr/bin/security', [
@@ -335,36 +361,79 @@ async function chromiumPassword(
     return crypto.pbkdf2Sync('peanuts', 'saltysalt', 1, 16, 'sha1');
   }
 
+  const localStatePath = path.join(
+    definition.roots.find((root) => {
+      const relative = path.relative(root, databasePath);
+      return relative !== '' && !relative.startsWith('..') && !path.isAbsolute(relative);
+    }) ?? definition.roots[0],
+    'Local State',
+  );
   const localState = parseBrowserData(
     chromiumLocalStateSchema,
-    JSON.parse(
-      await fs.readFile(
-        path.join(
-          definition.roots.find((root) => {
-            const relative = path.relative(root, databasePath);
-            return relative !== '' && !relative.startsWith('..') && !path.isAbsolute(relative);
-          }) ?? definition.roots[0],
-          'Local State',
-        ),
-        'utf8',
-      ),
-    ),
+    JSON.parse(await fs.readFile(localStatePath, 'utf8')),
   );
   const encodedKey = localState.os_crypt.encrypted_key;
   const encryptedKey = Buffer.from(encodedKey, 'base64');
   const dpapiKey = encryptedKey.subarray(Buffer.from('DPAPI').length).toString('base64');
-  const script =
-    '[Convert]::ToBase64String([Security.Cryptography.ProtectedData]::Unprotect([Convert]::FromBase64String($args[0]),$null,[Security.Cryptography.DataProtectionScope]::CurrentUser))';
-  return Buffer.from(
-    await runFile('powershell.exe', [
-      '-NoProfile',
-      '-NonInteractive',
-      '-Command',
-      script,
-      dpapiKey,
-    ]),
-    'base64',
+  return unprotectWithDpapi(dpapiKey, environment);
+}
+
+/**
+ * 解 Windows DPAPI 保护的主密钥。Chromium 用 `CurrentUser` 作用域保护它，
+ * 只有同一个 Windows 账户能解开——这也是这条路只能在本机跑的原因。
+ *
+ * 三个刻意的选择，都是 2026-08-25 真机排查时踩出来的：
+ *
+ * 1. **走绝对路径而非 `powershell.exe`**。Electron 打包进程继承到的 `PATH`
+ *    不保证含 `System32`（安装器、任务计划、部分安全软件都会改），裸名字
+ *    解析失败报的是 `spawn powershell.exe ENOENT`，与「读不到 cookie」看着
+ *    毫无关系。用 `%SystemRoot%` 拼出绝对路径，少一层不确定性。
+ * 2. **密钥走 stdin 而非命令行参数**。base64 主密钥有数百字符，作为
+ *    `$args[0]` 拼进命令行会撞上长度限制与引号转义，且会出现在进程命令行里
+ *    （任务管理器可见）。stdin 两个问题都没有。
+ * 3. **失败时带上 stderr**。`execFile` 的默认错误只有 "Command failed"，
+ *    PowerShell 真正的话都在 stderr 里。
+ */
+async function unprotectWithDpapi(
+  dpapiKey: string,
+  environment: NodeJS.ProcessEnv,
+): Promise<Buffer> {
+  const systemRoot = environment.SystemRoot ?? environment.SYSTEMROOT ?? String.raw`C:\Windows`;
+  const powershellPath = path.join(
+    systemRoot,
+    'System32',
+    'WindowsPowerShell',
+    'v1.0',
+    'powershell.exe',
   );
+  // 从 stdin 读一行 base64，解保护后再以 base64 写回 stdout。
+  const script = [
+    '$ErrorActionPreference = "Stop"',
+    'Add-Type -AssemblyName System.Security',
+    '$encoded = [Console]::In.ReadToEnd().Trim()',
+    '$protected = [Convert]::FromBase64String($encoded)',
+    '$plain = [Security.Cryptography.ProtectedData]::Unprotect(' +
+      '$protected, $null, [Security.Cryptography.DataProtectionScope]::CurrentUser)',
+    '[Console]::Out.Write([Convert]::ToBase64String($plain))',
+  ].join('; ');
+
+  const executable = (await exists(powershellPath)) ? powershellPath : 'powershell.exe';
+  const stdout = await runWithInput(
+    executable,
+    ['-NoProfile', '-NonInteractive', '-Command', script],
+    `${dpapiKey}\n`,
+  );
+  const key = Buffer.from(stdout, 'base64');
+  // DPAPI 解出的 Chromium 主密钥固定 32 字节；长度不对说明 stdout 里混进了别的
+  // 东西（PowerShell 横幅、profile 输出），继续往下走只会在 AES 那步报一个更
+  // 难懂的错。
+  if (key.length !== 32) {
+    throw new Error(
+      `DPAPI 解密返回了 ${key.length} 字节的密钥（期望 32 字节），` +
+        `PowerShell 输出可能混入了额外内容`,
+    );
+  }
+  return key;
 }
 
 function decryptChromiumCookie(
@@ -437,27 +506,57 @@ function readChromiumRows(database: Database.Database): {
   return { rows, version: Number(versionRow?.value ?? 0) };
 }
 
+/** cookie 值的加密前缀，`plain` 表示该行本来就是明文。 */
+function encryptionPrefix(row: z.infer<typeof chromiumRowSchema>): string {
+  if (row.value) return 'plain';
+  if (row.encrypted_value.length === 0) return 'empty';
+  return row.encrypted_value.subarray(0, 3).toString('ascii');
+}
+
 async function readChromiumCookies(
   databasePath: string,
   definition: ChromiumDefinition,
   platform: SupportedPlatform,
+  environment: NodeJS.ProcessEnv,
+  logger: AppLogger,
 ): Promise<{ cookies: CookiesSetDetails[]; failed: number }> {
   const { rows, version } = await withDatabaseCopy(databasePath, readChromiumRows);
   const relevantRows = rows.filter((row) => isSupportedCookieDomain(row.host_key));
-  const onlyAppBoundValues =
-    relevantRows.length > 0 &&
-    relevantRows.every(
-      (row) => !row.value && row.encrypted_value.subarray(0, 3).toString('ascii') === 'v20',
-    );
-  if (onlyAppBoundValues) {
+
+  /**
+   * 加密格式分布是排查这条链路的第一手材料：它一次性回答「库里有没有我们要的
+   * cookie」「是不是全被应用绑定加密挡住了」「要不要动用 DPAPI」三个问题。
+   * 只统计前缀与条数，不含任何 cookie 值。
+   */
+  const prefixCounts: Record<string, number> = {};
+  for (const row of relevantRows) {
+    const prefix = encryptionPrefix(row);
+    prefixCounts[prefix] = (prefixCounts[prefix] ?? 0) + 1;
+  }
+  logger.info('Chromium cookie database inspected', {
+    source: definition.id,
+    databasePath,
+    schemaVersion: version,
+    totalRows: rows.length,
+    relevantRows: relevantRows.length,
+    encryptionPrefixes: prefixCounts,
+  });
+
+  const appBoundRows = relevantRows.filter((row) => encryptionPrefix(row) === 'v20').length;
+  if (appBoundRows > 0 && appBoundRows === relevantRows.length) {
     throw new Error(
       `${definition.name} 已启用 Windows 应用绑定加密，系统不允许其他应用直接读取 Cookie`,
     );
   }
+
   const needsDecryption = relevantRows.some((row) => !row.value && row.encrypted_value.length > 0);
-  const key = needsDecryption ? await chromiumPassword(definition, platform, databasePath) : null;
+  const key = needsDecryption
+    ? await chromiumPassword(definition, platform, databasePath, environment)
+    : null;
   const cookies: CookiesSetDetails[] = [];
   let failed = 0;
+  /** 逐行失败的原因分布——同样只记原因，不记 cookie 名与值。 */
+  const failureReasons: Record<string, number> = {};
   for (const row of relevantRows) {
     try {
       let value = row.value;
@@ -478,10 +577,34 @@ async function readChromiumCookies(
           sameSite: chromiumSameSite(row.samesite),
         }),
       );
-    } catch {
+    } catch (error: unknown) {
       failed += 1;
+      const reason = error instanceof Error ? error.message : String(error);
+      failureReasons[reason] = (failureReasons[reason] ?? 0) + 1;
     }
   }
+
+  /**
+   * 部分行解不开时给出明确结论，而不是静默计入 `failed`。最常见的情形是
+   * Chrome/Edge 127+ 的**新旧混合库**：老 cookie 还是 v10，新写入的是 v20，
+   * 于是 `appBoundRows === relevantRows.length` 不成立，走不到上面那条提示，
+   * 用户只会看到「导入了 N 个」却依然登录不上——真正需要的那几条恰恰在 v20 里。
+   */
+  if (failed > 0) {
+    logger.warn('Some Chromium cookies could not be decrypted', {
+      source: definition.id,
+      decrypted: cookies.length,
+      failed,
+      appBoundRows,
+      failureReasons,
+    });
+  }
+  if (cookies.length === 0 && failed > 0 && appBoundRows > 0) {
+    throw new Error(
+      `${definition.name} 已启用 Windows 应用绑定加密，系统不允许其他应用直接读取 Cookie`,
+    );
+  }
+
   return { cookies, failed };
 }
 
@@ -622,9 +745,13 @@ export class BrowserCookieImporter {
       });
       return { cookiesByChannel, failed };
     } catch (error: unknown) {
+      // 只记 errorName 等于什么都没说：这条路径抛的几乎全是裸 `new Error(...)`，
+      // name 恒为 'Error'。用 safeLogErrorDetails 一并落 message 与 stack，它自带
+      // 脱敏，不会把 cookie 值写进日志。
       this.logger.error('Cookie extraction failed', {
         source: sourceId,
-        errorName: error instanceof Error ? error.name : 'UnknownError',
+        platform: this.platform,
+        error: safeLogErrorDetails(error),
       });
       throw error;
     }
@@ -654,6 +781,12 @@ export class BrowserCookieImporter {
     if (!definition) throw new Error('当前系统不支持所选浏览器');
     const databasePath = await findChromiumDefinitionDatabase(definition);
     if (!databasePath) throw new Error(`未找到 ${definition.name} Cookie 数据`);
-    return readChromiumCookies(databasePath, definition, this.platform);
+    return readChromiumCookies(
+      databasePath,
+      definition,
+      this.platform,
+      this.environment,
+      this.logger,
+    );
   }
 }

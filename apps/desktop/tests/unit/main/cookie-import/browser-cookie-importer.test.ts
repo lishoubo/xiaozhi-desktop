@@ -246,11 +246,19 @@ describe('BrowserCookieImporter', () => {
     await expect(importer.readCookies('firefox')).rejects.toThrow(
       '未找到 Mozilla Firefox Cookie 数据',
     );
+    // 只记 errorName 定位不了任何问题（真机上抛的几乎都是裸 Error，name 恒为
+    // 'Error'），所以 message 必须落盘。
     expect(logger.error).toHaveBeenCalledWith('Cookie extraction failed', {
       source: 'firefox',
-      errorName: 'Error',
+      platform: 'linux',
+      error: expect.objectContaining({
+        name: 'Error',
+        message: '未找到 Mozilla Firefox Cookie 数据',
+      }),
     });
-    expect(JSON.stringify(logger.error.mock.calls)).not.toContain(home);
+    // 现在会落 stack，里面必然含**本仓库源码**的路径，所以不再断言「不含 home」。
+    // 真正要守住的是用户数据：错误详情里不得出现 cookie 值。
+    expect(JSON.stringify(logger.error.mock.calls)).not.toContain('private-cookie-value');
   });
 });
 

@@ -1,3 +1,4 @@
+import { z } from 'zod';
 import { systemPreferencesSchema } from '../../shared/browser';
 import { IPC_CHANNELS } from '../../shared/ipc-channels';
 import type { ValidatedInvoke } from '../invoke';
@@ -7,5 +8,6 @@ export function createSystemApi(invoke: ValidatedInvoke) {
     getPreferences: () => invoke(systemPreferencesSchema, IPC_CHANNELS.system.getPreferences),
     setAutoLaunch: (enabled: boolean) =>
       invoke(systemPreferencesSchema, IPC_CHANNELS.system.setAutoLaunch, enabled),
+    openLogsDirectory: () => invoke(z.void(), IPC_CHANNELS.system.openLogsDirectory),
   });
 }

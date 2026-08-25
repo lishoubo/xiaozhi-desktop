@@ -5,7 +5,12 @@
  * 无法脱离 IPC 单独测试。搬到这里之后 handler 只剩边界职责。
  */
 import type { BrowserCookieSourceId, CookieImportResult } from '../../shared/browser';
-import type { AppLogger } from '../../shared/logging';
+import { DIAGNOSTICS_ENABLED } from '../../shared/diagnostics';
+import {
+  safeLogErrorDetails,
+  type AppLogger,
+  type SafeLogErrorDetails,
+} from '../../shared/logging';
 import type { BrowserCookieImporter } from '../cookie-import/browser-cookie-importer';
 import { friendlyCookieImportMessage } from '../cookie-import/cookie-import';
 import {
@@ -22,6 +27,25 @@ export type CookieImportServiceDependencies = Readonly<{
   userDataDir: string;
   logger: AppLogger;
 }>;
+
+/**
+ * 把错误压成一行给界面看的诊断串：`Error: 消息 @ 抛出点`。
+ *
+ * 只取堆栈第一帧——内测同学是截图发过来的，整段堆栈既看不清也没必要；
+ * 第一帧足以定位到具体哪一步失败。
+ */
+function diagnosticText(details: SafeLogErrorDetails): string {
+  const frame = details.stack
+    ?.split('\n')
+    .slice(1)
+    .map((line) => line.trim())
+    .find((line) => line.startsWith('at '));
+  const head = `${details.name}: ${details.message}`;
+  const withCause = details.cause
+    ? `${head} ← ${details.cause.name}: ${details.cause.message}`
+    : head;
+  return (frame ? `${withCause} @ ${frame}` : withCause).slice(0, 4_096);
+}
 
 export class CookieImportService {
   constructor(private readonly deps: CookieImportServiceDependencies) {}
@@ -67,11 +91,17 @@ export class CookieImportService {
       });
       return { imported, failed: readFailures };
     } catch (error) {
+      const details = safeLogErrorDetails(error);
       this.deps.logger.warn('Cookie import could not be completed', {
         source: typeof sourceId === 'string' ? sourceId : 'unknown',
-        errorName: error instanceof Error ? error.name : 'UnknownError',
+        error: details,
       });
-      return { imported: 0, failed: 0, error: friendlyCookieImportMessage(error) };
+      return {
+        imported: 0,
+        failed: 0,
+        error: friendlyCookieImportMessage(error),
+        ...(DIAGNOSTICS_ENABLED ? { diagnostic: diagnosticText(details) } : {}),
+      };
     }
   }
 }

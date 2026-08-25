@@ -87,5 +87,6 @@ export const IPC_CHANNELS = {
   system: {
     getPreferences: 'system:get-preferences',
     setAutoLaunch: 'system:set-auto-launch',
+    openLogsDirectory: 'system:open-logs-directory',
   },
 } as const;

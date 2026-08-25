@@ -36,7 +36,10 @@
       {/if}
       <AlertTitle>{notification.title}</AlertTitle>
       <AlertDescription class="pr-7">
-        <span>{notification.message}</span>
+        <!-- `whitespace-pre-wrap`：内测诊断详情靠换行分段（见 CookieImportDialog），
+             默认的 HTML 空白折叠会把它挤成一整坨。`break-words` 兜住 powershell
+             报错里的长路径，避免撑破卡片。 -->
+        <span class="block break-words whitespace-pre-wrap">{notification.message}</span>
         {#if notification.action}
           {@const action = notification.action}
           <Button

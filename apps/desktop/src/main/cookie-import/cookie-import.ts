@@ -51,5 +51,15 @@ export function friendlyCookieImportMessage(error: unknown): string {
   ) {
     return '无法读取浏览器 Cookie，请允许访问后重试';
   }
+  /**
+   * Windows 上解 Chromium 主密钥要经 PowerShell 调 DPAPI，这条路失败的表现是
+   * `Command failed: ...powershell.exe` 或 `spawn powershell.exe ENOENT`——两者
+   * 都不含上面任何一个关键词，此前只能落到最后的兜底文案，用户与我们都看不出
+   * 是哪一步出的问题。放在权限分支**之后**：DPAPI 也可能因权限被拒，那种情况
+   * 让更具体的权限提示先命中。
+   */
+  if (/powershell|dpapi|protecteddata/i.test(message)) {
+    return '无法解密浏览器 Cookie，请确认使用的是当前 Windows 账户登录的浏览器';
+  }
   return 'Cookie 导入失败，请稍后重试';
 }

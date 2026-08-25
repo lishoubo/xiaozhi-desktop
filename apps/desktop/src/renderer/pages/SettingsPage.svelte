@@ -2,11 +2,13 @@
   import { onMount } from 'svelte';
   import log from 'electron-log/renderer';
   import Cookie from '@lucide/svelte/icons/cookie';
+  import FileText from '@lucide/svelte/icons/file-text';
   import MonitorUp from '@lucide/svelte/icons/monitor-up';
   import Settings2 from '@lucide/svelte/icons/settings-2';
   import { enter, PAGE_ENTER_OPTIONS } from '../motion';
   import type { SystemPreferences } from '../../shared/browser';
   import CookieLoginListDialog from '../components/browser/CookieLoginListDialog.svelte';
+  import { Button } from '$lib/components/ui/button';
   import { dismissAppNotification, showAppNotification } from '../notifications';
 
   let preferences = $state<SystemPreferences | null>(null);
@@ -40,6 +42,18 @@
       showSettingsError('设置保存失败，请重试。');
     } finally {
       savingAutoLaunch = false;
+    }
+  }
+
+  async function openLogsDirectory(): Promise<void> {
+    try {
+      await window.hotelButler.system.openLogsDirectory();
+      dismissAppNotification('settings-error');
+    } catch (reason) {
+      log.warn('Logs directory could not be opened', {
+        errorName: reason instanceof Error ? reason.name : 'UnknownError',
+      });
+      showSettingsError('打开日志目录失败，请重试。');
     }
   }
 
@@ -91,6 +105,20 @@
             Cookie
           </span>
           <CookieLoginListDialog />
+        </div>
+        <div class="flex items-center justify-between gap-6 px-6 py-4">
+          <span class="flex flex-col gap-1 text-sm">
+            <span class="flex items-center gap-3">
+              <FileText size={17} class="text-muted-foreground" />
+              运行日志
+            </span>
+            <span class="pl-[29px] text-xs text-muted-foreground"
+              >反馈问题时，请把该目录下的 main.log 一并提供</span
+            >
+          </span>
+          <Button variant="outline" size="sm" onclick={() => void openLogsDirectory()}>
+            打开日志目录
+          </Button>
         </div>
       </div>
     </section>

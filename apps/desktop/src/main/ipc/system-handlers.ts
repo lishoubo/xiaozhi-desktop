@@ -10,6 +10,7 @@ const noArgumentsSchema = z.tuple([]);
 export interface SystemOrchestrator {
   getPreferences(): SystemPreferences;
   setAutoLaunch(enabled: boolean): SystemPreferences;
+  openLogsDirectory(): Promise<void>;
 }
 
 type RegisterSystemHandlersOptions = Readonly<{
@@ -33,6 +34,9 @@ export function registerSystemHandlers({
     z.tuple([z.boolean()]),
     '开机启动设置无效',
     (enabled) => service.setAutoLaunch(enabled),
+  );
+  registry.handle(IPC_CHANNELS.system.openLogsDirectory, noArgumentsSchema, '请求参数无效', () =>
+    service.openLogsDirectory(),
   );
 
   return () => registry.dispose();
