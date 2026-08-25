@@ -35,6 +35,7 @@
     currentLoginCredential,
     type LoginCredentialOption,
   } from './login-credential-options';
+  import channelLoginIllustrationUrl from '../../assets/channel-login-illustration.png';
 
   const COOKIE_PROMPT_KEY = 'hotel-butler.cookie-import-prompted';
   // 顶部入口只列已接通监听与探测的渠道；`OTA_CHANNELS` 仍是完整字典，负责把历史
@@ -410,21 +411,21 @@
 </script>
 
 <main
-  class="grid h-full min-h-0 grid-rows-[64px_64px_minmax(0,1fr)] bg-background"
+  class="grid h-full min-h-0 grid-rows-[74px_72px_minmax(0,1fr)] bg-background"
   data-motion="page"
   in:enter={{ ...PAGE_ENTER_OPTIONS, y: 0 }}
 >
   <nav
-    class="flex min-w-0 items-center gap-1 overflow-x-auto border-b border-border bg-muted px-4"
+    class="flex min-w-0 items-center gap-3 overflow-x-auto border-b border-[#e9edf0] bg-white px-5"
     aria-label="OTA 快捷入口"
   >
     {#each workspaceChannels as channel (channel.id)}
       <button
         class={[
-          'flex h-10 shrink-0 items-center justify-center gap-[7px] rounded-lg border px-2.5 text-sm font-medium whitespace-nowrap transition-[background-color,border-color,color,box-shadow] duration-150 ease-out motion-reduce:transition-none',
+          'flex h-[46px] min-w-[132px] shrink-0 items-center justify-center gap-2 rounded-[9px] border px-3 text-sm font-medium whitespace-nowrap shadow-xs transition-[background-color,border-color,color] duration-150 ease-out',
           activeChannelId === channel.id
-            ? 'border-border bg-card text-foreground shadow-sm'
-            : 'border-transparent text-muted-foreground hover:bg-background hover:text-foreground',
+            ? 'border-[#58bdb8] bg-[#edf8f7] text-[#078f8a]'
+            : 'border-[#e1e5e9] bg-white text-[#596576] hover:border-[#acd3d1] hover:bg-[#f7fbfa]',
         ]}
         type="button"
         aria-label={channel.name}
@@ -439,7 +440,7 @@
   </nav>
 
   <div
-    class="grid min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 border-b border-border bg-background px-4"
+    class="grid min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-3 border-b border-[#edf0f2] bg-background px-5"
   >
     <nav class="flex shrink-0 items-center gap-1" aria-label="页面控制">
       <Button
@@ -492,7 +493,7 @@
     </nav>
 
     <div
-      class="flex h-10 min-w-0 items-center rounded-lg bg-muted p-1"
+      class="flex h-11 min-w-0 items-center rounded-[10px] border border-[#e0e5e9] bg-[#f7f9fa] p-1 shadow-[0_1px_2px_rgba(16,24,40,.025)]"
       role="group"
       aria-label="页面标签区"
     >
@@ -578,7 +579,7 @@
 
     <div class="flex min-w-0 shrink-0 items-center gap-2" aria-label="当前登录账号">
       <div
-        class="grid h-9 w-[clamp(136px,15vw,196px)] grid-cols-[28px_minmax(0,1fr)_28px] items-center rounded-md border border-[var(--brand-green-deep)] bg-card px-1.5 text-sm text-foreground shadow-xs"
+        class="grid h-10 w-[clamp(150px,16vw,214px)] grid-cols-[28px_minmax(0,1fr)_28px] items-center rounded-[9px] border border-[#dbe2e9] bg-card px-1.5 text-[13px] text-foreground shadow-xs transition-colors hover:border-[#9bd7d4]"
         title={activeCredential?.label ?? activeChannel?.name ?? '未选择渠道'}
       >
         <span aria-hidden="true"></span>
@@ -616,13 +617,23 @@
     </div>
   </div>
 
-  <section class="relative min-h-0 bg-secondary" {@attach browserViewport} data-browser-viewport>
+  <section class="relative min-h-0 bg-[#f6f8f9]" {@attach browserViewport} data-browser-viewport>
     {#if !activeTab}
       <div
-        class="grid h-full place-items-center text-sm text-muted-foreground"
+        class="flex h-full flex-col items-center justify-center px-8 text-center"
         transition:enter={SURFACE_TRANSITION_OPTIONS}
       >
-        {cookiePrompt ? '导入 Cookie 后开始使用' : '点击右上角账号按钮选择登录账号'}
+        <img
+          class="mb-1 h-[190px] w-[330px] max-w-full object-contain saturate-[.78]"
+          src={channelLoginIllustrationUrl}
+          alt="浏览器安全登录插画"
+        />
+        <h2 class="m-0 text-[21px] font-semibold tracking-[-0.025em]">选择上方渠道，开始登录</h2>
+        <p class="mt-3 mb-0 text-sm text-muted-foreground">
+          {cookiePrompt
+            ? '可先导入浏览器登录信息，再选择账号开始使用'
+            : '选择右上角账号后，系统将自动同步渠道登录状态'}
+        </p>
       </div>
     {/if}
   </section>
@@ -633,7 +644,7 @@
 
 {#if cookiePrompt}
   <aside
-    class="fixed right-6 bottom-6 z-40 w-[340px] rounded-lg border border-border bg-card p-5 shadow-xl"
+    class="fixed right-6 bottom-6 z-40 w-[340px] rounded-[12px] border border-[#c9e5e3] bg-[#f2faf9] p-5 shadow-[0_12px_30px_rgba(16,24,40,.1)]"
     aria-live="polite"
     transition:enter={SURFACE_TRANSITION_OPTIONS}
   >

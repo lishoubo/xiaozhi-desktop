@@ -2,7 +2,7 @@
   import type { StaffIdentity } from '@hotel-butler/api';
   import { onDestroy } from 'svelte';
   import { enter, PAGE_ENTER_OPTIONS } from '../motion';
-  import AgentAvatar from '../components/agent/AgentAvatar.svelte';
+  import LoginBrandPanel from '../components/auth/LoginBrandPanel.svelte';
   import * as Dialog from '$lib/components/ui/dialog';
   import { dismissAppNotification, showAppNotification } from '../notifications';
 
@@ -137,208 +137,179 @@
 </script>
 
 <main
-  class="grid h-full grid-cols-[minmax(420px,0.95fr)_minmax(480px,1.05fr)] bg-background"
+  class="grid h-full grid-rows-[54px_minmax(0,1fr)] overflow-hidden bg-[radial-gradient(circle_at_43%_56%,rgba(64,219,207,.1),transparent_29%),linear-gradient(122deg,#fbfdfe_0%,#f4fbfc_48%,#f8fcfd_100%)]"
   data-motion="page"
   in:enter={PAGE_ENTER_OPTIONS}
 >
-  <section
-    class="relative overflow-hidden bg-gradient-to-br from-[#1a3d4a] via-[#244f4d] to-[#2d5a4f]"
-    aria-label="小智AI 管家"
+  <header
+    class="flex items-center justify-center border-b border-[#c6cfd7]/70 bg-[#f8f9fa]/90 text-[14px] font-medium tracking-[0.08em] text-[#768292] backdrop-blur-xl"
   >
-    <div
-      class="absolute -top-20 -left-24 size-80 rounded-full bg-[#00d4a4]/20 blur-3xl"
-      aria-hidden="true"
-    ></div>
-    <div
-      class="absolute top-20 right-14 size-16 rotate-6 rounded-xl border border-white/15 bg-[#7cebcb]/65 shadow-lg"
-      aria-hidden="true"
-    ></div>
-    <div
-      class="absolute right-20 bottom-20 size-11 -rotate-6 rounded-lg bg-[#f55a3c]/75 shadow-lg"
-      aria-hidden="true"
-    ></div>
-
-    <div class="relative z-10 flex h-full flex-col px-12 py-10 text-white">
-      <div class="flex items-center gap-3 text-sm font-semibold">
-        <span class="grid size-9 place-items-center rounded-lg bg-white text-[#0a0a0a]">智</span>
-        小智酒店管家
-      </div>
-
-      <div class="my-auto max-w-md">
-        <div class="flex gap-x-5 items-center">
-          <AgentAvatar size="lg" online motion="float" />
-          <h1 class="max-w-sm text-4xl leading-[1.18] font-semibold tracking-[-0.03em]">
-            小智 AI 酒店管家
-          </h1>
-        </div>
-        <p class="ml-2 mt-3 mb-0 max-w-sm text-sm leading-7 text-white/65">
-          酒店渠道管理、运营事项处理，任何事情请和小智聊聊。
-        </p>
-      </div>
-
-      <p class="m-0 text-xs text-white/45">酒店渠道聚合管理工作台</p>
-    </div>
-  </section>
-
-  <section
-    class="relative grid place-items-center overflow-hidden overflow-y-auto bg-muted/40 px-12 py-10"
-    aria-label="登录区域"
+    小智管家
+  </header>
+  <div
+    class="grid min-h-0 grid-cols-[minmax(0,62%)_minmax(420px,38%)] max-[1040px]:grid-cols-[48%_52%]"
   >
-    <div
-      class="absolute -top-28 -right-24 size-80 rounded-full bg-[#00d4a4]/8 blur-3xl"
-      aria-hidden="true"
-    ></div>
-    <div
-      class="absolute -bottom-24 left-8 size-64 rounded-full bg-[#87a8c8]/10 blur-3xl"
-      aria-hidden="true"
-    ></div>
-    <form
-      class="relative z-10 w-full max-w-[440px] rounded-lg border border-border bg-card p-9 shadow-[var(--shadow-float)]"
-      onsubmit={(event) => {
-        event.preventDefault();
-        void (userType === 'hotel' ? submitPhone() : submitPassword());
-      }}
+    <LoginBrandPanel />
+    <section
+      class="relative grid place-items-center overflow-y-auto px-[clamp(28px,4vw,68px)] py-10"
+      aria-label="登录区域"
     >
-      <h2 class="sr-only">登录</h2>
+      <form
+        class="relative z-10 w-full max-w-[500px] rounded-[18px] border border-white/90 bg-white/95 px-[clamp(32px,4vw,50px)] py-9 shadow-[0_18px_46px_rgba(60,95,112,.13),0_2px_10px_rgba(76,113,130,.05)] backdrop-blur-xl"
+        onsubmit={(event) => {
+          event.preventDefault();
+          void (userType === 'hotel' ? submitPhone() : submitPassword());
+        }}
+      >
+        <h2 class="sr-only">登录</h2>
 
-      <div class="mb-6 flex justify-end" role="tablist" aria-label="选择用户类型">
-        <div class="inline-flex rounded-lg border border-border bg-muted/60 p-0.5 text-xs">
-          <button
-            class={[
-              'rounded-md px-3 py-1.5 font-medium transition-colors duration-150 ease-out motion-reduce:transition-none',
-              userType === 'hotel'
-                ? 'bg-card text-foreground shadow-sm'
-                : 'text-muted-foreground hover:text-foreground',
-            ]}
-            type="button"
-            role="tab"
-            aria-selected={userType === 'hotel'}
-            onclick={() => switchTo('hotel')}
-          >
-            酒店用户
-          </button>
-          <button
-            class={[
-              'rounded-md px-3 py-1.5 font-medium transition-colors duration-150 ease-out motion-reduce:transition-none',
-              userType === 'staff'
-                ? 'bg-card text-foreground shadow-sm'
-                : 'text-muted-foreground hover:text-foreground',
-            ]}
-            type="button"
-            role="tab"
-            aria-selected={userType === 'staff'}
-            onclick={() => switchTo('staff')}
-          >
-            服务商用户
-          </button>
-        </div>
-      </div>
-
-      {#if userType === 'hotel'}
-        <label class="mb-5 block text-sm font-medium">
-          手机号
-          <input
-            class="mt-2 h-11 w-full rounded-md border border-input bg-background px-3.5 transition-[border-color,box-shadow] duration-150 ease-out outline-none focus:border-ring focus:ring-3 focus:ring-ring/15 motion-reduce:transition-none"
-            aria-label="手机号"
-            autocomplete="tel"
-            inputmode="numeric"
-            maxlength="11"
-            bind:value={phone}
-          />
-        </label>
-
-        <label class="mb-5 block text-sm font-medium">
-          验证码
-          <div class="mt-2 grid grid-cols-[minmax(0,1fr)_128px] gap-2">
-            <input
-              class="h-11 min-w-0 rounded-md border border-input bg-background px-3.5 transition-[border-color,box-shadow] duration-150 ease-out outline-none focus:border-ring focus:ring-3 focus:ring-ring/15 motion-reduce:transition-none"
-              aria-label="验证码"
-              autocomplete="one-time-code"
-              inputmode="numeric"
-              maxlength="6"
-              bind:value={code}
-            />
+        <div
+          class="mb-8 grid grid-cols-2 border-b border-[#e0e5ea]"
+          role="tablist"
+          aria-label="选择用户类型"
+        >
+          <div class="contents text-sm">
             <button
-              class="rounded-md border border-input bg-background px-3 text-sm font-medium whitespace-nowrap transition-colors duration-150 ease-out hover:bg-muted motion-reduce:transition-none disabled:text-muted-foreground"
+              class={[
+                'relative h-12 px-3 font-medium transition-colors duration-150',
+                userType === 'hotel'
+                  ? 'text-[#0c9f9d] after:absolute after:inset-x-1 after:bottom-[-1px] after:h-0.5 after:rounded-full after:bg-[#14a7a5]'
+                  : 'text-[#9aa3af] hover:text-[#60707d]',
+              ]}
               type="button"
-              disabled={resendSeconds > 0 || requestingCode}
-              onclick={() => void requestCode()}
+              role="tab"
+              aria-selected={userType === 'hotel'}
+              onclick={() => switchTo('hotel')}
             >
-              {requestingCode
-                ? '发送中…'
-                : resendSeconds > 0
-                  ? `${resendSeconds}s 后重发`
-                  : '获取验证码'}
+              酒店用户
+            </button>
+            <button
+              class={[
+                'relative h-12 px-3 font-medium transition-colors duration-150',
+                userType === 'staff'
+                  ? 'text-[#0c9f9d] after:absolute after:inset-x-1 after:bottom-[-1px] after:h-0.5 after:rounded-full after:bg-[#14a7a5]'
+                  : 'text-[#9aa3af] hover:text-[#60707d]',
+              ]}
+              type="button"
+              role="tab"
+              aria-selected={userType === 'staff'}
+              onclick={() => switchTo('staff')}
+            >
+              服务商用户
             </button>
           </div>
-          {#if codeExpired}
-            <span class="mt-2 block text-xs font-normal text-destructive">
-              验证码已过期，请重新获取
+        </div>
+
+        {#if userType === 'hotel'}
+          <label class="mb-5 block text-sm font-medium">
+            手机号
+            <input
+              class="mt-2 h-[52px] w-full rounded-[10px] border border-[#d8dfe6] bg-white px-4 text-sm outline-none transition-[border-color,box-shadow] focus:border-[#14a7a5] focus:ring-3 focus:ring-[#14a7a5]/10"
+              placeholder="请输入手机号"
+              aria-label="手机号"
+              autocomplete="tel"
+              inputmode="numeric"
+              maxlength="11"
+              bind:value={phone}
+            />
+          </label>
+
+          <label class="mb-5 block text-sm font-medium">
+            验证码
+            <div class="mt-2 grid grid-cols-[minmax(0,1fr)_128px] gap-2">
+              <input
+                class="h-[52px] min-w-0 rounded-[10px] border border-[#d8dfe6] bg-white px-4 text-sm outline-none transition-[border-color,box-shadow] focus:border-[#14a7a5] focus:ring-3 focus:ring-[#14a7a5]/10"
+                placeholder="请输入验证码"
+                aria-label="验证码"
+                autocomplete="one-time-code"
+                inputmode="numeric"
+                maxlength="6"
+                bind:value={code}
+              />
+              <button
+                class="rounded-[10px] border border-[#d8dfe6] bg-white px-3 text-sm font-medium whitespace-nowrap text-[#11a19f] transition-colors hover:border-[#8bd4d1] hover:bg-[#f1fbfa] disabled:bg-[#f7f8f9] disabled:text-[#b8c0c8]"
+                type="button"
+                disabled={resendSeconds > 0 || requestingCode}
+                onclick={() => void requestCode()}
+              >
+                {requestingCode
+                  ? '发送中…'
+                  : resendSeconds > 0
+                    ? `${resendSeconds}s 后重发`
+                    : '获取验证码'}
+              </button>
+            </div>
+            {#if codeExpired}
+              <span class="mt-2 block text-xs font-normal text-destructive">
+                验证码已过期，请重新获取
+              </span>
+            {/if}
+          </label>
+
+          <label class="flex items-start gap-2.5 text-sm leading-5 text-muted-foreground">
+            <input
+              class="mt-1 accent-[#00b48a]"
+              type="checkbox"
+              bind:checked={agreed}
+              aria-label="我已阅读并同意用户协议与隐私政策"
+            />
+            <span>
+              我已阅读并同意
+              <button
+                class="text-foreground underline decoration-border underline-offset-4 hover:decoration-foreground"
+                type="button"
+                onclick={() => openPolicy('agreement')}>《用户协议》</button
+              >
+              和
+              <button
+                class="text-foreground underline decoration-border underline-offset-4 hover:decoration-foreground"
+                type="button"
+                onclick={() => openPolicy('privacy')}>《隐私政策》</button
+              >
             </span>
-          {/if}
-        </label>
+          </label>
+        {:else}
+          <label class="mb-5 block text-sm font-medium">
+            用户名
+            <input
+              class="mt-2 h-[52px] w-full rounded-[10px] border border-[#d8dfe6] bg-white px-4 text-sm outline-none transition-[border-color,box-shadow] focus:border-[#14a7a5] focus:ring-3 focus:ring-[#14a7a5]/10"
+              placeholder="请输入用户名"
+              aria-label="用户名"
+              autocomplete="username"
+              maxlength="64"
+              bind:value={username}
+            />
+          </label>
 
-        <label class="flex items-start gap-2.5 text-sm leading-5 text-muted-foreground">
-          <input
-            class="mt-1 accent-[#00b48a]"
-            type="checkbox"
-            bind:checked={agreed}
-            aria-label="我已阅读并同意用户协议与隐私政策"
-          />
-          <span>
-            我已阅读并同意
-            <button
-              class="text-foreground underline decoration-border underline-offset-4 hover:decoration-foreground"
-              type="button"
-              onclick={() => openPolicy('agreement')}>《用户协议》</button
-            >
-            和
-            <button
-              class="text-foreground underline decoration-border underline-offset-4 hover:decoration-foreground"
-              type="button"
-              onclick={() => openPolicy('privacy')}>《隐私政策》</button
-            >
-          </span>
-        </label>
-      {:else}
-        <label class="mb-5 block text-sm font-medium">
-          用户名
-          <input
-            class="mt-2 h-11 w-full rounded-md border border-input bg-background px-3.5 transition-[border-color,box-shadow] duration-150 ease-out outline-none focus:border-ring focus:ring-3 focus:ring-ring/15 motion-reduce:transition-none"
-            aria-label="用户名"
-            autocomplete="username"
-            maxlength="64"
-            bind:value={username}
-          />
-        </label>
+          <label class="mb-5 block text-sm font-medium">
+            密码
+            <input
+              class="mt-2 h-[52px] w-full rounded-[10px] border border-[#d8dfe6] bg-white px-4 text-sm outline-none transition-[border-color,box-shadow] focus:border-[#14a7a5] focus:ring-3 focus:ring-[#14a7a5]/10"
+              placeholder="请输入密码"
+              aria-label="密码"
+              type="password"
+              autocomplete="current-password"
+              maxlength="128"
+              bind:value={password}
+            />
+          </label>
+        {/if}
 
-        <label class="mb-5 block text-sm font-medium">
-          密码
-          <input
-            class="mt-2 h-11 w-full rounded-md border border-input bg-background px-3.5 transition-[border-color,box-shadow] duration-150 ease-out outline-none focus:border-ring focus:ring-3 focus:ring-ring/15 motion-reduce:transition-none"
-            aria-label="密码"
-            type="password"
-            autocomplete="current-password"
-            maxlength="128"
-            bind:value={password}
-          />
-        </label>
-      {/if}
-
-      <button
-        class="mt-6 h-11 w-full rounded-full bg-primary text-sm font-medium text-primary-foreground shadow-xs transition-colors duration-150 ease-out hover:bg-[#1c1c1e] motion-reduce:transition-none"
-        type="submit"
-        disabled={loggingIn}
-      >
-        {loggingIn ? '正在登录…' : '登录'}
-      </button>
-      <p class="mt-4 text-center text-xs text-muted-foreground">
-        {userType === 'hotel'
-          ? '未注册的手机号首次登录将自动创建账号'
-          : '请使用您的员工账号登录，忘记密码请联系管理员'}
-      </p>
-    </form>
-  </section>
+        <button
+          class="mt-7 h-[56px] w-full rounded-[11px] bg-[linear-gradient(112deg,#45cec8,#20b6b2)] text-[17px] font-semibold tracking-[0.08em] text-white shadow-[0_10px_22px_rgba(27,177,173,.2)] transition-[filter,transform,box-shadow] hover:brightness-105 disabled:opacity-55"
+          type="submit"
+          disabled={loggingIn}
+        >
+          {loggingIn ? '正在登录…' : '登录'}
+        </button>
+        <p class="mt-4 text-center text-xs text-muted-foreground">
+          {userType === 'hotel'
+            ? '未注册的手机号首次登录将自动创建账号'
+            : '请使用您的员工账号登录，忘记密码请联系管理员'}
+        </p>
+      </form>
+    </section>
+  </div>
 </main>
 
 {#if policy}

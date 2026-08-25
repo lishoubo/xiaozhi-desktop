@@ -17,42 +17,46 @@
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   --background: #ffffff;
-  --foreground: #0a0a0a;
+  --foreground: #111827;
   --card: #ffffff;
-  --card-foreground: #0a0a0a;
+  --card-foreground: #111827;
   --popover: #ffffff;
-  --popover-foreground: #0a0a0a;
-  --primary: #0a0a0a;
+  --popover-foreground: #111827;
+  --primary: #0aa39d;
   --primary-foreground: #ffffff;
-  --secondary: #f7f7f7;
-  --secondary-foreground: #1c1c1e;
-  --muted: #f7f7f7;
-  --muted-foreground: #5a5a5c;
-  --accent: #e8fbf6;
-  --accent-foreground: #0a0a0a;
+  --secondary: #f6f8f9;
+  --secondary-foreground: #344054;
+  --muted: #f4f7f8;
+  --muted-foreground: #7d8898;
+  --accent: #eaf7f6;
+  --accent-foreground: #078f8a;
   --destructive: #d45656;
-  --border: #e5e5e5;
-  --input: #d4d4d4;
-  --ring: #00d4a4;
+  --border: #e4e9ee;
+  --input: #d8e0e8;
+  --ring: #14b8b0;
   --chart-1: #00b48a;
   --chart-2: #3772cf;
   --chart-3: #c37d0d;
   --chart-4: #f55a3c;
   --chart-5: #5a5a5c;
-  --radius: 0.75rem;
-  --sidebar: #fafafa;
-  --sidebar-foreground: #3a3a3c;
-  --sidebar-primary: #0a0a0a;
+  --radius: 0.7rem;
+  --sidebar: #fbfcfd;
+  --sidebar-foreground: #596576;
+  --sidebar-primary: #0aa39d;
   --sidebar-primary-foreground: #ffffff;
-  --sidebar-accent: #f0f0f0;
-  --sidebar-accent-foreground: #0a0a0a;
-  --sidebar-border: #e5e5e5;
-  --sidebar-ring: #00d4a4;
-  --brand-green: #00d4a4;
-  --brand-green-deep: #00b48a;
-  --brand-green-soft: #7cebcb;
+  --sidebar-accent: #eaf7f6;
+  --sidebar-accent-foreground: #078f8a;
+  --sidebar-border: #e9edf0;
+  --sidebar-ring: #14b8b0;
+  --brand-green: #14b8b0;
+  --brand-green-deep: #0aa39d;
+  --brand-green-soft: #89ddd8;
   --surface-code: #1c1c1e;
-  --shadow-float: 0 16px 48px -20px rgb(10 10 10 / 0.28);
+  --app-canvas: #f5f7f8;
+  --surface-soft: #f8fafb;
+  --teal-soft: #eef9f8;
+  --shadow-float: 0 1px 2px rgb(16 24 40 / 0.03), 0 16px 42px rgb(16 24 40 / 0.08);
+  --shadow-card: 0 1px 2px rgb(16 24 40 / 0.025), 0 10px 28px rgb(16 24 40 / 0.045);
 }
 
 * {
@@ -68,6 +72,10 @@ body {
 
 body {
   overflow: hidden;
+  color: var(--foreground);
+  background: var(--app-canvas);
+  letter-spacing: -0.012em;
+  -webkit-font-smoothing: antialiased;
 }
 
 button,
@@ -75,6 +83,21 @@ input,
 textarea,
 select {
   font: inherit;
+  letter-spacing: -0.01em;
+}
+
+button:not(:disabled) {
+  cursor: pointer;
+}
+
+::selection {
+  color: #073b39;
+  background: #bfeeea;
+}
+
+* {
+  scrollbar-color: #cbd5dc transparent;
+  scrollbar-width: thin;
 }
 
 #app {
