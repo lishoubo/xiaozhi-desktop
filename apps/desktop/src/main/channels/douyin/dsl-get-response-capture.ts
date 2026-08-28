@@ -18,7 +18,7 @@
  *    前后的引号天然带一个反斜杠，正则里把反斜杠设为可选以兼容）
  */
 import type { WebContents } from 'electron';
-import type { AppLogger } from '../../../shared/logging';
+import { safeLogErrorDetails, type AppLogger } from '../../../shared/logging';
 
 const DSL_GET_PATH = '/life/merchant/manager/v1/dsl/get';
 
@@ -161,7 +161,7 @@ export class DslGetResponseCapture {
       if (hotel && this.resolveHotel) this.resolveHotel(hotel);
     } catch (error) {
       this.logger.warn('Douyin discovery: failed to read dsl/get response body', {
-        errorName: error instanceof Error ? error.name : 'UnknownError',
+        error: safeLogErrorDetails(error),
       });
     }
   }

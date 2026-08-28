@@ -1,5 +1,6 @@
 <script lang="ts">
   import log from 'electron-log/renderer';
+  import { errorFields } from '../../logging';
   import { tick } from 'svelte';
   import type { BrowserCookieSource, BrowserCookieSourceId } from '../../../shared/browser';
   import { enter, SURFACE_TRANSITION_OPTIONS } from '../../motion';
@@ -46,7 +47,7 @@
       selectedSourceId = sources[0]?.id ?? null;
     } catch (reason) {
       log.warn('Browser cookie sources could not be detected', {
-        errorName: reason instanceof Error ? reason.name : 'UnknownError',
+        ...errorFields(reason),
       });
       showAppNotification({
         id: 'cookie-sources-error',
@@ -67,6 +68,12 @@
       const result = await window.hotelButler.cookies.import(selectedSourceId);
       if (result.error) {
         step = 'select';
+        // 根因在 main 侧已有完整日志（cookie-import-service.ts）。这里补一条是为了
+        // 在同一份日志里标出"用户确实看到了这个弹窗"，以及是哪个浏览器源。
+        log.warn('Cookie import reported a failure to the user', {
+          source: selectedSourceId,
+          diagnostic: result.diagnostic ?? null,
+        });
         showAppNotification({
           id: 'cookie-import-error',
           title: 'Cookie 导入失败',
@@ -97,7 +104,7 @@
       await onComplete();
     } catch (reason) {
       log.warn('Cookie import request failed', {
-        errorName: reason instanceof Error ? reason.name : 'UnknownError',
+        ...errorFields(reason),
       });
       step = 'select';
       showAppNotification({

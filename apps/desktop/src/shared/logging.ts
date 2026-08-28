@@ -57,8 +57,16 @@ function redactValue(value: unknown, visited: WeakSet<object>): unknown {
     return redactText(value);
   }
 
+  /**
+   * 早先这里只留 `{ name }`，怕把错误里夹带的凭证写进日志。代价是 `name` 对绝大
+   * 多数错误恒为 `'Error'`，日志里只剩这一个词——2026-08-28 排查同事的 credential
+   * 报错时，26 处错误弹窗没有一处能从日志定位根因，就是这条兜底造成的。
+   *
+   * 改用 `serializeLogError`：它对 message / stack / cause 逐段 `redactText`，
+   * 脱敏强度和之前一致，但保住了定位所需的信息。
+   */
   if (value instanceof Error) {
-    return { name: value.name };
+    return serializeLogError(value, new Set(), 0);
   }
 
   if (Array.isArray(value)) {

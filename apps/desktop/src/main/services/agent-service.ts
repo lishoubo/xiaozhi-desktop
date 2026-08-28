@@ -14,7 +14,7 @@ import type {
   SubmitAgentClarificationInput,
   SubmitAgentClarificationResponse,
 } from '@hotel-butler/api';
-import type { AppLogger } from '../../shared/logging';
+import { safeLogErrorDetails, type AppLogger } from '../../shared/logging';
 
 export type AgentStreamEnvelope =
   | Readonly<{ kind: 'event'; event: AgentRunEvent }>
@@ -147,7 +147,7 @@ export class AgentService {
         conversationId: input.conversationId,
         requestKind: 'prompt' in input ? 'prompt' : 'quick_action',
         durationMs: Math.max(0, Math.round(performance.now() - startedAt)),
-        errorName: error instanceof Error ? error.name : 'UnknownError',
+        error: safeLogErrorDetails(error),
       });
       throw error;
     }
@@ -253,7 +253,7 @@ export class AgentService {
             runId,
             conversationId,
             durationMs: Math.max(0, Math.round(performance.now() - startedAt)),
-            errorName: error.name,
+            error: safeLogErrorDetails(error),
           });
           this.notify({
             kind: 'transport_error',
@@ -294,7 +294,7 @@ export class AgentService {
         event: 'agent.client.run.cancel_failed',
         runId,
         durationMs: Math.max(0, Math.round(performance.now() - startedAt)),
-        errorName: error instanceof Error ? error.name : 'UnknownError',
+        error: safeLogErrorDetails(error),
       });
       throw error;
     }

@@ -24,7 +24,7 @@
  * 在看的页面会被挪走。普通登录不带意图，因此一次都不探。
  */
 import { toChannelId, type ChannelId } from '../ids';
-import type { AppLogger } from '../../shared/logging';
+import { safeLogErrorDetails, type AppLogger } from '../../shared/logging';
 import type { TabCredentialCheckedEvent, TabEventBus } from '../ota-tab';
 import type { UiWaitingResultEnvelope } from '../../shared/types/ui-waiting-result-types';
 import type { HotelProbe } from './types';
@@ -67,7 +67,7 @@ export class HotelProbeDispatcher {
     } catch (error) {
       this.deps.logger.warn('Hotel probe failed', {
         channel: event.channel,
-        errorName: error instanceof Error ? error.name : 'UnknownError',
+        error: safeLogErrorDetails(error),
       });
       return;
     }

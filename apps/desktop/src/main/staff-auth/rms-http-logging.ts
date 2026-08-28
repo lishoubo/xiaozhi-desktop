@@ -1,4 +1,4 @@
-import type { AppLogger } from '../../shared/logging';
+import { safeLogErrorDetails, type AppLogger } from '../../shared/logging';
 
 type LoggedRmsFetchOptions = Readonly<{
   attempt: number;
@@ -54,7 +54,7 @@ export async function executeLoggedRmsFetch(options: LoggedRmsFetchOptions): Pro
     logger.error('RMS HTTP request failed', {
       ...context,
       durationMs: Math.max(0, Math.round(now() - startedAt)),
-      errorName: error instanceof Error ? error.name : 'UnknownError',
+      error: safeLogErrorDetails(error),
       event: 'rms.http.request.failed',
     });
     throw error;

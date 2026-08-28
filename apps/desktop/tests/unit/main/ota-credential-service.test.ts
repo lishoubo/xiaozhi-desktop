@@ -461,7 +461,10 @@ describe('OtaCredentialService', () => {
     );
     expect(deps.logger.warn).toHaveBeenCalledWith(
       'Replaced credential partition could not be retired',
-      { channel: meituanChannel, errorName: 'Error' },
+      {
+        channel: meituanChannel,
+        error: expect.objectContaining({ name: 'Error', message: 'clear failed' }),
+      },
     );
   });
 

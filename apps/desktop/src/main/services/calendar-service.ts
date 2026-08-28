@@ -10,7 +10,7 @@ import type {
   CalendarSnapshot,
 } from '../../shared/types/calendar';
 import type { CalendarRepository } from '../calendar/calendar-repository';
-import type { AppLogger } from '../../shared/logging';
+import { safeLogErrorDetails, type AppLogger } from '../../shared/logging';
 
 export type CalendarServiceDependencies = Readonly<{
   repository: CalendarRepository;
@@ -54,7 +54,7 @@ export class CalendarService {
     } catch (error) {
       this.deps.logger.error('Calendar persistence operation failed', {
         operation,
-        errorName: error instanceof Error ? error.name : 'UnknownError',
+        error: safeLogErrorDetails(error),
       });
       throw error;
     }

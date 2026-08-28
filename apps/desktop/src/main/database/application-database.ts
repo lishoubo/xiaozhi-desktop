@@ -1,5 +1,5 @@
 import Database from 'better-sqlite3';
-import type { AppLogger } from '../../shared/logging';
+import { safeLogErrorDetails, type AppLogger } from '../../shared/logging';
 import { chinaMainlandHolidaySeed } from '../calendar/china-holidays';
 import {
   HOTEL_OPERATIONS_MOCK_GROUP,
@@ -284,7 +284,7 @@ export function openApplicationDatabase(
     return database;
   } catch (error) {
     logger.error('Application database initialization failed', {
-      errorName: error instanceof Error ? error.name : 'UnknownError',
+      error: safeLogErrorDetails(error),
     });
     database.close();
     throw error;

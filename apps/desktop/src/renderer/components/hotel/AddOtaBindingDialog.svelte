@@ -7,6 +7,7 @@
    */
   import Plus from '@lucide/svelte/icons/plus';
   import log from 'electron-log/renderer';
+  import { errorFields } from '../../logging';
   import { push } from 'svelte-spa-router';
   import type { OtaCredentialDto } from '../../../shared/browser';
   import type { RmsHotelDto, RmsOtaAccountDto } from '../../../shared/hotel-management';
@@ -104,7 +105,7 @@
       await push('/');
     } catch (reason) {
       log.warn('Hotel binding could not be started', {
-        errorName: reason instanceof Error ? reason.name : 'UnknownError',
+        ...errorFields(reason),
       });
       showAppNotification({
         id: NOTIFICATION_ID,

@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import log from 'electron-log/renderer';
+  import { errorFields } from '../logging';
   import Cookie from '@lucide/svelte/icons/cookie';
   import FileText from '@lucide/svelte/icons/file-text';
   import MonitorUp from '@lucide/svelte/icons/monitor-up';
@@ -23,7 +24,7 @@
       })
       .catch((reason: unknown) => {
         log.warn('System preferences could not be loaded', {
-          errorName: reason instanceof Error ? reason.name : 'UnknownError',
+          ...errorFields(reason),
         });
         showSettingsError('设置读取失败，请重试。');
       });
@@ -37,7 +38,7 @@
       dismissAppNotification('settings-error');
     } catch (reason) {
       log.warn('Auto-launch preference could not be changed', {
-        errorName: reason instanceof Error ? reason.name : 'UnknownError',
+        ...errorFields(reason),
       });
       showSettingsError('设置保存失败，请重试。');
     } finally {
@@ -51,7 +52,7 @@
       dismissAppNotification('settings-error');
     } catch (reason) {
       log.warn('Logs directory could not be opened', {
-        errorName: reason instanceof Error ? reason.name : 'UnknownError',
+        ...errorFields(reason),
       });
       showSettingsError('打开日志目录失败，请重试。');
     }

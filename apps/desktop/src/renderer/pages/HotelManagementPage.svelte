@@ -5,6 +5,7 @@
   import Plus from '@lucide/svelte/icons/plus';
   import RefreshCw from '@lucide/svelte/icons/refresh-cw';
   import log from 'electron-log/renderer';
+  import { errorFields } from '../logging';
   import { onMount } from 'svelte';
   import { replace } from 'svelte-spa-router';
   import { Button } from '$lib/components/ui/button';
@@ -100,7 +101,7 @@
       dismissAppNotification('hotel-management-load-error');
     } catch (reason) {
       log.warn('Hotel management data could not be loaded', {
-        errorName: reason instanceof Error ? reason.name : 'UnknownError',
+        ...errorFields(reason),
       });
       // 静默刷新失败时保留旧数据：手上这份过时但可用，清空只会让用户什么都看不到。
       if (silent) {
@@ -152,7 +153,8 @@
       await loadHotelManagement();
     } catch (reason) {
       log.warn('OTA account unbind failed', {
-        errorName: reason instanceof Error ? reason.name : 'UnknownError',
+        otaAccountId: target.account.id,
+        ...errorFields(reason),
       });
       showAppNotification({
         id: 'hotel-unbind-error',

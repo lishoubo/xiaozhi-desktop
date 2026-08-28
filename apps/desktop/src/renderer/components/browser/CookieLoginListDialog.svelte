@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import log from 'electron-log/renderer';
+  import { errorFields } from '../../logging';
   import { push } from 'svelte-spa-router';
   import type { ImportedChannelSummary } from '../../../shared/browser';
   import { OTA_CHANNELS } from '../../data/ota-channels';
@@ -38,7 +39,7 @@
       summaries = await window.hotelButler.cookies.listImportedChannels();
     } catch (reason) {
       log.warn('Imported cookie channels could not be loaded', {
-        errorName: reason instanceof Error ? reason.name : 'UnknownError',
+        ...errorFields(reason),
       });
       summaries = [];
     } finally {
@@ -57,8 +58,10 @@
   });
 
   function reportFailure(message: string, reason: unknown): void {
+    // `busyChannel` 要到 `finally` 才清空，此刻仍是出错的那个渠道。
     log.warn('Cookie login list action failed', {
-      errorName: reason instanceof Error ? reason.name : 'UnknownError',
+      channelId: busyChannel,
+      ...errorFields(reason),
     });
     showAppNotification({
       id: 'cookie-login-list-error',

@@ -11,6 +11,7 @@
    */
   import Plus from '@lucide/svelte/icons/plus';
   import log from 'electron-log/renderer';
+  import { errorFields } from '../../logging';
   import { push } from 'svelte-spa-router';
   import type { OtaCredentialDto } from '../../../shared/browser';
   import type { RmsOtaAccountDto } from '../../../shared/hotel-management';
@@ -163,6 +164,12 @@
     // 远端记着账号标识，就必须能核对：选中的凭证自己没有标识时无从比对，主进程
     // 那边一定会拒绝——不如在这里说清楚。
     if (!credential.channelAccountId) {
+      // 没有 error 对象可记，但事后要回溯"是哪条凭证缺标识"只能靠这几个 ID。
+      log.warn('Reauth blocked: credential has no channel account id', {
+        credentialId: credential.id,
+        otaAccountId: target.account.id,
+        channelName,
+      });
       showAppNotification({
         id: NOTIFICATION_ID,
         title: '无法重新登录',
@@ -186,7 +193,7 @@
       await push('/');
     } catch (reason) {
       log.warn('Reauth could not be started', {
-        errorName: reason instanceof Error ? reason.name : 'UnknownError',
+        ...errorFields(reason),
       });
       showAppNotification({
         id: NOTIFICATION_ID,
@@ -226,7 +233,7 @@
       await push('/');
     } catch (reason) {
       log.warn('Backfill hotel could not be started', {
-        errorName: reason instanceof Error ? reason.name : 'UnknownError',
+        ...errorFields(reason),
       });
       showAppNotification({
         id: NOTIFICATION_ID,
@@ -277,7 +284,7 @@
       await push('/');
     } catch (reason) {
       log.warn('Reauth by hotel could not be started', {
-        errorName: reason instanceof Error ? reason.name : 'UnknownError',
+        ...errorFields(reason),
       });
       showAppNotification({
         id: NOTIFICATION_ID,
@@ -323,7 +330,7 @@
       await push('/');
     } catch (reason) {
       log.warn('New login binding could not be started', {
-        errorName: reason instanceof Error ? reason.name : 'UnknownError',
+        ...errorFields(reason),
       });
       showAppNotification({
         id: NOTIFICATION_ID,

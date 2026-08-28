@@ -8,7 +8,7 @@
 import { app } from 'electron';
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
-import type { AppLogger } from '../../shared/logging';
+import { safeLogErrorDetails, type AppLogger } from '../../shared/logging';
 import { SqliteCalendarRepository } from '../calendar/calendar-repository';
 import { createCtripDiscovery } from '../channels/ctrip/discovery';
 import { createDouyinDiscovery } from '../channels/douyin/discovery';
@@ -221,7 +221,7 @@ export function createAppScope(logger: AppLogger): AppScope {
         });
       } catch (error) {
         logger.warn('Partition cleanup failed at startup', {
-          errorName: error instanceof Error ? error.name : 'UnknownError',
+          error: safeLogErrorDetails(error),
         });
       }
     },

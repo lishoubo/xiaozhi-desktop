@@ -4,6 +4,8 @@
   import { enter, PAGE_ENTER_OPTIONS } from '../motion';
   import AgentAvatar from '../components/agent/AgentAvatar.svelte';
   import * as Dialog from '$lib/components/ui/dialog';
+  import log from 'electron-log/renderer';
+  import { errorFields } from '../logging';
   import { dismissAppNotification, showAppNotification } from '../notifications';
 
   let { onLogin }: { onLogin: (employee: StaffIdentity) => void | Promise<void> } = $props();
@@ -71,6 +73,7 @@
       codeExpiresAt = now + result.expiresInSeconds * 1000;
     } catch (error) {
       // main 已按错误码给出可读文案（区分"发送过频"与"手机号不可用"），直接展示。
+      log.warn('Phone code could not be requested', { userType, ...errorFields(error) });
       showLoginError(error instanceof Error ? error.message : '验证码发送失败，请稍后再试');
     } finally {
       requestingCode = false;
@@ -120,6 +123,7 @@
       await onLogin(await login());
     } catch (error) {
       // main 已把远端错误转成可读文案（区分"验证码错误"与"错误次数过多"），直接展示。
+      log.warn('Staff login failed', { userType, ...errorFields(error) });
       showLoginError(error instanceof Error ? error.message : '登录失败，请稍后重试');
     } finally {
       loggingIn = false;

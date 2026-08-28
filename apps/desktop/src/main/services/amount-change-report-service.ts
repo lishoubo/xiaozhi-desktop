@@ -9,7 +9,7 @@
  * （见 `shared/types/amount-change.ts` 的说明）。所以这个 service 没有仓储依赖。
  */
 import { randomUUID } from 'node:crypto';
-import type { AppLogger } from '../../shared/logging';
+import { safeLogErrorDetails, type AppLogger } from '../../shared/logging';
 import type {
   OtaAmountChangeObserved,
   OtaAmountChangeReport,
@@ -96,7 +96,7 @@ export class AmountChangeReportService {
             source: report.source,
             otaHotelId: report.otaHotelId,
             attempt,
-            errorName: error instanceof Error ? error.name : 'UnknownError',
+            error: safeLogErrorDetails(error),
           },
         );
       }

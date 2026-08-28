@@ -17,6 +17,8 @@
   import { Button } from '$lib/components/ui/button';
   import { Spinner } from '$lib/components/ui/spinner';
   import { enter } from '../motion';
+  import log from 'electron-log/renderer';
+  import { errorFields } from '../logging';
   import { dismissAppNotification, showAppNotification } from '../notifications';
   import type { CalendarSnapshot } from '../../shared/calendar';
   import CalendarSidebarPanel from '../calendar/CalendarSidebarPanel.svelte';
@@ -353,7 +355,8 @@
     try {
       snapshot = await desktopCalendarDataSource.load();
       dismissAppNotification('calendar-load-error');
-    } catch {
+    } catch (error) {
+      log.warn('Calendar data could not be loaded', errorFields(error));
       showAppNotification({
         id: 'calendar-load-error',
         title: '日历读取失败',
@@ -376,7 +379,8 @@
         message: '已恢复为上次保存的内容。',
         tone: 'error',
       });
-    } catch {
+    } catch (error) {
+      log.warn('Calendar data could not be re-read after a failed save', errorFields(error));
       showAppNotification({
         id: 'calendar-save-error',
         title: '日历保存失败',

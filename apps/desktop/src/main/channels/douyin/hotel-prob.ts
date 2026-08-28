@@ -8,7 +8,7 @@
 import type { WebContents } from 'electron';
 import { toOtaHotelId } from '../../ids';
 import { douyinBindExtra } from '../../channels/bind-extra';
-import type { AppLogger } from '../../../shared/logging';
+import { safeLogErrorDetails, type AppLogger } from '../../../shared/logging';
 import { isTrustedHotelUrl } from '../trusted-hotel-url';
 import type { HotelProbe, HotelProbeOutcome } from '../types';
 import { DslGetResponseCapture } from './dsl-get-response-capture';
@@ -130,7 +130,7 @@ export function createDouyinHotelProbe(logger: AppLogger): HotelProbe {
         };
       } catch (error) {
         logger.warn('Douyin hotel probe failed', {
-          errorName: error instanceof Error ? error.name : 'UnknownError',
+          error: safeLogErrorDetails(error),
         });
         return { kind: 'none' };
       } finally {

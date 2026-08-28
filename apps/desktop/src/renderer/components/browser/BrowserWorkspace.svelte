@@ -2,6 +2,7 @@
   import { autoAnimate } from '@formkit/auto-animate';
   import { onMount } from 'svelte';
   import log from 'electron-log/renderer';
+  import { errorFields } from '../../logging';
   import { push } from 'svelte-spa-router';
   import ArrowLeft from '@lucide/svelte/icons/arrow-left';
   import ArrowRight from '@lucide/svelte/icons/arrow-right';
@@ -65,8 +66,12 @@
   );
 
   function reportBrowserFailure(event: string, message: string, reason: unknown): void {
+    // 17 处弹窗共用这一个出口，界面文案又统一是「页面操作失败」——不带上当前
+    // 标签页的上下文，日志里就只剩 event 名可分辨。
     log.warn(event, {
-      errorName: reason instanceof Error ? reason.name : 'UnknownError',
+      partitionName: activeTab?.partitionName,
+      channelId: activeTab?.channelId,
+      ...errorFields(reason),
     });
     showAppNotification({
       id: 'browser-operation-error',
@@ -269,7 +274,7 @@
     if (target) {
       void browserOtaTabs.activateIfIdle(target).catch((error: unknown) => {
         log.warn('Tab could not be activated after the cookie prompt', {
-          errorName: error instanceof Error ? error.name : 'UnknownError',
+          ...errorFields(error),
         });
       });
     }
@@ -396,7 +401,7 @@
       browserOtaTabs.releaseViewportSession();
       void Promise.resolve(window.hotelButler.browser.hide()).catch((error: unknown) => {
         log.warn('Browser workspace could not be hidden', {
-          errorName: error instanceof Error ? error.name : 'UnknownError',
+          ...errorFields(error),
         });
       });
       unsubscribe();

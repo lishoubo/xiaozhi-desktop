@@ -4,7 +4,7 @@ import {
   configureDesktopLogDirectory,
   configureMainLogging,
 } from '../../../src/main/logging/configure-main-logging';
-import { safeLogErrorDetails } from '../../../src/shared/logging';
+import { redactLogData, safeLogErrorDetails } from '../../../src/shared/logging';
 
 describe('desktop production logging', () => {
   it('keeps error stacks and causes while redacting authentication secrets', () => {
@@ -21,6 +21,18 @@ describe('desktop production logging', () => {
     expect(serialized).not.toContain('13800138000');
     expect(serialized).not.toContain('private');
     expect(serialized).not.toContain('readonly:');
+  });
+
+  it('keeps the message of a logged Error instead of reducing it to its name', () => {
+    // 回归：兜底曾把 Error 削成 `{ name }`，而 name 对绝大多数错误恒为 'Error'，
+    // 导致界面报错在日志里查不到根因。
+    const error = new Error('凭证已失效 password=private');
+
+    const [redacted] = redactLogData([{ error }]) as [{ error: { message: string } }];
+
+    expect(redacted.error.message).toContain('凭证已失效');
+    expect(redacted.error.message).toContain('[REDACTED]');
+    expect(redacted.error.message).not.toContain('private');
   });
 
   it('uses Electron native logs with a profile-specific directory', () => {

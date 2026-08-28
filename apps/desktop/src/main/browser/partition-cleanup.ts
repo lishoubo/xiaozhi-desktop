@@ -16,7 +16,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { APP_ENVIRONMENT } from '../../shared/app-environment';
-import type { AppLogger } from '../../shared/logging';
+import { safeLogErrorDetails, type AppLogger } from '../../shared/logging';
 import { listPartitionRecords, updatePartitionState } from '../file-store/partition-ledger';
 
 export type PartitionCleanupDependencies = Readonly<{
@@ -58,7 +58,7 @@ export async function cleanupRetiredPartitions(
       // 单个失败不阻断其余：状态留在 retired，下次启动再试。
       skipped += 1;
       deps.logger.warn('Retired partition could not be cleared at startup', {
-        errorName: error instanceof Error ? error.name : 'UnknownError',
+        error: safeLogErrorDetails(error),
       });
     }
   }
@@ -94,7 +94,7 @@ export async function cleanupOrphanPartitions(
     names = await listPartitionDirectoryNames(deps.userDataDir);
   } catch (error) {
     deps.logger.warn('Partition directory could not be listed; orphan cleanup skipped', {
-      errorName: error instanceof Error ? error.name : 'UnknownError',
+      error: safeLogErrorDetails(error),
     });
     return { cleared: 0 };
   }
@@ -111,7 +111,7 @@ export async function cleanupOrphanPartitions(
       cleared += 1;
     } catch (error) {
       deps.logger.warn('Orphan partition could not be cleared', {
-        errorName: error instanceof Error ? error.name : 'UnknownError',
+        error: safeLogErrorDetails(error),
       });
     }
   }

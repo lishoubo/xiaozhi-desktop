@@ -19,6 +19,7 @@
    */
   import { onDestroy, onMount } from 'svelte';
   import log from 'electron-log/renderer';
+  import { errorFields } from '../../logging';
   import type { ReauthOutcomeDto } from '../../../shared/types/ui-waiting-result-types';
   import {
     otaReauthByHotelWaiting,
@@ -94,7 +95,7 @@
       cancelWaiting?.();
       cancelWaiting = undefined;
       log.warn('Reauth tab could not be opened', {
-        errorName: reason instanceof Error ? reason.name : 'UnknownError',
+        ...errorFields(reason),
       });
       showAppNotification({
         id: NOTIFICATION_ID,
@@ -176,7 +177,10 @@
       });
     } catch (reason) {
       log.warn('Reauth failed', {
-        errorName: reason instanceof Error ? reason.name : 'UnknownError',
+        otaAccountId,
+        credentialId: outcome.credentialId,
+        channelName,
+        ...errorFields(reason),
       });
       showAppNotification({
         id: NOTIFICATION_ID,

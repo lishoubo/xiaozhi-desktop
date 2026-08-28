@@ -5,7 +5,7 @@
  */
 import type { WebContents } from 'electron';
 import type { JsonObject } from '../../../shared/types/json';
-import type { AppLogger } from '../../../shared/logging';
+import { safeLogErrorDetails, type AppLogger } from '../../../shared/logging';
 import { isTrustedHotelUrl } from '../trusted-hotel-url';
 import {
   FETCH_MEITUAN_ACCOUNT_IDENTITY_EXPRESSION,
@@ -54,7 +54,7 @@ export function createMeituanDiscovery(logger: AppLogger): DiscoverMeituan {
       return { kind: 'found', credential: identity };
     } catch (error) {
       logger.warn('Meituan discovery failed', {
-        errorName: error instanceof Error ? error.name : 'UnknownError',
+        error: safeLogErrorDetails(error),
       });
       return { kind: 'none' };
     }

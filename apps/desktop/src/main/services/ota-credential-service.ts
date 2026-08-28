@@ -16,7 +16,7 @@ import { toOtaCredentialId } from '../ids';
 import type { OtaCredential } from '../../shared/types/ota-credential';
 import type { OtaCredentialRepository } from '../database/ota-credential-repository';
 import { channelAccountNameOf } from '../channels/bind-extra';
-import type { AppLogger } from '../../shared/logging';
+import { safeLogErrorDetails, type AppLogger } from '../../shared/logging';
 import type { DiscoverCtrip } from '../channels/ctrip/discovery';
 import type { DiscoverDouyin } from '../channels/douyin/discovery';
 import type { DiscoverMeituan } from '../channels/meituan/discovery';
@@ -122,7 +122,7 @@ export class OtaCredentialService {
     } catch (error) {
       this.deps.logger.warn('Discovery failed', {
         channel,
-        errorName: error instanceof Error ? error.name : 'UnknownError',
+        error: safeLogErrorDetails(error),
       });
       return null;
     } finally {
@@ -206,7 +206,7 @@ export class OtaCredentialService {
       } catch (error) {
         this.deps.logger.warn('Replaced credential partition could not be retired', {
           channel,
-          errorName: error instanceof Error ? error.name : 'UnknownError',
+          error: safeLogErrorDetails(error),
         });
       }
     }

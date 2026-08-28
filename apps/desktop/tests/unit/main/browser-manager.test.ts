@@ -191,7 +191,7 @@ describe('BrowserManager', () => {
     expect(electron.views[1].webContents.setAudioMuted).toHaveBeenLastCalledWith(true);
     expect(logger.warn).toHaveBeenCalledWith('Browser tab audio state could not be changed', {
       channelId: 'ctrip',
-      errorName: 'Error',
+      error: expect.objectContaining({ name: 'Error', message: 'tab unavailable' }),
     });
   });
 

@@ -17,7 +17,7 @@ import {
   type BrowserTab,
   type BrowserTabFailure,
 } from '../../shared/browser';
-import type { AppLogger } from '../../shared/logging';
+import { safeLogErrorDetails, type AppLogger } from '../../shared/logging';
 
 export interface BrowserSessionFactory {
   sessionForAccount(partitionName: string): Session;
@@ -253,6 +253,9 @@ export class BrowserManager extends EventEmitter {
     void view.webContents.loadURL(url).catch((error: unknown) => {
       tab.loading = false;
       tab.failure = 'load-failed';
+      // 这里**只记 name**，是有意的：加载失败的 message 里含用户正在访问的完整
+      // URL（可能带 token / 门店参数），属于不该落盘的用户浏览数据。
+      // 见同文件测试 "reports page load failures without logging the rejected URL"。
       this.logger.error('Browser page load failed', {
         channelId,
         errorName: error instanceof Error ? error.name : 'UnknownError',
@@ -355,7 +358,7 @@ export class BrowserManager extends EventEmitter {
       } catch (error) {
         this.logger.warn('Browser tab audio state could not be changed', {
           channelId: tab.channelId,
-          errorName: error instanceof Error ? error.name : 'UnknownError',
+          error: safeLogErrorDetails(error),
         });
       }
     }
@@ -464,7 +467,7 @@ export class BrowserManager extends EventEmitter {
       this.logger.info('Retired browser partition cleared');
     } catch (error) {
       this.logger.warn('Retired browser partition could not be cleared', {
-        errorName: error instanceof Error ? error.name : 'UnknownError',
+        error: safeLogErrorDetails(error),
       });
       throw error;
     }
@@ -533,6 +536,7 @@ export class BrowserManager extends EventEmitter {
         this.emitTabOpened(created);
       } catch (error) {
         // 无效地址、非 web 协议、以及达到标签页上限，都在这里被挡住。
+        // 同 `Browser page load failed`：message 会带上被拦下的目标 URL，只记 name。
         this.logger.warn('Blocked browser popup', {
           channelId: tab.channelId,
           errorName: error instanceof Error ? error.name : 'UnknownError',

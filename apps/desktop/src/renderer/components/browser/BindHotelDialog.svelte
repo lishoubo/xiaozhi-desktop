@@ -8,6 +8,7 @@
    */
   import { onDestroy, onMount } from 'svelte';
   import log from 'electron-log/renderer';
+  import { errorFields } from '../../logging';
   import type { ProbedHotelDto } from '../../../shared/types/ui-waiting-result-types';
   import { hotelBindingWaiting } from '../../hotel-management/cross-route-intents';
   import { requiresUnbindBeforeBinding } from '../../hotel-management/model';
@@ -106,7 +107,7 @@
       cancelWaiting?.();
       cancelWaiting = undefined;
       log.warn('Binding tab could not be opened', {
-        errorName: reason instanceof Error ? reason.name : 'UnknownError',
+        ...errorFields(reason),
       });
       showAppNotification({
         id: NOTIFICATION_ID,
@@ -167,7 +168,10 @@
     } catch (reason) {
       // 弹窗保持打开，用户可以换一个候选再试。
       log.warn('Hotel binding failed', {
-        errorName: reason instanceof Error ? reason.name : 'UnknownError',
+        credentialId,
+        rmsHotelId,
+        otaHotelId: hotel?.otaHotelId,
+        ...errorFields(reason),
       });
       showAppNotification({
         id: NOTIFICATION_ID,

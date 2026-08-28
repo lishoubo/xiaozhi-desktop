@@ -5,6 +5,8 @@
   import { EXPERIENCE_PHONE } from '../auth';
   import AgentAvatar from '../components/agent/AgentAvatar.svelte';
   import * as Dialog from '$lib/components/ui/dialog';
+  import log from 'electron-log/renderer';
+  import { errorFields } from '../logging';
   import { dismissAppNotification, showAppNotification } from '../notifications';
 
   let { onLogin }: { onLogin: (employee: EmployeeIdentity) => void | Promise<void> } = $props();
@@ -41,7 +43,8 @@
       const result = await window.hotelButler.auth.requestPhoneCode(phone);
       codeExpiresAt = Date.now() + result.expiresInSeconds * 1000;
       now = Date.now();
-    } catch {
+    } catch (error) {
+      log.warn('Phone code could not be requested', errorFields(error));
       showLoginError('验证码发送失败，请重试');
     } finally {
       requestingCode = false;
@@ -70,7 +73,8 @@
     try {
       const employee = await window.hotelButler.auth.loginWithPhoneCode(phone, code);
       await onLogin(employee);
-    } catch {
+    } catch (error) {
+      log.warn('Phone login failed', errorFields(error));
       showLoginError('登录失败，请检查手机号和验证码');
     } finally {
       loggingIn = false;

@@ -16,7 +16,7 @@ import {
 } from '../../shared/browser';
 import type { RmsOtaAccount } from '../../shared/types/rms-ota-account';
 import { IPC_CHANNELS } from '../../shared/ipc-channels';
-import type { AppLogger } from '../../shared/logging';
+import { safeLogErrorDetails, type AppLogger } from '../../shared/logging';
 import type { RmsHotelCreateInput, RmsHotel } from '../../shared/types/rms-hotel';
 import type { RmsHotelOtaAccountsSnapshot } from '../services/hotel-management-service';
 import { createHandlerRegistry, type TrustedWindow } from './create-handler-registry';
@@ -52,7 +52,7 @@ export function registerHotelManagementHandlers({
     operation().catch((error: unknown) => {
       logger.error('Hotel management operation failed', {
         operation: channel,
-        errorName: error instanceof Error ? error.name : 'UnknownError',
+        error: safeLogErrorDetails(error),
       });
       throw error;
     });

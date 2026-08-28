@@ -30,7 +30,7 @@
  * 层）写远端 —— 与 `OtaReauthDispatcher` 把 cookie 读取推迟到 confirm 同理。
  */
 import { toChannelId, type ChannelId } from '../ids';
-import type { AppLogger } from '../../shared/logging';
+import { safeLogErrorDetails, type AppLogger } from '../../shared/logging';
 import type { TabCredentialCheckedEvent, TabEventBus } from '../ota-tab';
 import type { UiWaitingResultEnvelope } from '../../shared/types/ui-waiting-result-types';
 import type { HotelProbe } from './types';
@@ -77,7 +77,7 @@ export class ReauthByHotelDispatcher {
       this.deps.logger.warn('Reauth-by-hotel probe failed', {
         requestId,
         channel: event.channel,
-        errorName: error instanceof Error ? error.name : 'UnknownError',
+        error: safeLogErrorDetails(error),
       });
       this.notifyFailure(requestId, 'identity-unavailable');
       return;

@@ -1,5 +1,6 @@
 <script lang="ts">
   import log from 'electron-log/renderer';
+  import { errorFields } from '../../logging';
   import Check from '@lucide/svelte/icons/check';
   import Plus from '@lucide/svelte/icons/plus';
   import type { OtaChannel } from '../../data/ota-channels';
@@ -60,7 +61,7 @@
         await window.hotelButler.browser.hide();
       } catch (reason) {
         log.warn('Browser tab could not yield to account switcher', {
-          errorName: reason instanceof Error ? reason.name : 'UnknownError',
+          ...errorFields(reason),
         });
       }
       return;
@@ -72,7 +73,7 @@
         await window.hotelButler.browser.activate(tabToRestore);
       } catch (reason) {
         log.warn('Browser tab could not be restored after account switcher closed', {
-          errorName: reason instanceof Error ? reason.name : 'UnknownError',
+          ...errorFields(reason),
         });
       }
     }
@@ -103,7 +104,7 @@
       if (started) await handleOpenChange(false, false);
     } catch (reason) {
       log.warn('New channel login could not be started from account switcher', {
-        errorName: reason instanceof Error ? reason.name : 'UnknownError',
+        ...errorFields(reason),
       });
       showAppNotification({
         id: 'account-switcher-error',

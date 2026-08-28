@@ -22,7 +22,7 @@
  * 由 composition root 接到上报服务。与 `HotelProbeDispatcher.notify` 同一手法。
  */
 import type { ChannelId } from '../ids';
-import type { AppLogger } from '../../shared/logging';
+import { safeLogErrorDetails, type AppLogger } from '../../shared/logging';
 import type { OtaAmountChangeObserved } from '../../shared/types/amount-change';
 import { AmountSaveCapture } from './amount-save-capture';
 import type { AmountChangeAdapter } from './types';
@@ -103,7 +103,7 @@ export class AmountChangeWatcher {
       this.captures.delete(event.tabId);
       this.deps.logger.warn('Amount change watcher: failed to attach', {
         channel: event.channelId,
-        errorName: error instanceof Error ? error.name : 'UnknownError',
+        error: safeLogErrorDetails(error),
       });
       return;
     }

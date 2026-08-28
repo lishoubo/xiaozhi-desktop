@@ -13,7 +13,7 @@ import type {
   ConfirmReauthInput,
   FindCredentialForAccountInput,
 } from '../../shared/browser';
-import type { AppLogger } from '../../shared/logging';
+import { safeLogErrorDetails, type AppLogger } from '../../shared/logging';
 import { channelAccountIdFromBindExtra, withChannelAccount } from '../channels/bind-extra';
 import { toChannelId, toOtaCredentialId, toOtaHotelId } from '../ids';
 
@@ -196,7 +196,7 @@ export class HotelManagementService {
     } catch (error) {
       this.deps.logger.warn('OTA hotel saved remotely but not locally', {
         channel: credential.channel,
-        errorName: error instanceof Error ? error.name : 'UnknownError',
+        error: safeLogErrorDetails(error),
       });
     }
 
@@ -242,7 +242,7 @@ export class HotelManagementService {
     } catch (error) {
       this.deps.logger.warn('OTA hotel backfilled remotely but not saved locally', {
         channel: credential.channel,
-        errorName: error instanceof Error ? error.name : 'UnknownError',
+        error: safeLogErrorDetails(error),
       });
     }
 

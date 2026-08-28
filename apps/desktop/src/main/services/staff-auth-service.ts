@@ -6,7 +6,7 @@
  * 都得清本地。这些都不是 client 或 store 单独能承担的判断。
  */
 import type { StaffIdentity, StaffPhoneCodeRequestResponse } from '@hotel-butler/api';
-import type { AppLogger } from '../../shared/logging';
+import { safeLogErrorDetails, type AppLogger } from '../../shared/logging';
 import type { RmsAuthClient } from '../staff-auth/rms-auth-client';
 import {
   RmsAuthError,
@@ -161,9 +161,11 @@ export class StaffAuthService {
       return new Error(messageForRmsError(error.code, fallback), { cause: error });
     }
 
+    // 非 RMS 错误（网络、证书、解析）没有 `rmsCode` 可分辨，只记 name 等于什么都
+    // 没记。`cause` 这里刻意保留了，日志也就该带上同一份信息。
     this.deps.logger.warn('Staff authentication operation failed', {
       operation,
-      errorName: error instanceof Error ? error.name : 'UnknownError',
+      error: safeLogErrorDetails(error),
     });
     return new Error(fallback, { cause: error });
   }

@@ -53,7 +53,7 @@
  */
 import type { WebContents } from 'electron';
 import type { OtaAmountChangeObserved } from '../../shared/types/amount-change';
-import type { AppLogger } from '../../shared/logging';
+import { safeLogErrorDetails, type AppLogger } from '../../shared/logging';
 import type { JsonObject } from '../../shared/types/json';
 import type { AmountChangeAdapter } from './types';
 
@@ -249,7 +249,7 @@ export class AmountSaveCapture {
       return typeof result.postData === 'string' ? result.postData : null;
     } catch (error) {
       this.logger.warn('Amount save capture: failed to read request post data', {
-        errorName: error instanceof Error ? error.name : 'UnknownError',
+        error: safeLogErrorDetails(error),
       });
       return null;
     }
@@ -272,7 +272,7 @@ export class AmountSaveCapture {
     } catch (error) {
       this.logger.warn('Amount save capture: failed to read response body', {
         endpointId: saved.endpointId,
-        errorName: error instanceof Error ? error.name : 'UnknownError',
+        error: safeLogErrorDetails(error),
       });
       return;
     }
