@@ -190,7 +190,7 @@
 </script>
 
 <main
-  class="h-full overflow-auto bg-secondary px-5 py-5 sm:px-7"
+  class="h-full overflow-auto bg-[#f8fafb] px-6 py-6 sm:px-8"
   data-motion="page"
   in:enter={PAGE_ENTER_OPTIONS}
 >
@@ -264,7 +264,7 @@
       </div>
     {:else}
       <div
-        class="mt-4 overflow-visible rounded-lg border border-border bg-card shadow-[0_1px_3px_rgba(20,20,20,0.035)]"
+        class="mt-5 overflow-visible rounded-[12px] border border-border bg-card shadow-[var(--shadow-card)]"
       >
         <div
           class={[

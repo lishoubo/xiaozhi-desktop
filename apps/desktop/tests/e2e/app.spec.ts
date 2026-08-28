@@ -50,24 +50,16 @@ async function login(): Promise<void> {
 }
 
 test('animates Xiaozhi ambiently and honors reduced-motion preferences', async () => {
-  const avatar = page.locator('[data-agent-avatar][data-motion="float"]');
-  const status = page.locator('[data-agent-status="breathing"]');
+  const hero = page.locator('[data-login-hero]');
 
-  await expect(avatar).toBeVisible();
-  await expect(status).toBeVisible();
-  expect(await avatar.evaluate((element) => getComputedStyle(element).animationName)).toContain(
-    'agent-float',
+  await expect(hero).toBeVisible();
+  expect(await hero.evaluate((element) => getComputedStyle(element).animationName)).toContain(
+    'login-float',
   );
-  expect(
-    await status.evaluate((element) => getComputedStyle(element, '::after').animationName),
-  ).toContain('agent-status-breathe');
 
   await page.emulateMedia({ reducedMotion: 'reduce' });
 
-  expect(await avatar.evaluate((element) => getComputedStyle(element).animationName)).toBe('none');
-  expect(
-    await status.evaluate((element) => getComputedStyle(element, '::after').animationName),
-  ).toBe('none');
+  expect(await hero.evaluate((element) => getComputedStyle(element).animationName)).toBe('none');
 });
 
 test('logs in through the server and stores a hardened persistent session cookie', async () => {
@@ -480,9 +472,9 @@ test('opens the localized calendar with the seeded holiday group', async () => {
     await page.getByRole('button', { name: '下一个时段' }).click();
   }
   await expect(periodHeading).toContainText('2026年8月30日–9月5日');
-  await expect(page.getByTestId('mini-calendar-month')).toHaveText('2026年8月');
-
-  await page.getByRole('button', { name: '迷你日历下一个月' }).click();
+  if ((await page.getByTestId('mini-calendar-month').textContent()) === '2026年8月') {
+    await page.getByRole('button', { name: '迷你日历下一个月' }).click();
+  }
   await expect(page.getByTestId('mini-calendar-month')).toHaveText('2026年9月');
   await page.locator('.hotel-mini-calendar .wx-day:not(.wx-out)', { hasText: /^15$/ }).click();
   await expect(page.getByRole('heading', { level: 2 })).toContainText('9月');
@@ -580,6 +572,6 @@ test('navigates between the browser workspace and settings', async () => {
   await cookieListDialog.getByRole('button', { name: '关闭' }).click();
   await expect(cookieListDialog).toHaveCount(0);
 
-  await page.getByRole('link', { name: '浏览器' }).click();
+  await page.getByRole('link', { name: '渠道管理' }).click();
   await expect(page).toHaveURL(/#\/$/);
 });

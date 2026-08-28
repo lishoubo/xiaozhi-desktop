@@ -25,10 +25,7 @@
   import AgentMarkdown from '../components/agent/AgentMarkdown.svelte';
   import HotelGenerativeUi from '../components/agent/HotelGenerativeUi.svelte';
   import UserAvatar from '../components/agent/UserAvatar.svelte';
-  import {
-    createAgentController,
-    shouldFollowConversationAfterAction,
-  } from '../agent-controller';
+  import { createAgentController, shouldFollowConversationAfterAction } from '../agent-controller';
   import {
     AGENT_CHAT_DISPLAY_NAME,
     agentFailureTitle,
@@ -277,13 +274,13 @@
 </script>
 
 <div
-  class="grid h-full min-h-0 grid-cols-[204px_minmax(0,1fr)] bg-background"
+  class="grid h-full min-h-0 grid-cols-[minmax(250px,300px)_minmax(0,1fr)] bg-background max-[1080px]:grid-cols-[240px_minmax(0,1fr)]"
   data-motion="page"
   in:enter={PAGE_ENTER_OPTIONS}
 >
-  <aside class="flex min-h-0 flex-col border-r border-border/70 bg-muted/35 px-2.5 py-3">
+  <aside class="flex min-h-0 flex-col border-r border-[#e9edf0] bg-[#fcfdfd] px-3.5 py-4">
     <Button
-      class="w-full justify-start rounded-lg text-[13px] shadow-sm transition-[background-color,border-color,box-shadow] duration-200 ease-out"
+      class="h-10 w-full justify-start rounded-[9px] text-[13px] shadow-xs transition-[background-color,border-color,box-shadow] duration-200 ease-out"
       variant={activeConversationId === null ? 'default' : 'outline'}
       aria-label="开始新会话"
       aria-pressed={activeConversationId === null}
@@ -318,15 +315,14 @@
       {#each conversations as conversation (conversation.id)}
         <div
           class={[
-            'group/history relative mt-0.5 rounded-lg border transition-[background-color,border-color,box-shadow,color,transform] duration-200 ease-out motion-reduce:transform-none',
+            'group/history relative mt-1 rounded-[9px] border transition-[background-color,border-color,box-shadow,color] duration-200 ease-out',
             conversation.id === activeConversationId
-              ? 'border-border/70 bg-background text-foreground shadow-sm'
-              : 'border-transparent text-muted-foreground hover:translate-x-0.5 hover:bg-background/70 hover:text-foreground',
+              ? 'border-transparent bg-[#edf8f7] text-foreground'
+              : 'border-transparent text-muted-foreground hover:bg-[#f4f7f8] hover:text-foreground',
           ]}
         >
           {#if conversation.id === activeConversationId}
-            <span class="absolute top-2 bottom-2 left-0 w-0.5 rounded-full bg-[var(--brand-green)]"
-            ></span>
+            <span class="absolute top-2 bottom-2 left-0 w-0.5 rounded-full bg-[#0aa39d]"></span>
           {/if}
           <button
             class="w-full rounded-lg py-2 pr-8 pl-2.5 text-left focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
@@ -374,7 +370,7 @@
 
   <main class="flex min-h-0 min-w-0 flex-col">
     <header
-      class="flex h-[64px] shrink-0 items-center justify-between border-b border-border/70 bg-background px-6"
+      class="flex h-[68px] shrink-0 items-center justify-between border-b border-[#e9edf0] bg-background px-7"
     >
       <div class="group/agent flex min-w-0 flex-1 items-center gap-3">
         <AgentAvatar online />
@@ -396,14 +392,14 @@
 
     <section
       bind:this={conversationViewport}
-      class="min-h-0 flex-1 overflow-y-auto bg-muted/20"
+      class="min-h-0 flex-1 overflow-y-auto bg-white"
       aria-label="对话内容"
       aria-live="polite"
       onscroll={handleConversationScroll}
     >
       <div
         bind:this={conversationContent}
-        class="mx-auto w-full max-w-[1280px] px-6 py-8 sm:px-8 lg:px-10"
+        class="mx-auto w-full max-w-[1280px] px-6 py-8 sm:px-8 lg:px-12"
       >
         {#if loading}
           <div class="flex items-center justify-center gap-2 py-20 text-sm text-muted-foreground">
@@ -411,17 +407,23 @@
           </div>
         {:else if messages.length === 0 && !sending}
           <div
-            class="mx-auto flex max-w-2xl flex-col items-center pt-[clamp(40px,8vh,80px)] text-center"
+            class="mx-auto flex max-w-4xl flex-col items-center pt-[clamp(36px,7vh,72px)] text-center"
           >
             <AgentAvatar size="lg" online motion="float" />
-            <h2 class="mt-5 mb-0 text-2xl font-semibold tracking-[-0.02em]">今天想处理什么？</h2>
-            <div class="mt-7 grid w-full grid-cols-2 gap-2.5 lg:grid-cols-3">
+            <h2
+              class="mt-5 mb-0 text-[clamp(28px,3vw,38px)] font-semibold tracking-[-0.04em] text-[#080d15]"
+            >
+              今天想处理什么？ <span class="ml-1 align-top text-[22px] text-[#1bb7b0]"
+                >✦</span
+              >
+            </h2>
+            <div class="mt-8 grid w-full grid-cols-2 gap-3 lg:grid-cols-3">
               {#each quickActionCards.slice(0, 6) as action (action.id)}
                 <button
                   class={[
-                    'group rounded-lg border border-border bg-card px-3.5 py-3 text-left transition-[background-color,border-color,box-shadow,transform] duration-200 ease-out focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none motion-reduce:transform-none',
+                    'group min-h-[118px] rounded-[12px] border border-[#e5e8ec] bg-card px-4 py-4 text-left shadow-[0_1px_2px_rgba(16,24,40,.022)] transition-[border-color,box-shadow,transform] duration-200 ease-out focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none motion-reduce:transform-none',
                     action.available
-                      ? 'hover:-translate-y-0.5 hover:border-input hover:shadow-md'
+                      ? 'hover:-translate-y-0.5 hover:border-[#bdcfce] hover:shadow-[0_10px_26px_rgba(16,24,40,.06)]'
                       : 'cursor-not-allowed opacity-60',
                   ]}
                   type="button"
@@ -600,7 +602,7 @@
       </div>
     </section>
 
-    <footer class="shrink-0 border-t border-border/60 bg-background/95 px-6 pt-3 pb-4">
+    <footer class="shrink-0 border-t border-[#edf0f2] bg-background/95 px-6 pt-3 pb-4">
       <div class="mx-auto w-full max-w-4xl">
         {#if quickActionCards.length > 0 && messages.length > 0}
           <div class="mb-2 flex flex-wrap items-center gap-1.5" aria-label="酒店快捷操作">
@@ -627,7 +629,7 @@
           </div>
         {/if}
         <div
-          class="rounded-lg border border-input bg-background p-2 shadow-md focus-within:border-ring focus-within:ring-3 focus-within:ring-ring/20"
+          class="rounded-[14px] border border-[#dfe4e8] bg-background p-2 shadow-[0_1px_2px_rgba(16,24,40,.025)] focus-within:border-[#8dc8c5] focus-within:ring-3 focus-within:ring-[#0aa39d]/8"
         >
           <Textarea
             class="min-h-14 resize-none border-0 px-2 py-2.5 shadow-none focus-visible:ring-0"

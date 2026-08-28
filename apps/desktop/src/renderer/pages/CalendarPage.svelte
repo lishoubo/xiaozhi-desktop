@@ -428,7 +428,7 @@
 </script>
 
 <section
-  class="hotel-calendar h-full min-h-0 bg-background p-4"
+  class="hotel-calendar h-full min-h-0 bg-[#f8fafb] p-5"
   aria-label="酒店运营日历"
   data-motion="page"
   onpointerdowncapture={handleDocumentMouseDown}
@@ -445,7 +445,7 @@
   {:else if snapshot}
     <div class="flex h-full min-h-0 flex-col gap-3">
       <div
-        class="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border border-border bg-card"
+        class="flex min-h-0 flex-1 flex-col overflow-hidden rounded-[12px] border border-border bg-card shadow-[var(--shadow-card)]"
       >
         <header
           class="grid min-h-14 shrink-0 grid-cols-[auto_1fr_auto] items-center gap-3 border-b border-border px-3"
@@ -608,8 +608,8 @@
 
 <style>
   :global(.hotel-calendar .wx-willow-theme) {
-    --wx-color-primary: #0a0a0a;
-    --wx-color-primary-hover: #1c1c1e;
+    --wx-color-primary: #0aa39d;
+    --wx-color-primary-hover: #078f8a;
     --wx-font-family: inherit;
     height: 100%;
   }

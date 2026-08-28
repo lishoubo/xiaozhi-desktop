@@ -9,7 +9,7 @@
 </script>
 
 <main
-  class="h-full overflow-auto bg-muted/40 px-9 py-10"
+  class="h-full overflow-auto bg-[#f8fafb] px-9 py-9"
   data-motion="page"
   in:enter={PAGE_ENTER_OPTIONS}
 >
@@ -17,7 +17,7 @@
     <h1 class="m-0 text-[28px] font-semibold tracking-[-0.02em]">用户中心</h1>
 
     <section
-      class="mt-6 rounded-lg border border-border bg-card p-6 shadow-[0_1px_3px_rgba(10,10,10,0.04)]"
+      class="mt-6 rounded-[12px] border border-border bg-card p-6 shadow-[var(--shadow-card)]"
     >
       <div class="flex items-center gap-4">
         <div class="grid size-11 place-items-center rounded-lg bg-accent text-accent-foreground">
