@@ -1,5 +1,5 @@
 <script lang="ts">
-  import CircleUserRound from '@lucide/svelte/icons/circle-user-round';
+  import UserRound from '@lucide/svelte/icons/user-round';
   import Menu from '@lucide/svelte/icons/menu';
   import { link } from 'svelte-spa-router';
   import active from 'svelte-spa-router/active';
@@ -131,8 +131,13 @@
           aria-label="用户中心"
           title="用户中心"
         >
-          <span class="flex w-full flex-col items-center justify-center gap-1">
-            <CircleUserRound size={24} strokeWidth={1.65} />
+          <span class="flex w-full flex-col items-center justify-center gap-0.5">
+            <span
+              class="grid size-9 shrink-0 place-items-center rounded-[11px] border border-white/75 bg-[linear-gradient(145deg,#f1fbfa,#dff4f2)] text-[#0aa39d] shadow-[0_4px_10px_rgba(10,163,157,.08),inset_0_0_0_1px_rgba(10,163,157,.035)]"
+              aria-hidden="true"
+            >
+              <UserRound size={21} strokeWidth={2.25} />
+            </span>
             {#if sidebarOpen}<span>用户中心</span>{/if}
           </span>
         </a>
