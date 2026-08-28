@@ -353,3 +353,6 @@ styled-system-studio
 .codex
 
 temp
+
+# 本地打包产物（release-<env>-<date>-<channel>/）
+release-*/
