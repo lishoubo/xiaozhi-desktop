@@ -89,9 +89,13 @@ const config: ForgeConfig = {
      * 触发条件较劲，不如在这里显式做，行为可预期、失败也看得见。
      *
      * ⚠️ `--deep` 是必须的：Helper 等内嵌可执行文件也要一并重签，只签外层 .app 不够。
+     *
+     * 判据是**目标平台**（`platform`）而非宿主平台：在 macOS 上打 Windows 包时宿主
+     * 仍是 darwin，只看宿主会去 codesign 一个根本不存在的 `.app`，整条 make 直接失败。
+     * 宿主也要一并判断——`codesign` 只有 macOS 上才有。
      */
-    postPackage: async (_forgeConfig, { outputPaths }) => {
-      if (process.platform !== 'darwin') return;
+    postPackage: async (_forgeConfig, { platform, outputPaths }) => {
+      if (platform !== 'darwin' || process.platform !== 'darwin') return;
       const bundleId = isPhone ? `${profile.bundleId}.phone` : profile.bundleId;
       for (const outputPath of outputPaths) {
         const appName = isPhone ? `${profile.productName}(手机登录)` : profile.productName;
@@ -105,7 +109,15 @@ const config: ForgeConfig = {
       }
     },
   },
-  rebuildConfig: {},
+  /**
+   * 不让 @electron/rebuild 碰 better-sqlite3：它随包发布的 prebuilds 已经是按
+   * Electron ABI 编译好的，重编纯属多余，而且在没有 Visual Studio 的机器上必然
+   * 失败（打包机、CI 都是这种）。`lib/binding.js` 里 prebuilds/ 的解析优先级本来
+   * 就高于 build/Release，重编产物即使生成了也不会被加载。
+   */
+  rebuildConfig: {
+    onlyModules: [],
+  },
   makers: [
     // Squirrel 用 `name` 决定 `%LOCALAPPDATA%\<name>` 与注册表卸载项，三环境必须不同
     // 才不会互相覆盖安装。这里用 ASCII slug 而非中文展示名：Squirrel 对非 ASCII
@@ -113,6 +125,10 @@ const config: ForgeConfig = {
     new MakerSquirrel({
       name: isPhone ? `${profile.squirrelName}-phone` : profile.squirrelName,
       setupExe: `${profile.productName}${isPhone ? '-phone' : ''}-setup.exe`,
+      // NuGet 规范要求 authors 必填，缺了 Squirrel 会在生成 .nuspec 时报
+      // "Authors is required" 直接失败。package.json 里没有 author 字段，
+      // 在这里显式给出，不为一个 Windows 打包细节去动通用的包元数据。
+      authors: '小智科技',
     }),
     new MakerZIP({}, ['darwin']),
     new MakerRpm({}),
