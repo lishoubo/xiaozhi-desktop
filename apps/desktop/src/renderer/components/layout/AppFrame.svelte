@@ -8,6 +8,7 @@
   import { weekdayLabel } from '../../session-greeting';
   import { greetingName } from '../../session-greeting.svelte';
   import { capabilitiesOf, type SessionLike } from '../../permissions';
+  import { SHOW_AGENT_NAV, SHOW_CALENDAR_NAV } from '../../build-features';
   import { Button } from '$lib/components/ui/button';
   import logoUrl from '../../assets/xiaozhi-logo-3d.png';
   import browserNavUrl from '../../assets/nav-channels.png';
@@ -82,32 +83,36 @@
             {#if sidebarOpen}<span>渠道管理</span>{/if}
           </span>
         </a>
-        <a
-          class={navigationClass}
-          href="/agent"
-          use:link
-          use:active={{ className: 'active' }}
-          aria-label="小智AI 管家"
-          title="AI 助理"
-        >
-          <span class="flex w-full flex-col items-center justify-center gap-0.5">
-            <img class={navigationImageClass} src={agentNavUrl} alt="" />
-            {#if sidebarOpen}<span>AI 助理</span>{/if}
-          </span>
-        </a>
-        <a
-          class={navigationClass}
-          href="/calendar"
-          use:link
-          use:active={{ className: 'active' }}
-          aria-label="运营日历"
-          title="运营日历"
-        >
-          <span class="flex w-full flex-col items-center justify-center gap-0.5">
-            <img class={navigationImageClass} src={calendarNavUrl} alt="" />
-            {#if sidebarOpen}<span>运营日历</span>{/if}
-          </span>
-        </a>
+        {#if SHOW_AGENT_NAV}
+          <a
+            class={navigationClass}
+            href="/agent"
+            use:link
+            use:active={{ className: 'active' }}
+            aria-label="小智AI 管家"
+            title="AI 助理"
+          >
+            <span class="flex w-full flex-col items-center justify-center gap-0.5">
+              <img class={navigationImageClass} src={agentNavUrl} alt="" />
+              {#if sidebarOpen}<span>AI 助理</span>{/if}
+            </span>
+          </a>
+        {/if}
+        {#if SHOW_CALENDAR_NAV}
+          <a
+            class={navigationClass}
+            href="/calendar"
+            use:link
+            use:active={{ className: 'active' }}
+            aria-label="运营日历"
+            title="运营日历"
+          >
+            <span class="flex w-full flex-col items-center justify-center gap-0.5">
+              <img class={navigationImageClass} src={calendarNavUrl} alt="" />
+              {#if sidebarOpen}<span>运营日历</span>{/if}
+            </span>
+          </a>
+        {/if}
         {#if capabilities.showHotelManagement}
           <a
             class={navigationClass}

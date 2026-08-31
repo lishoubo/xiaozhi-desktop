@@ -3,10 +3,8 @@
   import { onMount } from 'svelte';
   import log from 'electron-log/renderer';
   import { errorFields } from '../../logging';
-  import { push } from 'svelte-spa-router';
   import ArrowLeft from '@lucide/svelte/icons/arrow-left';
   import ArrowRight from '@lucide/svelte/icons/arrow-right';
-  import Import from '@lucide/svelte/icons/import';
   import Plus from '@lucide/svelte/icons/plus';
   import RotateCw from '@lucide/svelte/icons/rotate-cw';
   import TriangleAlert from '@lucide/svelte/icons/triangle-alert';
@@ -23,14 +21,13 @@
   import { OTA_CHANNELS, WORKSPACE_CHANNEL_IDS, type OtaChannel } from '../../data/ota-channels';
   import { dismissAppNotification, showAppNotification } from '../../notifications';
   import { browserOtaTabs } from './browser-ota-tabs.svelte';
-  import { cookieListAutoOpen, tabActivation } from './cross-route-intents';
+  import { tabActivation } from './cross-route-intents';
   import { displayTabTitle } from './tab-title';
   import { Button } from '$lib/components/ui/button';
   import { Spinner } from '$lib/components/ui/spinner';
   import AccountSwitcherDialog from './AccountSwitcherDialog.svelte';
   import BindHotelDialog from './BindHotelDialog.svelte';
   import ReauthDialog from './ReauthDialog.svelte';
-  import CookieImportDialog from './CookieImportDialog.svelte';
   import {
     buildLoginCredentialOptions,
     currentLoginCredential,
@@ -38,7 +35,6 @@
   } from './login-credential-options';
   import channelLoginIllustrationUrl from '../../assets/channel-login-illustration.png';
 
-  const COOKIE_PROMPT_KEY = 'hotel-butler.cookie-import-prompted';
   // 顶部入口只列已接通监听与探测的渠道；`OTA_CHANNELS` 仍是完整字典，负责把历史
   // 绑定记录里的 `source` 翻译成中文名（理由见 `WORKSPACE_CHANNEL_IDS`）。
   const workspaceChannels = OTA_CHANNELS.filter((channel) =>
@@ -47,7 +43,6 @@
   // 标签页状态归 `browserOtaTabs`（渲染进程侧的 OTA tab 状态层）；本组件只渲染
   // 它、并把视口尺寸注册进去。凭证列表不属于 tab 状态，仍留在本地。
   let credentialsByChannel = $state<Record<string, OtaCredentialDto[]>>({});
-  let cookiePrompt = $state(false);
   let openingSessionTab = $state(false);
   let audioMuted = $state(false);
   let audioStateReady = $state(false);
@@ -265,28 +260,6 @@
     };
   }
 
-  function finishCookiePrompt(): void {
-    cookiePrompt = false;
-    localStorage.setItem(COOKIE_PROMPT_KEY, 'true');
-    // 引导页让开后内容区才真正可见，此刻补上挂载时跳过的那次激活。
-    // 已经有标签页时才做——刚导入 cookie 那条路会自己开标签并 adopt，
-    // `activateIfIdle` 会让位给它。
-    const target = browserOtaTabs.restoreTarget(browserOtaTabs.allTabs);
-    if (target) {
-      void browserOtaTabs.activateIfIdle(target).catch((error: unknown) => {
-        log.warn('Tab could not be activated after the cookie prompt', {
-          ...errorFields(error),
-        });
-      });
-    }
-  }
-
-  async function finishCookiePromptAndReviewImports(): Promise<void> {
-    finishCookiePrompt();
-    cookieListAutoOpen.set(true);
-    await push('/settings');
-  }
-
   async function runNavigationAction(event: string, action: () => Promise<void>): Promise<void> {
     dismissAppNotification('browser-operation-error');
     try {
@@ -359,7 +332,6 @@
     const pendingTab = tabActivation.consume();
     if (pendingTab) {
       void loadCredentials(pendingTab.channelId);
-      cookiePrompt = false;
       void browserOtaTabs.adopt(pendingTab).catch((error: unknown) => {
         if (mounted) {
           reportBrowserFailure('Pending tab could not be activated', '标签激活失败，请重试', error);
@@ -367,19 +339,11 @@
       });
     } else {
       void loadCredentials(activeChannelId);
-      cookiePrompt = localStorage.getItem(COOKIE_PROMPT_KEY) !== 'true';
-      // ⚠️ 不论引导页在不在都要 hydrate：标签栏依赖它才画得出来。此前整段被
-      // `if (!cookiePrompt)` 包着，导致**引导页出现过的那一次**标签状态从未装载，
-      // 关掉引导页后标签栏是空的、内容区也没人激活——用户点一下标签才恢复。
-      // 引导页只在首次出现，所以这个 case「只有第一次能复现」。
       void window.hotelButler.browser
         .list()
         .then(async (tabs) => {
           if (!mounted) return;
           browserOtaTabs.hydrate(tabs);
-          // 引导页盖着内容区时不激活：此刻激活等于把网页画到引导页底下，
-          // 用户关掉引导页才看得见。留给 `finishCookiePrompt` 那条路去做。
-          if (cookiePrompt) return;
           // 兜底激活：带着绑定意图进来时，标签页由 BindHotelDialog 那条链开，
           // 它先起跑但后完成——这里必须让位，否则会把它从内容区顶掉。
           //
@@ -635,9 +599,7 @@
         />
         <h2 class="m-0 text-[21px] font-semibold tracking-[-0.025em]">选择上方渠道，开始登录</h2>
         <p class="mt-3 mb-0 text-sm text-muted-foreground">
-          {cookiePrompt
-            ? '可先导入浏览器登录信息，再选择账号开始使用'
-            : '选择右上角账号后，系统将自动同步渠道登录状态'}
+          选择右上角账号后，系统将自动同步渠道登录状态
         </p>
       </div>
     {/if}
@@ -647,28 +609,3 @@
 <BindHotelDialog />
 <ReauthDialog />
 
-{#if cookiePrompt}
-  <aside
-    class="fixed right-6 bottom-6 z-40 w-[340px] rounded-[12px] border border-[#c9e5e3] bg-[#f2faf9] p-5 shadow-[0_12px_30px_rgba(16,24,40,.1)]"
-    aria-live="polite"
-    transition:enter={SURFACE_TRANSITION_OPTIONS}
-  >
-    <div class="flex gap-3">
-      <Import class="mt-0.5 shrink-0 text-[var(--brand-green-deep)]" size={20} strokeWidth={1.8} />
-      <div>
-        <h2 class="m-0 text-sm font-semibold">导入已有浏览器 Cookie</h2>
-        <p class="mt-2 mb-0 text-xs leading-5 text-muted-foreground">
-          从本机浏览器自动导入，导入后将在 OTA 页面生效。
-        </p>
-      </div>
-    </div>
-    <div class="mt-4 flex justify-end gap-2">
-      <Button variant="ghost" size="sm" onclick={() => void finishCookiePrompt()}>暂不导入</Button>
-      <CookieImportDialog
-        triggerLabel="导入 Cookie"
-        triggerSize="sm"
-        onComplete={finishCookiePromptAndReviewImports}
-      />
-    </div>
-  </aside>
-{/if}

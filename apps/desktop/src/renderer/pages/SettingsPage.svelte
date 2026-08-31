@@ -2,13 +2,11 @@
   import { onMount } from 'svelte';
   import log from 'electron-log/renderer';
   import { errorFields } from '../logging';
-  import Cookie from '@lucide/svelte/icons/cookie';
   import FileText from '@lucide/svelte/icons/file-text';
   import MonitorUp from '@lucide/svelte/icons/monitor-up';
   import Settings2 from '@lucide/svelte/icons/settings-2';
   import { enter, PAGE_ENTER_OPTIONS } from '../motion';
   import type { SystemPreferences } from '../../shared/browser';
-  import CookieLoginListDialog from '../components/browser/CookieLoginListDialog.svelte';
   import { Button } from '$lib/components/ui/button';
   import { dismissAppNotification, showAppNotification } from '../notifications';
 
@@ -100,13 +98,6 @@
             onchange={(event) => void toggleAutoLaunch(event.currentTarget.checked)}
           />
         </label>
-        <div class="flex items-center justify-between gap-6 px-6 py-4">
-          <span class="flex items-center gap-3 text-sm">
-            <Cookie size={17} class="text-muted-foreground" />
-            Cookie
-          </span>
-          <CookieLoginListDialog />
-        </div>
         <div class="flex items-center justify-between gap-6 px-6 py-4">
           <span class="flex flex-col gap-1 text-sm">
             <span class="flex items-center gap-3">
