@@ -70,10 +70,16 @@ jobs:
           npm run prepare --workspace @hotel-butler/server || echo ''
 
       # 打包脚本自己会校验环境、回显 RMS 地址，非法值当场失败，不必在这里重复判断。
+      #
+      # HOTEL_BUTLER_PRIVATE_CA_PATH 不能省：客户端靠这份 CA 校验两台自签 HTTPS 服务
+      # （hotel-butler API 与 GlitchTip 错误上报）。缺了不会报错，只会打出一个连不上
+      # 它们的包 —— 失败还是静默的。证书是公开的，随包分发，见 apps/desktop/certs/README.md。
+      # 用绝对路径：Forge 在 apps/desktop/ 下解析该值，相对路径会指错。
       - name: 打包
         run: npm run make:desktop:${{ inputs.app_env }}:win64
         env:
           XIAOZHI_AUTH_VARIANT: ${{ inputs.auth_variant }}
+          HOTEL_BUTLER_PRIVATE_CA_PATH: ${{ github.workspace }}/apps/desktop/certs/private-ca.pem
 
       # 产物路径里那层 `<variant>/` 来自 forge.config.ts 的 `buildIdentifier`，
       # 别漏掉——Forge 收尾会打印 "Artifacts available at:" 指向真实位置。
