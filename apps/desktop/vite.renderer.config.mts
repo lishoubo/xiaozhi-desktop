@@ -9,6 +9,7 @@ import { svelte } from '@sveltejs/vite-plugin-svelte';
 import tailwindcss from '@tailwindcss/vite';
 import { appEnvDefine } from './vite-plugins/app-env';
 import { authVariantDefine } from './vite-plugins/auth-variant';
+import { sentryDsnDefine } from './vite-plugins/sentry-dsn';
 
 const certificateDirectory = process.env.LOCAL_HTTPS_CERT_DIR
   ? path.resolve(process.env.LOCAL_HTTPS_CERT_DIR)
@@ -30,7 +31,7 @@ function developmentServerHttps() {
 
 // https://vitejs.dev/config
 export default defineConfig(({ command }) => ({
-  plugins: [appEnvDefine(), authVariantDefine(), tailwindcss(), svelte()],
+  plugins: [appEnvDefine(), authVariantDefine(), sentryDsnDefine(), tailwindcss(), svelte()],
   server: {
     host: 'localhost',
     port: 5174,

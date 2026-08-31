@@ -26,3 +26,9 @@ declare const __APP_ENV__: 'dev' | 'pre' | 'online';
  * 主进程用它 `app.setName()`，使 dev 模式也落到本环境专属的数据/日志目录。
  */
 declare const __APP_PRODUCT_NAME__: string;
+
+/**
+ * GlitchTip 上报地址：由 vite-plugins/sentry-dsn.ts 在 main / renderer 构建里注入。
+ * 空串表示本次构建不上报（dev 环境默认如此）。
+ */
+declare const __SENTRY_DSN__: string;

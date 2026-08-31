@@ -37,6 +37,7 @@ import { AmountChangeWatcher } from '../channels/amount-change-watcher';
 import { HotelProbeDispatcher } from '../channels/hotel-probe-dispatcher';
 import { OtaReauthDispatcher } from '../channels/ota-reauth-dispatcher';
 import { ReauthByHotelDispatcher } from '../channels/reauth-by-hotel-dispatcher';
+import { reportError } from '../error-reporting/report-error';
 import { HttpRmsAmountChangeGateway } from '../gateway/rms/rms-amount-change-gateway-http';
 import { AmountChangeReportService } from '../services/amount-change-report-service';
 import type { UiWaitingResultEnvelope } from '../../shared/types/ui-waiting-result-types';
@@ -133,6 +134,7 @@ export function createWindowScope(scope: WindowScopeDependencies): WindowScope {
       origin: scope.rms.origin,
       fetch: scope.rms.fetch,
       logger,
+      reportError,
     }),
     // 上报体要带「谁改的」和「用哪个渠道账号改的」。两者分别来自认证栈与凭证仓储，
     // 都够不着 channels/，所以在这里以窄查询注入。

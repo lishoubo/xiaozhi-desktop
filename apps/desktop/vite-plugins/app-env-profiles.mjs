@@ -28,19 +28,33 @@ export const DEFAULT_ENVIRONMENT = 'dev';
  * - `squirrelName` Windows Squirrel 内部标识，决定 `%LOCALAPPDATA%\<name>` 与注册表
  *   卸载项。与展示名分开是因为 Squirrel 对非 ASCII 字符支持不佳
  * - `rmsOrigin` 该环境的默认 RMS 地址；`null` 表示尚未确定，构建时必须显式提供
+ * - `sentryDsn` 该环境的 GlitchTip 上报地址；`null` 表示不上报（见 sentry-dsn.ts）
  */
+/**
+ * 三套环境共用一个 GlitchTip Project，靠上报时的 `environment` 标签区分
+ * （服务端方案定的，已实测可筛选）。所以 DSN 只有一份，不随环境变化。
+ *
+ * DSN 里的 key 是 Sentry 协议的 public key —— 只能写入、不能读取项目数据，
+ * 随客户端分发是官方用法，不按凭证对待。
+ */
+const GLITCHTIP_DSN = 'https://623a874052f74e1192e8483ab13d7fcd@121.199.29.74:35444/1';
+
 export const PROFILES = {
   dev: {
     productName: '小智酒店管家[开发]',
     bundleId: 'com.xiaozhi.hotel.dev',
     squirrelName: 'xiaozhi-hotel-dev',
     rmsOrigin: 'http://localhost:8080',
+    // 本地开发默认不上报：改代码时的报错是预期内的噪声，往生产项目里刷会淹掉真实故障。
+    // 需要联调上报链路时用 XIAOZHI_SENTRY_DSN 显式打开。
+    sentryDsn: null,
   },
   pre: {
     productName: '小智酒店管家[预发]',
     bundleId: 'com.xiaozhi.hotel.pre',
     squirrelName: 'xiaozhi-hotel-pre',
     rmsOrigin: 'http://47.96.144.176',
+    sentryDsn: GLITCHTIP_DSN,
   },
   online: {
     productName: '小智酒店管家',
@@ -51,6 +65,7 @@ export const PROFILES = {
     // 每次告警，见 scripts/desktop-make.mjs）。正式域名上 HTTPS 后改这里即可，
     // 届时告警会自动消失。
     rmsOrigin: 'http://47.96.144.176',
+    sentryDsn: GLITCHTIP_DSN,
   },
 };
 

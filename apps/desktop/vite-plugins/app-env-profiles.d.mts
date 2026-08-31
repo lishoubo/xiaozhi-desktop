@@ -11,6 +11,7 @@ export type EnvironmentProfile = Readonly<{
   bundleId: string;
   squirrelName: string;
   rmsOrigin: string | null;
+  sentryDsn: string | null;
 }>;
 
 export declare const ENVIRONMENTS: readonly AppEnvironment[];

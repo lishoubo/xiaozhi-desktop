@@ -26,6 +26,7 @@ import {
   cleanupOrphanPartitions,
   cleanupRetiredPartitions,
 } from '../browser/partition-cleanup';
+import { reportError } from '../error-reporting/report-error';
 import { HttpRmsHotelGateway } from '../gateway/rms/rms-hotel-gateway-http';
 import { HttpRmsOtaAccountGateway } from '../gateway/rms/rms-ota-account-gateway-http';
 import type { ChannelId } from '../ids';
@@ -169,11 +170,13 @@ export function createAppScope(logger: AppLogger): AppScope {
         origin: rmsOrigin,
         fetch: authenticatedRmsFetch,
         logger,
+        reportError,
       }),
       otaAccountGateway: new HttpRmsOtaAccountGateway({
         origin: rmsOrigin,
         fetch: authenticatedRmsFetch,
         logger,
+        reportError,
       }),
       otaHotelRepository,
       otaCredentialRepository,

@@ -7,6 +7,7 @@
  */
 import { z } from 'zod';
 import type { AppLogger } from '../../../shared/logging';
+import { noopErrorReporter, type ErrorReporter } from '../../error-reporting/error-reporter';
 
 /**
  * `data` 用 `optional`：错误响应（`ApiResponse.error`）不带这个字段，若要求必填，
@@ -25,6 +26,13 @@ export type RmsApiCallerDependencies = Readonly<{
   logger: AppLogger;
   /** 出现在日志与兜底文案里，例如「酒店服务」。 */
   subject: string;
+  /**
+   * 远程上报。**这一层是所有 RMS 调用的唯一收口** —— JSON 解析失败、响应形状异常、
+   * 业务码非 0 三条失败路径都在这里，接一处即覆盖全部 API 错误。
+   *
+   * 默认 noop：不传就是不上报，单测与未初始化上报的场景无需额外配置。
+   */
+  reportError?: ErrorReporter;
 }>;
 
 export type RmsApiCall = (
@@ -35,7 +43,7 @@ export type RmsApiCall = (
 ) => Promise<unknown>;
 
 export function createRmsApiCall(deps: RmsApiCallerDependencies): RmsApiCall {
-  const { origin, fetch, logger, subject } = deps;
+  const { origin, fetch, logger, subject, reportError = noopErrorReporter } = deps;
 
   return async (operation, method, path, body) => {
     const response = await fetch(`${origin}${path}`, {
@@ -53,7 +61,12 @@ export function createRmsApiCall(deps: RmsApiCallerDependencies): RmsApiCall {
         subject,
         status: response.status,
       });
-      throw new Error(`${subject}返回异常，请稍后重试`, { cause });
+      const error = new Error(`${subject}返回异常，请稍后重试`, { cause });
+      reportError(error, {
+        operation,
+        extra: { subject, status: response.status, reason: 'invalid-json' },
+      });
+      throw error;
     }
 
     const envelope = envelopeSchema.safeParse(payload);
@@ -64,7 +77,12 @@ export function createRmsApiCall(deps: RmsApiCallerDependencies): RmsApiCall {
         subject,
         status: response.status,
       });
-      throw new Error(`${subject}返回异常，请稍后重试`, { cause: envelope.error });
+      const error = new Error(`${subject}返回异常，请稍后重试`, { cause: envelope.error });
+      reportError(error, {
+        operation,
+        extra: { subject, status: response.status, reason: 'unexpected-shape' },
+      });
+      throw error;
     }
 
     if (envelope.data.code !== 0) {
@@ -74,7 +92,12 @@ export function createRmsApiCall(deps: RmsApiCallerDependencies): RmsApiCall {
         rmsCode: envelope.data.code,
       });
       // 远端 message 已是面向人的文案，直接透传比在这里重编一套更准确。
-      throw new Error(envelope.data.message ?? `${subject}操作失败，请稍后重试`);
+      const error = new Error(envelope.data.message ?? `${subject}操作失败，请稍后重试`);
+      reportError(error, {
+        operation,
+        extra: { subject, rmsCode: envelope.data.code, reason: 'rejected' },
+      });
+      throw error;
     }
 
     return envelope.data.data;

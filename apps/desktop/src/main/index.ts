@@ -12,9 +12,11 @@ import {
   configureDesktopLogDirectory,
   configureMainLogging,
 } from './logging/configure-main-logging';
+import { initializeErrorReporting } from './error-reporting/init-error-reporting';
 import { configureNetworkPrivacy } from './security/network-privacy';
 import { createAppScope, type AppScope } from './composition/app-scope';
 import { createWindowScope, type WindowScope } from './composition/window-scope';
+import { loadPackagedPrivateCa } from './server-client/private-ca-trust';
 import { resolveRmsOrigin } from './staff-auth/rms-endpoint';
 
 /**
@@ -42,6 +44,24 @@ configureMainLogging(log, {
   logsDirectory,
   platform: process.platform,
 });
+
+/**
+ * 尽早初始化：晚于此处发生的崩溃就上报不出去了。放在日志配置之后是有意的——上报本身
+ * 出问题时（缺 DSN、CA 装不上）要有地方留痕。
+ *
+ * 私有 CA 读取失败不该拦住启动：`loadPackagedPrivateCa` 对显式指定却读不到会抛错
+ * （那是打包命令写错了，必须暴露），但那条路径只在设了环境变量时触发。这里额外兜一层，
+ * 是因为**上报是辅助能力，任何情况下都不该成为应用起不来的原因**。
+ */
+try {
+  initializeErrorReporting({
+    appVersion: app.getVersion(),
+    privateCaPem: loadPackagedPrivateCa(app.isPackaged, process.resourcesPath, process.env),
+    logger: log,
+  });
+} catch (error) {
+  log.warn('Error reporting failed to initialize', { error: safeLogErrorDetails(error) });
+}
 
 // 排查任何问题的第一个问题都是「这装的是哪套环境、连的哪个后端」。三套包可并存安装，
 // 光看应用名不足以确认后端地址，所以两者一起记。
