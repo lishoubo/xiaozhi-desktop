@@ -1,7 +1,7 @@
 /**
  * 用 CDP 旁听渠道页面自己发出的「保存价量态」请求，把**请求体与响应结果配对**后交给上层。
  *
- * 与 `douyin/dsl-get-response-capture.ts` 的差异：那个只要响应体、一次性、拿到就结束；
+ * 与 `douyin/hotel-response-capture.ts` 的差异：那个只要响应体、一次性、拿到就结束；
  * 这个要请求体 + 响应体两边配对，且长期驻留（用户可以连续改很多次价）。
  *
  * 本类**渠道无关**：拦哪些端点、这次成不成功，全部问注入的 `AmountChangeAdapter`。
@@ -30,7 +30,7 @@
  *
  * `Network.getResponseBody` 只有在 `loadingFinished` 之后才保证拿得到完整 body
  * （`responseReceived` 只代表响应头到了，body 可能还在流式传输，此时调用会间歇性报
- * "No resource with given identifier found"）—— 与 `dsl-get-response-capture.ts` 同一个坑。
+ * "No resource with given identifier found"）—— 与 `hotel-response-capture.ts` 同一个坑。
  *
  * ## 为什么页面级上下文（`context`）放在这里
  *

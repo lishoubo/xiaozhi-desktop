@@ -28,6 +28,20 @@ const IDENTITY_WAIT_TIMEOUT_MS = 15000;
 const IDENTITY_POLL_INTERVAL_MS = 250;
 const IDENTITY_MAX_ATTEMPTS = IDENTITY_WAIT_TIMEOUT_MS / IDENTITY_POLL_INTERVAL_MS;
 
+/**
+ * 身份对象的**字段形状**：键名 → 类型名，`null` 单列。只出键与类型，**不出值** ——
+ * 这份数据里有登录 ID、账号名这类不该进日志的内容。
+ */
+function describeIdentityShape(raw: unknown): Record<string, string> {
+  if (typeof raw !== 'object' || raw === null) return { _type: typeof raw };
+  return Object.fromEntries(
+    Object.entries(raw as Record<string, unknown>).map(([key, value]) => [
+      key,
+      value === null ? 'null' : typeof value,
+    ]),
+  );
+}
+
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -61,12 +75,20 @@ export function createDouyinDiscovery(logger: AppLogger): DiscoverDouyin {
     // 但解析不出来（抖音改了字段）。两者原先同一句 warn，真机排查时分不出该等还是
     // 该改解析。只记最后一次的状况——中间轮次为空是正常的等待过程。
     let sawRawValue = false;
+    let lastShape: Record<string, string> | null = null;
     for (let attempt = 0; attempt < IDENTITY_MAX_ATTEMPTS && !credential; attempt += 1) {
       const accountRaw: unknown = await webContents.executeJavaScript(
         READ_DOUYIN_ACCOUNT_IDENTITY_EXPRESSION,
       );
       sawRawValue = accountRaw != null;
       credential = parseDouyinAccountIdentity(accountRaw);
+      // 解析失败时留下**字段形状**（键名 + 类型，不含值）。「读到了但解析不出」只说明
+      // 抖音改了字段，说不出改的是哪个 —— 2026-09-01 排查连锁账号登录后绑定流程不继续
+      // 时，正是这份形状一眼定位到 `role_name`/`role_type` 为 null。
+      //
+      // 只在**读到东西**的轮次覆盖：读空的轮次保留上一次的形状，storage 在最后一轮恰好
+      // 读空（页面正在跳转之类）不该把前面拿到的线索冲掉。
+      if (accountRaw != null) lastShape = credential ? null : describeIdentityShape(accountRaw);
       if (!credential) await sleep(IDENTITY_POLL_INTERVAL_MS);
     }
     if (!credential) {
@@ -74,7 +96,11 @@ export function createDouyinDiscovery(logger: AppLogger): DiscoverDouyin {
         sawRawValue
           ? 'Douyin discovery: account identity in session storage could not be parsed'
           : 'Douyin discovery: session storage held no account identity before timeout',
-        { partitionName, waitedMs: IDENTITY_WAIT_TIMEOUT_MS },
+        {
+          partitionName,
+          waitedMs: IDENTITY_WAIT_TIMEOUT_MS,
+          ...(lastShape ? { shape: lastShape } : {}),
+        },
       );
       return { kind: 'none' };
     }

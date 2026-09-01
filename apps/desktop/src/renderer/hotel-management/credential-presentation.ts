@@ -10,7 +10,7 @@
  * | 渠道 | 来源字段 | 上屏 |
  * |---|---|---|
  * | 携程 | `userName` / `masterHotelId` / `hotelName`（老记录 `hotelId`） | 酒店 ID、酒店 |
- * | 抖音 | `loginId` / `name` / `roleName` / `roleType` | 登录 ID、角色 |
+ * | 抖音 | `loginId` / `name` / `roleName` / `roleType` | 角色 |
  * | 美团 | `partnerId` / `login` / `accountType` / `accountStatus` / `maskedPhone` | 商家 ID、登录名、手机号 |
  *
  * 携程的 `title` 取 `userName`（账号名）而不是 `hotelName`（酒店名）：一个账号可以
@@ -19,6 +19,11 @@
  * **数字码不上屏**：抖音 `roleType`、美团 `accountType` / `accountStatus` 是渠道内部
  * 编码（`roleName` 已经是它的可读版本），把 `2` 摆给运营看只是噪音。`identitySource`
  * 同理，是抓取方式的内部标记，不是账号信息。
+ *
+ * **抖音 `loginId` 不上屏**：抖音对这个字段返回的值与 `user_id` 相同（真机实测
+ * `1021860188520506`），上屏就是「账号 ID」「登录 ID」两行同一个数字，对认账号毫无
+ * 帮助。**仍然存进 `credentialExtra`**（渠道原样给的事实，将来若变得有区分度可以
+ * 直接上屏），只是不展示。
  */
 import type { OtaCredentialDto } from '../../shared/browser';
 
@@ -75,7 +80,6 @@ export function credentialPresentation(credential: OtaCredentialDto): Credential
   pushDetail(details, '酒店 ID', extra?.masterHotelId ?? extra?.hotelId);
   // 账号名已经是 title，这里补酒店名——多店账号下「这个账号当前在哪家店」是有效佐证。
   pushDetail(details, '酒店', extra?.hotelName); // 携程
-  pushDetail(details, '登录 ID', extra?.loginId); // 抖音
   pushDetail(details, '角色', extra?.roleName); // 抖音
   pushDetail(details, '商家 ID', extra?.partnerId); // 美团
   pushDetail(details, '登录名', extra?.login); // 美团

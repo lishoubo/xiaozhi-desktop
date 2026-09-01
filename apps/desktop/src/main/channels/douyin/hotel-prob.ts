@@ -1,17 +1,23 @@
 /**
- * 抖音酒店探测：点击左侧"门店管理"菜单，用 CDP 拦截该页面自己发起的
- * `dsl/get` 请求响应体拿到门店 ID/名称（详细踩坑背景见
- * `dsl-get-response-capture.ts`）。不重复读取账号身份——身份读取已在
- * `ota-credential` 侧完成（`discover-douyin.ts`），这里只在收到
- * `HotelProbeOutcome` 前提取当前页面 `groupid` 作为 `bindExtra`。
+ * 抖音酒店探测：点击左侧"门店管理"菜单，用 CDP 拦截该页面自己发起的请求响应体
+ * 拿到门店 ID/名称。
+ *
+ * **一个账号可能管多家门店**：抖音有两种经营模式，单店商家点「门店管理」进的是
+ * 那家店的详情（数据在 `dsl/get`），连锁/集团进的是门店列表（数据在
+ * `poiAccountList`）。两个端点同时拦、谁先出数据用谁，详细取舍见
+ * `hotel-response-capture.ts` 与 `poi-account-list.ts`。这里对两种模式一视同仁
+ * ——都当列表处理，单店只是长度为 1 的那种。
+ *
+ * 不重复读取账号身份——身份读取已在 `ota-credential` 侧完成
+ * （`discover-douyin.ts`），这里只在收到 `HotelProbeOutcome` 前提取当前页面
+ * `groupid` 作为 `bindExtra`。
  */
 import type { WebContents } from 'electron';
-import { toOtaHotelId } from '../../ids';
 import { douyinBindExtra } from '../../channels/bind-extra';
 import { safeLogErrorDetails, type AppLogger } from '../../../shared/logging';
 import { isTrustedHotelUrl } from '../trusted-hotel-url';
 import type { HotelProbe, HotelProbeOutcome } from '../types';
-import { DslGetResponseCapture } from './dsl-get-response-capture';
+import { HotelResponseCapture } from './hotel-response-capture';
 
 const DOUYIN_HOTEL_HOSTNAME = 'life.douyin.com';
 const HOME_PATH = '/p/home';
@@ -105,28 +111,28 @@ export function createDouyinHotelProbe(logger: AppLogger): HotelProbe {
       const groupId = extractGroupIdFromCurrentUrl(webContents.getURL());
       if (!groupId) return { kind: 'none' };
 
-      const capture = new DslGetResponseCapture(webContents, logger);
+      const capture = new HotelResponseCapture(webContents, logger);
       try {
         await capture.attach();
-        const waitForHotel = capture.waitForHotel(RESPONSE_WAIT_TIMEOUT_MS);
+        const waitForHotels = capture.waitForHotels(RESPONSE_WAIT_TIMEOUT_MS);
 
         await clickPoiManageMenu(webContents, logger);
 
-        const hotel = await waitForHotel;
-        if (!hotel) {
-          logger.warn('Douyin hotel probe: no dsl/get response captured');
+        const captured = await waitForHotels;
+        if (!captured) {
+          logger.warn('Douyin hotel probe: neither endpoint yielded hotels before timeout');
           return { kind: 'none' };
         }
 
         return {
           kind: 'found',
-          hotels: [
-            {
-              otaHotelId: toOtaHotelId(hotel.hotelId),
-              otaHotelName: hotel.hotelName,
-              bindExtra: douyinBindExtra(groupId),
-            },
-          ],
+          // `bindExtra` 对所有门店相同：`groupid` 是**账号级**的，不是门店级的
+          // ——连锁账号下 N 家门店共用同一个 merchantGroupId。
+          hotels: captured.hotels.map((hotel) => ({
+            otaHotelId: hotel.otaHotelId,
+            otaHotelName: hotel.otaHotelName,
+            bindExtra: douyinBindExtra(groupId),
+          })),
         };
       } catch (error) {
         logger.warn('Douyin hotel probe failed', {

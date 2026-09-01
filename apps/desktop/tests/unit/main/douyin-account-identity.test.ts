@@ -123,3 +123,38 @@ describe('parseDouyinAccountIdentity', () => {
     ).resolves.toBeNull();
   });
 });
+
+describe('连锁/集团账号（无门店角色）', () => {
+  /** 2026-09-01 真机实测：集团账号的 login_info 返回 role_name/role_type 为 null。 */
+  it('角色字段为 null 时仍建出身份，且省略这两个键', () => {
+    const identity = parseDouyinAccountIdentity({
+      user_id: '2749256394085975',
+      login_id: 'meihao_group',
+      name: '美豪丽致集团',
+      role_name: null,
+      role_type: null,
+    });
+
+    expect(identity).toEqual({
+      channelAccountId: '2749256394085975',
+      credentialExtra: { loginId: 'meihao_group', name: '美豪丽致集团' },
+    });
+  });
+
+  it('角色字段缺失（键都没有）时同样建得出身份', () => {
+    const identity = parseDouyinAccountIdentity({
+      user_id: '123',
+      login_id: 'abc',
+      name: '某集团',
+    });
+
+    expect(identity?.credentialExtra).toEqual({ loginId: 'abc', name: '某集团' });
+  });
+
+  it('身份三要素缺任一仍然拒绝', () => {
+    const base = { user_id: '123', login_id: 'abc', name: '某店' };
+    expect(parseDouyinAccountIdentity({ ...base, user_id: '' })).toBeNull();
+    expect(parseDouyinAccountIdentity({ ...base, login_id: '  ' })).toBeNull();
+    expect(parseDouyinAccountIdentity({ ...base, name: '' })).toBeNull();
+  });
+});

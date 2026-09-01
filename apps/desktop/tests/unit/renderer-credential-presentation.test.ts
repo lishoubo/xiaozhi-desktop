@@ -17,7 +17,7 @@ function credential(overrides: Partial<OtaCredentialDto> = {}): OtaCredentialDto
 }
 
 describe('credentialPresentation', () => {
-  it('展开抖音 extra：登录 ID 与角色，数字码 roleType 不上屏', () => {
+  it('展开抖音 extra：只上角色，loginId 与数字码 roleType 都不上屏', () => {
     const presentation = credentialPresentation(
       credential({
         credentialExtra: {
@@ -32,7 +32,7 @@ describe('credentialPresentation', () => {
     expect(presentation.title).toBe('云朵酒店');
     expect(presentation.details).toEqual([
       { label: '账号 ID', value: 'account-1' },
-      { label: '登录 ID', value: '18800000000' },
+      // loginId 存着但不上屏：抖音返回的值与 user_id 相同，两行同一个数字帮不上忙。
       { label: '角色', value: '管理员' },
     ]);
   });

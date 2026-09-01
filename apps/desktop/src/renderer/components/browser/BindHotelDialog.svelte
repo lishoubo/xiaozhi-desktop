@@ -74,7 +74,18 @@
       cancelWaiting = undefined;
       credentialId = payload.credentialId;
       candidates = payload.hotels;
-      selectedOtaHotelId = payload.hotels.length === 1 ? payload.hotels[0]?.otaHotelId : undefined;
+      // 默认选中一家：连锁账号可能返回几十家，让用户从「已选中一项」开始改，比从
+      // 「一项没选」开始找要快。
+      //
+      // ⚠️ 改绑流程必须默认选**原来那家**，不能一律取第一家：`requiresUnbindFirst`
+      // 在「选中的 ≠ 原绑定」时会亮红色警告并禁用确认按钮。连锁账号下原绑定门店极少
+      // 恰好排在第一位，一律取 hotels[0] 会让弹窗**一打开就报错**——用户还没动手就被
+      // 告知操作被阻止。选原门店既保留了「从已选状态开始」的好处，又让守卫保持安静。
+      const replacing = replacingOtaHotelId;
+      selectedOtaHotelId =
+        (replacing !== null
+          ? payload.hotels.find((hotel) => hotel.otaHotelId === replacing)?.otaHotelId
+          : undefined) ?? payload.hotels[0]?.otaHotelId;
       open = true;
       // 原生 WebContentsView 永远盖在 HTML 之上，不让位弹窗就看不见。
       void browserOtaTabs.suspendViewport();
