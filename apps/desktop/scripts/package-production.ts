@@ -3,18 +3,26 @@ import { createPublicKey, X509Certificate } from 'node:crypto';
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { PROFILES } from '../vite-plugins/app-env-profiles.mjs';
 
 
-export const PRODUCTION_SERVER_ORIGIN = 'https://121.199.29.74:35443';
 /**
- * 生产 RMS 地址。与上面的 backend 地址一样直接写死在这里——它是仓库自有的事实，
- * 不该从 `apps/server/.env.production` 去读：那个文件被 gitignore（含数据库密码、
+ * 生产地址的唯一事实来源是 `vite-plugins/app-env-profiles.mjs` 的 PROFILES.online
+ * —— 打包脚本与构建期注入必须看同一份，否则「脚本说连 A、包里烧的是 B」这种漂移
+ * 无声无息。此处只做转出，不再各写一份。
+ *
+ * 不从 `apps/server/.env.production` 去读：那个文件被 gitignore（含数据库密码、
  * BETTER_AUTH_SECRET 等），每台机器各写一份，同一个地址会散成 N 份且互相不知道对错。
  *
- * ⚠️ 明文 HTTP：RMS 正式域名尚未启用 HTTPS，当前与 pre 指向同一台机器（数据不隔离）。
- * 因此打包时会每次打印 WARNING。上了 HTTPS 后改成 https 地址即可，告警自动消失。
+ * ⚠️ RMS 仍是明文 HTTP：正式域名尚未启用 HTTPS，当前与 pre 指向同一台机器
+ * （数据不隔离）。因此打包时会每次打印 WARNING。上了 HTTPS 后改 PROFILES 即可。
  */
-export const PRODUCTION_RMS_ORIGIN = 'http://47.96.144.176';
+const onlineProfile = PROFILES.online;
+if (onlineProfile.serverOrigin === null || onlineProfile.rmsOrigin === null) {
+  throw new Error('PROFILES.online 缺少 serverOrigin 或 rmsOrigin，无法进行生产打包');
+}
+export const PRODUCTION_SERVER_ORIGIN = onlineProfile.serverOrigin;
+export const PRODUCTION_RMS_ORIGIN = onlineProfile.rmsOrigin;
 const PRODUCTION_IP = new URL(PRODUCTION_SERVER_ORIGIN).hostname;
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../..');
 const tlsDirectory = path.join(repositoryRoot, 'output', 'production-tls', PRODUCTION_IP);

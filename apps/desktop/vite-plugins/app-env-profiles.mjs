@@ -29,6 +29,8 @@ export const DEFAULT_ENVIRONMENT = 'dev';
  *   卸载项。与展示名分开是因为 Squirrel 对非 ASCII 字符支持不佳
  * - `rmsOrigin` 该环境的默认 RMS 地址；`null` 表示尚未确定，构建时必须显式提供
  * - `sentryDsn` 该环境的 GlitchTip 上报地址；`null` 表示不上报（见 sentry-dsn.ts）
+ * - `serverOrigin` 该环境的 hotel-butler server 地址（AI 助理与私有 CA 信任用）；
+ *   `null` 表示尚未确定，构建时必须显式提供，见 server-origin.ts
  */
 /**
  * 三套环境共用一个 GlitchTip Project，靠上报时的 `environment` 标签区分
@@ -39,12 +41,22 @@ export const DEFAULT_ENVIRONMENT = 'dev';
  */
 const GLITCHTIP_DSN = 'https://623a874052f74e1192e8483ab13d7fcd@121.199.29.74:35444/1';
 
+/**
+ * hotel-butler server 的生产地址，与 GlitchTip 同机、同一套私有 CA
+ * （见 openspec/specs/server-container-deployment/spec.md 与 apps/desktop/certs/）。
+ *
+ * pre 与 online 暂时共用它——正式域名尚未启用，和 `rmsOrigin` 的处境一致。
+ */
+const PRODUCTION_SERVER_ORIGIN = 'https://121.199.29.74:35443';
+
 export const PROFILES = {
   dev: {
     productName: '小智酒店管家[开发]',
     bundleId: 'com.xiaozhi.hotel.dev',
     squirrelName: 'xiaozhi-hotel-dev',
     rmsOrigin: 'http://localhost:8080',
+    // 本地 `npm run dev:server` 起在这个端口（HTTPS，证书由 npm run https:setup 生成）。
+    serverOrigin: 'https://localhost:5173',
     // 本地开发默认不上报：改代码时的报错是预期内的噪声，往生产项目里刷会淹掉真实故障。
     // 需要联调上报链路时用 XIAOZHI_SENTRY_DSN 显式打开。
     sentryDsn: null,
@@ -54,6 +66,7 @@ export const PROFILES = {
     bundleId: 'com.xiaozhi.hotel.pre',
     squirrelName: 'xiaozhi-hotel-pre',
     rmsOrigin: 'http://47.96.144.176',
+    serverOrigin: PRODUCTION_SERVER_ORIGIN,
     sentryDsn: GLITCHTIP_DSN,
   },
   online: {
@@ -65,6 +78,7 @@ export const PROFILES = {
     // 每次告警，见 scripts/desktop-make.mjs）。正式域名上 HTTPS 后改这里即可，
     // 届时告警会自动消失。
     rmsOrigin: 'http://47.96.144.176',
+    serverOrigin: PRODUCTION_SERVER_ORIGIN,
     sentryDsn: GLITCHTIP_DSN,
   },
 };

@@ -11,6 +11,7 @@ export type EnvironmentProfile = Readonly<{
   bundleId: string;
   squirrelName: string;
   rmsOrigin: string | null;
+  serverOrigin: string | null;
   sentryDsn: string | null;
 }>;
 

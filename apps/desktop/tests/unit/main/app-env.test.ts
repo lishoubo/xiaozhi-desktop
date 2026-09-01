@@ -5,6 +5,7 @@ import {
   type AppEnvironment,
 } from '../../../vite-plugins/app-env';
 import { resolveRmsOriginForBuild } from '../../../vite-plugins/rms-origin';
+import { resolveServerOriginForBuild } from '../../../vite-plugins/server-origin';
 
 describe('resolveAppEnvironment', () => {
   it('缺省取 dev —— 误打开发包的风险远低于误打生产包', () => {
@@ -106,5 +107,53 @@ describe('resolveRmsOriginForBuild', () => {
         XIAOZHI_RMS_SERVER_URL: 'http://localhost:8080',
       }),
     ).toBe('http://localhost:8080');
+  });
+});
+
+/**
+ * hotel-butler server 地址（AI 助理与私有 CA 信任用；登录走 RMS，不经这里）。
+ *
+ * 这一组用例是 2026-09-01 线上事故的回归：当时本函数是
+ * `HOTEL_BUTLER_SERVER_URL ?? 'https://localhost:5173'`，CI 没设该变量，
+ * 于是打出的包连着用户自己的电脑。规则现在与 `resolveRmsOriginForBuild` 对齐
+ * —— 地址未确定就构建失败，绝不回落。
+ */
+describe('resolveServerOriginForBuild', () => {
+  it('未指定地址时取该环境的 profile 默认值', () => {
+    for (const value of ['dev', 'pre', 'online'] satisfies AppEnvironment[]) {
+      expect(resolveServerOriginForBuild({ XIAOZHI_APP_ENV: value })).toBe(
+        environmentProfile({ XIAOZHI_APP_ENV: value }).serverOrigin,
+      );
+    }
+  });
+
+  it('地址未确定时构建失败，不再回落到 localhost', () => {
+    const withoutOrigin = {
+      ...environmentProfile({ XIAOZHI_APP_ENV: 'online' }),
+      serverOrigin: null,
+    };
+
+    expect(() =>
+      resolveServerOriginForBuild({ XIAOZHI_APP_ENV: 'online' }, () => withoutOrigin),
+    ).toThrow(/尚未配置 hotel-butler server 地址/);
+  });
+
+  it('显式指定的地址覆盖 profile 默认值', () => {
+    expect(
+      resolveServerOriginForBuild({
+        XIAOZHI_APP_ENV: 'online',
+        HOTEL_BUTLER_SERVER_URL: 'https://server.example.com:8443/ignored-path',
+      }),
+    ).toBe('https://server.example.com:8443');
+  });
+
+  /** 凭证与业务数据都走这条链，明文 HTTP 一律拒绝——这里没有 RMS 那样的豁免开关。 */
+  it('拒绝非 HTTPS 地址', () => {
+    expect(() =>
+      resolveServerOriginForBuild({
+        XIAOZHI_APP_ENV: 'online',
+        HOTEL_BUTLER_SERVER_URL: 'http://server.example.com',
+      }),
+    ).toThrow(/must use HTTPS/);
   });
 });
