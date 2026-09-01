@@ -24,10 +24,8 @@
   import type { RmsHotelDto, RmsOtaAccountDto } from '../../shared/hotel-management';
   import { enter, PAGE_ENTER_OPTIONS } from '../motion';
   import { dismissAppNotification, showAppNotification } from '../notifications';
-  import { readAuthSession } from '../auth';
   import { readStaffSession } from '../staff-auth';
   import { capabilitiesOf } from '../permissions';
-  import { IS_STAFF_AUTH } from '../../shared/auth-variant';
 
   /**
    * 界面能力。会话在一次页面生命周期内不会变——变了必然经过登出、整页重建，
@@ -36,7 +34,7 @@
    * 两个登录变体各有各的会话存放处，这里按编译期变体取对应的那个；`capabilitiesOf`
    * 对两种身份形状都做默认拒绝。
    */
-  const capabilities = capabilitiesOf(IS_STAFF_AUTH ? readStaffSession() : readAuthSession());
+  const capabilities = capabilitiesOf(readStaffSession());
   /** 写操作入口的开关（按权限码）。 */
   const canManage = capabilities.manageHotel;
 

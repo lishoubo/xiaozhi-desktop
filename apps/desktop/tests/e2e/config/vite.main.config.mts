@@ -1,11 +1,9 @@
 import { builtinModules } from 'node:module';
 import path from 'node:path';
 import { defineConfig } from 'vite';
-import { E2E_AUTH_VARIANT_DEFINE } from './auth-variant.mts';
 
 export default defineConfig({
   define: {
-    ...E2E_AUTH_VARIANT_DEFINE,
     MAIN_WINDOW_VITE_DEV_SERVER_URL: JSON.stringify(''),
     MAIN_WINDOW_VITE_NAME: JSON.stringify('main_window'),
     // E2E 跑在本机，固定指向本地 rms-server。
@@ -14,6 +12,8 @@ export default defineConfig({
     __APP_ENV__: JSON.stringify('dev'),
     __APP_PRODUCT_NAME__: JSON.stringify('小智酒店管家[开发]'),
     __SERVER_ORIGIN__: JSON.stringify('https://localhost:4173'),
+    // E2E 不上报：空串即关闭（见 main/error-reporting/init-error-reporting.ts）。
+    __SENTRY_DSN__: JSON.stringify(''),
   },
   build: {
     target: 'node24',

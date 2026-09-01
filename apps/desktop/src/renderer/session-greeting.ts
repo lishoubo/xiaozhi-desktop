@@ -10,7 +10,7 @@
  *
  * 两者的 id 字段名和类型都不同（`EmployeeIdentity.id` 是字符串，
  * `StaffIdentity.userId` 是数字），但 `username` / `fullName` 一致——展示名只需要
- * 这两个，所以调用方不必按 `IS_STAFF_AUTH` 分支。
+ * 这两个，所以调用方不必按身份类型分支。
  */
 export type GreetingIdentity = Readonly<{
   username: string;

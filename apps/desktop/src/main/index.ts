@@ -6,7 +6,7 @@ import { app, BrowserWindow } from 'electron';
 import log from 'electron-log/main';
 import started from 'electron-squirrel-startup';
 import { APP_ENVIRONMENT, APP_PRODUCT_NAME } from '../shared/app-environment';
-import { AUTH_VARIANT } from '../shared/auth-variant';
+import { AUTH_PROFILE_DIRECTORY } from '../shared/auth-variant';
 import { safeLogErrorDetails } from '../shared/logging';
 import {
   configureDesktopLogDirectory,
@@ -37,7 +37,7 @@ let appScope: AppScope | null = null;
 let windowScope: WindowScope | null = null;
 
 configureNetworkPrivacy(app.commandLine);
-const logsDirectory = configureDesktopLogDirectory(app, AUTH_VARIANT);
+const logsDirectory = configureDesktopLogDirectory(app, AUTH_PROFILE_DIRECTORY);
 configureMainLogging(log, {
   appVersion: app.getVersion(),
   isPackaged: app.isPackaged,

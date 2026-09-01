@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { capabilitiesOf } from '../../src/renderer/permissions';
 import type { StaffSession } from '../../src/renderer/staff-auth';
-import type { AuthSession } from '../../src/renderer/auth';
 
 function staffWith(
   permissions: readonly string[],
@@ -18,16 +17,6 @@ function staffWith(
     permissions: [...permissions],
   };
 }
-
-/** phone 变体的身份形状——刻意不含 `permissions` 字段。 */
-const phoneSession: AuthSession = {
-  id: '2',
-  orgId: '42',
-  username: 'desktop-demo',
-  fullName: '桌面体验员工',
-  phone: '13800138000',
-  roleCode: 'FRONT_DESK',
-};
 
 describe('renderer capability derivation', () => {
   it('grants hotel management when the code is present', () => {
@@ -48,10 +37,6 @@ describe('renderer capability derivation', () => {
     expect(capabilitiesOf(null).manageHotel).toBe(false);
   });
 
-  it('withholds hotel management for identities that carry no permission field', () => {
-    // phone 变体：字段整个不存在，不能因此被当成「具备」。
-    expect(capabilitiesOf(phoneSession).manageHotel).toBe(false);
-  });
 });
 
 describe('renderer module visibility by user type', () => {
@@ -75,13 +60,6 @@ describe('renderer module visibility by user type', () => {
     const caps = capabilitiesOf(staffWith([], 'STAFF'));
     expect(caps.showHotelManagement).toBe(true);
     expect(caps.manageHotel).toBe(false);
-  });
-
-  it('withholds both capabilities for identities that carry no permission field', () => {
-    // phone 变体既无 permissions 也无 userType，两个能力都必须默认拒绝。
-    const caps = capabilitiesOf(phoneSession);
-    expect(caps.manageHotel).toBe(false);
-    expect(caps.showHotelManagement).toBe(false);
   });
 
   it('withholds both capabilities without a session', () => {

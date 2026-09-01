@@ -3,38 +3,45 @@ import { IPC_CHANNELS } from '../../../src/shared/ipc-channels';
 import { createDesktopApi } from '../../../src/preload/api';
 
 describe('createDesktopApi', () => {
-  it('maps the narrow auth API without exposing a session token', async () => {
-    const employee = {
-      id: '2',
-      orgId: '42',
-      username: 'desktop-demo',
-      fullName: '桌面体验员工',
-      phone: '13800138000',
-      roleCode: 'FRONT_DESK',
+  it('maps the narrow staff auth API without exposing a session token', async () => {
+    const identity = {
+      userId: 7,
+      username: '13800138000',
+      fullName: '酒店前台',
+      role: 'HOTEL_STAFF',
+      orgId: 42,
+      userType: 'HOTEL',
+      accessibleHotelIds: [],
+      permissions: ['hotel:view'],
     };
     const invoke = vi.fn(async (channel: string) => {
-      if (channel === IPC_CHANNELS.auth.requestPhoneCode) {
-        return { accepted: true, expiresInSeconds: 300 };
+      if (channel === IPC_CHANNELS.staffAuth.requestPhoneCode) {
+        return { accepted: true, expiresInSeconds: 300, resendAfterSeconds: 60 };
       }
-      if (channel === IPC_CHANNELS.auth.currentSession) return null;
-      if (channel === IPC_CHANNELS.auth.logout) return { success: true };
-      return employee;
+      if (channel === IPC_CHANNELS.staffAuth.currentSession) return null;
+      if (channel === IPC_CHANNELS.staffAuth.logout) return { success: true };
+      return identity;
     });
     const api = createDesktopApi({ chrome: '1', electron: '2', node: '3' }, invoke);
 
-    await expect(api.auth.requestPhoneCode('13800138000')).resolves.toEqual({
+    await expect(api.staffAuth.requestPhoneCode('13800138000')).resolves.toEqual({
       accepted: true,
       expiresInSeconds: 300,
+      resendAfterSeconds: 60,
     });
-    await expect(api.auth.loginWithPhoneCode('13800138000', '654321')).resolves.toEqual(employee);
-    await expect(api.auth.currentSession()).resolves.toBeNull();
-    await expect(api.auth.logout()).resolves.toEqual({ success: true });
+    await expect(api.staffAuth.loginWithPhoneCode('13800138000', '654321')).resolves.toEqual(
+      identity,
+    );
+    await expect(api.staffAuth.login('front-desk', 'secret')).resolves.toEqual(identity);
+    await expect(api.staffAuth.currentSession()).resolves.toBeNull();
+    await expect(api.staffAuth.logout()).resolves.toEqual({ success: true });
     expect(JSON.stringify(api)).not.toContain('token');
     expect(invoke.mock.calls).toEqual([
-      [IPC_CHANNELS.auth.requestPhoneCode, '13800138000'],
-      [IPC_CHANNELS.auth.loginWithPhoneCode, '13800138000', '654321'],
-      [IPC_CHANNELS.auth.currentSession],
-      [IPC_CHANNELS.auth.logout],
+      [IPC_CHANNELS.staffAuth.requestPhoneCode, '13800138000'],
+      [IPC_CHANNELS.staffAuth.loginWithPhoneCode, '13800138000', '654321'],
+      [IPC_CHANNELS.staffAuth.login, 'front-desk', 'secret'],
+      [IPC_CHANNELS.staffAuth.currentSession],
+      [IPC_CHANNELS.staffAuth.logout],
     ]);
   });
 

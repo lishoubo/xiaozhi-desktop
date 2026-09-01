@@ -4,7 +4,6 @@ import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
-type ProductionAuthVariant = 'staff' | 'phone';
 
 export const PRODUCTION_SERVER_ORIGIN = 'https://121.199.29.74:35443';
 /**
@@ -25,7 +24,6 @@ export type ProductionDesktopAction = (typeof productionActions)[number];
 
 export function parseProductionDesktopCommand(argv: readonly string[]): Readonly<{
   action: ProductionDesktopAction;
-  authVariant: ProductionAuthVariant;
   forwardedArguments: readonly string[];
 }> {
   const action = productionActions.find((candidate) => candidate === argv[0]);
@@ -34,27 +32,11 @@ export function parseProductionDesktopCommand(argv: readonly string[]): Readonly
       `production desktop action 取值非法: ${argv[0] ?? '<missing>'}（可选 ${productionActions.join(' | ')}）`,
     );
   }
-  const authVariantArguments = argv
-    .slice(1)
-    .filter((argument) => argument.startsWith('--auth-variant='));
-  if (authVariantArguments.length > 1) {
-    throw new Error('production desktop auth variant must be provided at most once');
-  }
-  const authVariantArgument = authVariantArguments[0];
-  const rawAuthVariant = authVariantArgument?.slice('--auth-variant='.length) ?? 'staff';
-  if (rawAuthVariant !== 'staff' && rawAuthVariant !== 'phone') {
-    throw new Error(
-      `production desktop auth variant 取值非法: ${rawAuthVariant}（可选 staff | phone）`,
-    );
-  }
-  const authVariant: ProductionAuthVariant = rawAuthVariant;
-  const forwardedArguments = argv
-    .slice(1)
-    .filter((argument) => !argument.startsWith('--auth-variant='));
+  const forwardedArguments = argv.slice(1);
   if (action === 'check' && forwardedArguments.length > 0) {
     throw new Error('production desktop check does not accept Forge arguments');
   }
-  return { action, authVariant, forwardedArguments };
+  return { action, forwardedArguments };
 }
 
 /**
@@ -152,7 +134,6 @@ export function validateProductionDesktopInputs(): Readonly<{
 
 export async function packageProductionDesktop(
   action: Exclude<ProductionDesktopAction, 'check'>,
-  authVariant: ProductionAuthVariant = 'staff',
   forwardedArguments: readonly string[] = [],
 ): Promise<number> {
   const { privateCaPath, rmsOrigin, insecureRms } = validateProductionDesktopInputs();
@@ -164,7 +145,7 @@ export async function packageProductionDesktop(
     executable,
     [
       'run',
-      `${action}:desktop:${authVariant}`,
+      `${action}:desktop:staff`,
       ...(forwardedArguments.length > 0 ? ['--', ...forwardedArguments] : []),
     ],
     {
@@ -206,13 +187,12 @@ if (entryPath && import.meta.url === pathToFileURL(entryPath).href) {
           console.info(`Production backend: ${PRODUCTION_SERVER_ORIGIN}`);
           console.info(`Production RMS: ${inputs.rmsOrigin}`);
           console.info(`Packaged private CA: ${inputs.privateCaPath}`);
-          console.info(`Desktop authentication variant: ${command.authVariant}`);
           if (inputs.insecureRms) {
             console.warn('WARNING: Production RMS uses HTTP; RMS traffic will travel unencrypted.');
           }
           return 0;
         })
-      : packageProductionDesktop(command.action, command.authVariant, command.forwardedArguments);
+      : packageProductionDesktop(command.action, command.forwardedArguments);
   operation
     .then((exitCode) => {
       process.exitCode = exitCode;

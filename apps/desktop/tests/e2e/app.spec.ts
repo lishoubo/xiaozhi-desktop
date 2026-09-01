@@ -62,42 +62,6 @@ test('animates Xiaozhi ambiently and honors reduced-motion preferences', async (
   expect(await hero.evaluate((element) => getComputedStyle(element).animationName)).toBe('none');
 });
 
-test('logs in through the server and stores a hardened persistent session cookie', async () => {
-  await login();
-
-  await expect(page.getByRole('button', { name: '携程酒店 eBooking' })).toBeVisible();
-  const sessionCookies = await electronApp.evaluate(async ({ session }) => {
-    const cookies = await session
-      .fromPartition('persist:xiaozhi:server-api')
-      .cookies.get({ name: '__Host-xiaozhi_desktop_session' });
-    return cookies.map(({ httpOnly, name, sameSite, secure, session: isSessionCookie }) => ({
-      httpOnly,
-      name,
-      sameSite,
-      secure,
-      isSessionCookie,
-    }));
-  });
-  expect(sessionCookies).toEqual([
-    {
-      httpOnly: true,
-      name: '__Host-xiaozhi_desktop_session',
-      sameSite: 'strict',
-      secure: true,
-      isSessionCookie: false,
-    },
-  ]);
-  expect(await page.evaluate(() => window.hotelButler.auth.currentSession())).toMatchObject({
-    phone: '13800138000',
-    username: 'desktop-demo',
-  });
-  await expect(page.getByText('导入已有浏览器 Cookie')).toBeVisible();
-  await page.getByRole('button', { name: '导入 Cookie' }).click();
-  await expect(page.getByRole('dialog', { name: '从浏览器导入 Cookie' })).toBeVisible();
-  await page.getByRole('button', { name: '取消' }).click();
-  await page.getByRole('button', { name: '暂不导入' }).click();
-});
-
 test('starts the Electron window with the Svelte browser shell', async () => {
   await login();
   await expect(page).toHaveTitle('小智酒店管家');
@@ -118,7 +82,6 @@ test('uses credential-backed account switching and shared-session tabs', async (
   browserName: _browserName,
 }, testInfo) => {
   await login();
-  await page.getByRole('button', { name: '暂不导入' }).click();
 
   const databasePath = path.join(runtimeDirectory, 'user-data', 'hotel-butler.sqlite');
   const insertCredentialSql = `

@@ -8,6 +8,7 @@ export default defineConfig({
     __APP_ENV__: JSON.stringify('dev'),
     __APP_PRODUCT_NAME__: JSON.stringify('小智酒店管家[开发]'),
     __SERVER_ORIGIN__: JSON.stringify('https://localhost:5173'),
+    __SENTRY_DSN__: JSON.stringify(''),
   },
   test: {
     environment: 'node',

@@ -1,5 +1,4 @@
 import path from 'node:path';
-import type { AuthVariant } from '../../shared/auth-variant';
 import { redactLogData, type LogMessageData } from '../../shared/logging';
 
 type MainLoggingTarget = {
@@ -64,10 +63,10 @@ const FILE_LOG_INSPECT_DEPTH = 8;
 
 export function configureDesktopLogDirectory(
   electronApp: ElectronLogDirectoryTarget,
-  authVariant: AuthVariant,
+  profileDirectoryName: string,
 ): string {
   electronApp.setAppLogsPath();
-  const profileDirectory = path.join(electronApp.getPath('logs'), authVariant);
+  const profileDirectory = path.join(electronApp.getPath('logs'), profileDirectoryName);
   electronApp.setAppLogsPath(profileDirectory);
   return electronApp.getPath('logs');
 }

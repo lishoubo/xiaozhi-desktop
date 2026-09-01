@@ -9,7 +9,6 @@ import { app, shell, type BrowserWindow } from 'electron';
 import { BrowserManager } from '../browser/browser-manager';
 import { amountChangeAdapters, hotelProbes, loginUrlMatchers } from '../channels/registry';
 import { BrowserCookieImporter } from '../cookie-import/browser-cookie-importer';
-import { registerAuthHandlers } from '../ipc/auth-handlers';
 import { registerAgentHandlers } from '../ipc/agent-handlers';
 import { registerBrowserHandlers } from '../ipc/browser-handlers';
 import { registerCalendarHandlers } from '../ipc/calendar-handlers';
@@ -23,13 +22,10 @@ import { LoginDetector, OtaTabService, TabEventBus } from '../ota-tab';
 import { resolveServerOrigin } from '../server-client/config';
 import {
   createElectronSessionFetch,
-  createServerTrpcClient,
   createServerTrpcStreamingClient,
 } from '../server-client/trpc-client';
 import { createStaffServerFetch } from '../server-client/staff-server-fetch';
 import { installPrivateCaTrust, loadPackagedPrivateCa } from '../server-client/private-ca-trust';
-import { AUTH_VARIANT, IS_STAFF_AUTH } from '../../shared/auth-variant';
-import { AuthService } from '../services/auth-service';
 import { StaffAuthService } from '../services/staff-auth-service';
 import { CalendarService } from '../services/calendar-service';
 import { CookieImportService } from '../services/cookie-import-service';
@@ -140,8 +136,6 @@ export function createWindowScope(scope: WindowScopeDependencies): WindowScope {
     // 都够不着 channels/，所以在这里以窄查询注入。
     identity: {
       currentStaff: async () => {
-        // 只有 staff 认证形态才有 RMS 登录人；另一套形态下没有这个概念。
-        if (!IS_STAFF_AUTH) return null;
         const identity = await new StaffAuthService({
           client: scope.rms.authClient,
           tokens: scope.rms.tokens,
@@ -237,9 +231,7 @@ export function createWindowScope(scope: WindowScopeDependencies): WindowScope {
   const privateCa = loadPackagedPrivateCa(app.isPackaged, process.resourcesPath, process.env);
   if (privateCa) installPrivateCaTrust(apiSession, serverOrigin, privateCa);
   const serverFetch = createElectronSessionFetch(apiSession);
-  const agentFetch = IS_STAFF_AUTH
-    ? createStaffServerFetch(serverFetch, scope.rms.tokens, logger)
-    : serverFetch;
+  const agentFetch = createStaffServerFetch(serverFetch, scope.rms.tokens, logger);
   const agentService = new AgentService(
     createServerTrpcStreamingClient({ baseUrl: serverOrigin, fetch: agentFetch }),
     (envelope) => {
@@ -249,39 +241,18 @@ export function createWindowScope(scope: WindowScopeDependencies): WindowScope {
   );
   onDispose(() => agentService.dispose());
   onDispose(registerAgentHandlers({ window, service: agentService, logger }));
-  // 登录体系按构建变体二选一。`IS_STAFF_AUTH` 是编译期常量，未命中的分支连同它
-  // 依赖的 service 会被 DCE 摇掉，不会进产物；未选中那套的 session 也不会创建。
-  logger.info('Authentication variant selected', { authVariant: AUTH_VARIANT });
-  if (IS_STAFF_AUTH) {
-    // 认证栈建在 app scope：业务 gateway 也要用同一份 token，不能各持一套。
-    onDispose(
-      registerStaffAuthHandlers({
-        service: new StaffAuthService({
-          client: scope.rms.authClient,
-          tokens: scope.rms.tokens,
-          logger,
-        }),
+  // 认证栈建在 app scope：业务 gateway 也要用同一份 token，不能各持一套。
+  onDispose(
+    registerStaffAuthHandlers({
+      service: new StaffAuthService({
+        client: scope.rms.authClient,
+        tokens: scope.rms.tokens,
         logger,
-        window,
       }),
-    );
-  } else {
-    onDispose(
-      registerAuthHandlers({
-        service: new AuthService({
-          apiSession,
-          client: createServerTrpcClient({
-            baseUrl: serverOrigin,
-            fetch: createElectronSessionFetch(apiSession),
-          }),
-          logger,
-          serverOrigin,
-        }),
-        logger,
-        window,
-      }),
-    );
-  }
+      logger,
+      window,
+    }),
+  );
 
   let disposed = false;
   const dispose = (): void => {

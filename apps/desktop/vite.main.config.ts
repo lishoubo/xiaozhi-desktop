@@ -1,6 +1,5 @@
 import { defineConfig } from 'vite';
 import { appEnvDefine } from './vite-plugins/app-env';
-import { authVariantDefine } from './vite-plugins/auth-variant';
 import { rmsOriginDefine } from './vite-plugins/rms-origin';
 import { sentryDsnDefine } from './vite-plugins/sentry-dsn';
 import { serverOriginDefine } from './vite-plugins/server-origin';
@@ -9,7 +8,6 @@ import { serverOriginDefine } from './vite-plugins/server-origin';
 export default defineConfig({
   plugins: [
     appEnvDefine(),
-    authVariantDefine(),
     rmsOriginDefine(),
     serverOriginDefine(),
     sentryDsnDefine(),

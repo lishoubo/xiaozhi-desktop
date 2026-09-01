@@ -11,7 +11,6 @@ import {
   type Invoke,
   type Subscribe,
 } from './invoke';
-import { createAuthApi } from './namespaces/auth';
 import { createAgentApi } from './namespaces/agent';
 import { createBrowserApi } from './namespaces/browser';
 import { createCalendarApi } from './namespaces/calendar';
@@ -38,15 +37,12 @@ export function createDesktopApi(
 
   return Object.freeze({
     agent: createAgentApi(validatedInvoke, validatedSubscribe),
-    auth: createAuthApi(validatedInvoke),
     browser: createBrowserApi(validatedInvoke, validatedSubscribe),
     calendar: createCalendarApi(validatedInvoke),
     cookies: createCookiesApi(validatedInvoke),
     hotelManagement: createHotelManagementApi(validatedInvoke, validatedSubscribe),
     otaCredential: createOtaCredentialApi(validatedInvoke, validatedSubscribe),
     otaTab: createOtaTabApi(validatedInvoke),
-    // 两个 auth namespace 长期共存：preload 是 IPC 白名单，挂上不代表对端注册了
-    // handler。真正的隔离在 main —— composition 只注册命中变体的那一套。
     staffAuth: createStaffAuthApi(validatedInvoke),
     system: createSystemApi(validatedInvoke),
     versions: Object.freeze({

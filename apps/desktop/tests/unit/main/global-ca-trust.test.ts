@@ -27,6 +27,32 @@ function generateCaPem(): string {
   return execFileSync('cat', [certPath], { encoding: 'utf8' });
 }
 
+/**
+ * `tls.setDefaultCACertificates` 会真的改动进程级信任链，测试里必须换掉。
+ * 不用 `vi.spyOn`：那个 API 在 @types/node 里是可选成员，spyOn 的键类型推导
+ * 会连带把 `CLIENT_RENEG_LIMIT` 这类常量算进候选，只能靠断言硬压。手工替换
+ * 并在 finally 还原，类型干净且意图更直白。
+ */
+function stubSetDefaultCACertificates(): Readonly<{
+  calls: readonly (readonly string[])[];
+  restore: () => void;
+}> {
+  const target = tls as unknown as {
+    setDefaultCACertificates?: (certificates: readonly string[]) => void;
+  };
+  const original = target.setDefaultCACertificates;
+  const calls: (readonly string[])[] = [];
+  target.setDefaultCACertificates = (certificates) => {
+    calls.push(certificates);
+  };
+  return {
+    calls,
+    restore: () => {
+      target.setDefaultCACertificates = original;
+    },
+  };
+}
+
 describe('trustPrivateCaGlobally', () => {
   beforeEach(() => {
     globalThis.__xiaozhiTrustedCaFingerprints__ = undefined;
@@ -36,14 +62,16 @@ describe('trustPrivateCaGlobally', () => {
   it('把 CA 追加进全局默认信任列表，原有根证书保持不变', () => {
     const caPem = generateCaPem();
     const before = tls.rootCertificates.length;
-    const setDefault = vi
-      .spyOn(tls, 'setDefaultCACertificates' as keyof typeof tls)
-      .mockImplementation(() => undefined);
+    const { calls, restore } = stubSetDefaultCACertificates();
 
-    trustPrivateCaGlobally(caPem, createLogger());
+    try {
+      trustPrivateCaGlobally(caPem, createLogger());
+    } finally {
+      restore();
+    }
 
-    expect(setDefault).toHaveBeenCalledTimes(1);
-    const installed = setDefault.mock.calls[0][0] as readonly string[];
+    expect(calls).toHaveLength(1);
+    const installed = calls[0];
     expect(installed).toHaveLength(before + 1);
     expect(installed.at(-1)).toBe(caPem);
   });
@@ -51,14 +79,16 @@ describe('trustPrivateCaGlobally', () => {
   /** 主进程理论上只初始化一次，但重入不该把信任列表撑大。 */
   it('重复装同一份 CA 只生效一次', () => {
     const caPem = generateCaPem();
-    const setDefault = vi
-      .spyOn(tls, 'setDefaultCACertificates' as keyof typeof tls)
-      .mockImplementation(() => undefined);
+    const { calls, restore } = stubSetDefaultCACertificates();
 
-    trustPrivateCaGlobally(caPem, createLogger());
-    trustPrivateCaGlobally(caPem, createLogger());
+    try {
+      trustPrivateCaGlobally(caPem, createLogger());
+      trustPrivateCaGlobally(caPem, createLogger());
+    } finally {
+      restore();
+    }
 
-    expect(setDefault).toHaveBeenCalledTimes(1);
+    expect(calls).toHaveLength(1);
   });
 
   /**

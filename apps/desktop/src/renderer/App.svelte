@@ -4,15 +4,12 @@
   import { onDestroy } from 'svelte';
   import AppFrame from './components/layout/AppFrame.svelte';
   import AppNotificationCenter from './components/layout/AppNotificationCenter.svelte';
-  import LoginPage from './pages/LoginPage.svelte';
   import StaffLoginPage from './pages/StaffLoginPage.svelte';
-  import { clearAuthSession, setAuthSession, type AuthSession } from './auth';
   import { clearStaffSession, setStaffSession, type StaffSession } from './staff-auth';
   import { setGreetingIdentity } from './session-greeting.svelte';
-  import { IS_STAFF_AUTH } from '../shared/auth-variant';
   import { routes } from './routes';
 
-  type Session = StaffSession | AuthSession;
+  type Session = StaffSession;
 
   let session = $state<Session | null>(null);
   let restoringSession = $state(true);
@@ -24,23 +21,15 @@
   });
 
   const clearSession = (): void => {
-    if (IS_STAFF_AUTH) clearStaffSession();
-    else clearAuthSession();
+    clearStaffSession();
   };
 
   const restoreSession = async (): Promise<void> => {
     try {
-      if (IS_STAFF_AUTH) {
-        const restored = await window.hotelButler.staffAuth.currentSession();
-        session = restored;
-        if (restored) setStaffSession(restored);
-        else clearStaffSession();
-      } else {
-        const restored = await window.hotelButler.auth.currentSession();
-        session = restored;
-        if (restored) setAuthSession(restored);
-        else clearAuthSession();
-      }
+      const restored = await window.hotelButler.staffAuth.currentSession();
+      session = restored;
+      if (restored) setStaffSession(restored);
+      else clearStaffSession();
     } catch {
       clearSession();
       session = null;
@@ -51,8 +40,7 @@
 
   const logout = async (): Promise<void> => {
     try {
-      if (IS_STAFF_AUTH) await window.hotelButler.staffAuth.logout();
-      else await window.hotelButler.auth.logout();
+      await window.hotelButler.staffAuth.logout();
     } catch {
       log.warn('Remote user session could not be revoked');
     } finally {
@@ -64,12 +52,6 @@
   const loginWithStaff = async (employee: StaffSession): Promise<void> => {
     await replace('/');
     setStaffSession(employee);
-    session = employee;
-    log.info('User session created');
-  };
-  const loginWithPhone = async (employee: AuthSession): Promise<void> => {
-    await replace('/');
-    setAuthSession(employee);
     session = employee;
     log.info('User session created');
   };
@@ -91,9 +73,5 @@
   </AppFrame>
 {:else}
   <AppNotificationCenter />
-  {#if IS_STAFF_AUTH}
-    <StaffLoginPage onLogin={loginWithStaff} />
-  {:else}
-    <LoginPage onLogin={loginWithPhone} />
-  {/if}
+  <StaffLoginPage onLogin={loginWithStaff} />
 {/if}
