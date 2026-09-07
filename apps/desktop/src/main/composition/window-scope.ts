@@ -84,6 +84,9 @@ export function createWindowScope(scope: WindowScopeDependencies): WindowScope {
 
   const windowCapabilityRegistration = scope.windowCapabilities.attach({
     retirePartition: (partitionName) => browserManager.retirePartition(partitionName),
+    // cookie 快照采集走 CDP 需要一个标签页 webContents；标签页由本层持有。
+    webContentsForPartition: (partitionName) =>
+      browserManager.webContentsForPartition(partitionName),
     notifyAccountBound: (channel) => {
       if (!window.isDestroyed()) {
         window.webContents.send(IPC_CHANNELS.otaCredential.discoveryCompleted, { channel });

@@ -8,6 +8,7 @@ function capabilities(): WindowCapabilities {
   return {
     retirePartition: vi.fn().mockResolvedValue(undefined),
     notifyAccountBound: vi.fn(),
+    webContentsForPartition: vi.fn(() => null),
   };
 }
 

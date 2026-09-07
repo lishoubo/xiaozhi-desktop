@@ -358,3 +358,86 @@ describe('BrowserManager — tab:navigated / tab:closed 事件广播', () => {
     );
   });
 });
+
+describe('BrowserManager — 按 partition 反查 webContents', () => {
+  /**
+   * cookie 快照采集要走 CDP 才能拿到 CHIPS 分区键，而 CDP 需要一个 webContents。
+   * 用 partitionName 做键是因为采集入口 `readCookieSnapshot` 收的正是它。
+   */
+  it('命中该 partition 的标签页并返回其 webContents', () => {
+    const sessionFactory = createSessionFactoryStub();
+    const manager = new BrowserManager(
+      createWindow() as never,
+      createLogger(),
+      sessionFactory as never,
+    );
+
+    manager.createWithAlreadyPartition(
+      'persist:xiaozhi:prod:douyin:aaa',
+      'douyin',
+      'https://a.example/',
+    );
+    manager.createWithAlreadyPartition(
+      'persist:xiaozhi:prod:douyin:bbb',
+      'douyin',
+      'https://b.example/',
+    );
+
+    expect(manager.webContentsForPartition('persist:xiaozhi:prod:douyin:bbb')).toBe(
+      electron.views[1].webContents,
+    );
+  });
+
+  it('没有对应标签页时返回 null，不抛错', () => {
+    const manager = new BrowserManager(
+      createWindow() as never,
+      createLogger(),
+      createSessionFactoryStub() as never,
+    );
+
+    expect(manager.webContentsForPartition('persist:xiaozhi:prod:douyin:missing')).toBeNull();
+  });
+
+  /** 用户提前关掉标签页是常态，调用方据此降级到 Electron API，不该被当成故障。 */
+  it('标签页已销毁时返回 null', () => {
+    const manager = new BrowserManager(
+      createWindow() as never,
+      createLogger(),
+      createSessionFactoryStub() as never,
+    );
+
+    manager.createWithAlreadyPartition(
+      'persist:xiaozhi:prod:douyin:aaa',
+      'douyin',
+      'https://a.example/',
+    );
+    electron.views[0].webContents.isDestroyed.mockReturnValue(true);
+
+    expect(manager.webContentsForPartition('persist:xiaozhi:prod:douyin:aaa')).toBeNull();
+  });
+
+  /** 同一 partition 多个标签页共用同一个 cookie 罐子，取第一个未销毁的即可。 */
+  it('同一 partition 有多个标签页时跳过已销毁的，返回可用的那个', () => {
+    const manager = new BrowserManager(
+      createWindow() as never,
+      createLogger(),
+      createSessionFactoryStub() as never,
+    );
+
+    manager.createWithAlreadyPartition(
+      'persist:xiaozhi:prod:douyin:aaa',
+      'douyin',
+      'https://a.example/',
+    );
+    manager.createWithAlreadyPartition(
+      'persist:xiaozhi:prod:douyin:aaa',
+      'douyin',
+      'https://b.example/',
+    );
+    electron.views[0].webContents.isDestroyed.mockReturnValue(true);
+
+    expect(manager.webContentsForPartition('persist:xiaozhi:prod:douyin:aaa')).toBe(
+      electron.views[1].webContents,
+    );
+  });
+});

@@ -322,6 +322,31 @@ export class BrowserManager extends EventEmitter {
   }
 
   /**
+   * 按 partition 反查一个可用的标签页 webContents —— 给 cookie 快照采集用。
+   *
+   * 采集必须走 CDP 才能拿到 CHIPS 分区键，而 CDP 需要一个 `webContents` 才能 attach。
+   * 复用已经开着的 OTA 标签页而不是新建隐藏窗口：采集时机是绑定/重认证收尾，此刻
+   * 标签页几乎必然还开着，新建窗口是白付的开销。
+   *
+   * 用 `partitionName` 而不是 credentialId 做键：`ManagedTab` 本身就带 partitionName，
+   * 而采集入口 `readCookieSnapshot` 收的正是它 —— 调用方一个字都不用改。
+   *
+   * 同一 partition 可能开着多个标签页，取第一个未销毁的即可：它们共用同一个
+   * Session（同一个 cookie 罐子），从哪个上面问都是同一份结果。
+   *
+   * 找不到返回 null 而不抛错（与 `runInTab` 同款约定）：用户提前关掉标签页是常态，
+   * 调用方据此降级到 Electron API，不该被当成故障。
+   */
+  webContentsForPartition(partitionName: string): WebContents | null {
+    for (const tab of this.tabs.values()) {
+      if (tab.partitionName !== partitionName) continue;
+      const { webContents } = tab.view;
+      if (!webContents.isDestroyed()) return webContents;
+    }
+    return null;
+  }
+
+  /**
    * credential 已切换到新 partition 后退休旧 Session。若仍有标签引用则延迟
    * 到最后一个标签关闭；清理失败保留退休标记，允许后续关闭事件再次尝试。
    */

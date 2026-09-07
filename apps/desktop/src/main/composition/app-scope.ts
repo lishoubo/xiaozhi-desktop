@@ -31,6 +31,7 @@ import { HttpRmsHotelGateway } from '../gateway/rms/rms-hotel-gateway-http';
 import { HttpRmsOtaAccountGateway } from '../gateway/rms/rms-ota-account-gateway-http';
 import type { ChannelId } from '../ids';
 import { SessionFactory } from '../browser/session-factory';
+import { collectCookieSnapshot } from '../browser/cookie-snapshot/collect-cookie-snapshot';
 import { createElectronSessionFetch } from '../server-client/trpc-client';
 import { createAuthenticatedRmsFetch } from '../staff-auth/authenticated-rms-fetch';
 import { createRmsAuthClient } from '../staff-auth/rms-auth-client';
@@ -82,18 +83,30 @@ export function createAppScope(logger: AppLogger): AppScope {
   const sessionFactory = new SessionFactory(logger);
 
   /**
-   * 绑定时给远端的 cookie 快照：调用瞬间从该 partition 的实时 session 读取，
-   * 不落本地、不记日志（日志只记条数）。sessionFactory 是进程级的，所以这个
-   * 能力不需要等窗口就绪。
+   * 绑定时给远端的 cookie 快照：调用瞬间从该 partition 的实时登录态读取，
+   * 不落本地、不记日志（日志只记条数与采集方式）。
+   *
+   * 优先走 CDP —— 只有它能拿到 CHIPS 分区键（`session.cookies.get()` 的返回结构里
+   * 根本没有这个字段），而分区与非分区的同名 cookie 在远端按
+   * `(name,domain,path,partitionKey)` 去重，分不清就会塌缩成一条、丢掉登录票据。
+   *
+   * CDP 需要一个标签页 webContents，由窗口能力提供；窗口或标签页不在时降级到
+   * Electron API，绝不让绑定流程因采集失败而中断。
+   *
+   * ⚠️ 抖音在**当前绑定路径下不产生分区 cookie**（落地页始终是 `life.douyin.com`，
+   * 顶级站点从未变成 `douyin.com`，见 `openspec/changes/desktop-cookie-field-completion/
+   * verification.md`）。走 CDP 仍是对的 —— 罐子里有就一定取到；这里只是说明为什么
+   * 抖音实测 `partitionedCount` 是 0，不代表采集失效。
    */
-  const readCookieSnapshot = async (partitionName: string) => {
-    const cookies = await sessionFactory.sessionForAccount(partitionName).cookies.get({});
-    return cookies.map((cookie) => ({
-      domain: cookie.domain ?? '',
-      name: cookie.name,
-      value: cookie.value,
-    }));
-  };
+  const readCookieSnapshot = (partitionName: string) =>
+    collectCookieSnapshot({
+      partitionName,
+      session: sessionFactory.sessionForAccount(partitionName),
+      // 窗口尚未就绪时视作「没有标签页」，与用户提前关掉标签页同样处理
+      webContentsForPartition: (name) =>
+        windowCapabilities.current()?.webContentsForPartition(name) ?? null,
+      logger,
+    });
 
   const calendarRepository = new SqliteCalendarRepository(database);
   const otaCredentialRepository = new SqliteOtaCredentialRepository(database);

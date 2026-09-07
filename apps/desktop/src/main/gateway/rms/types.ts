@@ -72,10 +72,38 @@ export type RmsOtaAccountBindInput = Readonly<{
   cookies: readonly RmsCookieSnapshotEntry[];
 }>;
 
+/**
+ * 一条 cookie 在快照里的形状 —— 远端拿它**写回浏览器复现登录态**，所以完整性是唯一
+ * 目标：少一个属性，复现出来的就是另一条 cookie。
+ *
+ * ⚠️ 可选字段的缺省必须表达为「**这个 key 不出现在 JSON 里**」，不是 `null`。
+ * `sameSite` 未设置（浏览器走默认策略）与显式 `"None"` 是两种不同的浏览器行为，
+ * 传 `null` 或补默认值都会丢掉这个区别，让跨站 XHR 不再携带登录态。
+ * 构造时一律用条件展开 `...(x ? { k: x } : {})`，靠 `JSON.stringify` 丢弃 `undefined`。
+ */
 export type RmsCookieSnapshotEntry = Readonly<{
   domain: string;
   name: string;
   value: string;
+  path?: string;
+  secure?: boolean;
+  httpOnly?: boolean;
+  sameSite?: 'None' | 'Lax' | 'Strict';
+  /** epoch 秒，可含小数。会话 cookie（无过期时间）**省略本字段**，不传 -1 或 0。 */
+  expires?: number;
+  /**
+   * CHIPS 分区键，CDP 原样透传。
+   *
+   * ⚠️ 此 partition **不是** Electron partition（`persist:xiaozhi:...` 那个账号级
+   * cookie 罐子）。这是浏览器标准的第三方 cookie 隔离维度：同一个罐子内部，一条
+   * cookie 除 `(name, domain, path)` 外还带「它是在哪个顶级站点下被写入的」。
+   * 带此标记的 cookie 丢了分区键就写不回原分区，与同名的非分区条目在远端会塌缩成一条。
+   *
+   * **刻意用 `unknown`**：不同 Chrome 版本形态不同（对象 / 字符串），而我们**不该读它**。
+   * 给出精确类型等于邀请后续代码去访问 `.topLevelSite`，那正是规范禁止的加工 ——
+   * 任何解析、归一化、转字符串都会让浏览器不认这个分区键。只搬运，不解读。
+   */
+  partitionKey?: unknown;
 }>;
 
 /**

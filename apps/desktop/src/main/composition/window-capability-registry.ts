@@ -1,8 +1,19 @@
 import type { ChannelId } from '../ids';
 
+/** 架构约束：不 import `browser/` 实现，用类型查询表达结构依赖。 */
+type WebContents = import('electron').WebContents;
+
 export type WindowCapabilities = Readonly<{
   retirePartition(partitionName: string): Promise<void>;
   notifyAccountBound(channel: ChannelId): void;
+  /**
+   * 按 partition 反查标签页 webContents —— cookie 快照采集走 CDP 时需要它。
+   *
+   * 放在窗口能力里而不是进程级：标签页由窗口级的 `BrowserManager` 持有，而采集
+   * 入口（`readCookieSnapshot`）是进程级的。窗口不存在时调用方按「没有标签页」
+   * 降级，不抛错 —— 这与用户提前关掉标签页是同一种情况。
+   */
+  webContentsForPartition(partitionName: string): WebContents | null;
 }>;
 
 export type WindowCapabilityRegistration = Readonly<{
