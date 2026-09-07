@@ -89,6 +89,35 @@ function poiIdOf(poi: z.infer<typeof poiAccountSchema>): string {
 }
 
 /**
+ * `poi_id` 为 `0` 的记录**不是门店**，是账号树上的集团/总部节点。
+ *
+ * 抖音的 `poiAccountList` 返回的是「当前账号能看到的账号列表」而非「门店列表」，
+ * 连锁账号的这份列表里**第一条往往是集团账号自己**。实测（2026-09-07，
+ * 清水湾臻品酒店连锁账号）两条记录：
+ *
+ * ```
+ * ① poi_id '0'  account_type 1   parent_account_id '0'        ← 集团账号本身
+ * ② poi_id 长ID  account_type 20  parent_account_id = ①的 id   ← 真门店
+ * ```
+ *
+ * ②的父指针正好指向①，父子关系坐实。两条 `account_name` 还完全相同，界面上就是
+ * 两个一模一样的选项、其中一个 ID 显示为 0 —— 用户无从分辨。
+ *
+ * **判据为什么用 `poi_id` 而不是 `account_type`**：没有门店 ID 就绑不了，这是
+ * 定义问题；而 `account_type` 是抖音的内部枚举，我们只见过 `1` 与 `20` 两个值，
+ * 拿它当判据等于猜枚举语义（本文件开头那条「不猜字段语义」的约束同样适用）。
+ *
+ * 这与下方「不按 `status` / `poi_open_status` 过滤」不矛盾：那条讲的是**不替远端
+ * 判断门店能不能绑**，而这里排除的记录**根本不是门店**。
+ */
+function isStoreRecord(otaHotelId: string): boolean {
+  if (otaHotelId.length === 0) return false;
+  // 只认「全 0」这一种形态（'0' / '00'），不做数值转换 —— 真实 poi_id 是 19 位
+  // 十进制串，超出 Number 安全整数范围，转数值会丢精度。
+  return !/^0+$/.test(otaHotelId);
+}
+
+/**
  * 解析 `poiAccountList` 响应。返回 `null` 表示「这个响应不是一份可用的门店列表」
  * ——形状不对、业务码非 0，或一条能用的记录都没有。调用方据此判定该走另一条路。
  *
@@ -106,7 +135,7 @@ export function parseDouyinPoiAccountList(raw: unknown): DouyinPoiAccountList | 
 
   const hotels = (parsed.data.data?.list ?? []).flatMap((poi): readonly DouyinPoiAccount[] => {
     const otaHotelId = poiIdOf(poi);
-    if (otaHotelId.length === 0) return [];
+    if (!isStoreRecord(otaHotelId)) return [];
     return [
       {
         otaHotelId: toOtaHotelId(otaHotelId),

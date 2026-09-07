@@ -104,4 +104,75 @@ describe('parseDouyinPoiAccountList', () => {
 
     expect(parsed?.hotels).toEqual([{ otaHotelId: '111', otaHotelName: null }]);
   });
+
+  /**
+   * 真机回归（2026-09-07，清水湾臻品酒店连锁账号）：`poiAccountList` 返回的是
+   * 「能看到的账号列表」而非「门店列表」，第一条是集团账号自己 —— `poi_id` 为 '0'、
+   * `account_type` 为 1，且真门店的 `parent_account_id` 正好指向它。
+   *
+   * 两条 `account_name` 完全相同，不排除的话界面上就是两个一模一样的选项、
+   * 其中一个 ID 显示为 0，用户无从分辨（真机截图即为此现象）。
+   */
+  it('排除 poi_id 为 0 的集团账号记录，只留真门店', () => {
+    const parsed = parseDouyinPoiAccountList({
+      status_code: 0,
+      data: {
+        list: [
+          {
+            poi_id: '0',
+            account_name: '清水湾臻品酒店(正翔店)',
+            detail: {
+              poi_id: '0',
+              account_type: 1,
+              parent_account_id: '0',
+              life_account_id: '7644113868221958186',
+            },
+          },
+          {
+            poi_id: '7644484291417606150',
+            account_name: '清水湾臻品酒店(正翔店)',
+            detail: {
+              poi_id: '7644484291417606150',
+              account_type: 20,
+              parent_account_id: '7644113868221958186',
+              life_account_id: '7644483750218172462',
+            },
+          },
+        ],
+        pagination: { total_count: 2, page_count: 1 },
+      },
+    });
+
+    expect(parsed?.hotels).toEqual([
+      { otaHotelId: '7644484291417606150', otaHotelName: '清水湾臻品酒店(正翔店)' },
+    ]);
+  });
+
+  it('detail.poi_id 为 0 时同样排除（顶层缺失退到 detail 的情况）', () => {
+    const parsed = parseDouyinPoiAccountList({
+      status_code: 0,
+      data: { list: [{ account_name: '集团', detail: { poi_id: '0' } }, { poi_id: '222' }] },
+    });
+
+    expect(parsed?.hotels).toEqual([{ otaHotelId: '222', otaHotelName: null }]);
+  });
+
+  it('整份列表只有集团账号时返回 null，让调用方去等另一个端点', () => {
+    const parsed = parseDouyinPoiAccountList({
+      status_code: 0,
+      data: { list: [{ poi_id: '0', account_name: '集团' }] },
+    });
+
+    expect(parsed).toBeNull();
+  });
+
+  /** poi_id 是 19 位十进制串，超出 Number 安全范围；不能靠转数值判 0。 */
+  it('19 位长 ID 不受影响，不做数值转换', () => {
+    const parsed = parseDouyinPoiAccountList({
+      status_code: 0,
+      data: { list: [{ poi_id: '7644484291417606150', account_name: 'A' }] },
+    });
+
+    expect(parsed?.hotels[0]?.otaHotelId).toBe('7644484291417606150');
+  });
 });
