@@ -33,6 +33,8 @@ function tabWithCdp(
         attached = false;
       },
       sendCommand: vi.fn().mockResolvedValue({ cookies }),
+      once: vi.fn(),
+      removeListener: vi.fn(),
     },
   } as unknown as WebContents;
 }

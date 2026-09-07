@@ -100,6 +100,26 @@ export async function collectViaCdp(
     logger.warn('Cookie snapshot: CDP attach failed', { error: safeLogErrorDetails(error) });
     return { ok: false, reason: 'attach-failed' };
   }
+  /**
+   * 只有「我们自己 attach 且仍持有」时才 detach —— 与 `AmountSaveCapture` 同款约束，
+   * 但多一道保险。
+   *
+   * ⚠️ 不能在 `finally` 里靠 `isAttached()` 判断：入口处的检查只证明**当时**没人占用，
+   * 不证明**出口时占用的仍是我们**。`sendCommand` 是异步的，这期间我们的会话可能掉线
+   * （页面崩溃、目标关闭），而 `AmountChangeWatcher` 会在 `tab:navigated` 上随即 attach
+   * （SPA 路由切换很频繁）。此时 `isAttached()` 仍是 true，但持有者已经换人 —— 照它
+   * detach 就会把 watcher 刚建立的会话掀掉，而 watcher 一旦判定「debugger 被占」就
+   * **永久放弃**这个 tab（见 `amount-change-watcher.ts:113`），表现为该标签页此后
+   * 再也拦不到改价，日志上与「用户没改价」一模一样。
+   *
+   * `detach` 事件是 Electron 在我们的会话被解除时给出的通知（无论主动还是被动），
+   * 用它把「我们还持有吗」这件事变成可观测的事实，而不是靠推断。
+   */
+  let attachedByUs = true;
+  const onDetached = (): void => {
+    attachedByUs = false;
+  };
+  dbg.once('detach', onDetached);
 
   try {
     const result: unknown = await dbg.sendCommand('Network.getAllCookies');
@@ -115,12 +135,13 @@ export async function collectViaCdp(
     });
     return { ok: false, reason: 'command-failed' };
   } finally {
-    // 只关自己开的门。isAttached 再查一次：页面可能在 await 期间被销毁。
-    if (dbg.isAttached()) {
+    dbg.removeListener('detach', onDetached);
+    if (attachedByUs) {
       try {
         dbg.detach();
       } catch {
-        // detach 失败无补救手段，也不影响已取到的结果，静默即可
+        // 页面可能已在 await 期间销毁；detach 失败无补救手段，也不影响已取到的
+        // 结果，静默即可。
       }
     }
   }

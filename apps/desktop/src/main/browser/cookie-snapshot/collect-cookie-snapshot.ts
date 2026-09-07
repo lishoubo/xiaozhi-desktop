@@ -65,6 +65,17 @@ export async function collectCookieSnapshot(
     return entries;
   }
 
+  /**
+   * 降级路径自己也可能失败（Session 已随 partition 退休销毁、cookie 存储读盘出错）。
+   *
+   * **不吞掉**：吞了就得上送一份空快照，而空快照会把远端**已有的、可用的**登录态
+   * 覆盖成空 —— 那比让这次操作失败严重得多（远端从此拿不到任何 cookie，86 家门店
+   * 一起掉线，且没有任何错误提示）。这里让它抛，调用方停在「绑定失败」，用户重试
+   * 即可，远端数据不受损。
+   *
+   * 这与「采集能力受限时不让流程失败」不矛盾：那条规则针对的是**拿不到分区键**
+   * 这类质量降级，不是「一条 cookie 都读不到」这种彻底失败。
+   */
   const cookies = await collectViaElectronSession(session);
   const entries = cookies.map((cookie) => toSnapshotEntry(cookie, 'electron'));
 

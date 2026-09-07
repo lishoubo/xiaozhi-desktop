@@ -16,6 +16,8 @@ type DebuggerStub = {
   attach: ReturnType<typeof vi.fn>;
   detach: ReturnType<typeof vi.fn>;
   sendCommand: ReturnType<typeof vi.fn>;
+  once: ReturnType<typeof vi.fn>;
+  removeListener: ReturnType<typeof vi.fn>;
 };
 
 function stubWebContents(
@@ -32,6 +34,8 @@ function stubWebContents(
       attached = false;
     }),
     sendCommand: vi.fn().mockResolvedValue({ cookies: [] }),
+    once: vi.fn(),
+    removeListener: vi.fn(),
     ...overrides,
   };
   const webContents = {
@@ -106,6 +110,73 @@ describe('CDP cookie 采集', () => {
 
     expect(dbg.attach).toHaveBeenCalledOnce();
     expect(dbg.detach).toHaveBeenCalledOnce();
+  });
+
+  /**
+   * 回归：await 期间别人（AmountChangeWatcher 在 tab:navigated 上）抢先 attach 时，
+   * 不能把人家的会话掀掉 —— watcher 一旦判定「debugger 被占」就永久放弃这个 tab，
+   * 表现为该标签页此后再也拦不到改价，日志上与「用户没改价」一模一样。
+   */
+  it('我们没能 attach 上时，绝不 detach 别人的会话', async () => {
+    // 入口就被占用：debugger 从头到尾都是别人的
+    const { webContents, dbg } = stubWebContents({ isAttached: vi.fn(() => true) });
+
+    await collectViaCdp(webContents, logger());
+
+    expect(dbg.detach).not.toHaveBeenCalled();
+  });
+
+  /**
+   * 回归（review finding 1）：attach 成功后，`isAttached()` 在出口处为 true 并不证明
+   * 占用者仍是我们 —— await 期间我们的会话可能掉线、别人（`AmountChangeWatcher` 在
+   * `tab:navigated` 上）随即 attach 上来。旧实现在 `finally` 里靠 `isAttached()` 判断，
+   * 会把别人刚建立的会话掀掉；watcher 一旦判定「debugger 被占」就**永久放弃**该 tab，
+   * 表现为此后再也拦不到改价，日志上与「用户没改价」一模一样。
+   *
+   * 这里用调用序列锁住行为：detach 必须发生在**我们自己那一次** attach 之后，
+   * 且只发生一次。
+   */
+  it('我们的会话在 await 期间掉线、别人接管后，不 detach 别人的', async () => {
+    /**
+     * 精确复现冲突：
+     *   1. 入口 isAttached=false，我们 attach 成功（owner = 'us'）
+     *   2. sendCommand 期间我们的会话掉线 —— Electron 抛出 `detach` 事件 —— 随后
+     *      `AmountChangeWatcher` 在 tab:navigated 上 attach 上来（owner = 'other'）
+     *   3. 出口处 isAttached 仍为 true，但持有者已不是我们
+     *
+     * 靠 `isAttached()` 判断的实现会在这里 detach，把 watcher 刚建立的会话掀掉。
+     */
+    let owner: 'none' | 'us' | 'other' = 'none';
+    let onDetach: (() => void) | null = null;
+
+    const dbg: DebuggerStub = {
+      isAttached: vi.fn(() => owner !== 'none'),
+      attach: vi.fn(() => {
+        owner = 'us';
+      }),
+      detach: vi.fn(() => {
+        owner = 'none';
+      }),
+      sendCommand: vi.fn(async () => {
+        // 我们的会话掉线：Electron 通知我们已被解除
+        owner = 'none';
+        onDetach?.();
+        // 别人立刻接管
+        owner = 'other';
+        return { cookies: [] };
+      }),
+      once: vi.fn((event: string, listener: () => void) => {
+        if (event === 'detach') onDetach = listener;
+      }),
+      removeListener: vi.fn(),
+    };
+    const webContents = { isDestroyed: () => false, debugger: dbg } as unknown as WebContents;
+
+    await collectViaCdp(webContents, logger());
+
+    // 关键断言：别人的会话必须还在
+    expect(owner).toBe('other');
+    expect(dbg.detach).not.toHaveBeenCalled();
   });
 
   it('sendCommand 抛错时仍然 detach，不泄漏 attach 状态', async () => {

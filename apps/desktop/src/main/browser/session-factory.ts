@@ -74,9 +74,9 @@ export class SessionFactory {
   /**
    * 把一份登录态的 cookie 读成**可再注入**的形状。
    *
-   * 与 `readCookieSnapshot`（发给 RMS 的 `{domain,name,value}`）不是一回事：那份是
-   * 给远端看的摘要，缺了 `url`/`path`/`secure` 等字段，塞不回 `cookies.set`。这里
-   * 保留注入所需的全部字段，供「换一份干净 partition 重开同一个账号」使用。
+   * 与 `readCookieSnapshot`（发给 RMS 的快照）不是一回事：那份走 CDP 采集、形状对齐
+   * 远端契约（含 `partitionKey`，但没有 `url`），塞不回 `cookies.set`。这里保留注入
+   * 所需的全部字段，供「换一份干净 partition 重开同一个账号」使用。
    *
    * `url` 由 domain 反推：`cookies.set` 必须要它，而 `cookies.get` 不返回。前导点是
    * domain 通配写法，不属于主机名，拼 URL 前要去掉。
