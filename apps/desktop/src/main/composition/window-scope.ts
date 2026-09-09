@@ -16,6 +16,12 @@ import { registerCookieHandlers } from '../ipc/cookie-handlers';
 import { registerHotelManagementHandlers } from '../ipc/hotel-management-handlers';
 import { registerOtaCredentialHandlers } from '../ipc/ota-credential-handlers';
 import { registerOtaTabHandlers } from '../ipc/ota-tab-handlers';
+import {
+  createLoginRedirectGuard,
+  registerInternalPageHandlers,
+} from '../ipc/internal-page-handlers';
+import { resolveRmsWebOrigin } from '../staff-auth/rms-web-endpoint';
+import { INTERNAL_PAGE_PARTITION } from '../browser/partition';
 import { registerStaffAuthHandlers } from '../ipc/staff-auth-handlers';
 import { registerSystemHandlers } from '../ipc/system-handlers';
 import { LoginDetector, OtaTabService, TabEventBus } from '../ota-tab';
@@ -73,7 +79,22 @@ export function createWindowScope(scope: WindowScopeDependencies): WindowScope {
   logger.info('Main window created');
 
   const tabEventBus = new TabEventBus();
+  /**
+   * 会话过期守卫与 `browserManager` 互相需要对方（守卫要调 `loadUrl`/`close`，
+   * manager 构造时就要拿到守卫），用一个后填的引用打破这个环 —— 守卫只在
+   * `will-navigate` 时才被调用，那时 manager 早已构造完毕。
+   */
+  const loginRedirectGuard = createLoginRedirectGuard({
+    browserManager: {
+      loadUrl: (tabId, url) => browserManager.loadUrl(tabId, url),
+      close: (tabId) => browserManager.close(tabId),
+    },
+    rmsWebOrigin: resolveRmsWebOrigin(),
+    accessToken: () => scope.rms.tokens.accessToken(),
+    logger,
+  });
   const browserManager = new BrowserManager(window, logger, scope.sessionFactory, {
+    shouldBlockNavigation: loginRedirectGuard,
     // 退休清理的第二道守卫：这份 partition 还是不是某个账号当前的登录态。
     // 缺了它，清理只看「有没有标签页开着」，会把已认领的登录态一并清空
     // （真机事故：连续绑定多个美团账号后 5 个账号掉登录）。
@@ -219,6 +240,18 @@ export function createWindowScope(scope: WindowScopeDependencies): WindowScope {
     }),
   );
   onDispose(registerOtaTabHandlers({ window, service: otaTabService, logger }));
+  onDispose(
+    registerInternalPageHandlers({
+      window,
+      // 直接注入 browserManager（而非经由某个 service）：内部页面不走 OTA 那条链路，
+      // 而 eslint 禁止 `services/` import `browser/`，所以这条装配照 registerBrowserHandlers。
+      browserManager,
+      rmsWebOrigin: resolveRmsWebOrigin(),
+      accessToken: () => scope.rms.tokens.accessToken(),
+      partitionName: INTERNAL_PAGE_PARTITION,
+      logger,
+    }),
+  );
   onDispose(
     registerCalendarHandlers({
       window,

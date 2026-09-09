@@ -1,6 +1,7 @@
 import { defineConfig } from 'vite';
 import { appEnvDefine } from './vite-plugins/app-env';
 import { rmsOriginDefine } from './vite-plugins/rms-origin';
+import { rmsWebOriginDefine } from './vite-plugins/rms-web-origin';
 import { sentryDsnDefine } from './vite-plugins/sentry-dsn';
 import { serverOriginDefine } from './vite-plugins/server-origin';
 
@@ -9,6 +10,7 @@ export default defineConfig({
   plugins: [
     appEnvDefine(),
     rmsOriginDefine(),
+    rmsWebOriginDefine(),
     serverOriginDefine(),
     sentryDsnDefine(),
   ],

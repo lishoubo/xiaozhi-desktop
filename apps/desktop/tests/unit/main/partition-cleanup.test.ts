@@ -3,6 +3,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { toChannelId } from '../../../src/main/ids';
+import { INTERNAL_PAGE_PARTITION } from '../../../src/main/browser/partition';
+import { APP_ENVIRONMENT } from '../../../src/shared/app-environment';
 import {
   cleanupOrphanPartitions,
   cleanupRetiredPartitions,
@@ -186,6 +188,30 @@ describe('清理孤儿 partition（账本建立前泄漏的）', () => {
 
     expect(await cleanupOrphanPartitions(deps)).toEqual({ cleared: 0 });
     expect(deps.clearPartitionStorage).not.toHaveBeenCalled();
+  });
+
+  /**
+   * 🔴 内部页面（RMS 自有页面）的固定 partition 绝不能被当孤儿清空。
+   *
+   * 它在 credential 表里必然查不到（没有渠道账号），全靠**段数不足 5** 落在判据之外。
+   * 命名一旦从 4 段写成 5 段（如 `…:internal:pricing`），这条判据就会命中，现象是
+   * 用户每次启动应用，内部页面的本地状态全部丢失 —— 与 2026-08-17 那次事故同一形状。
+   *
+   * 因此这里既断言"不被清"，也断言"确实是 4 段"：只测前者的话，把常量改成 5 段但
+   * 恰好带了别的环境段时仍可能侥幸通过。
+   */
+  it('绝不碰内部页面的固定 partition', async () => {
+    const dir = tempDir();
+    makePartitionDir(dir, INTERNAL_PAGE_PARTITION);
+    const deps = createDeps(dir);
+
+    expect(await cleanupOrphanPartitions(deps)).toEqual({ cleared: 0 });
+    expect(deps.clearPartitionStorage).not.toHaveBeenCalled();
+  });
+
+  it('内部页面 partition 是 4 段且带当前环境段', () => {
+    expect(INTERNAL_PAGE_PARTITION.split(':')).toHaveLength(4);
+    expect(INTERNAL_PAGE_PARTITION).toBe(`persist:xiaozhi:${APP_ENVIRONMENT}:internal`);
   });
 
   it('Partitions 目录不存在时安静跳过', async () => {

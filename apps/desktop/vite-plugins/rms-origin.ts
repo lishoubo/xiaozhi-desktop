@@ -25,6 +25,39 @@ function isLoopback(hostname: string): boolean {
 }
 
 /**
+ * 校验一个 RMS 地址（API 或 web 页面）并归一成 origin。
+ *
+ * 与 `rms-web-origin.ts` 共用：两个地址都承载 JWT（API 走 Authorization 头，web
+ * 页面走 URL query），明文传输的风险相同，校验规则因此也必须相同。
+ *
+ * `variableName` 只用于错误文案 —— 让报错指向调用方真正该设置的那个变量。
+ */
+export function assertRmsUrlAllowed(
+  raw: string,
+  environment: NodeJS.ProcessEnv,
+  variableName: string,
+): string {
+  let url: URL;
+  try {
+    url = new URL(raw);
+  } catch {
+    throw new Error(`${variableName} 不是合法 URL: ${raw}`);
+  }
+
+  if (url.protocol !== 'https:' && !isLoopback(url.hostname)) {
+    // 不做默认回退：静默降级会打出一个凭证裸奔的包。
+    if (environment.XIAOZHI_ALLOW_INSECURE_RMS !== '1') {
+      throw new Error(
+        `远端 RMS 地址必须使用 HTTPS: ${url.origin}\n` +
+          '确需打明文 HTTP 包时，显式设置 XIAOZHI_ALLOW_INSECURE_RMS=1。',
+      );
+    }
+  }
+
+  return url.origin;
+}
+
+/**
  * `profileOf` 只为测试留的接缝：「地址未确定就构建失败」是本函数的固有规则，但
  * PROFILES 里三个环境当前都填了地址，没有环境能触发它。注入一个 `rmsOrigin` 为
  * null 的 profile 才能测到这条规则，且不必为此把某个真实环境改回 null。
@@ -48,24 +81,7 @@ export function resolveRmsOriginForBuild(
     return rmsOrigin;
   }
 
-  let url: URL;
-  try {
-    url = new URL(raw);
-  } catch {
-    throw new Error(`XIAOZHI_RMS_SERVER_URL 不是合法 URL: ${raw}`);
-  }
-
-  if (url.protocol !== 'https:' && !isLoopback(url.hostname)) {
-    // 不做默认回退：静默降级会打出一个凭证裸奔的包。
-    if (environment.XIAOZHI_ALLOW_INSECURE_RMS !== '1') {
-      throw new Error(
-        `远端 RMS 地址必须使用 HTTPS: ${url.origin}\n` +
-          '确需打明文 HTTP 包时，显式设置 XIAOZHI_ALLOW_INSECURE_RMS=1。',
-      );
-    }
-  }
-
-  return url.origin;
+  return assertRmsUrlAllowed(raw, environment, 'XIAOZHI_RMS_SERVER_URL');
 }
 
 export function rmsOriginDefine(): Plugin {

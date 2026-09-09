@@ -105,6 +105,18 @@ class BrowserOtaTabsStore {
   }
 
   /**
+   * 打开内部页面（小智平台的统一改价页）。
+   *
+   * 不收参数：URL 由主进程拼（要带访问令牌，渲染进程从来拿不到令牌）。已经开着时
+   * 主进程会复用那个标签页，这里照常 `adopt` —— adopt 是幂等的收尾动作，
+   * **不能省**：省掉它新视图拿不到当前视口尺寸，表现为「标题变了但看不见内容」。
+   */
+  async openInternalPage(): Promise<BrowserTab> {
+    const tab = await window.hotelButler.internalPage.open();
+    return this.adopt(tab);
+  }
+
+  /**
    * "新建账号"：不注入 cookie，等用户手动登录。`intent` 同 `openExisting`——绑定
    * 入口的「新登录账号」带意图进来，登录成功后照样探测候选。
    */

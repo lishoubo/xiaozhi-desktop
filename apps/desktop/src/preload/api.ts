@@ -16,6 +16,7 @@ import { createBrowserApi } from './namespaces/browser';
 import { createCalendarApi } from './namespaces/calendar';
 import { createCookiesApi } from './namespaces/cookies';
 import { createHotelManagementApi } from './namespaces/hotel-management';
+import { createInternalPageApi } from './namespaces/internal-page';
 import { createOtaCredentialApi } from './namespaces/ota-credential';
 import { createOtaTabApi } from './namespaces/ota-tab';
 import { createStaffAuthApi } from './namespaces/staff-auth';
@@ -42,6 +43,7 @@ export function createDesktopApi(
     cookies: createCookiesApi(validatedInvoke),
     hotelManagement: createHotelManagementApi(validatedInvoke, validatedSubscribe),
     otaCredential: createOtaCredentialApi(validatedInvoke, validatedSubscribe),
+    internalPage: createInternalPageApi(validatedInvoke),
     otaTab: createOtaTabApi(validatedInvoke),
     staffAuth: createStaffAuthApi(validatedInvoke),
     system: createSystemApi(validatedInvoke),

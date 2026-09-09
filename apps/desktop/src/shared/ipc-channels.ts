@@ -64,6 +64,13 @@ export const IPC_CHANNELS = {
     openForNewLogin: 'ota-tab:open-for-new-login',
     openWithImportedCookie: 'ota-tab:open-with-imported-cookie',
   },
+  /**
+   * 内部 web 页面（RMS 自有页面）—— 与 `otaTab` 并列而非合并：那四条路都带 OTA 账号
+   * 语义（新建登录 / 导入 cookie / 绑定 / 重认），内部页面一条都不适用。
+   */
+  internalPage: {
+    open: 'internal-page:open',
+  },
   cookies: {
     import: 'cookies:import',
     listSources: 'cookies:list-sources',

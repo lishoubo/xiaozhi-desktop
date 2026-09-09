@@ -16,12 +16,30 @@ import {
   hotelProbes,
   loginUrlMatchers,
 } from '../../../src/main/channels/registry';
+import { toChannelId } from '../../../src/main/ids';
 
 function createLogger() {
   return { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
 }
 
 describe('createChannelRegistry', () => {
+  /**
+   * 🔴 内部页面（小智平台）**不是渠道**，绝不能出现在注册表里。
+   *
+   * 登录判定、门店探测、改价监听三者都以本注册表投影出的 Map 为准，查不到就直接
+   * return —— 「不注册」正是内部页面不挂载这些 OTA 流程的**唯一**机制，没有别的
+   * 开关兜底。有人顺手在这里补一行 `xiaozhi`，内部页面就会被当成 OTA 渠道做登录
+   * 判定与门店探测，而症状只会表现为一些莫名其妙的探测日志。
+   */
+  it('内部页面 xiaozhi 未被注册为渠道', () => {
+    const registry = createChannelRegistry(createLogger());
+
+    expect(registry.has(toChannelId('xiaozhi'))).toBe(false);
+    expect([...loginUrlMatchers(registry).keys()]).not.toContain('xiaozhi');
+    expect([...hotelProbes(registry).keys()]).not.toContain('xiaozhi');
+    expect([...amountChangeAdapters(registry).keys()]).not.toContain('xiaozhi');
+  });
+
   it('三个渠道都注册了登录判定与酒店探测', () => {
     const registry = createChannelRegistry(createLogger());
 

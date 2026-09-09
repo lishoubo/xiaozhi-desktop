@@ -6,6 +6,12 @@
  */
 declare const __RMS_ORIGIN__: string;
 
+/**
+ * RMS **web 页面**地址：由 vite-plugins/rms-web-origin.ts 在主进程构建里注入。
+ * 与 `__RMS_ORIGIN__`（API 地址）分开——dev 下两者分处不同端口，见该插件注释。
+ */
+declare const __RMS_WEB_ORIGIN__: string;
+
 /** hotel-butler server 地址：由 vite-plugins/server-origin.ts 在构建期注入。 */
 declare const __SERVER_ORIGIN__: string;
 

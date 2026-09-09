@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { session, type CookiesSetDetails, type Session } from 'electron';
 import type { ChannelId } from '../ids';
-import { toPartitionName } from '../browser/partition';
+import { INTERNAL_PAGE_PARTITION, toPartitionName } from '../browser/partition';
 import { denyEmbeddedPagePermissions } from '../security/session-permissions';
 import type { AppLogger } from '../../shared/logging';
 
@@ -57,6 +57,20 @@ export class SessionFactory {
    */
   sessionForRmsApi(): Session {
     return this.configuredSession(RMS_API_PARTITION);
+  }
+
+  /**
+   * 内部 web 页面（RMS 自有页面，如统一改价页）共用的会话。
+   *
+   * 与 `sessionForLogin` 的关键差别：**固定一份，不每次新建**。内部页面没有渠道账号
+   * 的概念，不存在多份登录态要隔离；每次新建只会在磁盘上堆 partition 目录（且
+   * partition 一旦创建就永不删除）。
+   *
+   * 命名的 4 段约束见 `INTERNAL_PAGE_PARTITION` 的注释 —— 那不是风格问题，写成 5 段
+   * 会被孤儿回收当成 OTA 登录态清空。
+   */
+  sessionForInternalPage(): Session {
+    return this.configuredSession(INTERNAL_PAGE_PARTITION);
   }
 
   /**

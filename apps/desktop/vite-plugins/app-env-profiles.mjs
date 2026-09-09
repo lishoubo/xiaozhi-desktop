@@ -27,7 +27,11 @@ export const DEFAULT_ENVIRONMENT = 'dev';
  * - `bundleId` macOS CFBundleIdentifier；三环境不同才能并存安装
  * - `squirrelName` Windows Squirrel 内部标识，决定 `%LOCALAPPDATA%\<name>` 与注册表
  *   卸载项。与展示名分开是因为 Squirrel 对非 ASCII 字符支持不佳
- * - `rmsOrigin` 该环境的默认 RMS 地址；`null` 表示尚未确定，构建时必须显式提供
+ * - `rmsOrigin` 该环境的默认 RMS **API** 地址；`null` 表示尚未确定，构建时必须显式提供
+ * - `rmsWebOrigin` 该环境的 RMS **web 页面**地址（应用内打开 RMS 自有页面用）；`null`
+ *   表示回落到 `rmsOrigin`。两者分开是因为 dev 下 API 与前端分处不同端口
+ *   （`:8080` vs vite dev server `:5173`）；pre/online 由 nginx 同源托管，那是部署
+ *   形态的巧合而非可依赖的约束，所以留着这个字段而不是写死"等于 rmsOrigin"
  * - `sentryDsn` 该环境的 GlitchTip 上报地址；`null` 表示不上报（见 sentry-dsn.ts）
  * - `serverOrigin` 该环境的 hotel-butler server 地址（AI 助理与私有 CA 信任用）；
  *   `null` 表示尚未确定，构建时必须显式提供，见 server-origin.ts
@@ -55,7 +59,18 @@ export const PROFILES = {
     bundleId: 'com.xiaozhi.hotel.dev',
     squirrelName: 'xiaozhi-hotel-dev',
     rmsOrigin: 'http://localhost:8080',
+    /**
+     * rms-admin 的 vite dev server（rms 仓库 `rms-admin/vite.config.ts` 配的是 5173）。
+     * 它自己把 `/api` 代理到 `:8080`，所以页面拿到 token 后照常调得通 API。
+     *
+     * ⚠️ **这个端口会漂**：本机 `serverOrigin` 也用 5173，Vite 撞端口时会自动 +1；
+     * rms-admin 那边为此专门加了 `npm run dev:safe`（先杀残留再起）。真机联调时
+     * 先确认它实际起在哪个端口，不一致就用 `XIAOZHI_RMS_WEB_URL=http://localhost:<实际端口>`
+     * 覆盖，别改这张表。
+     */
+    rmsWebOrigin: 'http://localhost:5173',
     // 本地 `npm run dev:server` 起在这个端口（HTTPS，证书由 npm run https:setup 生成）。
+    // ⚠️ 与上面的 rmsWebOrigin 同端口不同协议 —— 两个服务同时起会撞，见上。
     serverOrigin: 'https://localhost:5173',
     // 本地开发默认不上报：改代码时的报错是预期内的噪声，往生产项目里刷会淹掉真实故障。
     // 需要联调上报链路时用 XIAOZHI_SENTRY_DSN 显式打开。
@@ -66,6 +81,8 @@ export const PROFILES = {
     bundleId: 'com.xiaozhi.hotel.pre',
     squirrelName: 'xiaozhi-hotel-pre',
     rmsOrigin: 'http://47.96.144.176',
+    // null = 回落到 rmsOrigin：该机 nginx 同时托管 SPA 根目录与 /api，两者同源。
+    rmsWebOrigin: null,
     serverOrigin: PRODUCTION_SERVER_ORIGIN,
     sentryDsn: GLITCHTIP_DSN,
   },
@@ -78,6 +95,8 @@ export const PROFILES = {
     // 每次告警，见 scripts/desktop-make.mjs）。正式域名上 HTTPS 后改这里即可，
     // 届时告警会自动消失。
     rmsOrigin: 'http://47.96.144.176',
+    // null = 回落到 rmsOrigin，同 pre。
+    rmsWebOrigin: null,
     serverOrigin: PRODUCTION_SERVER_ORIGIN,
     sentryDsn: GLITCHTIP_DSN,
   },

@@ -18,7 +18,13 @@
     PAGE_ENTER_OPTIONS,
     SURFACE_TRANSITION_OPTIONS,
   } from '../../motion';
-  import { OTA_CHANNELS, WORKSPACE_CHANNEL_IDS, type OtaChannel } from '../../data/ota-channels';
+  import {
+    OTA_CHANNELS,
+    WORKSPACE_CHANNEL_IDS,
+    isOtaChannelWithUrl,
+    type OtaChannel,
+    type OtaChannelWithUrl,
+  } from '../../data/ota-channels';
   import { dismissAppNotification, showAppNotification } from '../../notifications';
   import { browserOtaTabs } from './browser-ota-tabs.svelte';
   import { tabActivation } from './cross-route-intents';
@@ -77,7 +83,11 @@
     });
   }
 
-  async function createTab(channel: OtaChannel, url = channel.url): Promise<BrowserTab | null> {
+  /** 只用于 OTA 渠道的新建登录 —— 内部页面走 `openInternalPage`，URL 不由这里给。 */
+  async function createTab(
+    channel: OtaChannelWithUrl,
+    url = channel.url,
+  ): Promise<BrowserTab | null> {
     try {
       dismissAppNotification('browser-operation-error');
       return await browserOtaTabs.openForNewLogin(channel.id, url);
@@ -98,6 +108,28 @@
         error,
       );
     }
+  }
+
+  /**
+   * 内部页面：直接开 tab，不经过账号选择——它没有账号可选。
+   * 已经开着时主进程复用那个标签页。
+   */
+  async function openInternalPage(): Promise<void> {
+    dismissAppNotification('browser-operation-error');
+    try {
+      await browserOtaTabs.openInternalPage();
+    } catch (error) {
+      reportBrowserFailure('Internal page could not be opened', '页面打开失败，请重试', error);
+    }
+  }
+
+  /** 点击顶部入口：OTA 切栏位，内部页面直接开。 */
+  async function activateChannelEntry(channel: OtaChannel): Promise<void> {
+    if (channel.kind === 'internal') {
+      await openInternalPage();
+      return;
+    }
+    await selectChannel(channel);
   }
 
   async function selectChannel(channel: OtaChannel): Promise<void> {
@@ -177,7 +209,9 @@
   }
 
   async function newLoginForActiveChannel(): Promise<boolean> {
-    const channel = OTA_CHANNELS.find((item) => item.id === activeChannelId);
+    const channel = OTA_CHANNELS.filter(isOtaChannelWithUrl).find(
+      (item) => item.id === activeChannelId,
+    );
     if (!channel) return false;
     const previousTabs = [...activeTabs];
     const tab = await createTab(channel);
@@ -187,7 +221,9 @@
   }
 
   async function loginFromImportedCookiesForActiveChannel(): Promise<boolean> {
-    const channel = OTA_CHANNELS.find((item) => item.id === activeChannelId);
+    const channel = OTA_CHANNELS.filter(isOtaChannelWithUrl).find(
+      (item) => item.id === activeChannelId,
+    );
     if (!channel) return false;
     const previousTabs = [...activeTabs];
     dismissAppNotification('browser-operation-error');
@@ -400,7 +436,7 @@
         aria-label={channel.name}
         aria-pressed={activeChannelId === channel.id}
         title={channel.name}
-        onclick={() => void selectChannel(channel)}
+        onclick={() => void activateChannelEntry(channel)}
       >
         <img class="size-5 rounded-sm object-contain" src={channel.iconUrl} alt="" />
         <span>{channel.shortName}</span>
@@ -572,7 +608,8 @@
         </button>
       </div>
 
-      {#if activeChannel}
+      <!-- 内部页面没有账号可切、也没有 cookie 可导，整块不渲染。 -->
+      {#if activeChannel && activeChannel.kind === 'ota'}
         <AccountSwitcherDialog
           channel={activeChannel}
           credentials={activeCredentialOptions}

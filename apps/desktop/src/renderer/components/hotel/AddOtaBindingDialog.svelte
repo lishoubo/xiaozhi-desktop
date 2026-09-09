@@ -11,7 +11,7 @@
   import { push } from 'svelte-spa-router';
   import type { OtaCredentialDto } from '../../../shared/browser';
   import type { RmsHotelDto, RmsOtaAccountDto } from '../../../shared/hotel-management';
-  import { BINDABLE_CHANNEL_IDS, OTA_CHANNELS } from '../../data/ota-channels';
+  import { BINDABLE_CHANNEL_IDS, OTA_CHANNELS, isOtaChannelWithUrl } from '../../data/ota-channels';
   import { boundChannelsOfHotel } from '../../hotel-management/model';
   import { credentialPresentation } from '../../hotel-management/credential-presentation';
   import { hotelBindingWaiting } from '../../hotel-management/cross-route-intents';
@@ -47,7 +47,7 @@
   const pagination = createPagination(() => selectableCredentials);
   /** 还能绑的渠道：支持绑定 且 尚未占位。 */
   const bindableChannels = $derived(
-    OTA_CHANNELS.filter(
+    OTA_CHANNELS.filter(isOtaChannelWithUrl).filter(
       (channel) => BINDABLE_CHANNEL_IDS.includes(channel.id) && !boundChannels.has(channel.id),
     ),
   );

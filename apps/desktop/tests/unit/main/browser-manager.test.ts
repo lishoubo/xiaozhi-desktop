@@ -125,8 +125,9 @@ function createWindow() {
 function createBrowserManager(
   window: ReturnType<typeof createWindow>,
   logger: ReturnType<typeof createLogger>,
+  options: ConstructorParameters<typeof BrowserManager>[3] = {},
 ) {
-  return new BrowserManager(window as never, logger, new SessionFactory(logger));
+  return new BrowserManager(window as never, logger, new SessionFactory(logger), options);
 }
 
 beforeEach(() => {
@@ -282,6 +283,50 @@ describe('BrowserManager', () => {
     expect(logger.warn).toHaveBeenCalledWith('Blocked invalid browser navigation', {
       channelId: 'ctrip',
     });
+  });
+
+  it('asks the injected guard about otherwise-valid navigation', () => {
+    const shouldBlockNavigation = vi.fn().mockReturnValue(true);
+    const manager = createBrowserManager(createWindow(), createLogger(), {
+      shouldBlockNavigation,
+    });
+    manager.createWithAlreadyPartition('persist:test-shared', 'xiaozhi', 'https://rms.test/page');
+    const preventDefault = vi.fn();
+
+    electron.views[0].handlers.get('will-navigate')?.({ preventDefault }, 'https://rms.test/login');
+
+    expect(shouldBlockNavigation).toHaveBeenCalledWith(
+      expect.objectContaining({ channelId: 'xiaozhi', url: 'https://rms.test/login' }),
+    );
+    expect(preventDefault).toHaveBeenCalledOnce();
+  });
+
+  it('lets navigation through when the guard declines', () => {
+    const manager = createBrowserManager(createWindow(), createLogger(), {
+      shouldBlockNavigation: () => false,
+    });
+    manager.createWithAlreadyPartition('persist:test-shared', 'xiaozhi', 'https://rms.test/page');
+    const preventDefault = vi.fn();
+
+    electron.views[0].handlers.get('will-navigate')?.({ preventDefault }, 'https://rms.test/other');
+
+    expect(preventDefault).not.toHaveBeenCalled();
+  });
+
+  /** 非法 URL 已经被拦下，不该再问守卫一次（否则计数会被无关导航污染）。 */
+  it('does not consult the guard for non-web navigation', () => {
+    const shouldBlockNavigation = vi.fn().mockReturnValue(false);
+    const manager = createBrowserManager(createWindow(), createLogger(), {
+      shouldBlockNavigation,
+    });
+    manager.createWithAlreadyPartition('persist:test-shared', 'xiaozhi', 'https://rms.test/page');
+
+    electron.views[0].handlers.get('will-navigate')?.(
+      { preventDefault: vi.fn() },
+      'javascript:alert(1)',
+    );
+
+    expect(shouldBlockNavigation).not.toHaveBeenCalled();
   });
 
   it('reattaches an active tab when the workspace activates it after being hidden', () => {

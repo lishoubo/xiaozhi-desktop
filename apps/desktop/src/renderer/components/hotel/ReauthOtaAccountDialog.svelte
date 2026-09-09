@@ -15,7 +15,7 @@
   import { push } from 'svelte-spa-router';
   import type { OtaCredentialDto } from '../../../shared/browser';
   import type { RmsOtaAccountDto } from '../../../shared/hotel-management';
-  import { OTA_CHANNELS } from '../../data/ota-channels';
+  import { OTA_CHANNELS, isOtaChannelWithUrl } from '../../data/ota-channels';
   import {
     hotelBindingWaiting,
     otaReauthByHotelWaiting,
@@ -52,7 +52,11 @@
   let lastBoundCredentialId = $state<string | null>(null);
   let selectedCredentialId = $state<string | undefined>(undefined);
 
-  const channel = $derived(OTA_CHANNELS.find((item) => item.id === target?.account.source));
+  // `account.source` 是远端存下来的 OTA 渠道标识，必然有落地地址；用窄类型接住它，
+  // 下面几处 `channel.url` 才不必写非空断言。
+  const channel = $derived(
+    OTA_CHANNELS.filter(isOtaChannelWithUrl).find((item) => item.id === target?.account.source),
+  );
   const channelName = $derived(channel?.name ?? target?.account.source ?? '');
 
   /**

@@ -36,6 +36,28 @@ export function toPartitionName(channel: ChannelId, shortId: string): string {
   return `${PARTITION_PREFIX}:${APP_ENVIRONMENT}:${channel}:${shortId}`;
 }
 
+/**
+ * 内部 web 页面（RMS 自有页面，如统一改价页）共用的**固定**长驻 partition。
+ *
+ * 与 OTA 登录 partition 的根本差别：那些是「每次登录一份」，这份是「全应用一份」——
+ * 内部页面没有渠道账号的概念，不存在多份登录态要隔离。
+ *
+ * ## ⚠️ 段数必须是 4，不得增至 5
+ *
+ * ```
+ * persist:xiaozhi:<env>:internal              4 段  ← 本常量，安全
+ * persist:xiaozhi:<env>:internal:pricing      5 段  ← 💥 会被当成孤儿清空
+ * ```
+ *
+ * `partition-cleanup.ts` 的孤儿判据是**段数恰为 5 且环境段相等**，不是白名单。写成
+ * 5 段就会被判定成「本环境的 OTA 登录 partition」，而它在 credential 表里必然查不到，
+ * 于是每次启动都被清空 —— 现象是用户每次开应用，内部页面的本地状态全部丢失。
+ *
+ * 既有的基础设施 partition（`:server-api` / `:rms-api`，3 段）也是靠段数不足被挡在
+ * 外面的，这里是同一手法。保留 `<env>` 段是为了满足环境隔离要求（三套环境各一份）。
+ */
+export const INTERNAL_PAGE_PARTITION = `${PARTITION_PREFIX}:${APP_ENVIRONMENT}:internal`;
+
 /** 判断一个 partition 名是否由当前布局生成（用于识别 legacy）。 */
 export function isCurrentLayoutPartition(name: string): boolean {
   return name.startsWith(`${PARTITION_PREFIX}:`);

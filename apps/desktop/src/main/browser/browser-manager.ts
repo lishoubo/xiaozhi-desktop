@@ -51,6 +51,25 @@ export type BrowserManagerOptions = Readonly<{
    * 否则退休清理会退化成事故前的行为。
    */
   isPartitionClaimed?: (partitionName: string) => boolean;
+  /**
+   * 一次导航要不要被拦下。返回 true 表示拦截（`preventDefault`），后续动作由回调
+   * 自己负责（例如换一枚新令牌重新加载）。
+   *
+   * 为什么做成注入而不是在这里判断：`BrowserManager` 是渠道无关的基础设施，
+   * 「RMS 登录页跳转要拦下来续期」是内部页面这条链路的**业务策略**，写进这里
+   * 会让浏览器层认识 RMS。装配见 `ipc/internal-page-handlers.ts`。
+   *
+   * 缺省不拦 —— 未装配时行为与加这个钩子之前完全一致。
+   */
+  shouldBlockNavigation?: (context: NavigationContext) => boolean;
+}>;
+
+/** 传给导航守卫的上下文。 */
+export type NavigationContext = Readonly<{
+  tabId: string;
+  channelId: string;
+  /** 导航目标。⚠️ 可能带令牌，**不得写进日志**。 */
+  url: string;
 }>;
 
 /**
@@ -142,6 +161,7 @@ export class BrowserManager extends EventEmitter {
   };
 
   private readonly isPartitionClaimed: (partitionName: string) => boolean;
+  private readonly shouldBlockNavigation: (context: NavigationContext) => boolean;
 
   constructor(
     private readonly window: BrowserWindow,
@@ -152,6 +172,7 @@ export class BrowserManager extends EventEmitter {
     super();
     this.sessionFactory = sessionFactory;
     this.isPartitionClaimed = options.isPartitionClaimed ?? (() => false);
+    this.shouldBlockNavigation = options.shouldBlockNavigation ?? (() => false);
     this.window.webContents.on('before-input-event', this.handleShellInput);
   }
 
@@ -369,6 +390,26 @@ export class BrowserManager extends EventEmitter {
     this.getTab(tabId).view.webContents.reload();
   }
 
+  /**
+   * 把一个已有标签页导到新地址。
+   *
+   * 与 `reload()` 的差别是关键：`reload()` 重新请求**当前地址**，而带令牌打开的
+   * 页面会在挂载时把令牌从地址栏抹掉（防止它进历史与截图），所以重载等于加载一个
+   * 没有令牌的地址 —— 拿它做续期只会再跳一次登录页。续期必须换成新地址。
+   *
+   * ⚠️ `url` 可能带令牌：失败日志只记 error name，**不记 url**（同 `createTab`）。
+   */
+  loadUrl(tabId: string, url: string): void {
+    assertWebUrl(url);
+    const tab = this.getTab(tabId);
+    void tab.view.webContents.loadURL(url).catch((error: unknown) => {
+      this.logger.warn('Browser tab could not load url', {
+        channelId: tab.channelId,
+        errorName: error instanceof Error ? error.name : 'UnknownError',
+      });
+    });
+  }
+
   getAudioMuted(): boolean {
     return this.audioMuted;
   }
@@ -575,6 +616,11 @@ export class BrowserManager extends EventEmitter {
       } catch {
         event.preventDefault();
         this.logger.warn('Blocked invalid browser navigation', { channelId: tab.channelId });
+        return;
+      }
+      // 合法的 http(s) 导航再问一次业务守卫（默认不拦）。拦下后的动作由守卫自己负责。
+      if (this.shouldBlockNavigation({ tabId: tab.id, channelId: tab.channelId, url })) {
+        event.preventDefault();
       }
     });
     webContents.on('before-input-event', (event, input) => {
