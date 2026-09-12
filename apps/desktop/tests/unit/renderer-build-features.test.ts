@@ -3,11 +3,12 @@ import {
   hidesPreviewModules,
   SHOW_AGENT_NAV,
   SHOW_CALENDAR_NAV,
+  SHOW_XIAOZHI_CHANNEL,
 } from '../../src/renderer/build-features';
 import type { AppEnvironment } from '../../src/shared/app-environment';
 
 /**
- * 「运营日历」「AI 助理」仍在打磨，不进正式包。这条规则只有 online 生效——
+ * 「运营日历」「AI 助理」「小智平台渠道入口」仍在打磨，不进正式包。这条规则只有 online 生效——
  * 写成测试是因为它决定用户在正式包里看得到什么，改错了不会有任何编译期信号。
  */
 describe('hidesPreviewModules', () => {
@@ -25,8 +26,9 @@ describe('hidesPreviewModules', () => {
  * 它保证两个开关确实接在规则上，而不是被写死成字面量。
  */
 describe('导出的开关', () => {
-  it('在测试构建（dev）下两个入口都可见', () => {
+  it('在测试构建（dev）下三个入口都可见', () => {
     expect(SHOW_AGENT_NAV).toBe(true);
     expect(SHOW_CALENDAR_NAV).toBe(true);
+    expect(SHOW_XIAOZHI_CHANNEL).toBe(true);
   });
 });

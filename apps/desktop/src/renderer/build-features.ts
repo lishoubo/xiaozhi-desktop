@@ -41,3 +41,11 @@ export function hidesPreviewModules(environment: AppEnvironment): boolean {
  */
 export const SHOW_AGENT_NAV: boolean = !hidesPreviewModules(APP_ENVIRONMENT);
 export const SHOW_CALENDAR_NAV: boolean = !hidesPreviewModules(APP_ENVIRONMENT);
+
+/**
+ * 小智平台（统一改价页）入口暂不进正式包。
+ *
+ * 与上面两个开关同源同规则，但落点不同：它不是侧边栏导航项，而是渠道管理工作区
+ * 顶部的一个渠道入口 —— 见 `data/ota-channels.ts` 的 `WORKSPACE_CHANNEL_IDS`。
+ */
+export const SHOW_XIAOZHI_CHANNEL: boolean = !hidesPreviewModules(APP_ENVIRONMENT);

@@ -1,3 +1,4 @@
+import { SHOW_XIAOZHI_CHANNEL } from '../build-features';
 import { OTA_ICONS } from './ota-icons';
 
 export type OtaChannel = Readonly<{
@@ -51,7 +52,10 @@ export const BINDABLE_CHANNEL_IDS: readonly string[] = ['ctrip', 'douyin', 'meit
  * 而其余渠道点进去也只是个空浏览器——既探测不出账号，也不上报任何改动，对用户没有价值。
  *
  * 首位的 `xiaozhi` 是内部页面（`kind: 'internal'`），不受上述判断约束——它是日常改价的
- * 主入口，点开即用。
+ * 主入口，点开即用。它还**暂不进正式包**：`SHOW_XIAOZHI_CHANNEL` 是编译期常量，
+ * online 构建里这一项根本不进数组（规则与 AI 助理、运营日历同源，见
+ * `build-features.ts`）。摘掉它之后首位自然落到 `ctrip`，默认激活渠道随之改变
+ * ——`browser-ota-tabs.svelte.ts` 取的正是 `WORKSPACE_CHANNEL_IDS[0]`。
  *
  * ⚠️ **不是从 `OTA_CHANNELS` 里删条目**：`account.source` 是远端存下来的历史数据，各处
  * 都用 `OTA_CHANNELS.find()` 把它翻译成中文名（酒店卡片、重认弹窗、cookie 列表）。删了
@@ -59,7 +63,12 @@ export const BINDABLE_CHANNEL_IDS: readonly string[] = ['ctrip', 'douyin', 'meit
  *
  * 恢复某个渠道时把它加回这个数组即可；`OTA_CHANNELS` 里的定义一直都在。
  */
-export const WORKSPACE_CHANNEL_IDS: readonly string[] = ['xiaozhi', 'ctrip', 'meituan', 'douyin'];
+export const WORKSPACE_CHANNEL_IDS: readonly string[] = [
+  ...(SHOW_XIAOZHI_CHANNEL ? (['xiaozhi'] as const) : []),
+  'ctrip',
+  'meituan',
+  'douyin',
+];
 
 /**
  * 全部渠道定义。**这里是「id → 展示信息」的字典，不是「展示哪些入口」的清单**
