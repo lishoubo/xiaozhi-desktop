@@ -416,18 +416,18 @@
 </script>
 
 <main
-  class="grid h-full min-h-0 grid-rows-[74px_72px_minmax(0,1fr)] bg-background"
+  class="grid h-full min-h-0 grid-rows-[48px_56px_minmax(0,1fr)] bg-background"
   data-motion="page"
   in:enter={{ ...PAGE_ENTER_OPTIONS, y: 0 }}
 >
   <nav
-    class="flex min-w-0 items-center gap-3 overflow-x-auto border-b border-[#e9edf0] bg-white px-5"
+    class="flex min-w-0 items-center gap-2 overflow-x-auto border-b border-[#e9edf0] bg-white px-5"
     aria-label="OTA 快捷入口"
   >
     {#each workspaceChannels as channel (channel.id)}
       <button
         class={[
-          'flex h-[46px] min-w-[132px] shrink-0 items-center justify-center gap-2 rounded-[9px] border px-3 text-sm font-medium whitespace-nowrap shadow-xs transition-[background-color,border-color,color] duration-150 ease-out',
+          'flex h-[34px] shrink-0 items-center justify-center gap-1.5 rounded-[8px] border px-3 text-[13px] font-medium whitespace-nowrap shadow-xs transition-[background-color,border-color,color] duration-150 ease-out',
           activeChannelId === channel.id
             ? 'border-[#58bdb8] bg-[#edf8f7] text-[#078f8a]'
             : 'border-[#e1e5e9] bg-white text-[#596576] hover:border-[#acd3d1] hover:bg-[#f7fbfa]',
@@ -438,7 +438,7 @@
         title={channel.name}
         onclick={() => void activateChannelEntry(channel)}
       >
-        <img class="size-5 rounded-sm object-contain" src={channel.iconUrl} alt="" />
+        <img class="size-[18px] rounded-sm object-contain" src={channel.iconUrl} alt="" />
         <span>{channel.shortName}</span>
       </button>
     {/each}
@@ -498,7 +498,7 @@
     </nav>
 
     <div
-      class="flex h-11 min-w-0 items-center rounded-[10px] border border-[#e0e5e9] bg-[#f7f9fa] p-1 shadow-[0_1px_2px_rgba(16,24,40,.025)]"
+      class="flex h-9 min-w-0 items-center rounded-[9px] border border-[#e0e5e9] bg-[#f7f9fa] p-0.5 shadow-[0_1px_2px_rgba(16,24,40,.025)]"
       role="group"
       aria-label="页面标签区"
     >
@@ -518,7 +518,7 @@
             class={[
               // flex-1 + basis 让标签数量少时占更大宽度（标题能多显示几个字），
               // 多起来再各自收缩到 min-w；max-w 仍然封顶，避免一个标签独占整条。
-              'group flex h-8 min-w-[132px] max-w-[240px] flex-1 basis-[200px] items-center rounded-lg border text-xs transition-[background-color,border-color,color,box-shadow] duration-150 ease-out motion-reduce:transition-none',
+              'group flex h-8 min-w-[132px] max-w-[240px] flex-1 basis-[200px] items-center rounded-[7px] border text-xs transition-[background-color,border-color,color,box-shadow] duration-150 ease-out motion-reduce:transition-none',
               tab.failure
                 ? 'border-destructive/40 bg-destructive/5 text-destructive'
                 : activeTab?.id === tab.id
@@ -527,7 +527,7 @@
             ]}
           >
             <button
-              class="flex min-w-0 flex-1 items-center gap-2 self-stretch px-3 text-left"
+              class="flex min-w-0 flex-1 items-center gap-2 self-stretch px-2.5 text-left"
               type="button"
               role="tab"
               aria-selected={activeTab?.id === tab.id}
@@ -584,7 +584,7 @@
 
     <div class="flex min-w-0 shrink-0 items-center gap-2" aria-label="当前登录账号">
       <div
-        class="grid h-10 w-[clamp(150px,16vw,214px)] grid-cols-[28px_minmax(0,1fr)_28px] items-center rounded-[9px] border border-[#dbe2e9] bg-card px-1.5 text-[13px] text-foreground shadow-xs transition-colors hover:border-[#9bd7d4]"
+        class="grid h-9 w-[clamp(150px,16vw,214px)] grid-cols-[24px_minmax(0,1fr)_24px] items-center rounded-[8px] border border-[#dbe2e9] bg-card px-1.5 text-[13px] text-foreground shadow-xs transition-colors hover:border-[#9bd7d4]"
         title={activeCredential?.label ?? activeChannel?.name ?? '未选择渠道'}
       >
         <span aria-hidden="true"></span>

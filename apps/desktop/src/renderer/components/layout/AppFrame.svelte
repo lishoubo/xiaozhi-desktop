@@ -31,18 +31,18 @@
     'size-9 shrink-0 object-contain opacity-85 saturate-[.72] transition-[filter,opacity] group-hover:opacity-100 group-[.active]:opacity-100 group-[.active]:saturate-100';
 </script>
 
-<div class="grid h-full min-h-0 grid-rows-[58px_minmax(0,1fr)] bg-[var(--app-canvas)]">
+<div class="grid h-full min-h-0 grid-rows-[42px_minmax(0,1fr)] bg-[var(--app-canvas)]">
   <AppNotificationCenter />
 
   <header
-    class="flex min-w-0 items-center border-b border-black/[0.035] px-5"
+    class="flex min-w-0 items-center pr-4 pl-[78px] [-webkit-app-region:drag]"
     aria-label="应用标题栏"
   >
-    <div class="flex min-w-0 items-center gap-2.5">
-      <img class="size-8 object-contain" src={logoUrl} alt="" />
-      <strong class="truncate text-[17px] font-semibold tracking-[-0.025em]">小智管家</strong>
+    <div class="flex min-w-0 items-center gap-2">
+      <img class="size-[22px] object-contain" src={logoUrl} alt="" />
+      <strong class="truncate text-[15px] font-semibold tracking-[-0.025em]">小智管家</strong>
     </div>
-    <div class="ml-auto flex min-w-0 items-center gap-3">
+    <div class="ml-auto flex min-w-0 items-center gap-2.5 [-webkit-app-region:no-drag]">
       {#if welcomeName}
         <p class="m-0 min-w-0 truncate text-xs text-muted-foreground">
           欢迎您，<span class="font-medium text-foreground">{welcomeName}</span>
@@ -50,7 +50,7 @@
         </p>
       {/if}
       <span
-        class="grid size-8 shrink-0 place-items-center rounded-full bg-[#e8ebee] text-xs font-semibold text-[#3f4855]"
+        class="grid size-[26px] shrink-0 place-items-center rounded-full bg-[#e8ebee] text-[11px] font-semibold text-[#3f4855]"
       >
         {avatarText}
       </span>
