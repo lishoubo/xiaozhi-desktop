@@ -416,7 +416,7 @@
 </script>
 
 <main
-  class="grid h-full min-h-0 grid-rows-[48px_56px_minmax(0,1fr)] bg-background"
+  class="grid h-full min-h-0 grid-rows-[38px_56px_minmax(0,1fr)] bg-background"
   data-motion="page"
   in:enter={{ ...PAGE_ENTER_OPTIONS, y: 0 }}
 >
@@ -427,7 +427,7 @@
     {#each workspaceChannels as channel (channel.id)}
       <button
         class={[
-          'flex h-[34px] shrink-0 items-center justify-center gap-1.5 rounded-[8px] border px-3 text-[13px] font-medium whitespace-nowrap shadow-xs transition-[background-color,border-color,color] duration-150 ease-out',
+          'flex h-[26px] shrink-0 items-center justify-center gap-1 rounded-[6px] border px-2 text-[12px] font-medium whitespace-nowrap shadow-xs transition-[background-color,border-color,color] duration-150 ease-out',
           activeChannelId === channel.id
             ? 'border-[#58bdb8] bg-[#edf8f7] text-[#078f8a]'
             : 'border-[#e1e5e9] bg-white text-[#596576] hover:border-[#acd3d1] hover:bg-[#f7fbfa]',
@@ -438,7 +438,7 @@
         title={channel.name}
         onclick={() => void activateChannelEntry(channel)}
       >
-        <img class="size-[18px] rounded-sm object-contain" src={channel.iconUrl} alt="" />
+        <img class="size-[15px] rounded-sm object-contain" src={channel.iconUrl} alt="" />
         <span>{channel.shortName}</span>
       </button>
     {/each}
