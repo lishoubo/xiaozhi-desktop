@@ -10,6 +10,7 @@ function capabilities(): WindowCapabilities {
     notifyAccountBound: vi.fn(),
     webContentsForPartition: vi.fn(() => null),
     notifyUpdateReady: vi.fn(),
+    notifyManualUpdate: vi.fn(),
   };
 }
 

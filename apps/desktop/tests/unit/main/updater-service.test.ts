@@ -39,20 +39,33 @@ function createService(overrides: Partial<UpdaterServiceDependencies> = {}) {
     allowlist: [digestPhone(PHONE, SALT)],
   }));
 
+  const onManualUpdateAvailable = vi.fn();
+
   const service = new UpdaterService({
     autoUpdater,
     feedUrl: FEED_URL,
     manifestUrl: MANIFEST_URL,
     salt: SALT,
     platform: 'win32',
+    arch: 'x64',
+    currentVersion: '1.0.0',
     fetchManifest,
     onUpdateReady,
+    onManualUpdateAvailable,
     logger,
     reportError,
     ...overrides,
   });
 
-  return { service, autoUpdater, logger, reportError, onUpdateReady, fetchManifest };
+  return {
+    service,
+    autoUpdater,
+    logger,
+    reportError,
+    onUpdateReady,
+    onManualUpdateAvailable,
+    fetchManifest,
+  };
 }
 
 describe('UpdaterService.checkOnce', () => {
@@ -66,15 +79,15 @@ describe('UpdaterService.checkOnce', () => {
   });
 
   /**
-   * macOS 的更新替换要求新旧产物签名身份一致，而本项目不做签名。启动更新器
-   * 只会产生必然失败的噪声。
+   * macOS 的更新替换要求新旧产物签名身份一致，而本项目不做签名。启动 Squirrel
+   * 只会产生必然失败的噪声——所以命中名单后也只提示，不自动更新。
    */
-  it.each(['darwin', 'linux'] as const)('非 Windows 平台不检查（%s）', async (platform) => {
-    const { service, autoUpdater, fetchManifest } = createService({ platform });
+  it.each(['darwin', 'linux'] as const)('非 Windows 平台不启动 Squirrel（%s）', async (platform) => {
+    const { service, autoUpdater } = createService({ platform });
 
     await service.checkOnce(identityWith(PHONE));
 
-    expect(fetchManifest).not.toHaveBeenCalled();
+    expect(autoUpdater.setFeedURL).not.toHaveBeenCalled();
     expect(autoUpdater.checkForUpdates).not.toHaveBeenCalled();
   });
 
@@ -164,6 +177,93 @@ describe('UpdaterService.checkOnce', () => {
     expect(autoUpdater.checkForUpdates).not.toHaveBeenCalled();
     expect(logger.warn).toHaveBeenCalled();
     expect(reportError).toHaveBeenCalledWith(failure, { operation: 'update-check' });
+  });
+});
+
+/** macOS 不能自动更新，命中名单后只提示用户手动下载。 */
+describe('UpdaterService.checkOnce —— 手动更新提示（非 win32）', () => {
+  const macManifest = (extra: Record<string, unknown>) =>
+    vi.fn(async () => ({
+      allowAll: false,
+      allowlist: [digestPhone(PHONE, SALT)],
+      ...extra,
+    }));
+
+  it('有新版本时按架构给下载地址', async () => {
+    const { service, onManualUpdateAvailable } = createService({
+      platform: 'darwin',
+      arch: 'arm64',
+      currentVersion: '1.0.0',
+      fetchManifest: macManifest({
+        latestVersion: '1.0.1',
+        downloadUrls: { arm64: 'https://oss/arm64.zip', x64: 'https://oss/x64.zip' },
+      }),
+    });
+
+    await service.checkOnce(identityWith(PHONE));
+
+    expect(onManualUpdateAvailable).toHaveBeenCalledWith({
+      latestVersion: '1.0.1',
+      downloadUrl: 'https://oss/arm64.zip',
+    });
+  });
+
+  it('已是最新版时不提示', async () => {
+    const { service, onManualUpdateAvailable } = createService({
+      platform: 'darwin',
+      currentVersion: '1.0.1',
+      fetchManifest: macManifest({ latestVersion: '1.0.1' }),
+    });
+
+    await service.checkOnce(identityWith(PHONE));
+
+    expect(onManualUpdateAvailable).not.toHaveBeenCalled();
+  });
+
+  /** 发版时容易漏填；不该因此弹一个内容不明的通知。 */
+  it('名单里没有 latestVersion 时不提示', async () => {
+    const { service, onManualUpdateAvailable } = createService({
+      platform: 'darwin',
+      fetchManifest: macManifest({}),
+    });
+
+    await service.checkOnce(identityWith(PHONE));
+
+    expect(onManualUpdateAvailable).not.toHaveBeenCalled();
+  });
+
+  /** 给错架构的包比不给更糟：用户下回来打不开，还以为是应用坏了。 */
+  it('没有本机架构的下载地址时只报版本号', async () => {
+    const { service, onManualUpdateAvailable } = createService({
+      platform: 'darwin',
+      arch: 'arm64',
+      fetchManifest: macManifest({
+        latestVersion: '1.0.1',
+        downloadUrls: { x64: 'https://oss/x64.zip' },
+      }),
+    });
+
+    await service.checkOnce(identityWith(PHONE));
+
+    expect(onManualUpdateAvailable).toHaveBeenCalledWith({
+      latestVersion: '1.0.1',
+      downloadUrl: null,
+    });
+  });
+
+  it('未命中名单时不提示', async () => {
+    const { service, onManualUpdateAvailable } = createService({
+      platform: 'darwin',
+      fetchManifest: vi.fn(async () => ({
+        allowAll: false,
+        allowlist: ['other'],
+        latestVersion: '1.0.1',
+      })),
+    });
+
+    await service.checkOnce(identityWith(PHONE));
+
+    expect(onManualUpdateAvailable).not.toHaveBeenCalled();
   });
 });
 

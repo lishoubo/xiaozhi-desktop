@@ -226,6 +226,8 @@ export function createAppScope(logger: AppLogger): AppScope {
       manifestUrl: resolveGrayReleaseManifestUrl(),
       salt: resolveUpdateSalt(),
       platform: process.platform,
+      arch: process.arch,
+      currentVersion: app.getVersion(),
       fetchManifest: async (url) => {
         /**
          * 更新源是公共读的 OSS，不带凭证、不复用 `authenticatedRmsFetch`——
@@ -242,6 +244,8 @@ export function createAppScope(logger: AppLogger): AppScope {
       },
       // 用 current() 而非 requireCurrent()：下载完成时窗口可能已关，送不到是正常的。
       onUpdateReady: () => windowCapabilities.current()?.notifyUpdateReady(),
+      onManualUpdateAvailable: (update) =>
+        windowCapabilities.current()?.notifyManualUpdate(update),
       logger,
       reportError,
     }),

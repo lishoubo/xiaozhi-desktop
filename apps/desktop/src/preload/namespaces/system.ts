@@ -9,5 +9,6 @@ export function createSystemApi(invoke: ValidatedInvoke) {
     setAutoLaunch: (enabled: boolean) =>
       invoke(systemPreferencesSchema, IPC_CHANNELS.system.setAutoLaunch, enabled),
     openLogsDirectory: () => invoke(z.void(), IPC_CHANNELS.system.openLogsDirectory),
+    openExternal: (url: string) => invoke(z.void(), IPC_CHANNELS.system.openExternal, url),
   });
 }

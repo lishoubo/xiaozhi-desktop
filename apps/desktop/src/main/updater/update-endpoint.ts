@@ -15,8 +15,15 @@
  * 不各配一个字段：两者恒在同一个 bucket 下，分开配只会多一处可以配错的地方。
  */
 
-/** OSS 上存放 Squirrel 产物的子目录。上传脚本按同一约定推送。 */
-const UPDATE_FEED_SUBDIRECTORY = 'updates';
+/**
+ * Squirrel 产物的子目录，按平台分开。上传脚本按同一约定推送。
+ *
+ * **为什么按平台分目录**：Squirrel.Windows 与 Squirrel.Mac 都用 `RELEASES`
+ * 这个文件名，混在一个目录里两者没法共存。现在 Mac 还不做自动更新，但
+ * **feedUrl 是写死在已发布产物里的、改不了**——等哪天做 Mac 自动更新时再分，
+ * 那时装着老版本的客户就接不上了。
+ */
+const UPDATE_FEED_SUBDIRECTORY = 'win32';
 
 /** 灰度名单的文件名。 */
 const GRAY_RELEASE_MANIFEST_FILE = 'update-manifest.json';

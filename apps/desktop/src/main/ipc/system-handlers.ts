@@ -11,6 +11,7 @@ export interface SystemOrchestrator {
   getPreferences(): SystemPreferences;
   setAutoLaunch(enabled: boolean): SystemPreferences;
   openLogsDirectory(): Promise<void>;
+  openExternal(url: string): Promise<void>;
 }
 
 type RegisterSystemHandlersOptions = Readonly<{
@@ -37,6 +38,13 @@ export function registerSystemHandlers({
   );
   registry.handle(IPC_CHANNELS.system.openLogsDirectory, noArgumentsSchema, '请求参数无效', () =>
     service.openLogsDirectory(),
+  );
+  // 协议白名单在 service 里，不在这里：schema 只管"是不是个字符串"。
+  registry.handle(
+    IPC_CHANNELS.system.openExternal,
+    z.tuple([z.string().min(1)]),
+    '链接无效',
+    (url) => service.openExternal(url),
   );
 
   return () => registry.dispose();

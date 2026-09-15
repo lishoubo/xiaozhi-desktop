@@ -35,9 +35,9 @@
 - [x] 3.3 所有失败路径：先 `logger.warn(..., { error: safeLogErrorDetails(error) })`
       再 `reportError(error, { operation: 'update-check' })`，绝不向上抛
 - [x] 3.4 监听 `update-downloaded` → 调 `onUpdateReady`；监听 `error` → 同 3.3
-- [x] 3.5 单测：非 win32 不检查、feedUrl 为 null 不检查、phone 缺失不检查、
-      未命中名单不调 `setFeedURL`、命中才调、重复调用只检查一次、
-      manifest 拉取抛错时不抛出且已上报（14 tests 通过）
+- [x] 3.5 单测：feedUrl 为 null 不检查、phone 缺失不检查、未命中名单不调
+      `setFeedURL`、命中才调、重复调用只检查一次、manifest 拉取抛错时不抛出
+      且已上报（第 7 组把「非 win32 不检查」改成了「非 win32 不启动 Squirrel」）
 
 ## 4. 接线
 
@@ -72,7 +72,7 @@
       `xiaozhi-logo-flat.png`），在上一个 commit `954d67d` 就已存在，已用
       `git stash -u` 核对确认
 - [x] 6.2 `npm run lint:desktop` 通过（0 问题）
-- [x] 6.3 `npm run test:unit:desktop` 全量通过：**114 files / 926 tests**，
+- [x] 6.3 `npm run test:unit:desktop` 全量通过（第 7 组后为 **115 files / 946 tests**），
       含 `layer-boundaries` 分层约束检查
 - [ ] 6.4 dev 环境启动应用，确认更新器静默关闭且日志有说明（无更新源）
 - [ ] 6.5 **真 Windows：安装 1.0.0 → 上传 1.0.1 → 名单命中 → 自动升级成功**
@@ -82,7 +82,26 @@
 - [ ] 6.7 **真 Windows：更新源不可达时应用照常可用**
       ⚠️ 同上
 
-## 7. 收尾
+## 7. macOS 手动更新提示（档位 B）
 
-- [ ] 7.1 `specs/` delta 合并进 `openspec/specs/`（待 6.5-6.7 通过后）
-- [ ] 7.2 `verification.md` 记录验证证据
+- [x] 7.1 manifest 增加可选字段 `latestVersion` / `downloadUrls.{arm64,x64}`
+      （必须可选——线上已有一份不含它们的名单，设成必填会连带把 Windows 更新停掉）
+- [x] 7.2 新建 `updater/compare-versions.ts`：三段数字比较，解析失败保守返回 false
+- [x] 7.3 `checkOnce` 按平台分流：win32 走 Squirrel，其余走手动提示
+- [x] 7.4 按 `process.arch` 挑下载地址；挑不到只报版本号不给按钮
+- [x] 7.5 `SystemService.openExternal`：只放行 https（名单经网络传输，不可信）
+- [x] 7.6 渲染进程常驻提示 +「前往下载」按钮
+- [x] 7.7 **更新源按平台分目录**：`updates/` → `win32/`，新增 `darwin/`
+      —— Squirrel.Windows 与 .Mac 都用 `RELEASES` 文件名，混在一起没法共存；
+      而 feedUrl 写死在已发布产物里改不了，必须现在分
+- [x] 7.8 上传脚本加 `--mac-dir`，拒收文件名不含 `darwin` 的文件
+      （Windows CI 产物也是 zip，实测会被误收）
+- [x] 7.9 `gray-release.mjs` 加 `--version` / `--mac-arm64` / `--mac-x64`，
+      校验版本号格式与 https 协议
+- [x] 7.10 验证：115 files / 946 tests 通过；lint 通过；脚本护栏实测
+      （有地址无版本号 / http 地址 / 版本号格式错 / Windows 包混入 —— 四条全拦住）
+
+## 8. 收尾
+
+- [ ] 8.1 `specs/` delta 合并进 `openspec/specs/`（待 6.5-6.7 通过后）
+- [ ] 8.2 `verification.md` 记录验证证据

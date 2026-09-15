@@ -33,6 +33,28 @@ import { digestPhone } from './phone-digest';
 const grayReleaseManifestSchema = z.strictObject({
   allowAll: z.boolean(),
   allowlist: z.array(z.string()),
+  /**
+   * 最新版本号与下载地址，**只给不能自动更新的平台用**（macOS）。
+   *
+   * Windows 不读这两个字段：Squirrel 自己比对 `RELEASES`，那才是它的事实来源。
+   * 这里再放一份是为了让 macOS 也能判断"有没有新版本"——它没有 Squirrel，
+   * 而解析 Windows 的包名（`xiaozhi-hotel-1.0.1-full.nupkg`）来判断 Mac 的版本
+   * 既别扭又会随包名规则失效。
+   *
+   * 两者 MUST 可选：线上已经有一份不含它们的名单，设成必填会让解析失败，
+   * 连带把 Windows 的更新一起停掉。
+   */
+  latestVersion: z.string().optional(),
+  /**
+   * 按架构给下载地址。用户分不清自己是 M 芯片还是 Intel，让他们在下载页上选
+   * 很容易选错，下回来打不开还得找客服——所以由应用按 `process.arch` 自动挑。
+   */
+  downloadUrls: z
+    .strictObject({
+      arm64: z.string().optional(),
+      x64: z.string().optional(),
+    })
+    .optional(),
 });
 
 export type GrayReleaseManifest = Readonly<z.infer<typeof grayReleaseManifestSchema>>;

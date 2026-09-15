@@ -1,4 +1,5 @@
 import type { ChannelId } from '../ids';
+import type { ManualUpdate } from '../../shared/updater';
 
 /** 架构约束：不 import `browser/` 实现，用类型查询表达结构依赖。 */
 type WebContents = import('electron').WebContents;
@@ -22,6 +23,8 @@ export type WindowCapabilities = Readonly<{
    * 下次启动就是新版本。
    */
   notifyUpdateReady(): void;
+  /** 同上，但用于不能自动更新的平台（macOS）：提示用户手动下载。 */
+  notifyManualUpdate(update: ManualUpdate): void;
 }>;
 
 export type WindowCapabilityRegistration = Readonly<{

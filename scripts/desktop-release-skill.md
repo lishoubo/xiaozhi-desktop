@@ -21,9 +21,31 @@ description: 发布 Windows 桌面客户端新版本——bump 版本号、引�
 
 ## 平台范围
 
-只有 **Windows** 有自动更新。macOS 不做——更新替换要求新旧产物签名身份一致，而本项目不做代码签名，启动更新器只会产生必然失败的噪声。macOS 用户需要人工发包。
+| 平台 | 行为 |
+|---|---|
+| Windows | 静默下载，退出时自动安装 |
+| macOS | **只提示**「发现新版本 x.y.z」+ 下载按钮，用户自己装 |
+| Linux | 同 macOS（实际没有 Linux 客户） |
+
+macOS 不做自动更新——更新替换要求新旧产物签名身份一致，而本项目不做代码签名。买了 Apple Developer 账号（$99/年）做签名+公证后才能改。
 
 只有 **online** 环境有更新源。dev / pre 的 `updateFeedUrl` 是 `null`，更新器静默关闭。
+
+## OSS 布局
+
+```
+xiaozhi-desktop-release/
+├── update-manifest.json        灰度名单（平台无关）
+├── win32/                      Squirrel feed
+│   ├── RELEASES
+│   ├── xiaozhi-hotel-<版本>-full.nupkg
+│   └── 小智酒店管家-setup.exe
+└── darwin/                     macOS 安装包，只供人工下载
+    ├── 小智酒店管家-darwin-arm64-<版本>.zip
+    └── 小智酒店管家-darwin-x64-<版本>.zip
+```
+
+**按平台分目录是有意的**：Squirrel.Windows 与 Squirrel.Mac 都用 `RELEASES` 这个文件名，混在一起两者没法共存。而 feedUrl 写死在已发布产物里改不了——等将来做 Mac 自动更新时再分目录，装着老版本的客户就接不上了。
 
 ---
 
@@ -113,6 +135,12 @@ node scripts/oss-uploader.mjs --dir=/tmp/win-release --dry-run
 node scripts/oss-uploader.mjs --dir=/tmp/win-release
 ```
 
+有 macOS 包就一起传（`--mac-dir` 只收文件名含 `darwin` 的 zip/dmg，防止把 Windows 的 zip 误传进去）：
+
+```bash
+node scripts/oss-uploader.mjs --dir=/tmp/win-release --mac-dir=/tmp/mac-release
+```
+
 脚本会：
 - 校验 `RELEASES` 与 `.nupkg` 同时存在，缺一个就拒绝
 - **`RELEASES` 最后传**——它是 Squirrel 的"开关"，先传包再传清单，客户端不会在包还没传完时就读到指向它的清单
@@ -122,7 +150,7 @@ node scripts/oss-uploader.mjs --dir=/tmp/win-release
 
 ```bash
 curl -s -o /dev/null -w "%{http_code} %{size_download}\n" \
-  https://xiaozhi-desktop-release.oss-cn-beijing.aliyuncs.com/updates/RELEASES
+  https://xiaozhi-desktop-release.oss-cn-beijing.aliyuncs.com/win32/RELEASES
 ```
 
 **必须是 200**。403 说明 bucket 不是公共读——Squirrel 匿名下载会全部失败，而这个失败在客户端只体现为"没更新"，很难查。
@@ -157,6 +185,18 @@ node scripts/gray-release.mjs set --all > /tmp/update-manifest.json
 # 停止发放（已升级的不会退回）
 node scripts/gray-release.mjs set --none > /tmp/update-manifest.json
 ```
+
+**带上 macOS 的提示**（Windows 不读这几个字段，它看 `RELEASES`）：
+
+```bash
+node scripts/gray-release.mjs set --phone=138xxx \
+  --version=1.0.1 \
+  --mac-arm64=https://xiaozhi-desktop-release.oss-cn-beijing.aliyuncs.com/darwin/小智酒店管家-darwin-arm64-1.0.1.zip \
+  --mac-x64=https://xiaozhi-desktop-release.oss-cn-beijing.aliyuncs.com/darwin/小智酒店管家-darwin-x64-1.0.1.zip \
+  > /tmp/update-manifest.json
+```
+
+不填 `--version` 就不会提示 Mac 用户。填了但缺对应架构的地址，则只报版本号、不给下载按钮——**给错架构的包比不给更糟**，用户下回来打不开还以为是应用坏了。
 
 ### ⚠️ 名单是全量覆盖，不是追加
 

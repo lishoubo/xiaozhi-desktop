@@ -14,9 +14,9 @@ export type SystemApp = Readonly<{
   setLoginItemSettings: (settings: Readonly<{ openAtLogin: boolean }>) => void;
 }>;
 
-/** `electron.shell` 里用到的唯一一个方法。 */
 export type SystemShell = Readonly<{
   openPath: (target: string) => Promise<string>;
+  openExternal: (url: string) => Promise<void>;
 }>;
 
 export type SystemServiceDependencies = Readonly<{
@@ -61,5 +61,30 @@ export class SystemService {
       throw new Error(`无法打开日志目录：${failure}`);
     }
     this.deps.logger.info('Logs directory opened', { logsDirectory: this.deps.logsDirectory });
+  }
+
+  /**
+   * 在系统默认浏览器里打开一个链接。目前只有「Mac 手动下载新版本」用得到。
+   *
+   * **只允许 https**：`openExternal` 会把字符串交给操作系统按协议分发，`file://`
+   * 能打开本地任意路径，某些平台上自定义协议还能触发别的应用。链接来自 OSS 上
+   * 的灰度名单——那是我们自己维护的文件，但它经过网络传输，不该被当作可信输入。
+   */
+  async openExternal(url: string): Promise<void> {
+    let parsed: URL;
+    try {
+      parsed = new URL(url);
+    } catch {
+      this.deps.logger.warn('Refused to open a malformed URL');
+      throw new Error('链接格式无效');
+    }
+
+    if (parsed.protocol !== 'https:') {
+      this.deps.logger.warn('Refused to open a non-HTTPS URL', { protocol: parsed.protocol });
+      throw new Error('只能打开 HTTPS 链接');
+    }
+
+    await this.deps.shell.openExternal(parsed.toString());
+    this.deps.logger.info('External link opened', { host: parsed.host });
   }
 }

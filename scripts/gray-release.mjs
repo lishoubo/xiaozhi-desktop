@@ -55,7 +55,13 @@ const USAGE = `用法: node scripts/gray-release.mjs <命令> [选项]
 
 选项:
   --phone=<手机号>   可重复，多个手机号
+  --version=<版本号> 最新版本号，**只给 macOS 用**（Windows 读 RELEASES，不看这个）
+  --mac-arm64=<URL>  Apple Silicon 安装包地址
+  --mac-x64=<URL>    Intel 安装包地址
   -h, --help         显示帮助
+
+macOS 不能自动更新（无代码签名），只能提示用户手动下载。不填 --version 就
+不会提示；填了但缺对应架构的地址，则只报版本号、不给下载按钮。
 
 输出是 JSON，直接重定向到文件即可:
   node scripts/gray-release.mjs set --phone=13800138000 > update-manifest.json
@@ -71,7 +77,15 @@ function digestPhone(phone) {
 
 function parseArguments(argv) {
   const [command, ...rest] = argv;
-  const options = { command, phones: [], all: false, none: false };
+  const options = {
+    command,
+    phones: [],
+    all: false,
+    none: false,
+    version: null,
+    macArm64: null,
+    macX64: null,
+  };
 
   for (const argument of rest) {
     if (argument === '-h' || argument === '--help') {
@@ -83,11 +97,56 @@ function parseArguments(argv) {
       options.none = true;
     } else if (argument.startsWith('--phone=')) {
       options.phones.push(argument.slice('--phone='.length));
+    } else if (argument.startsWith('--version=')) {
+      options.version = argument.slice('--version='.length);
+    } else if (argument.startsWith('--mac-arm64=')) {
+      options.macArm64 = argument.slice('--mac-arm64='.length);
+    } else if (argument.startsWith('--mac-x64=')) {
+      options.macX64 = argument.slice('--mac-x64='.length);
     } else {
       throw new Error(`无法识别的参数: ${argument}\n\n${USAGE}`);
     }
   }
   return options;
+}
+
+/**
+ * macOS 手动更新的三个字段。全部可选——Windows 的更新不依赖它们，发版时漏填
+ * 只是 Mac 不提示，不该让整份名单产不出来。
+ *
+ * 下载地址必须是 https：主进程侧 `SystemService.openExternal` 只放行 https，
+ * 填了别的协议会在用户点"前往下载"时静默失败。在这里先拦住。
+ */
+function macUpdateFields(options) {
+  const version = options.version?.trim();
+  if (!version) {
+    if (options.macArm64 || options.macX64) {
+      throw new Error('给了下载地址却没给 --version，macOS 无法判断是否有新版本。');
+    }
+    return {};
+  }
+
+  if (!/^\d+\.\d+\.\d+$/.test(version)) {
+    throw new Error(`版本号格式不对: ${version}（应为 x.y.z）`);
+  }
+
+  const downloadUrls = {};
+  for (const [key, value] of [
+    ['arm64', options.macArm64],
+    ['x64', options.macX64],
+  ]) {
+    const url = value?.trim();
+    if (!url) continue;
+    if (!url.startsWith('https://')) {
+      throw new Error(`${key} 下载地址必须是 https: ${url}`);
+    }
+    downloadUrls[key] = url;
+  }
+
+  return {
+    latestVersion: version,
+    ...(Object.keys(downloadUrls).length > 0 ? { downloadUrls } : {}),
+  };
 }
 
 /**
@@ -122,21 +181,30 @@ function main() {
   }
 
   if (options.command === 'set') {
+    const mac = macUpdateFields(options);
+    const describeMac = () => {
+      if (mac.latestVersion === undefined) return '';
+      const targets = Object.keys(mac.downloadUrls ?? {});
+      return targets.length === 0
+        ? `\nmacOS：提示 ${mac.latestVersion}，但没有下载地址（只报版本号）。`
+        : `\nmacOS：提示 ${mac.latestVersion}，下载地址 ${targets.join(' / ')}。`;
+    };
+
     if (options.all) {
-      console.log(JSON.stringify({ allowAll: true, allowlist: [] }, null, 2));
-      process.stderr.write('\n⚠️ 全量放开：所有已登录客户都会升级。\n');
+      console.log(JSON.stringify({ allowAll: true, allowlist: [], ...mac }, null, 2));
+      process.stderr.write(`\n⚠️ 全量放开：所有已登录客户都会升级。${describeMac()}\n`);
       return;
     }
     if (options.none) {
-      console.log(JSON.stringify({ allowAll: false, allowlist: [] }, null, 2));
+      console.log(JSON.stringify({ allowAll: false, allowlist: [], ...mac }, null, 2));
       process.stderr.write('\n空名单：谁都不会升级（已升级的机器不会退回）。\n');
       return;
     }
 
     requireValidPhones(options.phones);
     const allowlist = options.phones.map((phone) => digestPhone(phone));
-    console.log(JSON.stringify({ allowAll: false, allowlist }, null, 2));
-    process.stderr.write(`\n灰度名单：${options.phones.length} 个手机号。\n`);
+    console.log(JSON.stringify({ allowAll: false, allowlist, ...mac }, null, 2));
+    process.stderr.write(`\n灰度名单：${options.phones.length} 个手机号。${describeMac()}\n`);
     return;
   }
 

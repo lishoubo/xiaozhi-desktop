@@ -78,9 +78,44 @@
     });
   });
 
+  /**
+   * 本平台不能自动更新（macOS），只能提示用户自己去下载。
+   *
+   * 同样 `durationMs: 0` 常驻——这条提示比 Windows 那条更要紧：用户不点就永远
+   * 停在旧版本。名单里没配本机架构的下载地址时不给按钮，只报版本号；给错架构
+   * 的包比不给更糟，用户下回来打不开还以为是应用坏了。
+   */
+  const unsubscribeManualUpdate = window.hotelButler.updater.onManualUpdate((update) => {
+    log.info('Manual update available', { latestVersion: update.latestVersion });
+    showAppNotification({
+      id: 'updater:manual-update',
+      title: `发现新版本 ${update.latestVersion}`,
+      message: update.downloadUrl
+        ? '当前版本不支持自动更新，请下载后手动安装。'
+        : '当前版本不支持自动更新，请联系客服获取安装包。',
+      tone: 'default',
+      durationMs: 0,
+      ...(update.downloadUrl
+        ? {
+            action: {
+              label: '前往下载',
+              run: async () => {
+                try {
+                  await window.hotelButler.system.openExternal(update.downloadUrl!);
+                } catch (error) {
+                  log.warn('Could not open the download link', { error });
+                }
+              },
+            },
+          }
+        : {}),
+    });
+  });
+
   onDestroy(() => {
     window.removeEventListener('hotel-butler:logout', handleLogout);
     unsubscribeUpdateReady();
+    unsubscribeManualUpdate();
   });
 </script>
 

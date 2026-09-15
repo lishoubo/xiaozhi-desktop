@@ -95,6 +95,7 @@ export const IPC_CHANNELS = {
     getPreferences: 'system:get-preferences',
     setAutoLaunch: 'system:set-auto-launch',
     openLogsDirectory: 'system:open-logs-directory',
+    openExternal: 'system:open-external',
   },
   updater: {
     /**
@@ -102,5 +103,10 @@ export const IPC_CHANNELS = {
      * 更新流程全程在主进程，界面只负责显示这一条提示。
      */
     updateReady: 'updater:update-ready',
+    /**
+     * 有新版本但本平台不能自动更新（macOS），提示用户手动下载。
+     * 与 `updateReady` 互斥：一个平台只会收到其中一条。
+     */
+    manualUpdateAvailable: 'updater:manual-update-available',
   },
 } as const;

@@ -67,7 +67,17 @@ const ENDPOINT = `oss-${REGION}.aliyuncs.com`;
 const HOST = `${BUCKET}.${ENDPOINT}`;
 
 /** 与 update-endpoint.ts 的 UPDATE_FEED_SUBDIRECTORY 保持一致。 */
-const FEED_PREFIX = 'updates';
+/**
+ * 与 `src/main/updater/update-endpoint.ts` 的 `UPDATE_FEED_SUBDIRECTORY` 一致。
+ *
+ * 按平台分目录：Squirrel.Windows 与 Squirrel.Mac 都用 `RELEASES` 这个文件名，
+ * 混在一起没法共存。Mac 现在不做自动更新，但 feedUrl 写死在已发布产物里、
+ * 改不了——等要做时再分，装着老版本的客户就接不上了。
+ */
+const FEED_PREFIX = 'win32';
+
+/** macOS 安装包的存放目录。只供人工下载，不是 Squirrel feed。 */
+const MAC_PREFIX = 'darwin';
 
 /**
  * 全部按二进制传：`RELEASES` 带 UTF-8 BOM，当文本处理会被某些工具改写。
@@ -90,12 +100,18 @@ const CREDENTIALS_FILE = fileURLToPath(new URL('.oss.env', import.meta.url));
 const USAGE = `用法: node scripts/oss-uploader.mjs --dir=<产物目录> [选项]
 
 选项:
-  --dir=<路径>       Windows 打包产物目录，需含 RELEASES 与 *.nupkg
-  --manifest=<路径>  灰度名单 JSON（传到 bucket 根目录）
+  --dir=<路径>       Windows 打包产物目录，需含 RELEASES 与 *.nupkg → win32/
+  --mac-dir=<路径>   macOS 安装包目录（*.zip / *.dmg）→ darwin/
+  --manifest=<路径>  灰度名单 JSON → bucket 根目录
   --dry-run          只校验并列出将要上传的文件，不真正上传
   -h, --help         显示帮助
 
---dir 与 --manifest 至少给一个，可同时给。
+三个至少给一个，可同时给。
+
+OSS 布局:
+  update-manifest.json   灰度名单（平台无关）
+  win32/                 Squirrel feed（RELEASES + nupkg + setup.exe）
+  darwin/                macOS 安装包，只供人工下载
 
 凭证按「环境变量 → scripts/.oss.env」的顺序取:
   OSS_ACCESS_KEY_ID
@@ -123,7 +139,7 @@ const USAGE = `用法: node scripts/oss-uploader.mjs --dir=<产物目录> [选�
 `;
 
 function parseArguments(argv) {
-  const options = { dir: null, manifest: null, dryRun: false };
+  const options = { dir: null, macDir: null, manifest: null, dryRun: false };
   for (const argument of argv) {
     if (argument === '-h' || argument === '--help') {
       console.log(USAGE);
@@ -132,16 +148,54 @@ function parseArguments(argv) {
       options.dryRun = true;
     } else if (argument.startsWith('--dir=')) {
       options.dir = argument.slice('--dir='.length);
+    } else if (argument.startsWith('--mac-dir=')) {
+      options.macDir = argument.slice('--mac-dir='.length);
     } else if (argument.startsWith('--manifest=')) {
       options.manifest = argument.slice('--manifest='.length);
     } else {
       throw new Error(`无法识别的参数: ${argument}\n\n${USAGE}`);
     }
   }
-  if (options.dir === null && options.manifest === null) {
-    throw new Error(`至少要给 --dir 或 --manifest 之一\n\n${USAGE}`);
+  if (options.dir === null && options.macDir === null && options.manifest === null) {
+    throw new Error(`至少要给 --dir / --mac-dir / --manifest 之一\n\n${USAGE}`);
   }
   return options;
+}
+
+/**
+ * 收集 macOS 安装包。
+ *
+ * 不做 `collectArtifacts` 那种三件套校验：Mac 没有 Squirrel feed，这些文件只是
+ * 供人工下载，少传一个不会造成"静默不更新"那类后果。
+ */
+async function collectMacArtifacts(directory) {
+  const entries = await readdir(directory, { withFileTypes: true });
+  const files = entries
+    .filter((entry) => entry.isFile())
+    .map((entry) => entry.name)
+    .filter((name) => name.endsWith('.zip') || name.endsWith('.dmg'));
+
+  if (files.length === 0) {
+    throw new Error(`${directory} 下没有 .zip 或 .dmg 文件。`);
+  }
+
+  /**
+   * Windows 的 CI 产物也是 zip，误放进 mac 目录就会被当成 mac 包传上去，
+   * 而客户在 Mac 上下到一个 Windows 安装包——下完才发现打不开。
+   *
+   * Forge 打出的 mac zip 文件名必然含 `darwin`（`<名称>-darwin-<arch>-<版本>.zip`），
+   * 用它做判据。
+   */
+  const suspicious = files.filter((name) => !name.includes('darwin') && !name.endsWith('.dmg'));
+  if (suspicious.length > 0) {
+    throw new Error(
+      `${directory} 下这些文件看起来不是 macOS 包（文件名不含 darwin）：\n` +
+        suspicious.map((name) => `  ${name}`).join('\n') +
+        '\n把 Windows 产物挪出去，或确认目录给对了。',
+    );
+  }
+
+  return files;
 }
 
 /**
@@ -160,18 +214,18 @@ async function readManifest(filePath) {
     throw new Error(`${filePath} 不是合法 JSON。用 scripts/gray-release.mjs 生成。`);
   }
 
-  const keys = Object.keys(parsed);
-  const hasExactKeys =
-    keys.length === 2 && keys.includes('allowAll') && keys.includes('allowlist');
+  const allowedKeys = ['allowAll', 'allowlist', 'latestVersion', 'downloadUrls'];
+  const unknownKeys = Object.keys(parsed).filter((key) => !allowedKeys.includes(key));
   if (
-    !hasExactKeys ||
+    unknownKeys.length > 0 ||
     typeof parsed.allowAll !== 'boolean' ||
     !Array.isArray(parsed.allowlist) ||
     parsed.allowlist.some((item) => typeof item !== 'string')
   ) {
     throw new Error(
-      `${filePath} 结构不对。应为 { "allowAll": boolean, "allowlist": string[] }，` +
-        '且不含其他字段。用 scripts/gray-release.mjs 生成。',
+      `${filePath} 结构不对。必填 { "allowAll": boolean, "allowlist": string[] }，` +
+        `可选 latestVersion / downloadUrls${unknownKeys.length > 0 ? `；多了: ${unknownKeys.join(', ')}` : ''}。` +
+        ' 用 scripts/gray-release.mjs 生成。',
     );
   }
 
@@ -387,6 +441,20 @@ async function main() {
     console.log(`产物目录: ${directory}`);
   }
 
+  if (options.macDir !== null) {
+    const directory = path.resolve(options.macDir);
+    for (const name of await collectMacArtifacts(directory)) {
+      const filePath = path.join(directory, name);
+      plan.push({
+        name,
+        filePath,
+        objectKey: `${MAC_PREFIX}/${name}`,
+        size: (await stat(filePath)).size,
+      });
+    }
+    console.log(`macOS 产物: ${directory}`);
+  }
+
   let manifestSummary = null;
   if (options.manifest !== null) {
     const filePath = path.resolve(options.manifest);
@@ -432,7 +500,11 @@ async function main() {
   }
 
   console.log('\n全部完成。');
-  if (options.dir !== null) console.log(`  更新源: https://${HOST}/${FEED_PREFIX}/`);
+  if (options.dir !== null) console.log(`  Windows 更新源: https://${HOST}/${FEED_PREFIX}/`);
+  if (options.macDir !== null) {
+    console.log(`  macOS 下载目录: https://${HOST}/${MAC_PREFIX}/`);
+    console.log('  ⚠️ 记得把这些文件的完整地址填进 manifest 的 downloadUrls');
+  }
   if (options.manifest !== null) console.log(`  灰度名单: https://${HOST}/${MANIFEST_OBJECT_KEY}`);
 }
 

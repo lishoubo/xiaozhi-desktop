@@ -119,6 +119,11 @@ export function createWindowScope(scope: WindowScopeDependencies): WindowScope {
         window.webContents.send(IPC_CHANNELS.updater.updateReady);
       }
     },
+    notifyManualUpdate: (update) => {
+      if (!window.isDestroyed()) {
+        window.webContents.send(IPC_CHANNELS.updater.manualUpdateAvailable, update);
+      }
+    },
   });
   onDispose(() => windowCapabilityRegistration.dispose());
 

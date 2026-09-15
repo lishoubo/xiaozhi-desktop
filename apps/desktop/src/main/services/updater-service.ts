@@ -31,9 +31,15 @@
  */
 import type { StaffIdentity } from '@hotel-butler/api';
 import type { ErrorReporter } from '../error-reporting/error-reporter';
-import { isPhoneAllowed, parseGrayReleaseManifest } from '../updater/gray-release-manifest';
+import { isNewerVersion } from '../updater/compare-versions';
+import {
+  isPhoneAllowed,
+  parseGrayReleaseManifest,
+  type GrayReleaseManifest,
+} from '../updater/gray-release-manifest';
 import type { AppLogger } from '../../shared/logging';
 import { safeLogErrorDetails } from '../../shared/logging';
+import type { ManualUpdate } from '../../shared/updater';
 
 /**
  * 只声明用到的那几个 autoUpdater 能力，便于测试替换（同 SystemService.SystemApp）。
@@ -58,11 +64,17 @@ export type UpdaterServiceDependencies = Readonly<{
   feedUrl: string | null;
   manifestUrl: string | null;
   salt: string | null;
-  /** 只有 win32 启动更新器：macOS 的更新替换要求签名身份一致，而本项目不做签名。 */
+  /** 决定命中名单后走自动更新还是只提示：只有 win32 能自动更新。 */
   platform: NodeJS.Platform;
+  /** 本机 CPU 架构（`process.arch`），用于在 Mac 上挑对应的下载包。 */
+  arch: string;
+  /** 本机当前版本（`app.getVersion()`），非 win32 平台用它比对 manifest 里的最新版。 */
+  currentVersion: string;
   fetchManifest: (url: string) => Promise<unknown>;
-  /** 下载完成后通知渲染进程。 */
+  /** 下载完成后通知渲染进程（仅 win32）。 */
   onUpdateReady: () => void;
+  /** 有新版本但本平台不能自动更新，提示用户手动下载（非 win32）。 */
+  onManualUpdateAvailable: (update: ManualUpdate) => void;
   logger: AppLogger;
   reportError: ErrorReporter;
 }>;
@@ -91,9 +103,7 @@ export class UpdaterService {
   async checkOnce(identity: StaffIdentity): Promise<void> {
     if (this.checked) return;
 
-    const { platform, feedUrl, manifestUrl, salt, logger } = this.deps;
-
-    if (platform !== 'win32') return;
+    const { feedUrl, manifestUrl, salt, logger } = this.deps;
 
     if (feedUrl === null || manifestUrl === null || salt === null) {
       logger.info('Auto update is not enabled for this build');
@@ -124,12 +134,68 @@ export class UpdaterService {
         return;
       }
 
-      this.attachListeners();
-      this.deps.autoUpdater.setFeedURL({ url: feedUrl });
-      this.deps.autoUpdater.checkForUpdates();
-      logger.info('Update check started', { feedUrl });
+      /**
+       * 灰度判定对所有平台一致，分歧只在"命中之后做什么"：
+       *
+       * ```
+       * win32   → Squirrel 静默下载、退出时安装
+       * 其他     → 只提示"有新版本，去下载"，人工装
+       * ```
+       *
+       * macOS 走不了自动更新：更新替换要求新旧产物签名身份一致，而本项目不做
+       * 代码签名。启动 Squirrel 只会产生必然失败的噪声，所以连试都不试。
+       */
+      if (this.deps.platform === 'win32') {
+        this.attachListeners();
+        this.deps.autoUpdater.setFeedURL({ url: feedUrl });
+        this.deps.autoUpdater.checkForUpdates();
+        logger.info('Update check started', { feedUrl });
+        return;
+      }
+
+      this.notifyManualUpdate(manifest);
     } catch (error) {
       this.reportFailure(error, 'Update check failed');
+    }
+  }
+
+  /**
+   * 不能自动更新的平台：比对版本号，有新版才提示。
+   *
+   * 名单里没写 `latestVersion` 时什么都不做——Windows 的更新不依赖这个字段，
+   * 发版时容易漏填，不该因此弹一个内容不明的通知。
+   */
+  private notifyManualUpdate(manifest: GrayReleaseManifest): void {
+    const { logger } = this.deps;
+    const latestVersion = manifest.latestVersion?.trim();
+    if (!latestVersion) {
+      logger.info('Manifest has no latestVersion; skipping manual update notice');
+      return;
+    }
+
+    const currentVersion = this.deps.currentVersion;
+    if (!isNewerVersion(latestVersion, currentVersion)) {
+      logger.info('Already up to date', { currentVersion, latestVersion });
+      return;
+    }
+
+    /**
+     * 按本机架构挑下载地址。挑不到就只报版本号、不给跳转入口——给错架构的包
+     * 比不给更糟：用户下回来打不开，还以为是应用坏了。
+     */
+    const { arch } = this.deps;
+    const downloadUrl =
+      (arch === 'arm64' || arch === 'x64' ? manifest.downloadUrls?.[arch]?.trim() : undefined) ||
+      null;
+    if (downloadUrl === null) {
+      logger.info('No download URL for this architecture', { arch });
+    }
+
+    logger.info('Manual update available', { currentVersion, latestVersion, arch });
+    try {
+      this.deps.onManualUpdateAvailable({ latestVersion, downloadUrl });
+    } catch (error) {
+      this.reportFailure(error, 'Could not notify the renderer about the manual update');
     }
   }
 
