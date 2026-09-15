@@ -21,6 +21,7 @@ import { createOtaCredentialApi } from './namespaces/ota-credential';
 import { createOtaTabApi } from './namespaces/ota-tab';
 import { createStaffAuthApi } from './namespaces/staff-auth';
 import { createSystemApi } from './namespaces/system';
+import { createUpdaterApi } from './namespaces/updater';
 
 type RuntimeVersions = Readonly<{
   chrome: string;
@@ -47,6 +48,7 @@ export function createDesktopApi(
     otaTab: createOtaTabApi(validatedInvoke),
     staffAuth: createStaffAuthApi(validatedInvoke),
     system: createSystemApi(validatedInvoke),
+    updater: createUpdaterApi(validatedSubscribe),
     versions: Object.freeze({
       chrome: versions.chrome,
       electron: versions.electron,

@@ -32,3 +32,15 @@ declare const __APP_PRODUCT_NAME__: string;
  * 空串表示本次构建不上报（dev 环境默认如此）。
  */
 declare const __SENTRY_DSN__: string;
+
+/**
+ * 自动更新源（OSS bucket 根地址）：由 vite-plugins/update-feed.ts 在主进程构建里注入。
+ * 空串表示本环境不启用自动更新（dev / pre 默认如此）。
+ */
+declare const __UPDATE_FEED_URL__: string;
+
+/**
+ * 灰度名单的手机号哈希盐值：由 vite-plugins/update-feed.ts 在主进程构建里注入。
+ * 空串表示未配置。它随包分发、可被拆包取得，不按凭证对待——见该插件注释。
+ */
+declare const __UPDATE_SALT__: string;

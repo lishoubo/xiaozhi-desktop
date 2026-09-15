@@ -35,6 +35,10 @@ export const DEFAULT_ENVIRONMENT = 'dev';
  * - `sentryDsn` 该环境的 GlitchTip 上报地址；`null` 表示不上报（见 sentry-dsn.ts）
  * - `serverOrigin` 该环境的 hotel-butler server 地址（AI 助理与私有 CA 信任用）；
  *   `null` 表示尚未确定，构建时必须显式提供，见 server-origin.ts
+ * - `updateFeedUrl` 该环境的自动更新源（OSS bucket 根地址）；`null` 表示**本环境不启用
+ *   自动更新**，构建照常继续。与 `rmsOrigin` 的 `null` 语义相反：连错后端要构建失败，
+ *   而 dev/pre 本就不分发给客户，没有更新源是常态。见 update-feed.ts
+ * - `updateSalt` 手机号哈希的盐值，灰度名单用；随 `updateFeedUrl` 一起给或一起为 `null`
  */
 /**
  * 三套环境共用一个 GlitchTip Project，靠上报时的 `environment` 标签区分
@@ -75,6 +79,9 @@ export const PROFILES = {
     // 本地开发默认不上报：改代码时的报错是预期内的噪声，往生产项目里刷会淹掉真实故障。
     // 需要联调上报链路时用 XIAOZHI_SENTRY_DSN 显式打开。
     sentryDsn: null,
+    // dev 不分发，不启用自动更新。需要联调更新链路时用 XIAOZHI_UPDATE_FEED_URL 打开。
+    updateFeedUrl: null,
+    updateSalt: null,
   },
   pre: {
     productName: '小智酒店管家[预发]',
@@ -85,6 +92,10 @@ export const PROFILES = {
     rmsWebOrigin: null,
     serverOrigin: PRODUCTION_SERVER_ORIGIN,
     sentryDsn: GLITCHTIP_DSN,
+    // pre 由团队内部手动装包验证，不走自动更新——预发包自动升级会让"验证的到底是哪个
+    // 版本"变得不确定。
+    updateFeedUrl: null,
+    updateSalt: null,
   },
   online: {
     productName: '小智酒店管家',
@@ -99,6 +110,22 @@ export const PROFILES = {
     rmsWebOrigin: null,
     serverOrigin: PRODUCTION_SERVER_ORIGIN,
     sentryDsn: GLITCHTIP_DSN,
+    /**
+     * 阿里云 OSS，公共读。bucket 根地址——`updates/` 与 `update-manifest.json`
+     * 都由它派生，不各配一个（见 update-feed.ts）。
+     *
+     * ⚠️ 上传时 `RELEASES` 必须与 `.nupkg` 一起传：前者每次打包都会重写，只传包
+     * 不传清单会让客户端永远发现不了新版本。用 `scripts/oss-uploader.mjs`。
+     */
+    updateFeedUrl: 'https://xiaozhi-desktop-release.oss-cn-beijing.aliyuncs.com',
+    /**
+     * 灰度名单里存的是 `sha256(手机号 + 此盐)`，不存明文——更新源可匿名读取，
+     * 明文名单等同于公开客户联系方式。
+     *
+     * 盐随包分发，拆包可得；它挡的是"拿到公开 URL 就能穷举 11 位手机号"，
+     * 不是拆包逆向。**这不是加密，是提高门槛。**
+     */
+    updateSalt: 'xiaozhi-desktop-2026',
   },
 };
 

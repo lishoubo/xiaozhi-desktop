@@ -96,4 +96,11 @@ export const IPC_CHANNELS = {
     setAutoLaunch: 'system:set-auto-launch',
     openLogsDirectory: 'system:open-logs-directory',
   },
+  updater: {
+    /**
+     * 新版本已下载完毕，退出应用时自动安装。只有主进程往渲染进程推，没有反向调用——
+     * 更新流程全程在主进程，界面只负责显示这一条提示。
+     */
+    updateReady: 'updater:update-ready',
+  },
 } as const;

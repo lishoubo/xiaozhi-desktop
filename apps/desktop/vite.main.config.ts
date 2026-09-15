@@ -4,6 +4,7 @@ import { rmsOriginDefine } from './vite-plugins/rms-origin';
 import { rmsWebOriginDefine } from './vite-plugins/rms-web-origin';
 import { sentryDsnDefine } from './vite-plugins/sentry-dsn';
 import { serverOriginDefine } from './vite-plugins/server-origin';
+import { updateFeedDefine } from './vite-plugins/update-feed';
 
 // https://vitejs.dev/config
 export default defineConfig({
@@ -13,6 +14,7 @@ export default defineConfig({
     rmsWebOriginDefine(),
     serverOriginDefine(),
     sentryDsnDefine(),
+    updateFeedDefine(),
   ],
   build: {
     rollupOptions: {

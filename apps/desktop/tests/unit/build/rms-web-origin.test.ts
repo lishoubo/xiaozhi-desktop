@@ -18,6 +18,8 @@ function profileWith(overrides: Partial<EnvironmentProfile>): () => EnvironmentP
     rmsWebOrigin: null,
     serverOrigin: null,
     sentryDsn: null,
+    updateFeedUrl: null,
+    updateSalt: null,
     ...overrides,
   });
 }

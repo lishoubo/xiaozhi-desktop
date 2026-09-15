@@ -1,0 +1,24 @@
+# OSS 发布凭证模板
+#
+# 用法：复制成同目录下的 .oss.env，填上真实值。该文件已在 .gitignore 里。
+#
+#   cp scripts/oss-env.example scripts/.oss.env
+#   vi scripts/.oss.env
+#
+# oss-uploader.mjs 按「环境变量 → 本文件」的顺序取值，环境变量优先。
+#
+# ⚠️ 这个 key 能改写更新源。更新源写权限泄露 = 可以给所有客户推任意程序——
+#    应用没有代码签名，Squirrel 不校验发布者身份，唯一的信任来源就是
+#    「这个 URL 上的东西是我们放的」。别提交、别贴进聊天、别发群里。
+#
+# 从哪拿：阿里云控制台 → RAM 访问控制 → 用户 → 创建用户
+#   https://ram.console.aliyun.com/users
+#   - 访问方式勾「使用永久 AccessKey 访问」（不勾就拿不到 key）
+#   - Secret 只显示一次，关掉页面就再也看不到
+#   - 授权：先用 AliyunOSSFullAccess 跑通，之后可收紧到只允许本 bucket 的
+#     PutObject / GetObject
+#
+# 用子账号，不要用主账号的 AccessKey —— 主账号 key 泄露等于整个阿里云账号失守。
+
+OSS_ACCESS_KEY_ID=
+OSS_ACCESS_KEY_SECRET=

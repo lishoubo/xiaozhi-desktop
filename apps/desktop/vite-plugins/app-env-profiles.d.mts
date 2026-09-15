@@ -15,6 +15,10 @@ export type EnvironmentProfile = Readonly<{
   rmsWebOrigin: string | null;
   serverOrigin: string | null;
   sentryDsn: string | null;
+  /** `null` 表示本环境不启用自动更新（构建照常继续，不报错）。 */
+  updateFeedUrl: string | null;
+  /** 灰度名单的手机号哈希盐值；随 `updateFeedUrl` 一起给或一起为 `null`。 */
+  updateSalt: string | null;
 }>;
 
 export declare const ENVIRONMENTS: readonly AppEnvironment[];

@@ -5,7 +5,7 @@
  * 远端 gateway 可以（重新开窗要复用），窗口、BrowserManager、IPC handler 不行。
  * 此前两类混在一起，导致 21 个可空模块变量和两份彼此不一致的清理清单。
  */
-import { app } from 'electron';
+import { app, autoUpdater } from 'electron';
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { safeLogErrorDetails, type AppLogger } from '../../shared/logging';
@@ -40,6 +40,12 @@ import { createRmsTokenProvider, type RmsTokenProvider } from '../staff-auth/rms
 import { createStaffTokenStore } from '../staff-auth/token-store';
 import { HotelManagementService } from '../services/hotel-management-service';
 import { OtaCredentialService } from '../services/ota-credential-service';
+import { UpdaterService } from '../services/updater-service';
+import {
+  resolveGrayReleaseManifestUrl,
+  resolveUpdateFeedUrl,
+  resolveUpdateSalt,
+} from '../updater/update-endpoint';
 import {
   createWindowCapabilityRegistry,
   type WindowCapabilityRegistry,
@@ -55,6 +61,11 @@ export type AppScope = Readonly<{
   otaHotelRepository: SqliteOtaHotelRepository;
   hotelManagementService: HotelManagementService;
   otaCredentialService: OtaCredentialService;
+  /**
+   * 自动更新。进程级而非窗口级：下载在后台进行，跨关窗要继续；"已就绪待重启"
+   * 的状态也不能因重开窗口而丢。
+   */
+  updaterService: UpdaterService;
   channelRegistry: ReadonlyMap<ChannelId, ChannelAdapter>;
   /** rms-server 的认证栈——`StaffAuthService` 与业务 gateway 共用同一份。 */
   rms: Readonly<{
@@ -198,6 +209,42 @@ export function createAppScope(logger: AppLogger): AppScope {
       logger,
     }),
     otaCredentialService,
+    updaterService: new UpdaterService({
+      // 把 Electron 的重载式 `on(event, listener)` 适配成两个窄方法。service 只
+      // 关心"下载完了"和"出错了"，listener 的其余形参一个都用不到。
+      autoUpdater: {
+        setFeedURL: (options) => autoUpdater.setFeedURL(options),
+        checkForUpdates: () => autoUpdater.checkForUpdates(),
+        onUpdateDownloaded: (listener) => {
+          autoUpdater.on('update-downloaded', () => listener());
+        },
+        onError: (listener) => {
+          autoUpdater.on('error', listener);
+        },
+      },
+      feedUrl: resolveUpdateFeedUrl(),
+      manifestUrl: resolveGrayReleaseManifestUrl(),
+      salt: resolveUpdateSalt(),
+      platform: process.platform,
+      fetchManifest: async (url) => {
+        /**
+         * 更新源是公共读的 OSS，不带凭证、不复用 `authenticatedRmsFetch`——
+         * 那条链会注入 Bearer，往对象存储发凭证没有必要。
+         *
+         * `cache: 'no-store'`：名单改了要立刻生效，CDN/本地缓存会让灰度调整
+         * 延迟数小时才被客户端看到。
+         */
+        const response = await fetch(url, { cache: 'no-store' });
+        if (!response.ok) {
+          throw new Error(`Gray release manifest request failed: ${response.status}`);
+        }
+        return response.json();
+      },
+      // 用 current() 而非 requireCurrent()：下载完成时窗口可能已关，送不到是正常的。
+      onUpdateReady: () => windowCapabilities.current()?.notifyUpdateReady(),
+      logger,
+      reportError,
+    }),
     channelRegistry: createChannelRegistry(logger),
     windowCapabilities,
     rms: {

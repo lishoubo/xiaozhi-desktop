@@ -7,6 +7,7 @@
   import StaffLoginPage from './pages/StaffLoginPage.svelte';
   import { clearStaffSession, setStaffSession, type StaffSession } from './staff-auth';
   import { setGreetingIdentity } from './session-greeting.svelte';
+  import { showAppNotification } from './notifications';
   import { routes } from './routes';
 
   type Session = StaffSession;
@@ -58,8 +59,28 @@
   const handleLogout = (): void => void logout();
   window.addEventListener('hotel-butler:logout', handleLogout);
   void restoreSession();
+
+  /**
+   * 更新已在后台下载完毕，退出应用时自动安装。
+   *
+   * `durationMs: 0` 让它常驻不自动消失——这条提示错过了就没有第二次，用户得知道
+   * 为什么下次打开界面变了。没有"立即重启"按钮：安装发生在自然退出时，不打断
+   * 用户手上的事。
+   */
+  const unsubscribeUpdateReady = window.hotelButler.updater.onUpdateReady(() => {
+    log.info('Update downloaded; will install on quit');
+    showAppNotification({
+      id: 'updater:update-ready',
+      title: '新版本已就绪',
+      message: '下次退出应用时自动更新。',
+      tone: 'default',
+      durationMs: 0,
+    });
+  });
+
   onDestroy(() => {
     window.removeEventListener('hotel-butler:logout', handleLogout);
+    unsubscribeUpdateReady();
   });
 </script>
 

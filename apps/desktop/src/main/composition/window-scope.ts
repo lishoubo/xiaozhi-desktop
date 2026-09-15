@@ -63,6 +63,7 @@ type WindowScopeDependencies = Pick<
   | 'otaCredentialRepository'
   | 'hotelManagementService'
   | 'otaCredentialService'
+  | 'updaterService'
   | 'channelRegistry'
   | 'rms'
   | 'windowCapabilities'
@@ -111,6 +112,11 @@ export function createWindowScope(scope: WindowScopeDependencies): WindowScope {
     notifyAccountBound: (channel) => {
       if (!window.isDestroyed()) {
         window.webContents.send(IPC_CHANNELS.otaCredential.discoveryCompleted, { channel });
+      }
+    },
+    notifyUpdateReady: () => {
+      if (!window.isDestroyed()) {
+        window.webContents.send(IPC_CHANNELS.updater.updateReady);
       }
     },
   });
@@ -287,6 +293,15 @@ export function createWindowScope(scope: WindowScopeDependencies): WindowScope {
       }),
       logger,
       window,
+      /**
+       * 自动更新的触发点。service 在 app scope（跨关窗存活），这里只把"谁登录了"
+       * 递过去；`checkOnce` 内部保证单次运行只检查一次。
+       *
+       * 不 await：更新检查是后台旁路，不该让登录的 IPC 调用等它。
+       */
+      onIdentityResolved: (identity) => {
+        void scope.updaterService.checkOnce(identity);
+      },
     }),
   );
 

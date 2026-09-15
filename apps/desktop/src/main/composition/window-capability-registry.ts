@@ -14,6 +14,14 @@ export type WindowCapabilities = Readonly<{
    * 降级，不抛错 —— 这与用户提前关掉标签页是同一种情况。
    */
   webContentsForPartition(partitionName: string): WebContents | null;
+  /**
+   * 新版本已就绪，提示用户重启。
+   *
+   * ⚠️ 调用方必须走 `current()` 而非 `requireCurrent()`：下载在后台进行，完成时
+   * 用户可能已经关掉窗口。此时提示送不到是正常的——更新照样会在退出时装上，
+   * 下次启动就是新版本。
+   */
+  notifyUpdateReady(): void;
 }>;
 
 export type WindowCapabilityRegistration = Readonly<{

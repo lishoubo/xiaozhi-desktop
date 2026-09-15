@@ -6,6 +6,10 @@ import {
 } from '../../../vite-plugins/app-env';
 import { resolveRmsOriginForBuild } from '../../../vite-plugins/rms-origin';
 import { resolveServerOriginForBuild } from '../../../vite-plugins/server-origin';
+import {
+  resolveUpdateFeedUrlForBuild,
+  resolveUpdateSaltForBuild,
+} from '../../../vite-plugins/update-feed';
 
 describe('resolveAppEnvironment', () => {
   it('缺省取 dev —— 误打开发包的风险远低于误打生产包', () => {
@@ -155,5 +159,61 @@ describe('resolveServerOriginForBuild', () => {
         HOTEL_BUTLER_SERVER_URL: 'http://server.example.com',
       }),
     ).toThrow(/must use HTTPS/);
+  });
+});
+
+describe('resolveUpdateFeedUrlForBuild', () => {
+  /**
+   * 与 rmsOrigin 相反的取舍：缺更新源只是不升级，应用其余功能完全正常。
+   * 按 rmsOrigin 那样抛错会让本地 `make:desktop:dev` 直接挂掉。
+   */
+  it('未配置更新源时得到空串而非抛错', () => {
+    expect(resolveUpdateFeedUrlForBuild({ XIAOZHI_APP_ENV: 'dev' })).toBe('');
+    expect(resolveUpdateFeedUrlForBuild({ XIAOZHI_APP_ENV: 'pre' })).toBe('');
+  });
+
+  it('online 取 profile 中的 OSS 地址', () => {
+    expect(resolveUpdateFeedUrlForBuild({ XIAOZHI_APP_ENV: 'online' })).toBe(
+      environmentProfile({ XIAOZHI_APP_ENV: 'online' }).updateFeedUrl,
+    );
+  });
+
+  it('环境变量覆盖 profile 默认值', () => {
+    expect(
+      resolveUpdateFeedUrlForBuild({
+        XIAOZHI_APP_ENV: 'dev',
+        XIAOZHI_UPDATE_FEED_URL: 'https://feed.example.com',
+      }),
+    ).toBe('https://feed.example.com');
+  });
+
+  /** 下游要拼 `/updates/` 与 `/update-manifest.json`，留着末尾斜杠会拼出 `//updates/`。 */
+  it('去掉末尾斜杠', () => {
+    expect(
+      resolveUpdateFeedUrlForBuild({
+        XIAOZHI_APP_ENV: 'dev',
+        XIAOZHI_UPDATE_FEED_URL: 'https://feed.example.com///',
+      }),
+    ).toBe('https://feed.example.com');
+  });
+
+  it('非法环境值仍然抛错', () => {
+    expect(() => resolveUpdateFeedUrlForBuild({ XIAOZHI_APP_ENV: 'prod' })).toThrow(/取值非法/);
+  });
+});
+
+describe('resolveUpdateSaltForBuild', () => {
+  it('未配置时得到空串', () => {
+    expect(resolveUpdateSaltForBuild({ XIAOZHI_APP_ENV: 'dev' })).toBe('');
+  });
+
+  it('online 有盐值 —— 没有它灰度名单无法判定', () => {
+    expect(resolveUpdateSaltForBuild({ XIAOZHI_APP_ENV: 'online' })).not.toBe('');
+  });
+
+  it('环境变量覆盖 profile 默认值', () => {
+    expect(
+      resolveUpdateSaltForBuild({ XIAOZHI_APP_ENV: 'dev', XIAOZHI_UPDATE_SALT: 'custom-salt' }),
+    ).toBe('custom-salt');
   });
 });
