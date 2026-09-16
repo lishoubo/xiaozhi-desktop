@@ -28,6 +28,17 @@
  * Squirrel 的安装是"解压到 app-<新版本>/ 并改快捷方式"，没有降级路径。把 RELEASES
  * 改回旧版本，已升级的机器不会退回。**灰度名单的作用是"阻止尚未升级的机器继续
  * 升级"，不是撤回已经发生的升级。**
+ *
+ * ## 检查时机
+ *
+ * ```
+ * 登录（首次）        → 立即检查
+ * 之后每 2h + [0,1h)  → 定时复查
+ * ```
+ *
+ * 只在登录时查一次是不够的：应用常被连开数天不退出（酒店前台尤其如此），
+ * 那类机器永远发现不了新版本。抖动是为了让集中部署的机器不要同相位齐刷刷
+ * 打 OSS。
  */
 import type { StaffIdentity } from '@hotel-butler/api';
 import type { ErrorReporter } from '../error-reporting/error-reporter';
@@ -77,20 +88,58 @@ export type UpdaterServiceDependencies = Readonly<{
   onManualUpdateAvailable: (update: ManualUpdate) => void;
   logger: AppLogger;
   reportError: ErrorReporter;
+  /**
+   * 定时复查的调度原语，注入而非直接用全局 `setTimeout`：间隔以小时计，
+   * 测试不可能真等，只能靠假时钟推进。
+   */
+  setTimer?: (callback: () => void, delayMs: number) => NodeJS.Timeout;
+  clearTimer?: (timer: NodeJS.Timeout) => void;
+  /**
+   * 抖动用的随机源（返回 `[0, 1)`），注入是为了让"间隔落在预期区间"可断言。
+   */
+  random?: () => number;
 }>;
 
 const OPERATION = 'update-check';
 
+/** 定时复查的基础间隔：2 小时。 */
+export const RECHECK_BASE_MS = 2 * 60 * 60 * 1000;
+
+/**
+ * 在基础间隔上再加 `[0, 1)` 小时的随机抖动。
+ *
+ * 没有抖动的话，所有客户端会按各自启动时刻形成固定节拍——同一批装机的机器
+ * （比如集中部署的门店）会长期保持同相位，每 2 小时齐刷刷打一次 OSS。抖动
+ * 让它们逐渐散开。
+ */
+export const RECHECK_JITTER_MS = 60 * 60 * 1000;
+
 export class UpdaterService {
   /**
-   * 单次运行只检查一次。
+   * 登录触发的首次检查是否已经做过。
    *
    * 触发点有三个（login / loginWithPhoneCode / currentSession），冷启动恢复会话后
    * 用户又主动刷新时会连着触发两次；没有这个标志就会重复下载。
+   *
+   * **它只挡登录这一串触发，不挡定时复查**——后者走 `runCheck`，不看这个标志。
    */
   private checked = false;
 
   private listenersAttached = false;
+
+  /** 定时复查的句柄；`null` 表示尚未启动或已停止。 */
+  private recheckTimer: NodeJS.Timeout | null = null;
+
+  /**
+   * 定时复查用的身份。名单按手机号判定，复查时没有新的登录事件可用，
+   * 只能沿用最后一次已知身份。
+   */
+  private lastIdentity: StaffIdentity | null = null;
+
+  private disposed = false;
+
+  /** Squirrel 是否已经把包下好（仅 win32 会置位）。 */
+  private updateAlreadyDownloaded = false;
 
   constructor(private readonly deps: UpdaterServiceDependencies) {}
 
@@ -99,10 +148,22 @@ export class UpdaterService {
    *
    * 判定顺序：平台 → 更新源 → 手机号 → 名单 → 启动 Squirrel。
    * 任一不满足即静默返回。
+   *
+   * 首次检查之后会挂上定时复查——应用常被连开数天不退出（酒店前台尤其如此），
+   * 只在登录时查一次意味着这类机器永远发现不了新版本。
    */
   async checkOnce(identity: StaffIdentity): Promise<void> {
     if (this.checked) return;
+    this.checked = true;
 
+    await this.runCheck(identity);
+    this.scheduleRecheck();
+  }
+
+  /**
+   * 一次检查的完整流程。`checkOnce` 与定时复查共用，区别只在谁来调。
+   */
+  private async runCheck(identity: StaffIdentity): Promise<void> {
     const { feedUrl, manifestUrl, salt, logger } = this.deps;
 
     if (feedUrl === null || manifestUrl === null || salt === null) {
@@ -120,7 +181,8 @@ export class UpdaterService {
       return;
     }
 
-    this.checked = true;
+    // 复查时没有新的登录事件，名单判定只能沿用这份身份。
+    this.lastIdentity = identity;
 
     try {
       const manifest = parseGrayReleaseManifest(await this.deps.fetchManifest(manifestUrl));
@@ -199,11 +261,66 @@ export class UpdaterService {
     }
   }
 
+  /**
+   * 排一次定时复查。每次只排一个，回调里再排下一个——用 `setTimeout` 链而非
+   * `setInterval`：抖动要求每一轮的间隔都不同，`setInterval` 只能是固定周期。
+   */
+  private scheduleRecheck(): void {
+    const { setTimer, logger } = this.deps;
+    if (setTimer === undefined || this.disposed) return;
+    // 更新源没配（dev / pre）时首次检查就返回了，没必要空转定时器。
+    if (this.deps.feedUrl === null) return;
+    if (this.recheckTimer !== null) return;
+
+    const random = this.deps.random ?? Math.random;
+    const delayMs = RECHECK_BASE_MS + Math.floor(random() * RECHECK_JITTER_MS);
+
+    this.recheckTimer = setTimer(() => {
+      this.recheckTimer = null;
+      void this.recheck();
+    }, delayMs);
+
+    logger.info('Next update check scheduled', { delayMs });
+  }
+
+  private async recheck(): Promise<void> {
+    if (this.disposed) return;
+
+    const identity = this.lastIdentity;
+    /**
+     * 没有可用身份说明首次检查在拿到手机号之前就返回了（未配更新源、无手机号）。
+     * 那些前提不会因为时间流逝而改变，继续排队只是空转。
+     */
+    if (identity === null) return;
+
+    /**
+     * Windows 上包已经下好了就不必再查：Squirrel 的安装发生在退出时，在那之前
+     * 重复检查既不会让它提前装，也只是往 OSS 多打一次请求。
+     */
+    if (this.updateAlreadyDownloaded) {
+      this.deps.logger.info('Update already downloaded; skipping recheck');
+      return;
+    }
+
+    await this.runCheck(identity);
+    this.scheduleRecheck();
+  }
+
+  /** 停止定时复查。进程退出前由 composition root 调用。 */
+  dispose(): void {
+    this.disposed = true;
+    if (this.recheckTimer !== null) {
+      this.deps.clearTimer?.(this.recheckTimer);
+      this.recheckTimer = null;
+    }
+  }
+
   private attachListeners(): void {
     if (this.listenersAttached) return;
     this.listenersAttached = true;
 
     this.deps.autoUpdater.onUpdateDownloaded(() => {
+      this.updateAlreadyDownloaded = true;
       this.deps.logger.info('Update downloaded and ready to install on quit');
       try {
         this.deps.onUpdateReady();

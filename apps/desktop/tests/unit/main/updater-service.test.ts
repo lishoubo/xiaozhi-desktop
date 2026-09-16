@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { StaffIdentity } from '@hotel-butler/api';
 import {
+  RECHECK_BASE_MS,
+  RECHECK_JITTER_MS,
   UpdaterService,
   type UpdaterServiceDependencies,
 } from '../../../src/main/services/updater-service';
@@ -41,6 +43,26 @@ function createService(overrides: Partial<UpdaterServiceDependencies> = {}) {
 
   const onManualUpdateAvailable = vi.fn();
 
+  /**
+   * 手动时钟：记下被排期的回调与延时，由测试显式触发。间隔以小时计，真等不现实。
+   */
+  const timers: { callback: () => void; delayMs: number }[] = [];
+  let nextTimerId = 1;
+  const setTimer = vi.fn((callback: () => void, delayMs: number) => {
+    timers.push({ callback, delayMs });
+    return nextTimerId++ as unknown as NodeJS.Timeout;
+  });
+  const clearTimer = vi.fn();
+
+  /** 触发最近一次排期的回调，模拟"时间到了"。 */
+  const advance = async (): Promise<void> => {
+    const timer = timers.pop();
+    if (timer === undefined) throw new Error('没有待触发的定时器');
+    timer.callback();
+    // 回调内部是 void 的异步链，让微任务跑完再断言。
+    await vi.waitFor(() => undefined);
+  };
+
   const service = new UpdaterService({
     autoUpdater,
     feedUrl: FEED_URL,
@@ -54,6 +76,10 @@ function createService(overrides: Partial<UpdaterServiceDependencies> = {}) {
     onManualUpdateAvailable,
     logger,
     reportError,
+    setTimer,
+    clearTimer,
+    // 抖动固定成 0，断言间隔时才有确定值；抖动区间另有用例覆盖。
+    random: () => 0,
     ...overrides,
   });
 
@@ -65,8 +91,17 @@ function createService(overrides: Partial<UpdaterServiceDependencies> = {}) {
     onUpdateReady,
     onManualUpdateAvailable,
     fetchManifest,
+    setTimer,
+    clearTimer,
+    timers,
+    advance,
   };
 }
+
+/**
+ * 断言取 service 导出的常量，而非在这里复述一遍数值：真机验证时会临时把间隔
+ * 调小（分钟级），硬编码会让这些用例跟着假失败，掩盖真正的回归。
+ */
 
 describe('UpdaterService.checkOnce', () => {
   it('命中名单时启动 Squirrel', async () => {
@@ -288,5 +323,77 @@ describe('UpdaterService 事件', () => {
     expect(() => listener?.(failure)).not.toThrow();
 
     expect(reportError).toHaveBeenCalledWith(failure, { operation: 'update-check' });
+  });
+});
+
+/**
+ * 应用常被连开数天不退出（酒店前台尤其如此）。只在登录时查一次意味着那类机器
+ * 永远发现不了新版本——所以首次检查之后要挂定时复查。
+ */
+describe('UpdaterService —— 定时复查', () => {
+  it('首次检查后排下一次，抖动为 0 时间隔即基础值', async () => {
+    const { service, setTimer } = createService();
+
+    await service.checkOnce(identityWith(PHONE));
+
+    expect(setTimer).toHaveBeenCalledOnce();
+    expect(setTimer.mock.calls[0]?.[1]).toBe(RECHECK_BASE_MS);
+  });
+
+  it('抖动落在 [基础值, 基础值 + 抖动上限) 区间内', async () => {
+    // random() 取上确界，验证不会溢出到区间之外。
+    const { service, setTimer } = createService({ random: () => 0.999999 });
+
+    await service.checkOnce(identityWith(PHONE));
+
+    const delay = setTimer.mock.calls[0]?.[1] ?? 0;
+    expect(delay).toBeGreaterThanOrEqual(RECHECK_BASE_MS);
+    expect(delay).toBeLessThan(RECHECK_BASE_MS + RECHECK_JITTER_MS);
+  });
+
+  it('到点后会再查一次，并继续排下一次', async () => {
+    const { service, fetchManifest, advance, setTimer } = createService({ platform: 'darwin' });
+
+    await service.checkOnce(identityWith(PHONE));
+    expect(fetchManifest).toHaveBeenCalledOnce();
+
+    await advance();
+
+    expect(fetchManifest).toHaveBeenCalledTimes(2);
+    expect(setTimer).toHaveBeenCalledTimes(2);
+  });
+
+  /** 更新源没配（dev / pre）时首次检查就返回了，没必要空转定时器。 */
+  it('未配置更新源时不排定时器', async () => {
+    const { service, setTimer } = createService({ feedUrl: null, manifestUrl: null, salt: null });
+
+    await service.checkOnce(identityWith(PHONE));
+
+    expect(setTimer).not.toHaveBeenCalled();
+  });
+
+  /**
+   * Squirrel 的安装发生在退出时。包已经下好之后再查，既不会让它提前装，
+   * 也只是往 OSS 多打一次请求。
+   */
+  it('Squirrel 已下载完成后不再复查', async () => {
+    const { service, autoUpdater, fetchManifest, advance } = createService();
+
+    await service.checkOnce(identityWith(PHONE));
+    autoUpdater.onUpdateDownloaded.mock.calls[0]?.[0]?.();
+
+    await advance();
+
+    expect(fetchManifest).toHaveBeenCalledOnce();
+  });
+
+  it('dispose 后停止复查', async () => {
+    const { service, clearTimer, setTimer } = createService();
+
+    await service.checkOnce(identityWith(PHONE));
+    service.dispose();
+
+    expect(clearTimer).toHaveBeenCalledOnce();
+    expect(setTimer).toHaveBeenCalledOnce();
   });
 });
