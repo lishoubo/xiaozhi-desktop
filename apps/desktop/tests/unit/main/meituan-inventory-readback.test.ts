@@ -300,6 +300,29 @@ describe('createMeituanInventoryReadback', () => {
       });
     });
 
+    /**
+     * ⚠️ `roomId` / `roomCategory` / `date` 的权威来源是 `roomBaseInfo`（或 map 的 key），
+     * 不是 cell 本身。cell 里已经出现过 `containerId` 这种与 roomBaseInfo 重名的字段，
+     * 美团哪天补一个 `roomId` 进 cell 并不离谱 —— 若被它覆盖，一行刚通过
+     * `roomCategory === 1` 过滤的日租数据会带着 `roomCategory: 2` 上报出去，静默错报。
+     */
+    it('cell 内的同名字段不得覆盖 roomBaseInfo 的权威值', async () => {
+      const fetcher = vi.fn().mockResolvedValue(
+        ok([
+          roomItem(1, 1, {
+            '2026-09-18': cell('2026-09-18', { roomId: 777, roomCategory: 2, date: '2099-01-01' }),
+          }),
+        ]),
+      );
+      const outcome = await createReadback(fetcher).readback(
+        report(change([1], [{ startDate: '2026-09-18', endDate: '2026-09-18' }])),
+        FAKE_WC,
+      );
+      const cells = (outcome as { report: OtaAmountChangeObserved }).report.changeRaw
+        .cells as JsonObject[];
+      expect(cells[0]).toMatchObject({ roomId: 1, roomCategory: 1, date: '2026-09-18' });
+    });
+
     it('date 以 map 的 key 为准，即使 cell 内缺该字段', async () => {
       // 构造时就不给 date（而非 delete），验证展平时以 map 的 key 为准
       const { date: _omitted, ...inner } = cell('2026-09-18');

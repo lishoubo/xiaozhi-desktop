@@ -65,30 +65,62 @@ export type MeituanReadbackTargets = Readonly<{
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
 /**
+ * 星期解析的三种结果。⚠️ **「没有星期概念」与「形状不符」必须分开** —— 见下。
+ */
+type WeekdayParse =
+  /** 字段缺失 / 空数组 —— 本就没有星期概念，不过滤（等同全选）。 */
+  | Readonly<{ kind: 'all' }>
+  /** 解析出的 ISO 星期集合。 */
+  | Readonly<{ kind: 'some'; days: ReadonlySet<number> }>
+  /** 报文形状不符（非数组、越界、非整数）—— 不猜，整次放弃回读。 */
+  | Readonly<{ kind: 'malformed' }>;
+
+/**
  * ISO 星期数集合。`[5,6]` → `{5,6}` = 周五周六。
  *
  * ⚠️ **1 = 周一**（ISO 序）。这是**核实的**，不是猜的：
  *
  * 1. 服务端已在生产按 ISO 消费 —— `AppOtaChangeIngestService.toDayOfWeek()` 用
- *    `DayOfWeek.of(v)`，Java 的 `java.time.DayOfWeek` 定义即 1=MONDAY；
- *    `RawBodyReader.weekdaysFromInts()` 只做 1-7 范围校验，不做基准转换。
+ *    `DayOfWeek.of(v)`，Java 的 `java.time.DayOfWeek` 定义即 1=MONDAY。
  * 2. 业务语义自洽 —— `批量改房态房量.md` 的关房样本把 `[5,6]` 单列配 `invSwitch:0`，
  *    按 ISO 即周五周六，正是酒店业的 weekend 口径。
- * 3. 两边算出不同日期集合会让「服务端跟的」与「desktop 报的」对不上，且失效是**静默错跟**。
+ * 3. 真机实证（2026-09-18）：10-23 是周五，落进 `[5,6]` 那档拿到 19；若基准反了会拿到 17。
  *
  * ⚠️ 不可拿改价链路的「美团 ISO 星期」结论直接套 —— 那是另一个字段，依据是上面三条。
  *
- * 空数组 / 缺失 = **不过滤**（返回 `null`），与服务端 `weekdaysFromInts → List.of()` +
- * `toDayOfWeek → Set.of()` + `if (!weekdays.isEmpty())` 的三段式一致。
+ * ## ⚠️ 「不过滤」与「形状不符」是两件事，不可都退化成不过滤
+ *
+ * | 输入 | 结果 | 理由 |
+ * |---|---|---|
+ * | 字段缺失 / `[]` | `all`（不过滤） | 本就没有星期概念，与服务端 `List.of()` + `if (!isEmpty())` 一致 |
+ * | `[5,6]` | `some` | 正常 |
+ * | 非数组 / `[0]` / `[8]` / `["x"]` | **`malformed`** | 报文形状不符 —— **不猜** |
+ *
+ * 早先把「全部元素非法」也返回 `null`（= 不过滤），造成一个**不对称**：
+ * `[5,99]` 只丢坏元素、过滤照做（1 天），而 `[0]` 反而整个区间全展开（7 天）。
+ * 后者是**多读**，服务端拿 `cells` 去追价会把用户没碰过的日期跟到其他渠道 ——
+ * 正是本文件头「既不能漏也不能多」明令要防的事，且失效**静默**（日志只有 `dateCount`）。
+ *
+ * ⚠️ 也**不能**改成「非法就当空集、过滤掉所有天」 —— 那会变成静默**漏报**。
+ * 形状不符时唯一安全的做法是整次放弃回读（`extractMeituanReadbackTargets` 返回 `null`），
+ * 与服务端 `RawBodyReader.weekdaysFromInts` 的 fail-closed 同向（它对这三种情况
+ * 一律 `throw malformed`，javadoc 明写「越界视为报文形状不符，不静默丢弃」）。
  */
-function weekdaysFromInts(values: unknown): ReadonlySet<number> | null {
-  if (!Array.isArray(values) || values.length === 0) return null;
+function weekdaysFromInts(values: unknown): WeekdayParse {
+  if (values === undefined || values === null) return { kind: 'all' };
+  if (!Array.isArray(values)) return { kind: 'malformed' };
+  if (values.length === 0) return { kind: 'all' };
+
   const days = new Set<number>();
   for (const item of values) {
+    // null 元素跳过，与服务端 `if (item == null) continue` 一致。
+    if (item === null || item === undefined) continue;
     const n = toFiniteNumber(item);
-    if (n !== null && Number.isInteger(n) && n >= 1 && n <= 7) days.add(n);
+    if (n === null || !Number.isInteger(n) || n < 1 || n > 7) return { kind: 'malformed' };
+    days.add(n);
   }
-  return days.size === 0 ? null : days;
+  // 全是 null 元素 —— 等同空数组。
+  return days.size === 0 ? { kind: 'all' } : { kind: 'some', days };
 }
 
 function toIsoDate(date: Date): string {
@@ -212,15 +244,19 @@ export function extractMeituanReadbackTargets(
     let union: Set<number> | null = new Set();
     for (const rawParam of weekParams) {
       const param = asObject(rawParam);
-      const days = weekdaysFromInts(param?.effectWeek);
+      // 档本身不是对象 —— 形状不符，与 effectWeek 非法同等对待。
+      if (!param) return null;
+      const parsed = weekdaysFromInts(param.effectWeek);
+      // ⚠️ 形状不符 → **整次放弃回读**，不退化成不过滤（那是多读）也不当空集（那是漏报）。
+      if (parsed.kind === 'malformed') return null;
       // 任一档「不过滤」，并集即全集 —— 后续档不必再看。
-      if (days === null) {
+      if (parsed.kind === 'all') {
         union = null;
         break;
       }
-      for (const d of days) union.add(d);
+      for (const d of parsed.days) union.add(d);
     }
-    // 一个档都没有，或所有档都空 → 不过滤。
+    // 一个档都没有 → 不过滤（没有星期概念）。
     if (union !== null && union.size === 0) union = null;
 
     roomIds.push(...dayRoomIds);

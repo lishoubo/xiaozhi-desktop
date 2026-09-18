@@ -166,6 +166,61 @@ describe('extractMeituanReadbackTargets', () => {
     };
 
     it('effectWeek 为空数组', () => expectFullWeek([weekParam([])]));
+
+    /**
+     * ⚠️ 「没有星期概念」与「报文形状不符」是两件事。
+     *
+     * 早先把「全部元素非法」也当成不过滤，造成一个**不对称**：`[5,99]` 只丢坏元素、
+     * 过滤照做（1 天），而 `[0]` 反而整个区间全展开（7 天）—— 后者是**多读**，
+     * 服务端拿 cells 去追价会把用户没碰过的日期跟到别的渠道。
+     *
+     * 形状不符时唯一安全的做法是整次放弃回读，与服务端 `RawBodyReader.weekdaysFromInts`
+     * 的 fail-closed 同向（它对这些情况一律 throw malformed）。
+     */
+    describe('⚠️ effectWeek 形状不符 → 整次放弃回读（不是不过滤）', () => {
+      const expectNullFor = (effectWeek: unknown): void => {
+        const targets = extractMeituanReadbackTargets(
+          INVENTORY,
+          changeRaw([model([1], week, [weekParam(effectWeek as number[])])]),
+          INVENTORY,
+        );
+        expect(targets).toBeNull();
+      };
+
+      it('[0] 越界（全部非法）', () => expectNullFor([0]));
+      it('[8, 9] 越界', () => expectNullFor([8, 9]));
+      it('[5, 99] 部分非法 —— 与全部非法同等对待，不许只丢坏元素', () => expectNullFor([5, 99]));
+      it('["x"] 非整数', () => expectNullFor(['x']));
+      it('[1.5] 小数', () => expectNullFor([1.5]));
+      it('"5,6" 不是数组', () => expectNullFor('5,6'));
+
+      it('周次档本身不是对象', () => {
+        const targets = extractMeituanReadbackTargets(
+          INVENTORY,
+          changeRaw([model([1], week, ['not-an-object' as unknown as JsonObject])]),
+          INVENTORY,
+        );
+        expect(targets).toBeNull();
+      });
+
+      it('⚠️ 一个档形状不符 → 整次放弃，不能只丢那一档', () => {
+        const targets = extractMeituanReadbackTargets(
+          INVENTORY,
+          changeRaw([model([1], week, [weekParam([5, 6]), weekParam([0])])]),
+          INVENTORY,
+        );
+        expect(targets).toBeNull();
+      });
+
+      it('null 元素跳过（与服务端 `if (item == null) continue` 一致），不算非法', () => {
+        const targets = extractMeituanReadbackTargets(
+          INVENTORY,
+          changeRaw([model([1], week, [weekParam([5, null as unknown as number, 6])])]),
+          INVENTORY,
+        );
+        expect(targets?.dates).toEqual(['2026-09-18', '2026-09-19']);
+      });
+    });
     it('effectWeek 字段缺失', () => expectFullWeek([weekParam(undefined)]));
     it('modifyParamByEffectWeeks 为空数组', () => expectFullWeek([]));
     it('任一档不过滤则整体不过滤', () => expectFullWeek([weekParam([5, 6]), weekParam([])]));

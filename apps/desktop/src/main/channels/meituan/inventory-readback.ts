@@ -175,13 +175,17 @@ function pickCells(
       if (!cell) continue;
 
       cells.push({
-        roomId,
         roomName: base.roomName ?? null,
-        roomCategory,
         // 整行透传，不解读房量语义 —— 即使已实证 limitRemain 是用户设的那个值
         // （见 payload 文件头），desktop 也不取它，取了美团改字段时会静默错报。
         ...cell,
-        // `date` 放最后：map 的 key 是权威的，即使 cell 内没有这个字段也保证有。
+        // ⚠️ 这三个放在 spread **之后**：它们来自 `roomBaseInfo`（或 map 的 key），
+        // 那才是权威来源。cell 里已经出现过 `containerId` / `date` 这种与 roomBaseInfo
+        // 重名的字段，美团哪天补一个 `roomId` 进 cell 并不离谱 —— 若被它覆盖，
+        // 一行刚通过 `roomCategory === 1` 过滤的日租数据会带着 `roomCategory: 2`
+        // 上报出去，静默错报。
+        roomId,
+        roomCategory,
         date,
       });
     }
