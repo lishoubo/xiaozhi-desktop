@@ -17,7 +17,16 @@ import { douyinLoginUrlMatcher } from './douyin/login-url-matcher';
 import { createMeituanAmountChangeAdapter } from './meituan/amount-change-adapter';
 import { meituanHotelProbe } from './meituan/hotel-prob';
 import { meituanLoginUrlMatcher } from './meituan/login-url-matcher';
-import type { AmountChangeAdapter, HotelProbe, LoginUrlMatcher } from './types';
+import { createCtripInventoryReadback } from './ctrip/inventory-readback';
+import { ctripReadbackFetcher } from './ctrip/inventory-readback-fetcher';
+import { ctripBatchTaskGate } from './ctrip/batch-task-gate';
+import type { AppConfig } from '../app-config/types';
+import type {
+  AmountChangeAdapter,
+  HotelProbe,
+  InventoryReadback,
+  LoginUrlMatcher,
+} from './types';
 
 export type ChannelAdapter = Readonly<{
   channel: ChannelId;
@@ -30,15 +39,34 @@ export type ChannelAdapter = Readonly<{
    * 一眼看得出谁有谁没有）。
    */
   amountChangeAdapter?: AmountChangeAdapter;
+  /**
+   * 房量回读能力。**可选**：当前只有携程实装。
+   *
+   * 美团待踩点（`docs/踩点/美团/` 下有两份房量材料，另立 change）；抖音是被跟价的那一端，
+   * 回读它没有意义 —— 与 `amountChangeAdapter` 刻意不注册抖音同一理由。
+   */
+  inventoryReadback?: InventoryReadback;
 }>;
 
-export function createChannelRegistry(logger: AppLogger): ReadonlyMap<ChannelId, ChannelAdapter> {
+export function createChannelRegistry(
+  logger: AppLogger,
+  appConfig: () => AppConfig,
+): ReadonlyMap<ChannelId, ChannelAdapter> {
+  // 批量任务门控是渠道级单例（状态按全局唯一的 taskId 分键），logger 在这里才有。
+  ctripBatchTaskGate.setLogger(logger);
+
   const adapters: readonly ChannelAdapter[] = [
     {
       channel: toChannelId('ctrip'),
       loginUrlMatcher: ctripLoginUrlMatcher,
       hotelProbe: ctripHotelProbe,
       amountChangeAdapter: createCtripAmountChangeAdapter(logger),
+      inventoryReadback: createCtripInventoryReadback({
+        logger,
+        fetcher: ctripReadbackFetcher,
+        // 每次调用时才读配置 —— 将来服务端下发是会在运行中变的，构造时取一次会让下发失效。
+        config: () => appConfig().ctripInventoryReadback,
+      }),
     },
     {
       channel: toChannelId('douyin'),
@@ -91,6 +119,20 @@ export function amountChangeAdapters(
   const entries: (readonly [ChannelId, AmountChangeAdapter])[] = [];
   for (const [channel, adapter] of registry) {
     if (adapter.amountChangeAdapter) entries.push([channel, adapter.amountChangeAdapter] as const);
+  }
+  return new Map(entries);
+}
+
+/**
+ * 从注册表投影出 `InventoryReadbackDispatcher` 需要的那一份。**跳过没有这项能力的渠道** ——
+ * dispatcher 拿不到实现就不会对那个渠道做回读（照 `amountChangeAdapters()` 的写法）。
+ */
+export function inventoryReadbacks(
+  registry: ReadonlyMap<ChannelId, ChannelAdapter>,
+): ReadonlyMap<ChannelId, InventoryReadback> {
+  const entries: (readonly [ChannelId, InventoryReadback])[] = [];
+  for (const [channel, adapter] of registry) {
+    if (adapter.inventoryReadback) entries.push([channel, adapter.inventoryReadback] as const);
   }
   return new Map(entries);
 }

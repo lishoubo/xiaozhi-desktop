@@ -21,6 +21,7 @@
  * 上报走注入的窄回调 `report` —— `channels/` 不认识 `services`/`gateway`（eslint 强制），
  * 由 composition root 接到上报服务。与 `HotelProbeDispatcher.notify` 同一手法。
  */
+import type { WebContents } from 'electron';
 import type { ChannelId } from '../ids';
 import { safeLogErrorDetails, type AppLogger } from '../../shared/logging';
 import type { OtaAmountChangeObserved } from '../../shared/types/amount-change';
@@ -47,6 +48,22 @@ export type AmountChangeWatcherDependencies = Readonly<{
    * `channels/` 够不着仓储（eslint 禁止），所以只把这个键交出去，由 service 侧去查。
    */
   report: (observed: OtaAmountChangeObserved, partitionName: string) => void;
+  /**
+   * 窄回调：同一条改动**另外**交给房量回读链路（`InventoryReadbackDispatcher`）。
+   *
+   * 可选 —— 不传即不回读，watcher 的既有行为完全不变。
+   *
+   * 带 `webContents` 是因为回读要在**用户刚操作的那个标签页**里发请求（由浏览器自带
+   * cookie）。这是 watcher 手上现成的东西，回读侧自己够不着。
+   *
+   * ⚠️ **不 await、不影响 `report`**：回读要走两次网络请求，让它阻塞既有上报没有道理。
+   * 两条链路互不阻塞，各自的失败也互不影响。
+   */
+  onReportedForReadback?: (
+    observed: OtaAmountChangeObserved,
+    webContents: WebContents,
+    partitionName: string,
+  ) => void;
 }>;
 
 export class AmountChangeWatcher {
@@ -69,7 +86,12 @@ export class AmountChangeWatcher {
 
     if (!adapter.isWatchableUrl(event.url)) {
       // 用户离开了改价页 —— 停止监听，把 debugger 让出来。
-      this.stopWatching(event.tabId);
+      //
+      // ⚠️ 带上 URL：**「用户真的离开了」与「这个页面本该监听但路由没被认」在日志上
+      // 长得一模一样**，而后者会让整个 tab 此后再也拦不到改动。2026-08-11 携程
+      // `/rateplan/batchPriceSetting` 那次正是这个症状，靠临时加日志才定位到。
+      // 路由是渠道页面改版时最先变的东西，这条日志要长期留着。
+      this.stopWatching(event.tabId, event.url);
       return;
     }
     // 已经在监听了。SPA 在同一个页面内可能连发多次导航事件（筛选、切日期都可能改 URL），
@@ -90,6 +112,9 @@ export class AmountChangeWatcher {
           otaHotelId: report.otaHotelId,
         });
         this.deps.report(report, event.partitionName);
+        // 房量回读：与上面那条**并行**的另一条链路，不阻塞它、失败也不影响它。
+        // 没有接回读的部署里这个回调不存在，watcher 行为与从前一致。
+        this.deps.onReportedForReadback?.(report, event.webContents, event.partitionName);
       },
     );
 
@@ -129,7 +154,7 @@ export class AmountChangeWatcher {
     });
   }
 
-  private stopWatching(tabId: string): void {
+  private stopWatching(tabId: string, url?: string): void {
     const capture = this.captures.get(tabId);
     if (!capture) return;
     this.captures.delete(tabId);
@@ -137,6 +162,11 @@ export class AmountChangeWatcher {
     // 这条日志不是可有可无的：detach 之后这个 tab 就再也拦不到改价了。真机排查时
     // 「监听被悄悄停掉」与「用户没改价」在日志上长得一模一样，没有这条就无从区分
     // —— 2026-08-11 携程路由认错时，正是缺了它导致排查绕了几轮。
-    this.deps.logger.info('Amount change watching stopped', { tabId });
+    // `url` 为空表示 tab 被关闭；有值则是导航到了不可监听的页面 —— 后者要能一眼看出
+    // 是哪个路由，否则「页面改版导致路由认不出」会被误读成「用户自己离开了」。
+    this.deps.logger.info('Amount change watching stopped', {
+      tabId,
+      ...(url === undefined ? { cause: 'tab-closed' } : { cause: 'url-not-watchable', url }),
+    });
   }
 }

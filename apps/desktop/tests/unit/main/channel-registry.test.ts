@@ -14,12 +14,18 @@ import {
   amountChangeAdapters,
   createChannelRegistry,
   hotelProbes,
+  inventoryReadbacks,
   loginUrlMatchers,
 } from '../../../src/main/channels/registry';
+import { DEFAULT_APP_CONFIG } from '../../../src/main/app-config/defaults';
 import { toChannelId } from '../../../src/main/ids';
 
 function createLogger() {
   return { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
+}
+
+function createRegistry() {
+  return createChannelRegistry(createLogger(), () => DEFAULT_APP_CONFIG);
 }
 
 describe('createChannelRegistry', () => {
@@ -32,24 +38,38 @@ describe('createChannelRegistry', () => {
    * 判定与门店探测，而症状只会表现为一些莫名其妙的探测日志。
    */
   it('内部页面 xiaozhi 未被注册为渠道', () => {
-    const registry = createChannelRegistry(createLogger());
+    const registry = createRegistry();
 
     expect(registry.has(toChannelId('xiaozhi'))).toBe(false);
     expect([...loginUrlMatchers(registry).keys()]).not.toContain('xiaozhi');
     expect([...hotelProbes(registry).keys()]).not.toContain('xiaozhi');
     expect([...amountChangeAdapters(registry).keys()]).not.toContain('xiaozhi');
+    expect([...inventoryReadbacks(registry).keys()]).not.toContain('xiaozhi');
   });
 
   it('三个渠道都注册了登录判定与酒店探测', () => {
-    const registry = createChannelRegistry(createLogger());
+    const registry = createRegistry();
 
     expect([...loginUrlMatchers(registry).keys()].sort()).toEqual(['ctrip', 'douyin', 'meituan']);
     expect([...hotelProbes(registry).keys()].sort()).toEqual(['ctrip', 'douyin', 'meituan']);
   });
 
   it('只有携程与美团参与改价监听 —— 抖音是被跟价端，刻意不注册', () => {
-    const registry = createChannelRegistry(createLogger());
+    const registry = createRegistry();
 
     expect([...amountChangeAdapters(registry).keys()].sort()).toEqual(['ctrip', 'meituan']);
+  });
+
+  /**
+   * 房量回读当前**只有携程**。
+   *
+   * - 美团：房量踩点材料在 `docs/踩点/美团/` 下，但未做 —— 另立 change，注册前必须先
+   *   有回读实现，否则 dispatcher 会拿到 undefined 而静默不回读。
+   * - 抖音：被跟价的那一端，回读它没有意义（与改价监听不注册它同一理由）。
+   */
+  it('只有携程注册了房量回读', () => {
+    const registry = createRegistry();
+
+    expect([...inventoryReadbacks(registry).keys()]).toEqual(['ctrip']);
   });
 });

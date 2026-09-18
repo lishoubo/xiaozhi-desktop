@@ -64,6 +64,11 @@
 import type { AmountSaveObserved } from '../../../shared/types/amount-change';
 import type { JsonObject } from '../../../shared/types/json';
 import { isTrustedHotelUrl } from '../trusted-hotel-url';
+import {
+  ctripBatchTaskGate,
+  CTRIP_TASK_QUERY_ENDPOINT_ID,
+  CTRIP_TASK_QUERY_PATH,
+} from './batch-task-gate';
 import type { AmountChangeAdapter, AmountParseResult } from '../types';
 import { toCtripAmountChangeRaw } from './amount-change-payload';
 import { toCtripRoomStatusRaw } from './room-status-payload';
@@ -182,6 +187,9 @@ const WATCHED_ENDPOINTS: ReadonlyMap<string, string> = new Map([
   // `./room-status-quantity-payload.ts`。开房/关房同样共用此端点，靠 `roomStatus` 的
   // 数字码 1/2 区分（⚠️ 与上一条的 G/N 不同，desktop 两套都原样透传、不归一化）。
   ['batchUpdateRoomStatusAndQuantity', '/batchUpdateRoomStatusAndQuantity'],
+  // 旁听端点 —— 页面保存后自己轮询它，用来判断异步写入何时完成。**不是保存请求**，
+  // 走 `isAuxiliaryEndpoint` 分流，不进 `isSuccessful`/`parse`。见 `./batch-task-gate.ts`。
+  [CTRIP_TASK_QUERY_ENDPOINT_ID, CTRIP_TASK_QUERY_PATH],
 ]);
 
 /** 日历菜单房态端点的 `endpointId`。判定与解析都要按它分支，抽成常量避免拼错。 */
@@ -598,7 +606,22 @@ export function createCtripAmountChangeAdapter(logger: AppLogger): AmountChangeA
       return WATCH_PATHS.some((watchPath) => pathname.startsWith(watchPath));
     },
 
-    isSuccessful: isCtripSaveSuccessful,
+    isAuxiliaryEndpoint(endpointId: string): boolean {
+      return endpointId === CTRIP_TASK_QUERY_ENDPOINT_ID;
+    },
+
+    onAuxiliaryResponse(_endpointId: string, responseBody: string): void {
+      // 喂给门控。与本次无关的 taskId 会被它自己忽略。
+      ctripBatchTaskGate.onTaskQueried(responseBody);
+    },
+
+    isSuccessful(responseBody: string, endpointId: string): boolean {
+      const ok = isCtripSaveSuccessful(responseBody, endpointId);
+      // 保存成功且是异步任务时记下 taskId，供回读侧等待任务真正完成。
+      // 这里是唯一能同时看到 endpointId 与响应体的地方 —— 回读侧拿到的上报体不含响应。
+      if (ok) ctripBatchTaskGate.rememberTask(endpointId, responseBody);
+      return ok;
+    },
 
     parse(observed: AmountSaveObserved): AmountParseResult | null {
       // 房态与改价的请求体没有一个字段同名，分流后各走各的，不共用取值逻辑。

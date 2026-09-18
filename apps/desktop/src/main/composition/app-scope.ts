@@ -14,6 +14,7 @@ import { createCtripDiscovery } from '../channels/ctrip/discovery';
 import { createDouyinDiscovery } from '../channels/douyin/discovery';
 import { createMeituanDiscovery } from '../channels/meituan/discovery';
 import { createChannelRegistry, type ChannelAdapter } from '../channels/registry';
+import { AppConfigStore } from '../app-config/app-config-store';
 import {
   openApplicationDatabase,
   type ApplicationDatabase,
@@ -66,6 +67,11 @@ export type AppScope = Readonly<{
    * 的状态也不能因重开窗口而丢。
    */
   updaterService: UpdaterService;
+  /**
+   * 运行期可调参数。进程级：与窗口生命周期无关，将来接服务端下发时下发的值也该跨窗口
+   * 共享。当前只有内置默认值一层，见 `app-config/types.ts`。
+   */
+  appConfig: AppConfigStore;
   channelRegistry: ReadonlyMap<ChannelId, ChannelAdapter>;
   /** rms-server 的认证栈——`StaffAuthService` 与业务 gateway 共用同一份。 */
   rms: Readonly<{
@@ -87,6 +93,8 @@ export type AppScope = Readonly<{
 
 export function createAppScope(logger: AppLogger): AppScope {
   const userDataDir = app.getPath('userData');
+  // 本期只有内置默认值层；服务端下发与本地覆盖的来源将来加在这个构造参数里。
+  const appConfig = new AppConfigStore();
   const database = openApplicationDatabase(path.join(userDataDir, 'hotel-butler.sqlite'), logger, {
     includeMockData: !app.isPackaged,
   });
@@ -256,7 +264,9 @@ export function createAppScope(logger: AppLogger): AppScope {
     }),
     otaCredentialService,
     updaterService,
-    channelRegistry: createChannelRegistry(logger),
+    appConfig,
+    // 每次取值时才读 —— 将来接服务端下发时，运行中改的值才能被读到。
+    channelRegistry: createChannelRegistry(logger, () => appConfig.get()),
     windowCapabilities,
     rms: {
       origin: rmsOrigin,

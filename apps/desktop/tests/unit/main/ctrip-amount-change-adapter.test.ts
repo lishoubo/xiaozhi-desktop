@@ -486,7 +486,7 @@ describe('ctrip amount change adapter', () => {
      * 改价两套并存模块（2026-08-11 真机发现），房价维护页同页还有「统一加减价」变体，
      * 房态则有日历菜单与房态房量菜单两个完全不同的端点。
      */
-    it('三个菜单的五个端点都要拦', () => {
+    it('三个菜单的五个保存端点 + 一个旁听端点都要拦', () => {
       const adapter = createCtripAmountChangeAdapter(createLogger());
       expect([...adapter.watchedEndpoints.values()]).toEqual([
         '/ebkovsroom/api/inventory/batchsetroomprice',
@@ -494,7 +494,28 @@ describe('ctrip amount change adapter', () => {
         '/setUniformRCRoomPrice',
         '/ebkovsroom/api/inventory/setbatchroombookablestatus',
         '/batchUpdateRoomStatusAndQuantity',
+        // 旁听端点 —— 页面保存后自己轮询它判断异步写入何时完成，**不是保存请求**。
+        '/queryMainTaskInfoForDisplay',
       ]);
+    });
+
+    /**
+     * 旁听端点必须与保存端点分开：它的响应信封（`resStatus.rcode`）与改价新模块**同构**，
+     * 若不分流会落进 `isSuccessful` 的形状自辨，被判成一次成功的改价并产出上报体。
+     */
+    it('任务查询端点被标为旁听，其余都不是', () => {
+      const adapter = createCtripAmountChangeAdapter(createLogger());
+
+      expect(adapter.isAuxiliaryEndpoint?.('queryMainTaskInfoForDisplay')).toBe(true);
+      for (const endpointId of [
+        'batchsetroomprice',
+        'setRCRoomPrice',
+        'setUniformRCRoomPrice',
+        'setbatchroombookablestatus',
+        'batchUpdateRoomStatusAndQuantity',
+      ]) {
+        expect(adapter.isAuxiliaryEndpoint?.(endpointId)).toBe(false);
+      }
     });
 
     /**

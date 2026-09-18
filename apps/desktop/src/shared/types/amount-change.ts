@@ -130,7 +130,24 @@ export type AmountSaveObserved = Readonly<{
  * —— 所以 `endpointId` 删不掉。反过来，靠 `(source, endpointId)` 查表反推语义则要求 RMS
  * 侧维护一张映射表，desktop 每加一个端点都得通知对方同步一行 —— 所以 `changeType` 也省不掉。
  */
-export type OtaChangeType = 'price' | 'roomStatus';
+/**
+ * ## ⚠️ `inventoryReadback` 与前两个**语义相反**
+ *
+ * ```
+ * price / roomStatus   用户**想改成什么**   —— 渠道的写请求报文
+ * inventoryReadback    渠道**实际是什么**   —— 改完之后主动读回来的事实
+ * ```
+ *
+ * 加这个值是因为携程房量的「增加 / 减少」是相对操作（只说「+2」不说基数），且写接口的
+ * 响应不回传改后状态 —— 不主动读回来，RMS 算不出改后的绝对房量。
+ *
+ * 一次用户改动会产生**两条**上报（`roomStatus` 与 `inventoryReadback`），各自的
+ * `operationId` **独立**，RMS **不可互相去重** —— 它们是两个不同的事实。
+ *
+ * 服务端按 `(source, endpointId)` 分派 Translator，`changeType` 只进日志、不参与分流，
+ * 所以新增这个值不影响既有分派。
+ */
+export type OtaChangeType = 'price' | 'roomStatus' | 'inventoryReadback';
 
 export type OtaAmountChangeReport = Readonly<{
   /** 幂等键，desktop 生成。RMS 据此去重（同一次改价重试上报不该跟两次价）。 */

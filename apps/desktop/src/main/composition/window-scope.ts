@@ -7,7 +7,12 @@
  */
 import { app, shell, type BrowserWindow } from 'electron';
 import { BrowserManager } from '../browser/browser-manager';
-import { amountChangeAdapters, hotelProbes, loginUrlMatchers } from '../channels/registry';
+import {
+  amountChangeAdapters,
+  hotelProbes,
+  inventoryReadbacks,
+  loginUrlMatchers,
+} from '../channels/registry';
 import { BrowserCookieImporter } from '../cookie-import/browser-cookie-importer';
 import { registerAgentHandlers } from '../ipc/agent-handlers';
 import { registerBrowserHandlers } from '../ipc/browser-handlers';
@@ -36,6 +41,7 @@ import { StaffAuthService } from '../services/staff-auth-service';
 import { CalendarService } from '../services/calendar-service';
 import { CookieImportService } from '../services/cookie-import-service';
 import { AmountChangeWatcher } from '../channels/amount-change-watcher';
+import { InventoryReadbackDispatcher } from '../channels/inventory-readback-dispatcher';
 import { HotelProbeDispatcher } from '../channels/hotel-probe-dispatcher';
 import { OtaReauthDispatcher } from '../channels/ota-reauth-dispatcher';
 import { ReauthByHotelDispatcher } from '../channels/reauth-by-hotel-dispatcher';
@@ -197,6 +203,16 @@ export function createWindowScope(scope: WindowScopeDependencies): WindowScope {
     },
     logger,
   });
+  // 房量回读 —— 与上面的改动上报**并行**的第二条链路。回读结果走同一个上报服务，
+  // 但由 service 层各自生成 operationId，两条上报互不去重（是两个不同的事实）。
+  const inventoryReadbackDispatcher = new InventoryReadbackDispatcher({
+    readbacks: inventoryReadbacks(scope.channelRegistry),
+    logger,
+    report: (observed, partitionName) =>
+      void amountChangeReportService.report(observed, partitionName),
+  });
+  onDispose(() => inventoryReadbackDispatcher.dispose());
+
   new AmountChangeWatcher({
     browserManager,
     adapters: amountChangeAdapters(scope.channelRegistry),
@@ -204,6 +220,9 @@ export function createWindowScope(scope: WindowScopeDependencies): WindowScope {
     // watcher 在 channels/，不认识 services/；窄回调在这里接起来。
     report: (observed, partitionName) =>
       void amountChangeReportService.report(observed, partitionName),
+    // 同一条改动另外触发一次回读。不 await —— 回读要走两次网络请求，不该阻塞上报。
+    onReportedForReadback: (observed, webContents, partitionName) =>
+      void inventoryReadbackDispatcher.onReported(observed, webContents, partitionName),
   });
 
   const loginDetector = new LoginDetector({

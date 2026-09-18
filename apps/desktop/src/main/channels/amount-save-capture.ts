@@ -277,6 +277,14 @@ export class AmountSaveCapture {
       return;
     }
 
+    // 旁听端点：拦到了但既不判成败、也不产上报体（携程的批量任务状态查询走这条）。
+    // 必须在 isSuccessful 之前分流 —— 那些端点的响应信封可能与保存请求同构，落进
+    // 形状自辨会被判成一次成功的改动并产出上报体。
+    if (this.adapter.isAuxiliaryEndpoint?.(saved.endpointId)) {
+      this.adapter.onAuxiliaryResponse?.(saved.endpointId, responseBody);
+      return;
+    }
+
     // 渠道自己说没成功就不上报——这是防脏数据的关键一步，理由见文件头。
     if (!this.adapter.isSuccessful(responseBody, saved.endpointId)) {
       this.logger.warn('Amount save capture: channel rejected the save, not reporting', {
