@@ -233,8 +233,13 @@ const RANGE_ENDPOINT_ID = 'unifiedCalcPriceV2';
 const ROOM_STATUS_ENDPOINT_ID = 'inventory-status-switch';
 /** **关房** —— 独立端点、独立形状、要走审核。规格见 `./room-close-payload.ts`。 */
 const ROOM_CLOSE_ENDPOINT_ID = 'inventory-roomstatus-submitaudit';
-/** 改房量 —— ⚠️ 同一请求里**顺带带房态**（`invSwitch`），见文件头。 */
-const INVENTORY_ENDPOINT_ID = 'inventory-update';
+/**
+ * 改房量 —— ⚠️ 同一请求里**顺带带房态**（`invSwitch`），见文件头。
+ *
+ * 导出是为了让 `./inventory-readback.ts` 判「这次改动要不要回读」。回读实现**注入**它
+ * 而非直接 import，避免两个模块互相依赖。
+ */
+export const INVENTORY_ENDPOINT_ID = 'inventory-update';
 
 /**
  * 要拦的端点 —— **五个里只有四个构成上报**。

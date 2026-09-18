@@ -61,8 +61,27 @@ export type CtripInventoryReadbackConfig = Readonly<{
   timeoutMs: number;
 }>;
 
+/**
+ * 美团房量回读的可调参数。行为定义见 `channels/meituan/inventory-readback.ts`。
+ *
+ * ## ⚠️ 为什么**只有** `timeoutMs` —— 不要照携程补另外两项
+ *
+ * | 携程有 | 美团为何没有 |
+ * |---|---|
+ * | `delayMs` | 美团写接口是**同步**的（用户确认）。携程那个是为异步批量页留的位，而美团页面保存后**不发任何任务轮询请求**，连门控对象都没有。留一个永远取 0 的旋钮，会让后来者以为这里存在异步风险。 |
+ * | `windowDays` | 美团**没有**「应用到所有日期」选项，不存在需要裁剪的无界范围，`truncated` 恒 `false`。 |
+ *
+ * 真机若发现读到旧值 —— 那是决策 1.2 的前提被推翻，应回到 design 重新设计门控，
+ * **不是**在这里加一个延迟绕过去。
+ */
+export type MeituanInventoryReadbackConfig = Readonly<{
+  /** 单次回读请求的超时（毫秒）。沿用携程同项的口径。 */
+  timeoutMs: number;
+}>;
+
 export type AppConfig = Readonly<{
   ctripInventoryReadback: CtripInventoryReadbackConfig;
+  meituanInventoryReadback: MeituanInventoryReadbackConfig;
 }>;
 
 /**

@@ -17,12 +17,17 @@ import type { AppConfig, AppConfigSource, PartialAppConfig } from './types';
  * （`Partial` 允许缺键），运行期才炸。
  */
 function mergeConfig(base: AppConfig, patch: PartialAppConfig): AppConfig {
-  return {
-    ctripInventoryReadback: {
-      ...base.ctripInventoryReadback,
-      ...(patch.ctripInventoryReadback ?? {}),
-    },
+  // 按 base 的键遍历，而不是逐组手写 —— 手写版每加一个配置组都要改这里，
+  // 漏改的表现是「新组的覆盖永远不生效」。键以 base 为准，覆盖层引入不了新键。
+  //
+  // 用泛型辅助函数逐键合并：直接在循环里写 `merged[key] = {...}` 时，TS 把 `key` 看成
+  // 键的联合类型，于是值被推成**所有组的交集**而报错。泛型把单次调用的 K 钉死。
+  const merged = {} as { -readonly [K in keyof AppConfig]: AppConfig[K] };
+  const assign = <K extends keyof AppConfig>(key: K): void => {
+    merged[key] = { ...base[key], ...(patch[key] ?? {}) };
   };
+  for (const key of Object.keys(base) as (keyof AppConfig)[]) assign(key);
+  return merged;
 }
 
 export class AppConfigStore {

@@ -14,7 +14,12 @@ import { ctripHotelProbe } from './ctrip/hotel-prob';
 import { ctripLoginUrlMatcher } from './ctrip/login-url-matcher';
 import { createDouyinHotelProbe } from './douyin/hotel-prob';
 import { douyinLoginUrlMatcher } from './douyin/login-url-matcher';
-import { createMeituanAmountChangeAdapter } from './meituan/amount-change-adapter';
+import {
+  createMeituanAmountChangeAdapter,
+  INVENTORY_ENDPOINT_ID as MEITUAN_INVENTORY_ENDPOINT_ID,
+} from './meituan/amount-change-adapter';
+import { createMeituanInventoryReadback } from './meituan/inventory-readback';
+import { meituanReadbackFetcher } from './meituan/inventory-readback-fetcher';
 import { meituanHotelProbe } from './meituan/hotel-prob';
 import { meituanLoginUrlMatcher } from './meituan/login-url-matcher';
 import { createCtripInventoryReadback } from './ctrip/inventory-readback';
@@ -40,10 +45,10 @@ export type ChannelAdapter = Readonly<{
    */
   amountChangeAdapter?: AmountChangeAdapter;
   /**
-   * 房量回读能力。**可选**：当前只有携程实装。
+   * 房量回读能力。**可选**：携程与美团已实装。
    *
-   * 美团待踩点（`docs/踩点/美团/` 下有两份房量材料，另立 change）；抖音是被跟价的那一端，
-   * 回读它没有意义 —— 与 `amountChangeAdapter` 刻意不注册抖音同一理由。
+   * 抖音是被跟价的那一端，回读它没有意义 —— 与 `amountChangeAdapter` 刻意不注册抖音
+   * 同一理由。
    */
   inventoryReadback?: InventoryReadback;
 }>;
@@ -86,6 +91,12 @@ export function createChannelRegistry(
       loginUrlMatcher: meituanLoginUrlMatcher,
       hotelProbe: meituanHotelProbe,
       amountChangeAdapter: createMeituanAmountChangeAdapter(logger),
+      inventoryReadback: createMeituanInventoryReadback({
+        logger,
+        fetcher: meituanReadbackFetcher,
+        inventoryEndpointId: MEITUAN_INVENTORY_ENDPOINT_ID,
+        config: () => appConfig().meituanInventoryReadback,
+      }),
     },
   ];
   return new Map(adapters.map((adapter) => [adapter.channel, adapter]));

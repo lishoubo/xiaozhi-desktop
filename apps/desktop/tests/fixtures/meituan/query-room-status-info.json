@@ -1,0 +1,181 @@
+{
+  "code": 10000,
+  "error": null,
+  "traceId": "fixture",
+  "success": true,
+  "data": [
+    {
+      "roomBaseInfo": {
+        "roomId": 493882496,
+        "roomName": "云享三人间",
+        "roomCategory": 1,
+        "containerId": 372062584
+      },
+      "goodsList": null,
+      "roomStatusMap": {
+        "2026-09-19": {
+          "date": "2026-09-19",
+          "containerId": 372062584,
+          "shareType": 1,
+          "roomStatus": 1,
+          "limitType": 1,
+          "remainCount": 1,
+          "limitRemain": 5,
+          "usedCount": 0,
+          "invSwitch": 1
+        },
+        "2026-09-18": {
+          "date": "2026-09-18",
+          "containerId": 372062584,
+          "shareType": 1,
+          "roomStatus": 1,
+          "limitType": 1,
+          "remainCount": 1,
+          "limitRemain": 5,
+          "usedCount": 0,
+          "invSwitch": 1
+        },
+        "2026-09-20": {
+          "date": "2026-09-20",
+          "containerId": 372062584,
+          "shareType": 1,
+          "roomStatus": 1,
+          "limitType": 1,
+          "remainCount": 1,
+          "limitRemain": 5,
+          "usedCount": 0,
+          "invSwitch": 1
+        },
+        "2026-09-21": {
+          "date": "2026-09-21",
+          "containerId": 372062584,
+          "shareType": 1,
+          "roomStatus": 1,
+          "limitType": 1,
+          "remainCount": 1,
+          "limitRemain": 5,
+          "usedCount": 0,
+          "invSwitch": 1
+        }
+      },
+      "goodsInfo": null,
+      "sortWeight": null
+    },
+    {
+      "roomBaseInfo": {
+        "roomId": 493879575,
+        "roomName": "云憩大床房",
+        "roomCategory": 2,
+        "containerId": 392353398
+      },
+      "goodsList": null,
+      "roomStatusMap": {
+        "2026-09-19": {
+          "date": "2026-09-19",
+          "containerId": 392353398,
+          "shareType": 1,
+          "roomStatus": 1,
+          "limitType": 2,
+          "remainCount": 0,
+          "limitRemain": 999,
+          "usedCount": 0,
+          "invSwitch": 1
+        },
+        "2026-09-18": {
+          "date": "2026-09-18",
+          "containerId": 392353398,
+          "shareType": 1,
+          "roomStatus": 0,
+          "limitType": 2,
+          "remainCount": 0,
+          "limitRemain": 999,
+          "usedCount": 0,
+          "fullRoomCode": 3,
+          "fullRoomDesc": "当前房型不可售卖，请调整房型房态开关。",
+          "invSwitch": 0
+        },
+        "2026-09-20": {
+          "date": "2026-09-20",
+          "containerId": 392353398,
+          "shareType": 1,
+          "roomStatus": 1,
+          "limitType": 2,
+          "remainCount": 0,
+          "limitRemain": 999,
+          "usedCount": 0,
+          "invSwitch": 1
+        },
+        "2026-09-21": {
+          "date": "2026-09-21",
+          "containerId": 392353398,
+          "shareType": 1,
+          "roomStatus": 1,
+          "limitType": 2,
+          "remainCount": 0,
+          "limitRemain": 999,
+          "usedCount": 0,
+          "invSwitch": 1
+        }
+      },
+      "goodsInfo": null,
+      "sortWeight": null
+    },
+    {
+      "roomBaseInfo": {
+        "roomId": 493879575,
+        "roomName": "云憩大床房",
+        "roomCategory": 1,
+        "containerId": 372062583
+      },
+      "goodsList": null,
+      "roomStatusMap": {
+        "2026-09-19": {
+          "date": "2026-09-19",
+          "containerId": 372062583,
+          "shareType": 1,
+          "roomStatus": 1,
+          "limitType": 1,
+          "remainCount": 2,
+          "limitRemain": 20,
+          "usedCount": 0,
+          "invSwitch": 1
+        },
+        "2026-09-18": {
+          "date": "2026-09-18",
+          "containerId": 372062583,
+          "shareType": 1,
+          "roomStatus": 1,
+          "limitType": 1,
+          "remainCount": 0,
+          "limitRemain": 1,
+          "usedCount": 2,
+          "invSwitch": 1
+        },
+        "2026-09-20": {
+          "date": "2026-09-20",
+          "containerId": 372062583,
+          "shareType": 1,
+          "roomStatus": 1,
+          "limitType": 1,
+          "remainCount": 2,
+          "limitRemain": 20,
+          "usedCount": 0,
+          "invSwitch": 1
+        },
+        "2026-09-21": {
+          "date": "2026-09-21",
+          "containerId": 372062583,
+          "shareType": 1,
+          "roomStatus": 1,
+          "limitType": 1,
+          "remainCount": 1,
+          "limitRemain": 19,
+          "usedCount": 1,
+          "invSwitch": 1
+        }
+      },
+      "goodsInfo": null,
+      "sortWeight": null
+    }
+  ]
+}

@@ -15,4 +15,8 @@ export const DEFAULT_APP_CONFIG: AppConfig = {
     windowDays: 7,
     timeoutMs: 30_000,
   },
+  meituanInventoryReadback: {
+    // ⚠️ 刻意没有 delayMs / windowDays —— 美团写入同步、无「应用到所有日期」。见 types.ts。
+    timeoutMs: 30_000,
+  },
 };

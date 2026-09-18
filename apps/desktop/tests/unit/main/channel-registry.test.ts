@@ -61,15 +61,14 @@ describe('createChannelRegistry', () => {
   });
 
   /**
-   * 房量回读当前**只有携程**。
+   * 房量回读：携程与美团已实装。
    *
-   * - 美团：房量踩点材料在 `docs/踩点/美团/` 下，但未做 —— 另立 change，注册前必须先
-   *   有回读实现，否则 dispatcher 会拿到 undefined 而静默不回读。
-   * - 抖音：被跟价的那一端，回读它没有意义（与改价监听不注册它同一理由）。
+   * 抖音是被跟价的那一端，回读它没有意义（与改价监听不注册它同一理由）。
    */
-  it('只有携程注册了房量回读', () => {
+  it('携程与美团注册了房量回读，抖音没有', () => {
     const registry = createRegistry();
 
-    expect([...inventoryReadbacks(registry).keys()]).toEqual(['ctrip']);
+    expect([...inventoryReadbacks(registry).keys()].sort()).toEqual(['ctrip', 'meituan']);
+    expect([...inventoryReadbacks(registry).keys()]).not.toContain('douyin');
   });
 });
