@@ -178,13 +178,27 @@ export type MeituanInventoryReadbackRaw = JsonObject &
 /**
  * 组装回读的上报体。
  *
- * `otaHotelId` **留空串**：service 层会用凭证的 `masterHotelId` 覆盖它（与既有改动上报同
- * 一段逻辑）。`operationId` / `submitAt` 也不在这里填，同样由 service 层补 —— 于是两条
- * 上报天然拿到各自独立的 `operationId`。
+ * ## ⚠️ `otaHotelId` 必须在这里填，service 层**不会**替美团补
+ *
+ * `AmountChangeReportService.resolveOtaHotelId()` 第一行就是
+ * `if (observed.source !== 'ctrip' || …) return observed.otaHotelId` —— 那段归一
+ * **只对携程生效**（携程有「门店 × 售卖模式」与账号粒度两个 ID 要对齐，美团没有这种形状，
+ * 它的 javadoc 明写「覆盖只会引入偏差」）。
+ *
+ * 所以这里留空串的话，发出去就**真的是空串**（2026-09-18 真机日志实证：
+ * 改动上报 A 是 `'1834077877'`，回读上报 B 是 `''`）。服务端
+ * `AppOtaChangeLocator.locate()` 的 `if (otaHotelId != null && !otaHotelId.isBlank())`
+ * 会跳过按门店反查，退化成靠售卖房型 id 反查 —— 而回读的 cells 里只有**物理**房型 id。
+ *
+ * 取 `poiId`（= 写请求顶层那个），与既有改动上报 `parseRoomStatusOrInventory` 同口径、同值。
+ *
+ * `operationId` / `submitAt` 不在这里填，由 service 层补 —— 于是两条上报天然拿到各自
+ * 独立的 `operationId`。
  */
 export function buildMeituanReadbackReport(
   trigger: OtaAmountChangeObserved,
   cells: readonly JsonObject[],
+  poiId: string,
   probedAt: string = new Date().toISOString(),
 ): OtaAmountChangeObserved {
   return {
@@ -192,7 +206,7 @@ export function buildMeituanReadbackReport(
     changeType: 'inventoryReadback',
     endpointId: MEITUAN_READBACK_ENDPOINT_ID,
     endpointUrl: MEITUAN_READBACK_URL,
-    otaHotelId: '',
+    otaHotelId: poiId,
     changeRaw: {
       trigger: {
         endpointId: trigger.endpointId,

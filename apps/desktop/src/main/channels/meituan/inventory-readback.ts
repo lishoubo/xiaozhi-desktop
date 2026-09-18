@@ -286,7 +286,8 @@ export function createMeituanInventoryReadback(
     }
 
     // cells 为空是**合法结果**（这些天确实没数据），不是失败 —— 照常上报。
-    return { kind: 'ok', report: buildMeituanReadbackReport(report, cells) };
+    // ⚠️ poiId 必须传：service 层只给携程补 otaHotelId，见 payload 文件头。
+    return { kind: 'ok', report: buildMeituanReadbackReport(report, cells, targets.poiId) };
   }
 }
 

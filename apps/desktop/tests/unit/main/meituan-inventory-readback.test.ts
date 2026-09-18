@@ -388,8 +388,21 @@ describe('createMeituanInventoryReadback', () => {
       expect(r.changeType).toBe('inventoryReadback');
       expect(r.endpointId).toBe('queryRoomStatusInfo');
       expect(r.endpointId).not.toBe(INVENTORY);
-      // service 层会用凭证的 masterHotelId 覆盖
-      expect(r.otaHotelId).toBe('');
+    });
+
+    /**
+     * ⚠️ service 层的 `resolveOtaHotelId` **只对携程**做归一覆盖
+     * （`if (observed.source !== 'ctrip') return observed.otaHotelId`），所以美团这条
+     * 留空串就真的发空串出去 —— 2026-09-18 真机日志实证过一次。
+     *
+     * 后果：服务端 `AppOtaChangeLocator` 跳过按门店反查，而 cells 里只有物理房型 id。
+     */
+    it('otaHotelId 填写请求的 poiId，与改动上报同值（不是空串）', async () => {
+      const outcome = await createReadback(vi.fn().mockResolvedValue(ok([]))).readback(
+        report(change([1], [{ startDate: '2026-09-18', endDate: '2026-09-18' }])),
+        FAKE_WC,
+      );
+      expect((outcome as { report: OtaAmountChangeObserved }).report.otaHotelId).toBe('1834077877');
     });
 
     it('trigger 复用改动上报的 changeRaw 同一份对象，truncated 恒 false', async () => {

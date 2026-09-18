@@ -41,8 +41,11 @@
 - **不设** `delayMs` 配置项 —— 携程那个是「留位，真机确认读到旧值再调」，
   美团既然同步就不该留一个永远为 0 的旋钮
 
-⚠️ 真机验证时必须显式确认这一点（见 tasks 第 6 节）：改一个值 → 立刻回读 → 断言拿到的是**改后值**。
-这是本 change 唯一一处「用户口头确认但代码无保护」的假设，**验证必须单独跑一次、不能与其他项混在一次操作里观测**。
+✅ **2026-09-18 真机实证，前提成立**：写请求 `countType:1620, limitChangeValue:1`
+（纯相对操作，报文里没有任何地方出现 19），回读拿到 `limitRemain: 19`，全程 109ms。
+
+⚠️ 将来若发现读到旧值，那是这个前提被推翻，应回到本节重新设计门控，
+**不是**加一个固定延迟绕过去。
 
 ---
 
@@ -219,21 +222,25 @@ POST https://me.meituan.com/api/gw/v1/product/goods/queryRoomStatusInfo
 
 一格里有 `remainCount` / `limitRemain` / `usedCount` / `limitType` / `invSwitch` / `shareType`。
 
-观察值（**仅记录，不写进任何判断分支**）：
+✅ **2026-09-18 真机实证：`limitRemain` 就是用户设的那个值**（三组，覆盖相对与绝对
+两种写路径）：
 
-| 样本 | limitType | remainCount | limitRemain | usedCount |
-|---|---|---|---|---|
-| 云舒双床房 09-18 | 1 | 1 | 39 | 1 |
-| 云舒双床房 09-19 | 1 | 2 | 40 | 0 |
-| 云憩大床房 cat2 | 2 | 0 | 999 | 0 |
+| 用户操作 | 写请求 | 回读 `limitRemain` |
+|---|---|---|
+| 房量 +1（结果 19） | `countType:1620` 相对 | **19** |
+| 周末 19 / 平时 17 | `countType:1520` 两档 | 周五 **19**、周四 **17** |
+| 2 房型各设 18 | `countType:1520` | **18 / 18** |
+
+同格 `remainCount` 为 1~2、`usedCount` 为 0，显然是不同语义（推测 `remainCount`=物理剩余、
+`usedCount`=已售，**未实证**）。
+
+⚠️ 三组都是「无预留房、`usedCount:0`、`limitType:1`」的干净场景，**有已售或有预留房时
+三字段如何分配尚无样本**。
 
 `limitType:2`（不限量）时 `limitRemain` 是 998/999 这类**哨兵值**，不是真实房量。
 
-⚠️ 哪个字段是「用户设的那个房量」**未经实证** —— 踩点里的写操作（日期 2026-10-20）
-与回读样本（2026-09-18~21）**不重叠**，对不上。按用户决策：**交由服务端确认**，
-desktop 不判读。这与携程口径一致（那边 `roomStatusResult` 也是整行照报）。
-
-⛔ 因此本 change **不得**出现「取 `limitRemain` 当房量」这类代码。
+⛔ **即便已实证，本 change 仍不得出现「取 `limitRemain` 当房量」这类代码** —— 结论只写
+进给服务端的文档，客户端一旦开始解读语义，美团改字段时就会静默错报。
 
 ### 决策 4.5 登录失效判据 —— **必须回真实响应取特征，不得猜**
 
@@ -314,3 +321,53 @@ service 层用凭证的 `masterHotelId` 覆盖（与既有改动上报同一段�
 | 解读房量语义 | 决策 4.4，交服务端 |
 | 改服务端 | proposal Non-Goals 第 1 条 |
 | `countType` 解码 | 回读不需要（只看房型+日期）；编码表记在 payload 规格供服务端参考 |
+
+---
+
+## 7. 多账号 / 多标签页并存时的 cookie 一致性
+
+**结论：安全。** 回读必然使用「发生改动的那个标签页」自己的 cookie，不存在串台。
+
+### 隔离链路（逐层核实）
+
+```
+BrowserManager.createTab()
+  new WebContentsView({ webPreferences: { session: tabSession } })   ← ① 每 tab 一份 session
+       ↓
+AmountChangeWatcher.onNavigated(event)
+  new AmountSaveCapture(event.webContents, …)                        ← ② 闭包捕获该 tab 的 wc
+       ↓ 用户保存，capture 回调
+  onReportedForReadback(report, event.webContents, event.partitionName)  ← ③ 原样传出
+       ↓
+InventoryReadbackDispatcher.onReported(report, webContents, …)
+       ↓
+readback(report, webContents) → webContents.executeJavaScript(xhr…)  ← ④ 在该 wc 里执行
+```
+
+关键在 ①：partition 命名是 `persist:xiaozhi:<env>:<channel>:<shortId>`，**shortId 在
+创建登录标签页那一刻随机生成**（见 `browser/partition.ts`）—— 即「每次登录一份」，
+天然是账号粒度。A 标签与 B 标签是两份互不可见的 cookie 存储。
+
+关键在 ④：`executeJavaScript` 在哪个 `WebContentsView` 里执行，XHR 就带哪份 session 的
+cookie。回读**不在主进程自行装配 cookie 串**，所以不存在「拿错账号的 cookie」这种可能 ——
+这也是当初选择页面内发请求而非主进程 HTTP 的原因之一。
+
+### ⚠️ 这个性质此前没有测试守着
+
+链路本身正确，但正确性只靠「webContents 一路原样传递」这个隐式约定。任何一处改成
+「取当前活动标签页」或「取第一个匹配渠道的标签页」都会串台，而失效方式是**静默的**：
+把 A 酒店的房量报成 B 酒店的，服务端照着改另一家店的价。
+
+已补固化测试 `amount-change-watcher.test.ts`「两个标签页各自的 partition 与 webContents
+不串」，断言两条链路各自带对自己的 `webContents` 与 `partitionName`，并显式断言
+**不得**出现交叉组合。
+
+反向验证：把回读的 wc 固定成第一个、把上报的 partition 固定成第一个，两种串台方式各自
+让该用例变红。
+
+### 不受影响的两件事
+
+- **`otaHotelId` 的归一**：上报体里留空串，由 service 层按 `partitionName` 查凭证的
+  `masterHotelId` 填 —— partition 既然是账号粒度，这一步也不会错配。
+- **回读请求体的 `poiId` / `partnerId`**：取自**触发报文**（决策 3.1），与这次改动同源，
+  不依赖「当前是哪个账号」的外部状态。
