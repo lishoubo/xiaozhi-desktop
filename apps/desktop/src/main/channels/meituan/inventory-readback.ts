@@ -23,7 +23,10 @@
  * 美团是同步的，且页面保存后**不发任何任务轮询请求**（踩点实录：「批量修改之后，没有
  * 触发主动读取」）—— 即使想做门控也无对象可拦。
  *
- * ⚠️ 真机若发现读到旧值，那是这个前提被推翻，应回到 design 重新设计门控，
+ * ✅ 2026-09-18 真机实证：写请求是 `countType:1620, limitChangeValue:1`（纯相对操作，
+ * 报文里没有任何地方出现 19），回读拿到 `limitRemain: 19`，全程 109ms。同步成立。
+ *
+ * ⚠️ 将来若发现读到旧值，那是这个前提被推翻，应回到 design 重新设计门控，
  * **不是**加一个固定延迟绕过去（任务耗时不是常数，携程实测约 1.2 秒但不稳定）。
  *
  * ## 为什么在页面里发而不是主进程
@@ -64,21 +67,28 @@ type ParsedResponse =
 /**
  * 把一次响应判成成功或某种失败。
  *
- * ## ⚠️ 失效判据**不猜**
- *
- * 携程的四形态（200+HTML 登录页、`invalid_grant`、`code ∈ {401,300,-1}`）是**携程的**，
- * 不可套用。美团失效响应**当前无真实样本**，所以这里只判有确定语义的：
+ * ## 失效判据只判有确定语义的三种
  *
  * - HTTP 401 → `COOKIE_EXPIRED`
  * - HTTP 403 → `FORBIDDEN`（**403 ≠ 401**：身份认了但没权限，重登解决不了，
  *   归成 `COOKIE_EXPIRED` 会掩盖真因并触发一轮无意义的重新登录）
- * - `code !== 10000` → `PARSE_ERROR`（**不猜**哪个 code 代表失效）
+ * - `code !== 10000` → `PARSE_ERROR`（不猜哪个 code 代表失效）
  *
- * 拿到真实失效样本后再补判据并存脱敏 fixture。猜的特征会让修复形同虚设且单测全绿。
+ * ## ⚠️ 「200 + 登录页 HTML」**刻意不判**，也不打算补
+ *
+ * 携程有这条判据，是因为它继承自 `rms-rpa-worker` —— 那是**后台无人值守**跑的，
+ * cookie 放几天不用，失效是常态。
+ *
+ * desktop 这条路不一样：回读发生在**用户刚操作成功的那个标签页**里，上一秒才保存成功
+ * （`isSuccessful` 已判过）、下一秒登录失效的场景基本不存在。即使发生了也无事可做 ——
+ * 回读不重试、不落盘，判成哪种失败对行为没有任何影响，只是日志上一个词的差别。
+ *
+ * 为此去猜美团登录页的特征，收益为负：猜错会恒假、单测全绿、线上照样落 `PARSE_ERROR`，
+ * 还在代码里留下一段「看起来已处理」的假象。
  */
 function parseResponse(raw: unknown): ParsedResponse {
   if (raw === null || raw === undefined) return { kind: 'failed', reason: 'NETWORK_ERROR' };
-  // 非 JSON（可能是 HTML）。当前不认任何 HTML 特征 —— 等真实样本。
+  // 非 JSON（可能是 HTML）。刻意不认 HTML 登录页特征，理由见文件头。
   if (typeof raw !== 'object' || Array.isArray(raw)) {
     return { kind: 'failed', reason: 'PARSE_ERROR' };
   }
@@ -168,7 +178,8 @@ function pickCells(
         roomId,
         roomName: base.roomName ?? null,
         roomCategory,
-        // 整行透传，不解读房量语义（哪个字段是「用户设的房量」未经实证，交服务端）。
+        // 整行透传，不解读房量语义 —— 即使已实证 limitRemain 是用户设的那个值
+        // （见 payload 文件头），desktop 也不取它，取了美团改字段时会静默错报。
         ...cell,
         // `date` 放最后：map 的 key 是权威的，即使 cell 内没有这个字段也保证有。
         date,

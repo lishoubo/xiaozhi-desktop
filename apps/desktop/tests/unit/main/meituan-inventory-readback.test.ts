@@ -71,8 +71,13 @@ function createReadback(fetcher: MeituanReadbackFetcher, logger = createLogger()
   });
 }
 
-/** 回读响应的成功信封。⚠️ 成功码是 10000，不是 200 也不是 0。 */
-function ok(data: unknown[]): JsonObject {
+/**
+ * 回读响应的成功信封。⚠️ 成功码是 10000，不是 200 也不是 0。
+ *
+ * 返回 `unknown` 而非 `JsonObject`：这是喂给 fetcher 的**假响应**，走的是
+ * `fetcher` 的 `Promise<unknown>` 出口，不需要满足 `JsonValue` 的只读索引签名。
+ */
+function ok(data: unknown[]): unknown {
   return { code: 10000, error: null, traceId: 't', success: true, data };
 }
 
@@ -169,8 +174,11 @@ describe('createMeituanInventoryReadback', () => {
     });
 
     it('roomCategory 缺失 → 丢弃该行（宁可漏读也不混入钟点房）', async () => {
-      const item = roomItem(1, 1, { '2026-09-18': cell('2026-09-18') });
-      delete (item.roomBaseInfo as JsonObject).roomCategory;
+      // 构造时就不给 roomCategory（而非 delete —— JsonObject 的索引签名是只读的）
+      const item = {
+        roomBaseInfo: { roomId: 1, roomName: '测试房型', containerId: 1 },
+        roomStatusMap: { '2026-09-18': cell('2026-09-18') },
+      };
       const fetcher = vi.fn().mockResolvedValue(ok([item]));
 
       const outcome = await createReadback(fetcher).readback(
@@ -293,8 +301,8 @@ describe('createMeituanInventoryReadback', () => {
     });
 
     it('date 以 map 的 key 为准，即使 cell 内缺该字段', async () => {
-      const inner = cell('2026-09-18');
-      delete inner.date;
+      // 构造时就不给 date（而非 delete），验证展平时以 map 的 key 为准
+      const { date: _omitted, ...inner } = cell('2026-09-18');
       const fetcher = vi.fn().mockResolvedValue(ok([roomItem(1, 1, { '2026-09-18': inner })]));
       const outcome = await createReadback(fetcher).readback(
         report(change([1], [{ startDate: '2026-09-18', endDate: '2026-09-18' }])),

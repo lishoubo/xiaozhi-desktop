@@ -212,19 +212,21 @@ describe('extractMeituanReadbackTargets', () => {
       expect(extractMeituanReadbackTargets(INVENTORY, raw, INVENTORY)).toBeNull();
     };
 
-    it('modifyInventoryModelList 缺失', () => expectNull(changeRaw([], { modifyInventoryModelList: undefined })));
+    it('modifyInventoryModelList 缺失', () => {
+      // 解构省略而非赋 undefined —— JsonValue 不含 undefined，且「键不存在」才是真实形态
+      const { modifyInventoryModelList: _omitted, ...raw } = changeRaw([]);
+      expectNull(raw);
+    });
     it('modifyInventoryModelList 为空数组', () => expectNull(changeRaw([])));
     it('dayRoomIdList 为空', () => expectNull(changeRaw([model([], range, [weekParam(ALL_WEEK)])])));
     it('modifyDates 为空', () => expectNull(changeRaw([model([1], [], [weekParam(ALL_WEEK)])])));
     it('poiId 缺失', () => {
-      const raw = changeRaw([model([1], range, [weekParam(ALL_WEEK)])]);
-      delete raw.poiId;
+      const { poiId: _omitted, ...raw } = changeRaw([model([1], range, [weekParam(ALL_WEEK)])]);
       expectNull(raw);
     });
     it('poiId 为空串', () => expectNull(changeRaw([model([1], range, [weekParam(ALL_WEEK)])], { poiId: '  ' })));
     it('partnerId 缺失', () => {
-      const raw = changeRaw([model([1], range, [weekParam(ALL_WEEK)])]);
-      delete raw.partnerId;
+      const { partnerId: _omitted, ...raw } = changeRaw([model([1], range, [weekParam(ALL_WEEK)])]);
       expectNull(raw);
     });
     it('星期过滤后一天都不剩', () => {
