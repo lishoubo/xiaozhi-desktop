@@ -210,6 +210,9 @@ export function createWindowScope(scope: WindowScopeDependencies): WindowScope {
     logger,
     report: (observed, partitionName) =>
       void amountChangeReportService.report(observed, partitionName),
+    // 回读失败只在本地日志里留痕的话，没人会知道 —— 它是后台链路，用户看不见，
+    // 也不影响他手上的操作。GlitchTip 是「不用等业户发日志就知道出事了」的唯一途径。
+    reportError,
   });
   onDispose(() => inventoryReadbackDispatcher.dispose());
 

@@ -36,6 +36,7 @@
 import type { WebContents } from 'electron';
 import type { ChannelId } from '../ids';
 import { safeLogErrorDetails, type AppLogger } from '../../shared/logging';
+import { noopErrorReporter, type ErrorReporter } from '../error-reporting/error-reporter';
 import type { OtaAmountChangeObserved } from '../../shared/types/amount-change';
 import type { InventoryReadback } from './types';
 
@@ -51,12 +52,34 @@ export type InventoryReadbackDispatcherDependencies = Readonly<{
    * 由 composition root 接到上报服务 —— 与 `AmountChangeWatcher.report` 同一手法。
    */
   report: (observed: OtaAmountChangeObserved, partitionName: string) => void;
+  /**
+   * 回读失败时同时上报到 GlitchTip。**可选**，省略即不上报（单测默认走 noop）。
+   *
+   * ## 为什么在这一层上报，而不是各渠道实现里
+   *
+   * `failed` 的收敛点本来就在这里 —— 渠道实现把失败归成 `ReadbackFailureReason` 就交出来了。
+   * 在这里上报，加一个渠道自动就有；写在各实现里则要复制 N 份，且容易漏。
+   *
+   * ## ⚠️ 只报 `failed`，不报 `skipped`
+   *
+   * `skipped` 是**逻辑挡掉**（不是房量端点、只改了钟点房、日期为空），属正常流程，
+   * 报上去会把噪音淹没真问题。三态分开的价值正在于此。
+   */
+  reportError?: ErrorReporter;
 }>;
+
+/** GlitchTip 里按操作聚合用。与既有调用点（`updater-service` 等）同一手法。 */
+const OPERATION = 'inventoryReadback';
 
 export class InventoryReadbackDispatcher {
   private disposed = false;
 
   constructor(private readonly deps: InventoryReadbackDispatcherDependencies) {}
+
+  /** 上报是可选依赖 —— 没注入就走 noop，调用点不必各自判空。 */
+  private errorReporter(): ErrorReporter {
+    return this.deps.reportError ?? noopErrorReporter;
+  }
 
   /**
    * 既有链路刚产出一条改动上报时调用。
@@ -95,10 +118,24 @@ export class InventoryReadbackDispatcher {
           });
           return;
         case 'failed':
+          // 先 warn 再 report：本地日志给「拿到日志后逐行排查」，GlitchTip 给
+          // 「不用等业户发日志就知道出事了、出了多少」。两者都要，见 report-error.ts。
           this.deps.logger.warn('Inventory readback failed', {
             channel: report.source,
             triggerEndpointId: report.endpointId,
             reason: outcome.reason,
+          });
+          // 渠道实现返回的是归好类的 reason，没有原始 Error —— 现造一个，
+          // 让 GlitchTip 能按 reason 聚合（同一类失败合并成一条，而不是每次一条）。
+          //
+          // ⚠️ `hotelId` 取的是**触发用的改动上报体**（本方法入参）的 otaHotelId，
+          // 它两个渠道都有值。不要改成回读产出那条 —— 携程侧刻意留空串，
+          // 由 service 层用凭证的 masterHotelId 覆盖，在这里取会恒为空。
+          this.errorReporter()(new Error(`Inventory readback failed: ${outcome.reason}`), {
+            operation: OPERATION,
+            channel: report.source,
+            hotelId: report.otaHotelId || undefined,
+            extra: { triggerEndpointId: report.endpointId, reason: outcome.reason },
           });
           return;
       }
@@ -108,6 +145,13 @@ export class InventoryReadbackDispatcher {
         channel: report.source,
         triggerEndpointId: report.endpointId,
         error: safeLogErrorDetails(error),
+      });
+      // 这条比 failed 更值得看：说明渠道实现有没兜住的异常路径。
+      this.errorReporter()(error, {
+        operation: OPERATION,
+        channel: report.source,
+        hotelId: report.otaHotelId || undefined,
+        extra: { triggerEndpointId: report.endpointId, reason: 'threw' },
       });
     }
   }
