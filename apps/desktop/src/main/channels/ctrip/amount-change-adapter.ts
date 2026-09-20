@@ -171,6 +171,40 @@ const WATCH_PATHS: readonly string[] = [
  * 写死服务编号的失效方式很糟糕：改了价但不跟价，**且没有任何报错**——日志上与「用户没改价」
  * 完全一样（design.md §9 风险 5）。所以只匹配 `/restapi` 前缀 + 方法名，跳过中间的编号。
  */
+/**
+ * 读端点：价量态查询。与 `inventory-readback-payload.ts` 的 `READBACK_URL` 同一个接口。
+ *
+ * ⚠️ 用独立的 `endpointId` 而不是复用回读那个常量：这里的 id 只在本机制层内部用于分流，
+ * 不进任何上报体；回读那个会原样带进上报体给服务端分派 Translator。两者用途不同，
+ * 混用会让「改了分流 id」意外改掉上报契约。
+ */
+const CTRIP_READ_ENDPOINT_ID = 'getRoomInventoryInfo:read';
+const CTRIP_READ_PATH = '/ebkovsroom/api/inventory/getRoomInventoryInfo';
+
+/**
+ * 读响应里两批数据的区分标记 —— 由 `onReadResponse` 打在每行上，映射侧据它分流。
+ *
+ * 用 `__` 前缀且与携程真实字段不重名：它是我们加的，不是渠道原字段。映射侧会把它剥掉，
+ * **不会进 `item_data`**（存进去会让基线里混入一个渠道没有的字段）。
+ */
+export const CTRIP_READ_KIND = '__snapshotKind';
+
+/** 取 `data` 下某个数组字段里的对象行。 */
+function pickRows(data: JsonObject, field: string): JsonObject[] {
+  const rows = data[field];
+  if (!Array.isArray(rows)) return [];
+  return rows.filter(
+    (row): row is JsonObject => typeof row === 'object' && row !== null && !Array.isArray(row),
+  );
+}
+
+/** 价格行在 `roomPriceResult.roomPriceInfo[]`，比房态多一层。 */
+function pickPriceRows(data: JsonObject): JsonObject[] {
+  const result = data.roomPriceResult;
+  if (typeof result !== 'object' || result === null || Array.isArray(result)) return [];
+  return pickRows(result as JsonObject, 'roomPriceInfo');
+}
+
 const WATCHED_ENDPOINTS: ReadonlyMap<string, string> = new Map([
   ['batchsetroomprice', '/ebkovsroom/api/inventory/batchsetroomprice'],
   // 故意不含 `soa2/23783`：见上方说明。机制层是 `url.includes(fragment)`，无法表达
@@ -190,7 +224,12 @@ const WATCHED_ENDPOINTS: ReadonlyMap<string, string> = new Map([
   // 旁听端点 —— 页面保存后自己轮询它，用来判断异步写入何时完成。**不是保存请求**，
   // 走 `isAuxiliaryEndpoint` 分流，不进 `isSuccessful`/`parse`。见 `./batch-task-gate.ts`。
   [CTRIP_TASK_QUERY_ENDPOINT_ID, CTRIP_TASK_QUERY_PATH],
+  // 读端点 —— 用户翻日历时页面自己发的价量态查询。**不是保存请求**，走 `isReadEndpoint`
+  // 分流，内容拿去建基线快照。与回读用的是**同一个端点**（回读是我们主动发，这里是旁听
+  // 页面自己发），所以抽 cells 的逻辑两边共用，见 `./inventory-snapshot-cells.ts`。
+  [CTRIP_READ_ENDPOINT_ID, CTRIP_READ_PATH],
 ]);
+
 
 /** 日历菜单房态端点的 `endpointId`。判定与解析都要按它分支，抽成常量避免拼错。 */
 const ROOM_STATUS_ENDPOINT_ID = 'setbatchroombookablestatus';
@@ -608,6 +647,50 @@ export function createCtripAmountChangeAdapter(logger: AppLogger): AmountChangeA
 
     isAuxiliaryEndpoint(endpointId: string): boolean {
       return endpointId === CTRIP_TASK_QUERY_ENDPOINT_ID;
+    },
+
+    isReadEndpoint(endpointId: string): boolean {
+      return endpointId === CTRIP_READ_ENDPOINT_ID;
+    },
+
+    /**
+     * 从查询响应里抽出房态房量行，交给装配层去建基线。
+     *
+     * ⚠️ 只解析、不落库、不补 `otaHotelId` —— 那个要查凭证，而 `channels/` 够不着
+     * `database/`。这里交出的是渠道原始行。
+     */
+    onReadResponse(_endpointId: string, responseBody: string): readonly JsonObject[] {
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(responseBody);
+      } catch {
+        // 登录失效时携程会返回 HTTP 200 + 整页登录页 HTML，解析不了是正常情况。
+        // 建基线是尽力而为的后台链路，这里静默跳过即可 —— 真正需要感知失效的是回读那条。
+        return [];
+      }
+      if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return [];
+      const data = (parsed as JsonObject).data;
+      if (typeof data !== 'object' || data === null || Array.isArray(data)) return [];
+
+      // ⚠️ 一个响应里有**两批**数据，来自两条独立路径：
+      //
+      //   data.roomStatusResult[]              房态房量，一行含两者
+      //   data.roomPriceResult.roomPriceInfo[] 价格，**可能不覆盖全部格子**（关房日无价）
+      //
+      // 两批都要，且必须分得开 —— 下游按 `item_type` 分成两格存（房型 × 日期 × 类型）。
+      // 交出去的是扁平的行列表，所以在这里打一个标记字段；映射侧据它分流。
+      // ⛔ 不要改成「以房态行为骨架、把价格并进同一行」：那样关房日会因无价被丢掉整行，
+      // rms-rpa-worker 侧记载过这个失效（房态刷不进去）。
+      return [
+        ...pickRows(data as JsonObject, 'roomStatusResult').map((row) => ({
+          ...row,
+          [CTRIP_READ_KIND]: 'roomStatus',
+        })),
+        ...pickPriceRows(data as JsonObject).map((row) => ({
+          ...row,
+          [CTRIP_READ_KIND]: 'price',
+        })),
+      ];
     },
 
     onAuxiliaryResponse(_endpointId: string, responseBody: string): void {

@@ -207,6 +207,50 @@ const migrations: readonly Migration[] = [
       `);
     },
   },
+  {
+    version: 9,
+    name: 'create-ota-inventory-snapshot',
+    apply(database) {
+      // 渠道价量态的本地基线快照。与 `ota_hotel` / `ota_credential` 的区别：那两张表存的是
+      // **本地事实**（用户确认过的绑定、本机的登录态），这张表存的是**渠道事实**——渠道当前
+      // 是什么样，由渠道的读接口回答。
+      //
+      // ⚠️ 空值用 '' 不用 NULL：SQLite 的 UNIQUE 约束里 `NULL != NULL`，可空列参与唯一键
+      // 会让同一格每次都 INSERT 新行而不是 upsert（既有 `ota_hotel` 没踩到是因为它的唯一键
+      // 两列都非空）。代价是「无此维度」与「空字符串」语义被抹平，用下面的 CHECK 补回
+      // 「两个房型 ID 不得同时为空」——同时为空的行无法定位房型，是脏数据。
+      //
+      // ⚠️ 不加外键：快照是渠道事实，不依赖本地绑定关系。加了外键，未绑定账号的数据就落不了
+      // 库，而「还没绑定但已经在看的店」恰恰是要建基线的场景。
+      database.exec(`
+        CREATE TABLE ota_inventory_snapshot (
+          id TEXT PRIMARY KEY,
+          source TEXT NOT NULL,
+          ota_hotel_id TEXT NOT NULL,
+          ota_physical_room_id TEXT NOT NULL DEFAULT '',
+          ota_sale_room_id TEXT NOT NULL DEFAULT '',
+          item_type TEXT NOT NULL CHECK (item_type IN ('roomStatus', 'price')),
+          item_date TEXT NOT NULL,
+          item_data TEXT NOT NULL,
+          content_hash TEXT NOT NULL,
+          observed_at INTEGER NOT NULL,
+          source_of_truth TEXT NOT NULL CHECK (source_of_truth IN ('readback', 'page-read', 'scan')),
+          created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+          CHECK (ota_physical_room_id <> '' OR ota_sale_room_id <> '')
+        );
+
+        CREATE UNIQUE INDEX ota_inventory_snapshot_cell_idx ON ota_inventory_snapshot(
+          source, ota_hotel_id, ota_sale_room_id, ota_physical_room_id, item_type, item_date
+        );
+
+        -- 定时扫描按 (渠道, 酒店, 日期窗口) 一次读一批基线，见 Change B。
+        CREATE INDEX ota_inventory_snapshot_scan_idx ON ota_inventory_snapshot(
+          source, ota_hotel_id, item_date
+        );
+      `);
+    },
+  },
 ];
 
 function migrate(database: ApplicationDatabase): number {

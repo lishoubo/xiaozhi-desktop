@@ -134,6 +134,46 @@ export interface AmountChangeAdapter {
 
   /** 旁听端点的响应到了。仅在 `isAuxiliaryEndpoint` 返回 `true` 时调用。 */
   onAuxiliaryResponse?(endpointId: string, responseBody: string): void;
+
+  /**
+   * **读端点**：用户浏览页面时页面自己发的价量态**查询**请求。
+   *
+   * 返回 `true` 表示这个 `endpointId` 是读接口 —— 机制层把响应体交给 `onReadResponse`
+   * 后就结束，**不会**再走 `isSuccessful` / `parse`。分流位置与 `isAuxiliaryEndpoint`
+   * 相同，两者都是「拦到了但不构成一次改动」。
+   *
+   * ## 为什么复用同一条 CDP 连接，而不是新建一个 capture
+   *
+   * `webContents.debugger` 是**独占**的：已经 attach 时再 attach 会被拒绝。而改价监听
+   * 早就在同一个页面上 attach 了（携程 `/ebkovsroom/inventory` 既是改价页也是查询页），
+   * 另起一个 capture 必然静默失效 —— 日志显示「监听已启动」，实际一个请求都拦不到，
+   * 与「用户根本没翻页面」长得一模一样。
+   *
+   * 一个页面拦多个接口本来就是既有形状（携程当前已同时拦 5 个写端点 + 1 个旁听端点），
+   * 读端点只是再加一类。
+   *
+   * ## ⚠️ 与 `isAuxiliaryEndpoint` 的区别
+   *
+   * ```
+   * isAuxiliaryEndpoint   拦到的是**任务状态轮询**，内容喂回适配器自己用
+   * isReadEndpoint        拦到的是**价量态查询结果**，内容拿去建基线快照
+   * ```
+   *
+   * 两者都不判成败、都不产上报体，但去向完全不同，所以是两个钩子而不是一个。
+   */
+  isReadEndpoint?(endpointId: string): boolean;
+
+  /**
+   * 读端点的响应到了。仅在 `isReadEndpoint` 返回 `true` 时调用。
+   *
+   * @param responseBody 渠道原始响应（未解析）。解析与裁剪由适配器做 —— 机制层不认识
+   *        任何渠道的响应形状。
+   * @returns 从响应里抽出的价量态原始行。空数组表示这次响应没有可用数据（合法结果）。
+   *
+   * ⚠️ 这里**只返回行，不返回格子**：格子需要 `otaHotelId`（取自登录凭证），而
+   * `channels/` 被 eslint 禁止访问 `database/`。补齐在装配层做，与回读同一手法。
+   */
+  onReadResponse?(endpointId: string, responseBody: string): readonly JsonObject[];
 }
 
 /** 见 `AmountChangeAdapter.parse`。 */

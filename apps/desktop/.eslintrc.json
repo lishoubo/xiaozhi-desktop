@@ -70,6 +70,11 @@
             "target": "./src/main/channels",
             "from": "./src/main/composition",
             "message": "channels/ 不得依赖装配层（依赖方向是 composition → channels）"
+          },
+          {
+            "target": "./src/main/channels",
+            "from": "./src/main/inventory-snapshot",
+            "message": "channels/ 不直接写基线快照；渠道只产出原始行，落库由 composition root 注入的回调完成"
           }
         ]
       }

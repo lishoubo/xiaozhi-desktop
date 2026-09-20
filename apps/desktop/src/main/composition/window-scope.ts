@@ -42,6 +42,12 @@ import { CalendarService } from '../services/calendar-service';
 import { CookieImportService } from '../services/cookie-import-service';
 import { AmountChangeWatcher } from '../channels/amount-change-watcher';
 import { InventoryReadbackDispatcher } from '../channels/inventory-readback-dispatcher';
+import {
+  createPageReadSnapshotPersister,
+  createReadbackSnapshotPersister,
+  type SnapshotCellMapper,
+} from '../inventory-snapshot/readback-to-cells';
+import { mapCtripReadRows } from '../inventory-snapshot/ctrip-cells';
 import { HotelProbeDispatcher } from '../channels/hotel-probe-dispatcher';
 import { OtaReauthDispatcher } from '../channels/ota-reauth-dispatcher';
 import { ReauthByHotelDispatcher } from '../channels/reauth-by-hotel-dispatcher';
@@ -67,6 +73,7 @@ type WindowScopeDependencies = Pick<
   | 'sessionFactory'
   | 'calendarRepository'
   | 'otaCredentialRepository'
+  | 'snapshotWriteQueue'
   | 'hotelManagementService'
   | 'otaCredentialService'
   | 'updaterService'
@@ -205,6 +212,17 @@ export function createWindowScope(scope: WindowScopeDependencies): WindowScope {
   });
   // 房量回读 —— 与上面的改动上报**并行**的第二条链路。回读结果走同一个上报服务，
   // 但由 service 层各自生成 operationId，两条上报互不去重（是两个不同的事实）。
+  // 基线快照：把渠道原始行翻译成格子。目前只有携程 —— 美团待踩点（它的 price 侧
+  // ID 空间与房态不同），抖音是被跟价的一端，与既有两条链路刻意不接入同一理由。
+  const snapshotMappers: ReadonlyMap<string, SnapshotCellMapper> = new Map([
+    // 行已带分流标记（房态 / 价格），mapper 据此分成两类格子。
+    ['ctrip', mapCtripReadRows satisfies SnapshotCellMapper],
+  ]);
+  // 两个 persister 共用的窄回调：查凭证拿 masterHotelId。
+  // ⚠️ 快照的门店维度必须取凭证，不能取渠道响应 —— 携程同店预付/现付两个 hotelID。
+  const credentialExtraByPartition = (partitionName: string) =>
+    scope.otaCredentialRepository.findByPartitionName(partitionName)?.credentialExtra ?? null;
+
   const inventoryReadbackDispatcher = new InventoryReadbackDispatcher({
     readbacks: inventoryReadbacks(scope.channelRegistry),
     logger,
@@ -213,6 +231,13 @@ export function createWindowScope(scope: WindowScopeDependencies): WindowScope {
     // 回读失败只在本地日志里留痕的话，没人会知道 —— 它是后台链路，用户看不见，
     // 也不影响他手上的操作。GlitchTip 是「不用等业户发日志就知道出事了」的唯一途径。
     reportError,
+    // 回读的结果同时写进基线。与上报是两条互不阻塞的下游。
+    persistSnapshot: createReadbackSnapshotPersister({
+      mappers: snapshotMappers,
+      credentialExtraByPartition,
+      enqueue: (cells) => scope.snapshotWriteQueue.push(cells),
+      logger,
+    }),
   });
   onDispose(() => inventoryReadbackDispatcher.dispose());
 
@@ -226,6 +251,13 @@ export function createWindowScope(scope: WindowScopeDependencies): WindowScope {
     // 同一条改动另外触发一次回读。不 await —— 回读要走两次网络请求，不该阻塞上报。
     onReportedForReadback: (observed, webContents, partitionName) =>
       void inventoryReadbackDispatcher.onReported(observed, webContents, partitionName),
+    // 用户翻页面时页面自己发的查询 —— 同一条 CDP 连接上旁听到的，拿去建基线。
+    onReadRows: createPageReadSnapshotPersister({
+      mappers: snapshotMappers,
+      credentialExtraByPartition,
+      enqueue: (cells) => scope.snapshotWriteQueue.push(cells),
+      logger,
+    }),
   });
 
   const loginDetector = new LoginDetector({

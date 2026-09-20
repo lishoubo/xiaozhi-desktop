@@ -67,3 +67,36 @@ describe('AppConfigStore', () => {
     expect(store.get().ctripInventoryReadback.delayMs).toBe(2000);
   });
 });
+
+describe('inventoryScan', () => {
+  it('默认值可用', () => {
+    const config = new AppConfigStore().get();
+    expect(config.inventoryScan.window).toEqual({ kind: 'days', days: 7 });
+    expect(config.inventoryScan.timeoutMs).toBe(30_000);
+  });
+
+  it('部分覆盖时同组未覆盖项保持默认', () => {
+    const config = new AppConfigStore([
+      { read: () => ({ inventoryScan: { timeoutMs: 5_000 } }) },
+    ]).get();
+    expect(config.inventoryScan.timeoutMs).toBe(5_000);
+    // ⚠️ 浅合并会把 window 抹成 undefined —— 这条守住 mergeConfig 的深合并。
+    expect(config.inventoryScan.window).toEqual({ kind: 'days', days: 7 });
+  });
+
+  // ⚠️ 守住「联合/数组是整体替换，不是逐元素合并」的约定，见 types.ts 的 PartialAppConfig。
+  it('window 是整体替换，不与默认值合并', () => {
+    const config = new AppConfigStore([
+      { read: () => ({ inventoryScan: { window: { kind: 'days', days: 30 } } }) },
+    ]).get();
+    expect(config.inventoryScan.window).toEqual({ kind: 'days', days: 30 });
+  });
+
+  it('加了新配置组后既有组不受影响', () => {
+    const config = new AppConfigStore([
+      { read: () => ({ inventoryScan: { timeoutMs: 1 } }) },
+    ]).get();
+    expect(config.ctripInventoryReadback.windowDays).toBe(7);
+    expect(config.meituanInventoryReadback.timeoutMs).toBe(30_000);
+  });
+});

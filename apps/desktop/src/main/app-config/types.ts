@@ -79,15 +79,64 @@ export type MeituanInventoryReadbackConfig = Readonly<{
   timeoutMs: number;
 }>;
 
+/**
+ * 价量态基线快照与定时扫描的可调参数。
+ *
+ * ## ⚠️ 本期（Change A）只有快照写入在用，`window` 与 `timeoutMs` 是给 Change B 留的
+ *
+ * 形状先定下来，是因为改形状比改值贵得多：`window` 的联合分支、`byHotel` 的深合并都会
+ * 牵动 `mergeConfig`，而那是全局的。值可以随时改，形状定错了后面每加一项都要动结构。
+ */
+export type InventoryScanConfig = Readonly<{
+  /**
+   * 日期窗口 —— 快照覆盖从今天起的哪些天。
+   *
+   * ## ⚠️ 为什么是带 `kind` 的联合，而不是一个 `windowDays: number`
+   *
+   * 后续要支持多时间段（`[1.1-1.2, 3.1-3.10]` 这种）。若现在写成 `windowDays: number`，
+   * 那时只能加一个并列的 `ranges?: [...]`，于是出现「两个字段都有值时听谁的」这种
+   * 说不清的状态，且消费方漏判新字段时**静默按旧字段跑**。
+   *
+   * 带 `kind` 的联合让扩展变成**加一个分支**：
+   *
+   * ```ts
+   * | { kind: 'days'; days: number }
+   * | { kind: 'ranges'; ranges: readonly { start: string; end: string }[] }   // 将来
+   * ```
+   *
+   * 消费方的 `switch` 会被类型系统强制处理新分支 —— 漏了编译就过不去，不会静默跑错。
+   */
+  window: Readonly<{ kind: 'days'; days: number }>;
+
+  /** 单次取数请求的超时（毫秒）。沿用回读同项的口径。 */
+  timeoutMs: number;
+
+  /**
+   * ⚠️ **预留，本期不实现。** 按酒店覆盖上面的值（不同酒店关注的窗口不同）。
+   *
+   * 合并语义是**以 hotelId 为键逐店深合并**，不是整体替换 —— 服务端只下发一家店的覆盖时，
+   * 其余店的配置必须保留。而现有 `mergeConfig` **只深一层**（见它的注释），到这里会把整个
+   * `byHotel` 整体替换掉，把其余店的覆盖全抹掉。
+   *
+   * 所以实现它的时候**必须同时扩展 `mergeConfig` 的深度**，不能只加字段。
+   */
+  byHotel?: Readonly<Record<string, Partial<Omit<InventoryScanConfig, 'byHotel'>>>>;
+}>;
+
 export type AppConfig = Readonly<{
   ctripInventoryReadback: CtripInventoryReadbackConfig;
   meituanInventoryReadback: MeituanInventoryReadbackConfig;
+  inventoryScan: InventoryScanConfig;
 }>;
 
 /**
  * 配置的部分覆盖 —— 服务端下发与本地覆盖都用这个形状。
  *
  * 逐层深合并：某一层只给了部分键时，未给的键仍取下层的值，**不得变成 undefined**。
+ *
+ * ⚠️ **数组与联合类型的值是整体替换，不是逐元素合并。** 这是有意的：多时间段窗口
+ * （`window.ranges`）与将来的房型清单，语义都是「这一层说了算」，把两层的列表 concat
+ * 起来会得到一个谁都没要求过的并集。改成 concat 之前先想清楚这一点。
  */
 export type PartialAppConfig = {
   readonly [K in keyof AppConfig]?: Partial<AppConfig[K]>;

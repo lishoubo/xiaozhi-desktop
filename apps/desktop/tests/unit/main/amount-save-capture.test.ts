@@ -530,3 +530,155 @@ describe('AmountSaveCapture', () => {
     });
   });
 });
+
+describe('读端点（建基线快照）', () => {
+  const READ_URL = 'https://life.douyin.com/life/trip/hotel/query_inventory?d=1';
+  const READ_RESPONSE = '{"rows":[{"date":"2026-10-20"}]}';
+
+  function readAdapter(overrides: Partial<AmountChangeAdapter> = {}): AmountChangeAdapter {
+    return createAdapter({
+      watchedEndpoints: new Map([
+        ['save_amount_calendar', '/life/trip/hotel/save_amount_calendar'],
+        ['query_inventory', '/life/trip/hotel/query_inventory'],
+      ]),
+      isReadEndpoint: (endpointId: string) => endpointId === 'query_inventory',
+      onReadResponse: vi.fn(() => [{ date: '2026-10-20' }]),
+      ...overrides,
+    });
+  }
+
+  async function driveRead(
+    adapter: AmountChangeAdapter,
+    onReadRows: (endpointId: string, rows: readonly JsonObject[]) => void,
+    responseBody = READ_RESPONSE,
+  ) {
+    const webContents = createFakeWebContents({
+      'Network.getResponseBody': { body: responseBody, base64Encoded: false },
+    });
+    const capture = new AmountSaveCapture(
+      webContents as never,
+      adapter,
+      createLogger(),
+      vi.fn(),
+      onReadRows,
+    );
+    await capture.attach();
+    webContents.emit('Network.requestWillBeSent', {
+      requestId: '2.1',
+      request: { url: READ_URL, postData: '{}' },
+    });
+    await flushMicrotasks();
+    webContents.emit('Network.loadingFinished', { requestId: '2.1' });
+    await flushMicrotasks();
+    return capture;
+  }
+
+  it('读端点的响应交给 onReadRows，不走 parse', async () => {
+    const adapter = readAdapter();
+    const onReadRows = vi.fn();
+
+    await driveRead(adapter, onReadRows);
+
+    expect(onReadRows).toHaveBeenCalledWith('query_inventory', [{ date: '2026-10-20' }]);
+    // ⚠️ 读端点不构成一次改动 —— 落进 parse 会被当成改价上报出去。
+    expect(adapter.parse).not.toHaveBeenCalled();
+  });
+
+  // ⚠️ 读接口没有「渠道拒绝」这回事，不该按写请求的成败判据过滤。
+  it('不调用 isSuccessful —— 读接口无成败可言', async () => {
+    const isSuccessful = vi.fn(() => false);
+    const adapter = readAdapter({ isSuccessful });
+
+    await driveRead(adapter, vi.fn());
+
+    expect(isSuccessful).not.toHaveBeenCalled();
+  });
+
+  it('抽不出行时不投递', async () => {
+    const adapter = readAdapter({ onReadResponse: vi.fn(() => []) });
+    const onReadRows = vi.fn();
+
+    await driveRead(adapter, onReadRows);
+
+    expect(onReadRows).not.toHaveBeenCalled();
+  });
+
+  // ⚠️ 建基线是后台账本，解析炸了绝不能掀掉这条 CDP 连接上的改价监听。
+  it('onReadResponse 抛错被吞掉并记 warn', async () => {
+    const adapter = readAdapter({
+      onReadResponse: vi.fn(() => {
+        throw new Error('bad json');
+      }),
+    });
+    const onReadRows = vi.fn();
+    const webContents = createFakeWebContents({
+      'Network.getResponseBody': { body: READ_RESPONSE, base64Encoded: false },
+    });
+    const logger = createLogger();
+    const capture = new AmountSaveCapture(
+      webContents as never,
+      adapter,
+      logger,
+      vi.fn(),
+      onReadRows,
+    );
+    await capture.attach();
+    webContents.emit('Network.requestWillBeSent', {
+      requestId: '2.2',
+      request: { url: READ_URL, postData: '{}' },
+    });
+    await flushMicrotasks();
+    webContents.emit('Network.loadingFinished', { requestId: '2.2' });
+    await flushMicrotasks();
+
+    expect(onReadRows).not.toHaveBeenCalled();
+    expect(logger.warn).toHaveBeenCalledWith(
+      'Amount save capture: read response parse threw',
+      expect.objectContaining({ endpointId: 'query_inventory' }),
+    );
+  });
+
+  it('未注入 onReadRows 时行为与从前一致，不抛错', async () => {
+    const adapter = readAdapter();
+    const webContents = createFakeWebContents({
+      'Network.getResponseBody': { body: READ_RESPONSE, base64Encoded: false },
+    });
+    const capture = new AmountSaveCapture(webContents as never, adapter, createLogger(), vi.fn());
+    await capture.attach();
+    webContents.emit('Network.requestWillBeSent', {
+      requestId: '2.3',
+      request: { url: READ_URL, postData: '{}' },
+    });
+    await flushMicrotasks();
+    webContents.emit('Network.loadingFinished', { requestId: '2.3' });
+    await flushMicrotasks();
+
+    expect(adapter.parse).not.toHaveBeenCalled();
+  });
+
+  it('写端点不受影响，仍然照常走 parse', async () => {
+    const adapter = readAdapter();
+    const onReadRows = vi.fn();
+    const webContents = createFakeWebContents({
+      'Network.getResponseBody': { body: SUCCESS_RESPONSE, base64Encoded: false },
+    });
+    const capture = new AmountSaveCapture(
+      webContents as never,
+      adapter,
+      createLogger(),
+      vi.fn(),
+      onReadRows,
+    );
+    await capture.attach();
+    webContents.emit('Network.requestWillBeSent', {
+      requestId: '2.4',
+      request: { url: SAVE_URL, postData: REQUEST_BODY },
+    });
+    await flushMicrotasks();
+    webContents.emit('Network.loadingFinished', { requestId: '2.4' });
+    await flushMicrotasks();
+
+    expect(adapter.parse).toHaveBeenCalledTimes(1);
+    expect(onReadRows).not.toHaveBeenCalled();
+  });
+});

@@ -25,6 +25,7 @@ import type { WebContents } from 'electron';
 import type { ChannelId } from '../ids';
 import { safeLogErrorDetails, type AppLogger } from '../../shared/logging';
 import type { OtaAmountChangeObserved } from '../../shared/types/amount-change';
+import type { JsonObject } from '../../shared/types/json';
 import { AmountSaveCapture } from './amount-save-capture';
 import type { AmountChangeAdapter } from './types';
 
@@ -62,6 +63,21 @@ export type AmountChangeWatcherDependencies = Readonly<{
   onReportedForReadback?: (
     observed: OtaAmountChangeObserved,
     webContents: WebContents,
+    partitionName: string,
+  ) => void;
+
+  /**
+   * 页面自己发的价量态**查询**响应到了 —— 拿去建基线快照。
+   *
+   * **可选**：没接快照的部署省略即可，届时读端点拦到后只是丢弃，行为与从前一致。
+   *
+   * ⚠️ 与上面两个回调一样不 await、失败也互不影响：建基线是后台账本，
+   * 绝不能拖累用户可感知的改价上报。
+   */
+  onReadRows?: (
+    channel: ChannelId,
+    endpointId: string,
+    rows: readonly JsonObject[],
     partitionName: string,
   ) => void;
 }>;
@@ -114,8 +130,20 @@ export class AmountChangeWatcher {
         this.deps.report(report, event.partitionName);
         // 房量回读：与上面那条**并行**的另一条链路，不阻塞它、失败也不影响它。
         // 没有接回读的部署里这个回调不存在，watcher 行为与从前一致。
+        // 回读的触发点。没有这条就看不出「改价上报出去了但回读没被调起」。
+        this.deps.logger.info('Amount change: triggering readback', {
+          endpointId: report.endpointId,
+          hasReadbackHook: this.deps.onReportedForReadback !== undefined,
+        });
         this.deps.onReportedForReadback?.(report, event.webContents, event.partitionName);
       },
+      (endpointId, rows) =>
+        this.deps.onReadRows?.(
+          event.channelId as ChannelId,
+          endpointId,
+          rows,
+          event.partitionName,
+        ),
     );
 
     // 先登记再 attach：attach 是异步的，登记晚了会让期间到来的第二个导航事件误判为

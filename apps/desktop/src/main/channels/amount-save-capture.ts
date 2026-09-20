@@ -168,6 +168,14 @@ export class AmountSaveCapture {
     private readonly adapter: AmountChangeAdapter,
     private readonly logger: AppLogger,
     private readonly onObserved: (report: OtaAmountChangeObserved) => void,
+    /**
+     * 读端点拿到价量态查询结果时调用。**可选** —— 没接快照的部署省略即可，
+     * 届时 `isReadEndpoint` 命中后只是丢弃，行为与从前一致。
+     *
+     * 传的是渠道**原始行**而非快照格子：格子需要 `otaHotelId`（取自登录凭证），
+     * 而 `channels/` 够不着 `database/`。补齐在装配层做，与回读同一手法。
+     */
+    private readonly onReadRows?: (endpointId: string, rows: readonly JsonObject[]) => void,
   ) {}
 
   /**
@@ -282,6 +290,25 @@ export class AmountSaveCapture {
     // 形状自辨会被判成一次成功的改动并产出上报体。
     if (this.adapter.isAuxiliaryEndpoint?.(saved.endpointId)) {
       this.adapter.onAuxiliaryResponse?.(saved.endpointId, responseBody);
+      return;
+    }
+
+    // 读端点：页面自己发的价量态查询。与旁听端点同样不判成败、不产上报体，但去向不同
+    // —— 内容拿去建基线快照。必须也在 isSuccessful 之前分流，理由同上。
+    if (this.adapter.isReadEndpoint?.(saved.endpointId)) {
+      if (!this.onReadRows || !this.adapter.onReadResponse) return;
+      let rows: readonly JsonObject[];
+      try {
+        rows = this.adapter.onReadResponse(saved.endpointId, responseBody);
+      } catch (error) {
+        // 建基线是后台账本，解析失败绝不能影响这条 CDP 连接上的改价监听。
+        this.logger.warn('Amount save capture: read response parse threw', {
+          endpointId: saved.endpointId,
+          error: safeLogErrorDetails(error),
+        });
+        return;
+      }
+      if (rows.length > 0) this.onReadRows(saved.endpointId, rows);
       return;
     }
 

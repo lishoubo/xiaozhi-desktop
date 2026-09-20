@@ -21,6 +21,8 @@ import {
 } from '../database/application-database';
 import { SqliteOtaCredentialRepository } from '../database/ota-credential-repository';
 import { SqliteOtaHotelRepository } from '../database/ota-hotel-repository';
+import { SqliteOtaInventorySnapshotRepository } from '../database/ota-inventory-snapshot-repository';
+import { SnapshotWriteQueue } from '../inventory-snapshot/snapshot-write-queue';
 import { readOrCreateDeviceId } from '../file-store/device-id';
 import { updatePartitionState } from '../file-store/partition-ledger';
 import {
@@ -60,6 +62,11 @@ export type AppScope = Readonly<{
   calendarRepository: SqliteCalendarRepository;
   otaCredentialRepository: SqliteOtaCredentialRepository;
   otaHotelRepository: SqliteOtaHotelRepository;
+  /**
+   * 价量态基线快照的写入队列。**进程级而非窗口级**：快照跨窗口共享，且定时扫描
+   * （Change B）的生命周期长于任何单个窗口 —— 窗口关闭只该摘掉投递方，队列本身不停。
+   */
+  snapshotWriteQueue: SnapshotWriteQueue;
   hotelManagementService: HotelManagementService;
   otaCredentialService: OtaCredentialService;
   /**
@@ -130,6 +137,27 @@ export function createAppScope(logger: AppLogger): AppScope {
   const calendarRepository = new SqliteCalendarRepository(database);
   const otaCredentialRepository = new SqliteOtaCredentialRepository(database);
   const otaHotelRepository = new SqliteOtaHotelRepository(database);
+  const snapshotRepository = new SqliteOtaInventorySnapshotRepository(database);
+  // 过期格子清理：启动时跑一次。
+  //
+  // ⚠️ 为什么在启动时而不是随写入顺带：随写入做的话，每批写入都要额外算一次日期并发一条
+  // DELETE，而过期是**按天**发生的事，一天跑一次绰绰有余。放启动时还顺带覆盖了「应用常年
+  // 不关」之外的绝大多数场景，且不需要额外的定时器。
+  //
+  // 保留 30 天：窗口默认 7 天，留足余量以便排查「上周那格当时是什么」。
+  try {
+    const cutoff = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    const purged = snapshotRepository.deleteOlderThan(cutoff);
+    if (purged > 0) logger.info('Inventory snapshot purged stale cells', { purged, cutoff });
+  } catch (error) {
+    // 清理失败不该挡住启动 —— 库里多留些旧行只是占空间，不影响正确性。
+    logger.warn('Inventory snapshot purge failed', { error: safeLogErrorDetails(error) });
+  }
+  // 队列只认一个「写」回调 —— 它不该知道 repository 的其余方法（读基线、清理都不归它管）。
+  const snapshotWriteQueue = new SnapshotWriteQueue({
+    write: (cells) => snapshotRepository.upsertMany(cells),
+    logger,
+  });
 
   /**
    * RMS 认证栈。放在进程级而非窗口级，是因为 gateway 也活在这一层——
@@ -243,6 +271,7 @@ export function createAppScope(logger: AppLogger): AppScope {
     calendarRepository,
     otaCredentialRepository,
     otaHotelRepository,
+    snapshotWriteQueue,
     hotelManagementService: new HotelManagementService({
       hotelGateway: new HttpRmsHotelGateway({
         origin: rmsOrigin,
@@ -311,6 +340,9 @@ export function createAppScope(logger: AppLogger): AppScope {
     },
     dispose() {
       updaterService.dispose();
+      // 必须在 database.close() 之前：队列里可能还压着没写的格子，
+      // 让它先停掉消费，避免往一个已关闭的连接上写。
+      snapshotWriteQueue.dispose();
       database.close();
       logger.info('Application database closed');
     },

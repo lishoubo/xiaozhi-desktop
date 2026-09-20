@@ -53,6 +53,25 @@ export type InventoryReadbackDispatcherDependencies = Readonly<{
    */
   report: (observed: OtaAmountChangeObserved, partitionName: string) => void;
   /**
+   * 回读成功时把 cells 写进基线快照。**可选**，省略即不写（单测默认不注入）。
+   *
+   * ## ⚠️ 为什么在这一层写，而不是各渠道实现里
+   *
+   * 回读产出的 `changeRaw.cells` 是**两个渠道同构**的（携程与美团的 payload 文件刻意对齐了
+   * 外层四个字段），所以取 cells 这一步渠道无关。写在这里，加一个渠道自动就有。
+   *
+   * ## ⚠️ 与 `report` 是两条互不阻塞的下游
+   *
+   * ```
+   * readback ok ─┬─→ report   （既有，发 RMS）
+   *              └─→ persist  （本次新增，写基线）
+   * ```
+   *
+   * persist 抛错**绝不能**影响 report —— 上报是用户可感知的业务动作，写基线是后台账本。
+   * 实现侧是投递队列（同步入队、不等写库），这里再兜一层 try。
+   */
+  persistSnapshot?: (report: OtaAmountChangeObserved, partitionName: string) => void;
+  /**
    * 回读失败时同时上报到 GlitchTip。**可选**，省略即不上报（单测默认走 noop）。
    *
    * ## 为什么在这一层上报，而不是各渠道实现里
@@ -98,6 +117,13 @@ export class InventoryReadbackDispatcher {
     // 该渠道没注册回读能力 —— 正常情况，不记日志（否则每次改价都会刷一条噪音）。
     if (!readback) return;
 
+    // 链路起点。与下面的 outcome 日志配对，能看出「进来了但没出去」。
+    this.deps.logger.info('Inventory readback starting', {
+      channel: report.source,
+      triggerEndpointId: report.endpointId,
+      hasPersist: this.deps.persistSnapshot !== undefined,
+    });
+
     try {
       const outcome = await readback.readback(report, webContents);
 
@@ -106,6 +132,16 @@ export class InventoryReadbackDispatcher {
 
       switch (outcome.kind) {
         case 'ok':
+          this.deps.logger.info('Inventory readback ok', {
+            channel: report.source,
+            cells: Array.isArray(outcome.report.changeRaw.cells)
+              ? outcome.report.changeRaw.cells.length
+              : -1,
+            hasPersist: this.deps.persistSnapshot !== undefined,
+          });
+          // 先写基线再上报：两者互不依赖，但基线是本地账本、上报要走网络，
+          // 先做本地的那件事能让「上报失败但基线已更新」成为可能的状态，反过来则不行。
+          this.persist(outcome.report, partitionName);
           this.deps.report(outcome.report, partitionName);
           return;
         case 'skipped':
@@ -152,6 +188,24 @@ export class InventoryReadbackDispatcher {
         channel: report.source,
         hotelId: report.otaHotelId || undefined,
         extra: { triggerEndpointId: report.endpointId, reason: 'threw' },
+      });
+    }
+  }
+
+  /**
+   * 写基线。**吞掉所有异常** —— 见 `persistSnapshot` 的注释：这条链路绝不能影响上报。
+   */
+  private persist(report: OtaAmountChangeObserved, partitionName: string): void {
+    if (!this.deps.persistSnapshot) {
+      this.deps.logger.warn('Inventory snapshot persist not wired', { channel: report.source });
+      return;
+    }
+    try {
+      this.deps.persistSnapshot(report, partitionName);
+    } catch (error) {
+      this.deps.logger.warn('Inventory snapshot persist threw', {
+        channel: report.source,
+        error: safeLogErrorDetails(error),
       });
     }
   }

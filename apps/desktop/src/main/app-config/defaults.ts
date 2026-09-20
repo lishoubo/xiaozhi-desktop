@@ -19,4 +19,9 @@ export const DEFAULT_APP_CONFIG: AppConfig = {
     // ⚠️ 刻意没有 delayMs / windowDays —— 美团写入同步、无「应用到所有日期」。见 types.ts。
     timeoutMs: 30_000,
   },
+  inventoryScan: {
+    // 7 天：与携程回读的 windowDays 同口径。真机观察取数耗时与渠道稳定性后再调。
+    window: { kind: 'days', days: 7 },
+    timeoutMs: 30_000,
+  },
 };
