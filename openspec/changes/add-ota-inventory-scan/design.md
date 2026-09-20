@@ -196,7 +196,65 @@ GlitchTip 这条现成，不必等新 change 就有「不用问业户要日志�
 
 ⚠️ 只改默认值，不动 `window` 的联合形状（多时间段仍是将来加分支）。
 
-### 8. 装配
+### 8. ⚠️ 开关：渠道 × 酒店两层粒度，默认全关
+
+**周期性打渠道接口是有外部副作用的行为**，必须能按最小粒度关停 —— 某家店触发风控、
+某个渠道改版导致取数异常时，要能只关那一个，而不是整个功能下线或重新发版。
+
+三层判定，**逐层与**，任一层关即不扫：
+
+```
+enabled                       总闸
+  └─ channels[source].enabled    渠道级：携程开，美团/抖音未接入即关
+       └─ byHotel[id].enabled     酒店级：逐店灰度、出问题单独摘掉
+```
+
+```ts
+type InventoryScanConfig = Readonly<{
+  /** 总闸。⚠️ 默认 false —— 周期性外部请求不该因为装了新版本就自己跑起来。 */
+  enabled: boolean;
+
+  window: Readonly<{ kind: 'days'; days: number }>;
+  timeoutMs: number;
+  idleMs: number;
+
+  /**
+   * 渠道级开关与覆盖。**未列出的渠道视为关闭**（不是默认开）——
+   * 新接入的渠道在踩点完成前不该被自动扫描。
+   */
+  channels?: Readonly<Record<string, Partial<InventoryScanChannelConfig>>>;
+
+  /**
+   * 酒店级开关与覆盖，键是 `otaHotelId`。
+   * ⚠️ **未列出的酒店取上层的值**（与 `channels` 相反）—— 酒店是动态的，
+   * 要求每家店都显式登记才扫，会让新绑的店默默不扫且没人发现。
+   */
+  byHotel?: Readonly<Record<string, Partial<InventoryScanHotelConfig>>>;
+}>;
+```
+
+⚠️ **两处默认语义刻意相反**，这是本决策最容易写错的地方：
+
+| | 未列出时 | 为什么 |
+|---|---|---|
+| `channels` | **关** | 渠道是有限且已知的，加渠道是开发行为，必须显式开 |
+| `byHotel` | **开**（取上层值） | 酒店是用户动态绑的，要求显式登记会让新店静默不扫 |
+
+⚠️ **`mergeConfig` 必须同时扩展深度**（Change A 已标注这个前置）：现有实现**只深一层**，
+`channels` / `byHotel` 会被整体替换 —— 服务端只想关一家店，会把其余店的配置全抹掉。
+
+**判定发生在调度层**，不在取数层：
+
+```
+每轮 → 总闸关？→ 整轮跳过，不遍历凭证
+     → 逐个凭证 → 渠道关？→ 跳过该账号
+                → 酒店关？→ 跳过该账号
+```
+
+⚠️ 跳过**不记 warn**（正常配置状态，不是异常），但整轮跳过时记一条 info，
+否则「开关关着」与「调度器挂了」在日志里长得一样。
+
+### 9. 装配
 
 ```
 app-scope      InventoryScanDispatcher        ← 跨窗口，生命周期长于任何窗口
