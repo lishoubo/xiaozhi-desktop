@@ -65,3 +65,46 @@ Change B 落地后可能还要再改一轮。
 **定时扫描一律叫 `scan`，不叫 `prob`/`probe`。** Change B 全线已按此命名：
 `InventoryScanDispatcher` / `inventory-scan.ts` / `endpointId: 'inventoryScan'` /
 `sourceOfTruth: 'scan'`。
+
+---
+
+## ISSUE-2 三层开关的 `isHotelEnabled` 没有测试覆盖
+
+**发现于**：2026-09-20 code review（P1-4 修复时）
+**状态**：待补 —— 用户明确「目前不需要，后面再加」
+
+### 现状
+
+`byHotel` 的键已修成 `<channel>:<otaHotelId>`（原先是裸 `otaHotelId`，两个渠道的同号
+门店会互相影响）。修复本身已生效，但**没有测试钉住它**。
+
+原因是实现藏在装配层的闭包里：
+
+```
+composition/app-scope.ts
+  config: () => {
+    const scopeOf = (channel, otaHotelId) => ({ ... })   ← 闭包内，测试够不到
+    return { isChannelEnabled, isHotelEnabled, ... }
+  }
+```
+
+`inventory-scan-dispatcher.test.ts` 只能传一个假的 `isHotelEnabled` 进去，测的是
+**调度器怎么用这个判据**，而不是**判据本身算得对不对**。
+
+### 要测什么
+
+| 用例 | 期望 |
+|---|---|
+| `byHotel['ctrip:123'].enabled = false` | 携程 123 不扫 |
+| 同上，但问美团 123 | 美团 123 **照常扫**（不受影响）← 本次修的就是这条 |
+| `byHotel` 未列出该店 | 取渠道层的值 |
+| 渠道层关、酒店层开 | 酒店层优先（`hotel?.enabled ?? channelScope?.enabled ?? false`） |
+
+### 怎么改才能测
+
+把那个 `config()` 工厂从 `app-scope.ts` 的闭包里提成独立的纯函数，例如
+`channels/scan-runtime-config.ts`：`(appConfig: AppConfig) => ScanRuntimeConfig`。
+装配层只负责调它。属于小重构，不影响行为。
+
+⚠️ 同时注意：`byHotel` 的键格式变更**没有迁移逻辑**。当前默认值是 `{}`、也还没有任何
+下发链路，所以无存量数据。将来若先上了服务端下发再来改键格式，就需要迁移了。

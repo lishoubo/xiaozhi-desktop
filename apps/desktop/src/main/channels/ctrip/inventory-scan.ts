@@ -87,6 +87,14 @@ type CtripRoomRef = JsonObject &
     roomName: string;
     payType: string;
     roomClass: number;
+    /**
+     * ⚠️ **不可省**：缺它 `roomPriceResult` 为空（见文件头）。显式声明在类型上而不是
+     * 只靠 `JsonObject` 的索引签名混进去 —— 否则将来漏填不会有编译错误，而失效方式是
+     * 价格格子静默消失、房态照常流动，日志上看不出任何异常。
+     *
+     * 取不到时是 `null`（原样带走，不省略该键）。
+     */
+    rateCodeID: JsonObject[string];
   }>;
 
 /**
@@ -137,7 +145,7 @@ function pickAllRoomRefs(data: unknown): {
         // 缺省回落 roomTypeID —— 与 rms-rpa-worker 侧同口径。
         roomClass: typeof room.roomClass === 'number' ? room.roomClass : roomTypeID,
         // ⚠️ 不可省：缺它 roomPriceResult 为空。原样带走，包括缺失的情况。
-        rateCodeID: (room.rateCodeID ?? null) as JsonObject[string],
+        rateCodeID: room.rateCodeID ?? null,
       });
     }
   }

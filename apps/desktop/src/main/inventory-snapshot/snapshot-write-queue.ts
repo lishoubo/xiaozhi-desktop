@@ -69,7 +69,8 @@ export class SnapshotWriteQueue {
    * ⚠️ 用 Map 而非数组：键是格子的唯一标识，同一格重复投递时**后者覆盖前者**。
    *
    * 这既是防膨胀（用户狂翻日历时同一格会被反复投递），也是合并写——一格只写最终值。
-   * Map 的插入序即投递序，所以 drain 仍是先进先出。
+   * 重复投递时 `push` 会把该键移到队尾（见那里的注释），所以队列顺序始终是
+   * 「最后一次投递的先后」，drain 与溢出淘汰都据此先进先出。
    */
   private readonly pending = new Map<string, SnapshotCell>();
   private draining = false;
@@ -87,7 +88,12 @@ export class SnapshotWriteQueue {
 
     const maxPending = this.deps.maxPending ?? DEFAULT_MAX_PENDING;
     for (const cell of cells) {
-      this.pending.set(snapshotKeyOf(cell), cell);
+      const key = snapshotKeyOf(cell);
+      // ⚠️ 先 delete 再 set：Map 对已存在的 key 做 set 会**保持原插入位置**，
+      // 于是一个早就入队、刚被重新投递的格子，会带着它的最新值排在队首，
+      // 被下面的溢出淘汰当成「最早的」丢掉 —— 与那里的意图正好相反。
+      this.pending.delete(key);
+      this.pending.set(key, cell);
     }
 
     if (this.pending.size > maxPending) {

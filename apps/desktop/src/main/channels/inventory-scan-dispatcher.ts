@@ -47,8 +47,6 @@ export type ScanRuntimeConfig = Readonly<{
   idleMs: number;
   jitterMs: number;
   windowDays: number;
-  /** 距上次用户写操作不足这个毫秒数则跳过本轮。 */
-  quietAfterWriteMs: number;
   isChannelEnabled: (channel: ChannelId) => boolean;
   isHotelEnabled: (channel: ChannelId, otaHotelId: string) => boolean;
 }>;
@@ -65,9 +63,12 @@ export type InventoryScanDispatcherDependencies = Readonly<{
    * 取数成功时把原始行递出去。窄回调：比对与落库在 `inventory-snapshot/`，
    * 而 `channels/` 被 eslint 禁止依赖它。
    */
-  onRows: (target: ScanTarget, rows: readonly JsonObject[]) => void;
-  /** 上次用户写操作的时刻（毫秒）；从未有过则 `null`。用于静默判据。 */
-  lastWriteAt: () => number | null;
+  onRows: (
+    target: ScanTarget,
+    rows: readonly JsonObject[],
+    /** 本轮请求的窗口天数（含今天）。比对基线的区间据此算，不从返回数据反推。 */
+    windowDays: number,
+  ) => void;
   /** 失效上报到 GlitchTip。可选，省略走 noop。 */
   reportError?: ErrorReporter;
   /** 定时器。**入参**以便测试同步驱动。 */
@@ -75,10 +76,15 @@ export type InventoryScanDispatcherDependencies = Readonly<{
   clearTimer?: (timer: NodeJS.Timeout) => void;
   /** 抖动随机源（`[0,1)`）。**入参**以便断言间隔落在预期区间。 */
   random?: () => number;
-  now?: () => number;
 }>;
 
 const OPERATION = 'inventoryScan';
+
+/**
+ * 两轮之间的最小间隔。配置是每轮重读的、且设计上可由服务端下发，所以这里要能挡住
+ * 一个下发错的 `idleMs`（0 / 负数 / NaN）—— 那会让调度器变成紧循环打渠道接口。
+ */
+const MIN_IDLE_MS = 30_000;
 
 export class InventoryScanDispatcher {
   private timer: NodeJS.Timeout | null = null;
@@ -112,7 +118,13 @@ export class InventoryScanDispatcher {
     const random = this.deps.random ?? Math.random;
     const { idleMs, jitterMs } = this.deps.config();
 
-    const delayMs = idleMs + Math.floor(random() * Math.max(0, jitterMs));
+    // ⚠️ `idleMs` 必须钳下限：配置每轮重读且设计上可由服务端下发，一个 0 / 负数 / NaN
+    // 会把 fixed-delay 变成紧循环猛打渠道端点 —— 正是抖动机制要避免的风控形状。
+    // `Math.max` 对 NaN 返回 NaN，所以用显式的有限数判断兜住。
+    const safeIdleMs = Number.isFinite(idleMs) ? Math.max(MIN_IDLE_MS, idleMs) : MIN_IDLE_MS;
+    const safeJitterMs = Number.isFinite(jitterMs) ? Math.max(0, jitterMs) : 0;
+
+    const delayMs = safeIdleMs + Math.floor(random() * safeJitterMs);
     this.timer = setTimer(() => {
       this.timer = null;
       void this.runRound();
@@ -147,11 +159,6 @@ export class InventoryScanDispatcher {
       return;
     }
 
-    if (this.isWithinQuietWindow(config)) {
-      this.deps.logger.info('Inventory scan skipped: recent user write');
-      return;
-    }
-
     const targets = this.deps.listTargets();
     if (targets.length === 0) return;
 
@@ -166,15 +173,6 @@ export class InventoryScanDispatcher {
 
       await this.scanOne(scan, target, config.windowDays);
     }
-  }
-
-  /** 用户刚改完东西时不扫：取到的可能是中间态，也会与回读抢同一批数据。 */
-  private isWithinQuietWindow(config: ScanRuntimeConfig): boolean {
-    if (config.quietAfterWriteMs <= 0) return false;
-    const lastWriteAt = this.deps.lastWriteAt();
-    if (lastWriteAt === null) return false;
-    const now = this.deps.now?.() ?? Date.now();
-    return now - lastWriteAt < config.quietAfterWriteMs;
   }
 
   /**
@@ -192,7 +190,7 @@ export class InventoryScanDispatcher {
       switch (outcome.kind) {
         case 'ok':
           // 空行也递出去：让上层决定「确实没数据」怎么处理，调度层不替它判断。
-          this.deps.onRows(target, outcome.rows);
+          this.deps.onRows(target, outcome.rows, windowDays);
           return;
         case 'skipped':
           this.deps.logger.info('Inventory scan skipped for target', {

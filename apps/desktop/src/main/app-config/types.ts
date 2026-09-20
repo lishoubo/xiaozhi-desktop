@@ -135,7 +135,8 @@ export type InventoryScanConfig = Readonly<{
   timeoutMs: number;
 
   /**
-   * 两轮之间歇多久（毫秒）。**默认 5 分钟。**
+   * 两轮之间歇多久（毫秒）。**默认按环境分档：dev 1 分钟，pre/online 5 分钟**
+   * （见 `defaults.ts` 的 `SCAN_PACE`）。
    *
    * ⚠️ 是 fixed-delay 的「歇多久」，**不是固定频率**：上一轮完全结束后才开始计时，
    * 所以实际间隔 = 本轮耗时 + `idleMs` + 抖动，恒大于它。取名 `idleMs` 而非
@@ -144,20 +145,13 @@ export type InventoryScanConfig = Readonly<{
   idleMs: number;
 
   /**
-   * 随机抖动上限（毫秒）。**默认 1 分钟**（`idleMs` 的 20%）。
+   * 随机抖动上限（毫秒）。**默认恒为 `idleMs` 的 20%**（dev 12 秒，pre/online 1 分钟）。
    * 每轮实际歇 `idleMs + [0, jitterMs)`。
    *
    * ⚠️ 不是可选项：没有抖动，同一批装机的机器（集中部署的门店）会按各自启动时刻形成
    * 固定节拍、长期同相位，每 `idleMs` 齐刷刷打一次渠道 —— 正是触发风控的形状。
    */
   jitterMs: number;
-
-  /**
-   * 距上次用户写操作不足这个毫秒数则跳过本轮。默认 1 分钟。
-   *
-   * 用户正在改价时扫描，取到的可能是改了一半的中间态，且与回读抢同一批数据。
-   */
-  quietAfterWriteMs: number;
 
   /**
    * 渠道级开关与覆盖。
@@ -170,7 +164,11 @@ export type InventoryScanConfig = Readonly<{
   channels: Readonly<Record<string, Partial<InventoryScanScopeConfig>>>;
 
   /**
-   * 酒店级开关与覆盖，键是 `otaHotelId`。
+   * 酒店级开关与覆盖，键是 **`<channel>:<otaHotelId>`**（例：`ctrip:122247738`）。
+   *
+   * ⚠️ 键**必须带渠道前缀**：`otaHotelId` 取自各渠道自己的 `masterHotelId`，只在渠道内
+   * 唯一，两个渠道完全可能出现相同数字 ID。用裸 ID 做键会让关掉一个渠道的某家店，
+   * 连带关掉另一渠道同号的无关门店 —— 而这个开关存在的理由正是「只关那一个」。
    *
    * ⚠️ **未列出的酒店取上层的值**（与 `channels` 相反）—— 酒店是用户动态绑定的，
    * 要求每家店都显式登记才扫，会让新绑的店**静默不扫且没人发现**。

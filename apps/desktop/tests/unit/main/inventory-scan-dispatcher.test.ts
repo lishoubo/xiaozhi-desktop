@@ -26,7 +26,6 @@ function config(overrides: Partial<ScanRuntimeConfig> = {}): ScanRuntimeConfig {
     idleMs: 300_000,
     jitterMs: 60_000,
     windowDays: 15,
-    quietAfterWriteMs: 0,
     isChannelEnabled: () => true,
     isHotelEnabled: () => true,
     ...overrides,
@@ -63,7 +62,6 @@ function createHarness(overrides: Partial<InventoryScanDispatcherDependencies> =
     config: () => config(),
     listTargets: () => [target()],
     onRows,
-    lastWriteAt: () => null,
     reportError,
     setTimer: (run, delayMs) => {
       scheduled.push({ run, delayMs });
@@ -186,6 +184,39 @@ describe('抖动', () => {
   });
 });
 
+// ⚠️ 配置每轮重读且设计上可由服务端下发 —— 一个下发错的 idleMs 不能把调度器
+// 变成紧循环猛打渠道接口。
+describe('间隔下限', () => {
+  const clampCases = [
+    ['0', 0],
+    ['负数', -1],
+    ['NaN', Number.NaN],
+  ] as const;
+
+  for (const [label, idleMs] of clampCases) {
+    it(`idleMs 为 ${label} 时钳到下限而非立即重排`, () => {
+      const h = createHarness({ config: () => config({ idleMs }), random: () => 0 });
+      h.dispatcher.start();
+      expect(h.scheduled[0]?.delayMs).toBe(30_000);
+    });
+  }
+
+  it('jitterMs 为 NaN 时退化成无抖动，不产出 NaN 间隔', () => {
+    const h = createHarness({
+      config: () => config({ jitterMs: Number.NaN }),
+      random: () => 0.9,
+    });
+    h.dispatcher.start();
+    expect(h.scheduled[0]?.delayMs).toBe(300_000);
+  });
+
+  it('正常值不受钳制影响', () => {
+    const h = createHarness({ config: () => config({ idleMs: 300_000 }), random: () => 0 });
+    h.dispatcher.start();
+    expect(h.scheduled[0]?.delayMs).toBe(300_000);
+  });
+});
+
 describe('开关', () => {
   it('总闸关闭时整轮跳过，不遍历账号，并记 info', async () => {
     const listTargets = vi.fn(() => [target()]);
@@ -223,48 +254,15 @@ describe('开关', () => {
   });
 });
 
-describe('静默窗口', () => {
-  it('距上次写操作不足阈值时跳过本轮', async () => {
-    const h = createHarness({
-      config: () => config({ quietAfterWriteMs: 60_000 }),
-      lastWriteAt: () => 1_000_000,
-      now: () => 1_030_000,
-    });
-    h.dispatcher.start();
-    await h.fire();
-    expect(h.onRows).not.toHaveBeenCalled();
-    expect(h.logger.info).toHaveBeenCalledWith('Inventory scan skipped: recent user write');
-  });
-
-  it('超过阈值后照常扫', async () => {
-    const h = createHarness({
-      config: () => config({ quietAfterWriteMs: 60_000 }),
-      lastWriteAt: () => 1_000_000,
-      now: () => 1_200_000,
-    });
-    h.dispatcher.start();
-    await h.fire();
-    expect(h.onRows).toHaveBeenCalledTimes(1);
-  });
-
-  it('从未写过时不跳过', async () => {
-    const h = createHarness({
-      config: () => config({ quietAfterWriteMs: 60_000 }),
-      lastWriteAt: () => null,
-    });
-    h.dispatcher.start();
-    await h.fire();
-    expect(h.onRows).toHaveBeenCalledTimes(1);
-  });
-});
-
 describe('逐账号处置', () => {
   it('ok 时把行递出去，带上 target', async () => {
     harness.dispatcher.start();
     await harness.fire();
+    // ⚠️ 第三个参数是本轮请求的窗口 —— 上层据它算比对区间，不从返回数据反推。
     expect(harness.onRows).toHaveBeenCalledWith(
       expect.objectContaining({ otaHotelId: '122244992' }),
       [ROW],
+      15,
     );
   });
 
@@ -273,7 +271,7 @@ describe('逐账号处置', () => {
     const h = createHarness({ scans: new Map([[CTRIP, scanOf({ kind: 'ok', rows: [] }).scan]]) });
     h.dispatcher.start();
     await h.fire();
-    expect(h.onRows).toHaveBeenCalledWith(expect.anything(), []);
+    expect(h.onRows).toHaveBeenCalledWith(expect.anything(), [], 15);
   });
 
   it('skipped 记 info，不递行、不上报错误', async () => {
@@ -336,5 +334,19 @@ describe('逐账号处置', () => {
     await h.fire();
     expect(h.logger.warn).toHaveBeenCalledWith('Inventory scan threw', expect.anything());
     expect(h.onRows).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ⚠️ 窗口每轮从配置重读 —— 服务端改了窗口，比对区间要跟着变，不能是构造时的快照。
+describe('窗口透传', () => {
+  it('递出的窗口取自本轮配置', async () => {
+    let windowDays = 15;
+    const h = createHarness({ config: () => config({ windowDays }) });
+    h.dispatcher.start();
+    await h.fire();
+    expect(h.onRows).toHaveBeenLastCalledWith(expect.anything(), expect.anything(), 15);
+    windowDays = 7;
+    await h.fire();
+    expect(h.onRows).toHaveBeenLastCalledWith(expect.anything(), expect.anything(), 7);
   });
 });

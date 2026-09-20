@@ -30,6 +30,27 @@ import type { OtaAmountChangeObserved } from '../../shared/types/amount-change';
 import { diffSnapshots } from './snapshot-diff';
 import type { SnapshotCell, SnapshotCellMapper } from './types';
 
+/** `YYYY-MM-DD`，取本地日期 —— 渠道的「今天」是营业日，不是 UTC 日。 */
+function toDateKey(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+/**
+ * 本轮扫描的日期区间（闭区间）。与 `channels/ctrip/inventory-scan.ts` 算请求窗口
+ * 同一口径：自今日起算，`windowDays` 含今天，所以末日是 `+(windowDays - 1)`。
+ *
+ * ⚠️ 两处必须一致：查基线的区间比请求的窄，会让窗口尾部的格子每轮都当成「首次见到」
+ * 只写不报，差异永远报不出来。
+ */
+function scanWindow(today: Date, windowDays: number): readonly [string, string] {
+  const end = new Date(today);
+  end.setDate(end.getDate() + Math.max(0, windowDays - 1));
+  return [toDateKey(today), toDateKey(end)];
+}
+
 /** 读一批基线。窄回调，由装配层接到 repository。 */
 export type ReadBaseline = (
   source: string,
@@ -72,10 +93,10 @@ export type ScanResultTarget = Readonly<{
  */
 export function createScanResultHandler(
   deps: ScanResultHandlerDependencies,
-): (target: ScanResultTarget, rows: readonly JsonObject[]) => void {
+): (target: ScanResultTarget, rows: readonly JsonObject[], windowDays: number) => void {
   const now = deps.now ?? (() => Date.now());
 
-  return (target, rows) => {
+  return (target, rows, windowDays) => {
     const mapper = deps.mappers.get(target.channel);
     const buildReport = deps.reportBuilders.get(target.channel);
     // 该渠道没接快照/上报 —— 正常情况，不记日志。
@@ -95,13 +116,10 @@ export function createScanResultHandler(
     }
 
     // ⚠️ 以下到 enqueue 为止**不得出现 await** —— 见文件头。
-    const dates = latest.map((cell) => cell.itemDate).sort();
-    const baseline = deps.readBaseline(
-      target.channel,
-      target.otaHotelId,
-      dates[0] ?? '',
-      dates[dates.length - 1] ?? '',
-    );
+    // 区间用**本轮请求的窗口**，不从返回数据反推 min/max：那样查询范围会随渠道
+    // 返回了什么而漂移，「这一轮到底比了哪些天」对不上账。
+    const [startDate, endDate] = scanWindow(new Date(observedAt), windowDays);
+    const baseline = deps.readBaseline(target.channel, target.otaHotelId, startDate, endDate);
     const { changed, added } = diffSnapshots(latest, baseline);
 
     // 无论变没变都要写：未变的格子刷新 observedAt，让「这格是什么时候确认过的」有据可查。

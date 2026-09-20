@@ -75,8 +75,13 @@ describe('inventoryScan', () => {
     // 8~15 天那部分基线永远不会被比对。
     expect(config.inventoryScan.window).toEqual({ kind: 'days', days: 15 });
     expect(config.inventoryScan.timeoutMs).toBe(30_000);
-    expect(config.inventoryScan.idleMs).toBe(300_000);
-    expect(config.inventoryScan.jitterMs).toBe(60_000);
+    // ⚠️ 节奏按构建环境分档（dev 1 分钟 / pre·online 5 分钟），所以这里断言的是
+    // **不变量**而非某一档的字面量 —— 钉死字面量会让另一档构建下的同一份代码测不过。
+    expect([60_000, 300_000]).toContain(config.inventoryScan.idleMs);
+    // 抖动恒为 idleMs 的 20%：没有抖动，集中部署的门店会长期同相位齐刷刷打渠道。
+    expect(config.inventoryScan.jitterMs).toBe(config.inventoryScan.idleMs * 0.2);
+    // 必须高于调度器的下限钳制，否则默认值本身就会被钳。
+    expect(config.inventoryScan.idleMs).toBeGreaterThanOrEqual(30_000);
     // ⚠️ 总闸默认关：有外部副作用的周期性行为不该因装新版本就自己跑。
     expect(config.inventoryScan.enabled).toBe(false);
   });

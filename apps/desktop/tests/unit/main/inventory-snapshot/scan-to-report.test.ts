@@ -28,7 +28,9 @@ function statusRow(roomTypeID: number, date: string, extra: JsonObject = {}): Js
 function create(baseline: readonly SnapshotCell[], logger = createLogger()) {
   const enqueued: SnapshotCell[][] = [];
   const reported: { observed: unknown; partitionName: string }[] = [];
-  const handle = createScanResultHandler({
+  /** 记录查基线的入参 —— 区间是否按请求窗口算，只有这里看得出来。 */
+  const baselineQueries: { source: string; startDate: string; endDate: string }[] = [];
+  const raw = createScanResultHandler({
     mappers: new Map([['ctrip', mapCtripReadRows]]),
     reportBuilders: new Map([
       [
@@ -37,13 +39,22 @@ function create(baseline: readonly SnapshotCell[], logger = createLogger()) {
           buildCtripScanReport(toChannelId('ctrip'), otaHotelId, cells, 'probed-at'),
       ],
     ]),
-    readBaseline: () => baseline,
+    readBaseline: (source, _otaHotelId, startDate, endDate) => {
+      baselineQueries.push({ source, startDate, endDate });
+      return baseline;
+    },
     enqueue: (cells) => void enqueued.push([...cells]),
     report: (observed, partitionName) => void reported.push({ observed, partitionName }),
     logger,
     now: () => 1700,
   });
-  return { handle, enqueued, reported, logger };
+  /** 默认 15 天窗口（与 defaults.ts 同值），个别用例可覆盖。 */
+  const handle = (
+    target: Parameters<typeof raw>[0],
+    rows: Parameters<typeof raw>[1],
+    windowDays = 15,
+  ) => raw(target, rows, windowDays);
+  return { handle, enqueued, reported, logger, baselineQueries };
 }
 
 /** 造一条与 mapCtripReadRows 产出同键的基线格子。 */
@@ -160,5 +171,31 @@ describe('边界', () => {
     handle({ ...TARGET, channel: 'meituan' }, [statusRow(1, '2026-10-20')]);
     expect(enqueued).toHaveLength(0);
     expect(reported).toHaveLength(0);
+  });
+});
+
+// ⚠️ 区间必须用**本轮请求的窗口**算，不从返回数据反推 min/max —— 反推会让查询范围随
+// 渠道返回了什么而漂移；若查得比请求窄，窗口尾部的格子每轮都被当成「首次见到」只写
+// 不报，差异永远报不出来。
+describe('比对区间', () => {
+  it('按请求窗口算，与返回数据的日期范围无关', () => {
+    const { handle, baselineQueries } = create([]);
+    // 只返回窗口中间的一天，区间仍应覆盖整个 15 天窗口。
+    handle(TARGET, [statusRow(1, '1970-01-08')], 15);
+    expect(baselineQueries).toHaveLength(1);
+    expect(baselineQueries[0]).toMatchObject({
+      source: 'ctrip',
+      startDate: '1970-01-01',
+      endDate: '1970-01-15',
+    });
+  });
+
+  it('窗口天数含今天：1 天时起止同日', () => {
+    const { handle, baselineQueries } = create([]);
+    handle(TARGET, [statusRow(1, '1970-01-01')], 1);
+    expect(baselineQueries[0]).toMatchObject({
+      startDate: '1970-01-01',
+      endDate: '1970-01-01',
+    });
   });
 });

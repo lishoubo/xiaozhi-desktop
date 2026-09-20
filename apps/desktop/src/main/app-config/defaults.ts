@@ -6,7 +6,28 @@
  *
  * 每个值的依据写在 `types.ts` 的字段注释里，改默认值前先读那里。
  */
+import { APP_ENVIRONMENT } from '../../shared/app-environment';
 import type { AppConfig } from './types';
+
+/**
+ * 扫描节奏按环境分档。
+ *
+ * ```
+ * dev           1 分钟 + [0,12s)    调试要快速看到下一轮，等 5 分钟没法迭代
+ * pre / online  5 分钟 + [0,60s)    对账时效与渠道压力的平衡点
+ * ```
+ *
+ * ⚠️ 抖动在**所有环境**都保留，不因 dev 就去掉：没有抖动，集中部署的门店会按各自启动
+ * 时刻长期同相位，每 `idleMs` 齐刷刷打一次渠道 —— 正是触发风控的形状。dev 的抖动按
+ * 同样的 20% 比例缩到 12 秒，不影响调试节奏。
+ *
+ * ⚠️ 这是**构建期**分档（`APP_ENVIRONMENT` 是编译期常量），不是运行期开关。理由见
+ * `shared/app-environment.ts`：打包产物被双击启动时读不到父进程环境变量。
+ */
+const SCAN_PACE =
+  APP_ENVIRONMENT === 'dev'
+    ? { idleMs: 60_000, jitterMs: 12_000 }
+    : { idleMs: 5 * 60_000, jitterMs: 60_000 };
 
 export const DEFAULT_APP_CONFIG: AppConfig = {
   ctripInventoryReadback: {
@@ -26,11 +47,11 @@ export const DEFAULT_APP_CONFIG: AppConfig = {
     // 8~15 天那部分基线永远不会被比对，只占库。
     window: { kind: 'days', days: 15 },
     timeoutMs: 30_000,
-    idleMs: 5 * 60_000,
-    // idleMs 的 20%。比更新检查的 50% 小：那个是低频动作，散开 1 小时无所谓；
-    // 扫描要保证对账时效，散太开会让「最坏多久发现一次变更」不可预期。
-    jitterMs: 60_000,
-    quietAfterWriteMs: 60_000,
+    // 按环境分档，见上面的 SCAN_PACE。抖动恒为 idleMs 的 20% —— 比更新检查的 50% 小：
+    // 那个是低频动作，散开 1 小时无所谓；扫描要保证对账时效，散太开会让
+    // 「最坏多久发现一次变更」不可预期。
+    idleMs: SCAN_PACE.idleMs,
+    jitterMs: SCAN_PACE.jitterMs,
     // ⚠️ 未列出的渠道 = 关。美团/抖音未接入扫描，不在这里出现即不扫。
     channels: { ctrip: { enabled: true } },
     // ⚠️ 未列出的酒店 = 取上层值（与 channels 相反）。默认不逐店配置，

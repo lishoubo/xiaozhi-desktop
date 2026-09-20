@@ -160,6 +160,31 @@ describe('溢出保护', () => {
     // 最早的 10-20 被丢掉。
     expect(written[0]?.map((c) => c.itemDate)).toEqual(['2026-10-21', '2026-10-22']);
   });
+
+  // ⚠️ 回归：Map 对已存在的 key 做 set 会保持原插入位置，重新投递的格子若不移到队尾，
+  // 会带着**最新值**排在队首被当成「最早的」丢掉 —— 与溢出淘汰的意图正好相反。
+  it('重新投递的格子移到队尾，淘汰时不会丢掉它的最新值', () => {
+    const scheduled: (() => void)[] = [];
+    const logger = createLogger();
+    const queue = new SnapshotWriteQueue({
+      write: record,
+      logger,
+      maxPending: 2,
+      scheduleDrain: (run) => void scheduled.push(run),
+    });
+
+    queue.push([cell({ itemDate: '2026-10-20', contentHash: 'v1' })]);
+    queue.push([cell({ itemDate: '2026-10-21' })]);
+    // 10-20 被重新投递，带上新值 —— 它现在是队列里最新的那一格。
+    queue.push([cell({ itemDate: '2026-10-20', contentHash: 'v2' })]);
+    // 触发溢出：应淘汰 10-21（最久没被投递过的），而不是刚更新的 10-20。
+    queue.push([cell({ itemDate: '2026-10-22' })]);
+
+    scheduled.shift()?.();
+    const flushed = written[0] ?? [];
+    expect(flushed.map((c) => c.itemDate)).toEqual(['2026-10-20', '2026-10-22']);
+    expect(flushed.find((c) => c.itemDate === '2026-10-20')?.contentHash).toBe('v2');
+  });
 });
 
 describe('耗时日志', () => {

@@ -293,7 +293,12 @@ export function createAppScope(logger: AppLogger): AppScope {
         signal: controller.signal,
       });
       const text = await response.text();
+      // ⚠️ 状态码阶梯与 `ctripReadbackFetcher` 保持一致 —— 两条路打的是同一批端点，
+      // 判据分叉会让同一种失效在两条路上报出不同的 reason。
+      // 403 是身份认了但没权限（重登无用），401 是登录失效，归入形态 1。
       if (response.status === 403) return { __httpStatus: 403 };
+      if (response.status === 401) return { code: 401 };
+      if (!response.ok) return null;
       try {
         return JSON.parse(text);
       } catch {
@@ -301,7 +306,14 @@ export function createAppScope(logger: AppLogger): AppScope {
         // 那种情况必须让判据看到原文，不能吞成 null。
         return text;
       }
-    } catch {
+    } catch (error) {
+      // ⚠️ 超时与网络失败都回 null（调用方判成 NETWORK_ERROR），但要留一条日志 ——
+      // 否则「cookie 失效」「渠道超时」「断网」在 GlitchTip 里长得一模一样。
+      logger.warn('Ctrip scan fetch failed', {
+        url,
+        timedOut: controller.signal.aborted,
+        error: safeLogErrorDetails(error),
+      });
       return null;
     } finally {
       clearTimeout(timer);
@@ -358,16 +370,18 @@ export function createAppScope(logger: AppLogger): AppScope {
     // ⚠️ 每轮重新读配置 —— 构造时取一次会让服务端下发要等重启才生效。
     config: () => {
       const scan = appConfig.get().inventoryScan;
+      // ⚠️ `byHotel` 的键必须带渠道：`otaHotelId` 取自各渠道自己的 `masterHotelId`，
+      // 只在渠道内唯一。用裸 ID 做键，两个渠道的同号门店会互相影响 —— 关掉携程某家店
+      // 会连带关掉美团同号的无关门店，而这个开关存在的理由正是「只关那一个」。
       const scopeOf = (channel: string, otaHotelId: string) => ({
         channel: scan.channels[channel],
-        hotel: scan.byHotel[otaHotelId],
+        hotel: scan.byHotel[`${channel}:${otaHotelId}`],
       });
       return {
         enabled: scan.enabled,
         idleMs: scan.idleMs,
         jitterMs: scan.jitterMs,
         windowDays: scan.window.days,
-        quietAfterWriteMs: scan.quietAfterWriteMs,
         // ⚠️ 未列出的渠道 = 关（接渠道是开发行为，必须显式开）。
         isChannelEnabled: (channel) => scan.channels[channel]?.enabled === true,
         // ⚠️ 未列出的酒店 = 取上层值（酒店是用户动态绑的，要求显式登记会让新店静默不扫）。
@@ -406,9 +420,6 @@ export function createAppScope(logger: AppLogger): AppScope {
         void scanReportService.report(observed, partitionName),
       logger,
     }),
-    // 改价监听那侧记录的「上次用户写操作时刻」。本期先不接 —— 恒 null 表示
-    // 从未写过，静默判据自然不生效。接线点留在这里，见 tasks 8.x。
-    lastWriteAt: () => null,
     reportError,
   });
   inventoryScanDispatcher.start();
