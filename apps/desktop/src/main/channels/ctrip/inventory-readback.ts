@@ -32,8 +32,9 @@
 import type { WebContents } from 'electron';
 import { safeLogErrorDetails, type AppLogger } from '../../../shared/logging';
 import type { JsonObject } from '../../../shared/types/json';
+import { parseCtripResponse } from './session-expiry';
 import type { OtaAmountChangeObserved } from '../../../shared/types/amount-change';
-import type { InventoryReadback, ReadbackFailureReason, ReadbackOutcome } from '../types';
+import type { InventoryReadback, ReadbackOutcome } from '../types';
 import { ctripBatchTaskGate } from './batch-task-gate';
 import {
   CTRIP_ROOM_STATUS_ENDPOINT_ID,
@@ -52,77 +53,6 @@ export type CtripReadbackFetcher = (
   body: JsonObject,
   timeoutMs: number,
 ) => Promise<unknown>;
-
-/** 携程认「成功」的顶层 code。⚠️ 与订单接口的 `ResponseStatus.Ack` 不是一回事。 */
-const SUCCESS_CODE = 200;
-
-/**
- * 登录失效的四种形态 —— 携程失效**不保证**返回 HTTP 错误码。
- *
- * | # | 形态 | 判据 |
- * |---|---|---|
- * | 1 | 200 + JSON | body `code ∈ {401, 300, -1}` |
- * | 2 | 200 + HTML 登录页 | 正文含 `"islogin":false` / `htl-ebk-login-web` / `qrcodeloginswitch` |
- * | 3 | 200 + 授权失败体 | `{"error":"invalid_grant"}`，无 `code`、非 HTML |
- * | 4 | HTTP 401 | 由 fetcher 转成形态 1 的 code |
- *
- * ⚠️ 形态 2 靠 `<title>` 和域名**判不出来**：登录页 title 是「携程酒店商家管理后台」这种
- * 正常文案，全文也不含 `passport.ctrip.com`。
- */
-const EXPIRED_CODES: ReadonlySet<number> = new Set([401, 300, -1]);
-const LOGIN_PAGE_MARKERS: readonly string[] = [
-  '"islogin":false',
-  'htl-ebk-login-web',
-  'qrcodeloginswitch',
-];
-/** 只扫正文开头，避免整页 HTML 全量 lowercase。 */
-const LOGIN_PAGE_SCAN_LENGTH = 8192;
-
-function isLoginPageHtml(raw: unknown): boolean {
-  if (typeof raw !== 'string') return false;
-  const head = raw.slice(0, LOGIN_PAGE_SCAN_LENGTH).toLowerCase();
-  return LOGIN_PAGE_MARKERS.some((marker) => head.includes(marker));
-}
-
-/** `{"error":"invalid_grant"}` —— 无 `code`、非 HTML 的授权失败体（形态 3）。 */
-function isAuthFailureBody(body: JsonObject): boolean {
-  return typeof body.error === 'string' && body.code === undefined;
-}
-
-type ParsedResponse =
-  | Readonly<{ kind: 'ok'; data: JsonObject }>
-  | Readonly<{ kind: 'failed'; reason: ReadbackFailureReason }>;
-
-/**
- * 把一次响应判成成功或某种失败。
- *
- * ⚠️ **403 ≠ 401**：403 是身份认了但没权限，重登解决不了；归成 `COOKIE_EXPIRED` 会掩盖
- * 真因，触发一轮无意义的重新登录。
- */
-function parseResponse(raw: unknown): ParsedResponse {
-  if (raw === null || raw === undefined) return { kind: 'failed', reason: 'NETWORK_ERROR' };
-  if (isLoginPageHtml(raw)) return { kind: 'failed', reason: 'COOKIE_EXPIRED' };
-  if (typeof raw !== 'object' || Array.isArray(raw)) {
-    return { kind: 'failed', reason: 'PARSE_ERROR' };
-  }
-
-  const body = raw as JsonObject;
-  if (body.__httpStatus === 403) return { kind: 'failed', reason: 'FORBIDDEN' };
-  if (isAuthFailureBody(body)) return { kind: 'failed', reason: 'COOKIE_EXPIRED' };
-
-  const code = body.code;
-  if (typeof code === 'number' && EXPIRED_CODES.has(code)) {
-    return { kind: 'failed', reason: 'COOKIE_EXPIRED' };
-  }
-  if (code !== SUCCESS_CODE) return { kind: 'failed', reason: 'PARSE_ERROR' };
-
-  const data = body.data;
-  if (typeof data !== 'object' || data === null) {
-    // `data` 可以是数组（getRcProductList）或对象（getRoomInventoryInfo），但不能缺。
-    return { kind: 'failed', reason: 'PARSE_ERROR' };
-  }
-  return { kind: 'ok', data: data as JsonObject };
-}
 
 /**
  * `getRoomInventoryInfo` 需要的六字段。`hotelID` 是「门店 × 售卖模式」层，不是账号粒度。
@@ -312,7 +242,7 @@ export function createCtripInventoryReadback(
   ): Promise<ReadbackOutcome> {
     // ① 房型清单 —— body 是 {}，门店上下文完全由 cookie 决定，无入参。
     const listRaw = await deps.fetcher(webContents, PRODUCT_LIST_URL, {}, timeoutMs);
-    const listParsed = parseResponse(listRaw);
+    const listParsed = parseCtripResponse(listRaw);
     if (listParsed.kind === 'failed') return listParsed;
 
     const wanted = new Set(targets.roomTypeIds);
@@ -342,7 +272,7 @@ export function createCtripInventoryReadback(
       },
       timeoutMs,
     );
-    const inventoryParsed = parseResponse(inventoryRaw);
+    const inventoryParsed = parseCtripResponse(inventoryRaw);
     if (inventoryParsed.kind === 'failed') return inventoryParsed;
 
     const cells = pickCells(inventoryParsed.data, new Set(targets.dates));

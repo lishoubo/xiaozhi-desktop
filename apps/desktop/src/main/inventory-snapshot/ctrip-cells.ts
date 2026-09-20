@@ -95,8 +95,12 @@ const PRICE_HASH_FIELDS: readonly string[] = ['price', 'currency'];
 /**
  * 我们打在行上的分流标记（由渠道适配器加），**不是携程字段**。
  * 剥掉后才存进 `item_data` —— 否则基线里会混入一个渠道没有的字段。
+ *
+ * ⚠️ **导出**给打标记的那一侧用（`channels/ctrip/` 下的改价适配器与扫描实现）：
+ * 两边各写一份字面量的话，改了一边另一边会静默把所有行都当成房态。
  */
-const KIND_MARKER = '__snapshotKind';
+export const CTRIP_SNAPSHOT_KIND_MARKER = '__snapshotKind';
+const KIND_MARKER = CTRIP_SNAPSHOT_KIND_MARKER;
 
 /**
  * 内容指纹。取字段的**稳定拼接**而非 `JSON.stringify(整行)`。

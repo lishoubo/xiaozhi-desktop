@@ -227,6 +227,44 @@ export type ReadbackOutcome =
  * 没有这项能力的渠道**不注册**即可（`ChannelAdapter.inventoryReadback` 是可选字段），
  * 调度层自然跳过。加一个渠道 = 写一份实现 + `registry.ts` 加一行。
  */
+/**
+ * 定时扫描的取数结果。与 `ReadbackOutcome` 共用失败原因，但**成功时给的是格子行而非
+ * 上报体** —— 扫描要先与基线比对才知道报什么，组上报体是调度层比对之后的事。
+ */
+export type InventoryScanOutcome =
+  | Readonly<{ kind: 'ok'; rows: readonly JsonObject[] }>
+  | Readonly<{ kind: 'skipped'; reason: string }>
+  | Readonly<{ kind: 'failed'; reason: ReadbackFailureReason }>;
+
+/**
+ * 主动取数能力 —— **定时扫描**用，与回读的关键差别是**不依赖标签页**。
+ *
+ * ```
+ * InventoryReadback  用户改完 → 借用户当前标签页发请求（webContents）
+ * InventoryScan      定时器   → 用账号会话发请求（partitionName）  ← 本接口
+ * ```
+ *
+ * ## 为什么参数是 `partitionName` 而不是 `webContents`
+ *
+ * 定时扫描发生时，用户可能压根没开这个账号的页面 —— 这正是本能力存在的理由（要对账的
+ * 场景恰恰是用户不在应用里操作的时候）。`partitionName` 能兑换出账号会话，而会话不依赖
+ * 任何页面。2026-09-20 真机验证：标签页开与不开，取数结果逐字节相同。
+ *
+ * ## ⚠️ 只返回行，不返回格子、更不返回上报体
+ *
+ * 扫描必须先与基线比对才知道要报什么，而基线在 `database/`，渠道层够不着。所以这里交出
+ * 渠道原始行，映射成格子与比对都在调度层之后完成。
+ *
+ * 没有这项能力的渠道**不注册**即可（`ChannelAdapter.inventoryScan` 是可选字段）。
+ */
+export interface InventoryScan {
+  /**
+   * @param partitionName 该账号的会话标识 —— 由调度层从凭证取得
+   * @param windowDays 从今天起取多少天
+   */
+  scan(partitionName: string, windowDays: number): Promise<InventoryScanOutcome>;
+}
+
 export interface InventoryReadback {
   /**
    * @param report 既有链路刚产出的改动上报体（`parse` 的结果）

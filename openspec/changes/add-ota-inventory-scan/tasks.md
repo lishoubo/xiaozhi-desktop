@@ -16,54 +16,54 @@
 
 ## 2. 失效判据抽取（**携程内部**复用，不跨渠道）
 
-- [ ] 2.1 从 `ctrip/inventory-readback.ts` 抽出四形态判据到**同目录**的独立模块
+- [x] 2.1 从 `ctrip/inventory-readback.ts` 抽出四形态判据到**同目录**的独立模块
       （如 `ctrip/session-expiry.ts`），回读与扫描共用 —— ⚠️ 不复制一份（两份会漂）
-- [ ] 2.2 ⚠️ **不上升到 `channels/` 顶层、不做成渠道无关的公共函数**：这套判据全是
+- [x] 2.2 ⚠️ **不上升到 `channels/` 顶层、不做成渠道无关的公共函数**：这套判据全是
       携程形状（成功码 200、失效码表 `{401,300,-1}`、登录页标记 `htl-ebk-login-web`），
       美团是 `code: 10000` 且无样本。参数化成「支持所有渠道」会把判据挤回调用方
       —— 美团回读那份文件已记过同一教训（刻意不跨渠道复用 fetcher）
-- [ ] 2.3 ⚠️ 保持 403 与 401 分开（403 是没权限，重登无用）
-- [ ] 2.4 既有回读测试全绿（抽取不得改变行为）
+- [x] 2.3 ⚠️ 保持 403 与 401 分开（403 是没权限，重登无用）
+- [x] 2.4 既有回读测试全绿（抽取不得改变行为）
 
 ## 3. 取数层
 
-- [ ] 3.1 新建 `channels/ctrip/inventory-scan.ts`：两步请求
+- [x] 3.1 新建 `channels/ctrip/inventory-scan.ts`：两步请求
       （`getRcProductList` → `getRoomInventoryInfo`）
-- [ ] 3.2 ⚠️ 注入 **`fetch` 函数**而非 `Session` 对象（design 决策 9.1）：
+- [x] 3.2 ⚠️ 注入 **`fetch` 函数**而非 `Session` 对象（design 决策 9.1）：
       `session-factory.ts` 声明它是全仓唯一能调 `session.fromPartition()` 的地方；
       且注入函数比注入 Session 权限更小、更好测，与既有 `CtripReadbackFetcher` 同形状
-- [ ] 3.2b ⚠️ `Referer` / `Origin` 由**渠道实现**给，不在注入的 fetcher 里写死
+- [x] 3.2b ⚠️ `Referer` / `Origin` 由**渠道实现**给，不在注入的 fetcher 里写死
       —— 那是渠道知识。连通性验证已确认只需这两个头
-- [ ] 3.3 日期窗口从配置取，按 `window.kind` 分支（本期只有 `days`）
-- [ ] 3.4 复用 `inventory-snapshot/ctrip-cells.ts` 的行→格子映射，**不另写一份**
-- [ ] 3.5 ⚠️ 房态与价格两类格子都要产出（Change A 实证：同一响应含
+- [x] 3.3 日期窗口从配置取，按 `window.kind` 分支（本期只有 `days`）
+- [x] 3.4 复用 `inventory-snapshot/ctrip-cells.ts` 的行→格子映射，**不另写一份**
+- [x] 3.5 ⚠️ 房态与价格两类格子都要产出（Change A 实证：同一响应含
       `roomStatusResult` 与 `roomPriceResult`）
-- [ ] 3.6 失效/超时/解析失败三态分开返回，不用「空数组表示失败」
-- [ ] 3.7 单测：两步请求的请求体形状；窗口计算；失效判定；空结果是合法结果
+- [x] 3.6 失效/超时/解析失败三态分开返回，不用「空数组表示失败」
+- [x] 3.7 单测：两步请求的请求体形状；窗口计算；失效判定；空结果是合法结果
 
 ## 4. 调度器
 
-- [ ] 4.1 新建 `channels/inventory-scan-dispatcher.ts`（**第六种**触发模型，
+- [x] 4.1 新建 `channels/inventory-scan-dispatcher.ts`（**第六种**触发模型，
       与既有五个 dispatcher 并列；渠道无关，不认识任何端点名）
-- [ ] 4.1b `channels/types.ts` 加 `InventoryScan` 接口；`registry.ts` 加可选字段
+- [x] 4.1b `channels/types.ts` 加 `InventoryScan` 接口；`registry.ts` 加可选字段
       `inventoryScan?` 与 `inventoryScans()` 投影（照 `inventoryReadbacks()` 的写法）
       —— 没这项能力的渠道不注册即可，本期只注册携程
-- [ ] 4.2 fixed-delay 自我重排：`setTimeout` 在 `finally` 里排下一轮
+- [x] 4.2 fixed-delay 自我重排：`setTimeout` 在 `finally` 里排下一轮
       —— ⚠️ **不用 `setInterval`**（会叠加并发打同一账号）
-- [ ] 4.2b ⚠️ 间隔**每轮重新读配置**，不在构造时取一次 —— 否则服务端下发的新值
+- [x] 4.2b ⚠️ 间隔**每轮重新读配置**，不在构造时取一次 —— 否则服务端下发的新值
       要等重启才生效（与既有 `config: () => appConfig().xxx` 同一手法）
-- [ ] 4.2c ⚠️ **加随机抖动**：`delayMs = idleMs + random() * jitterMs`。
+- [x] 4.2c ⚠️ **加随机抖动**：`delayMs = idleMs + random() * jitterMs`。
       照抄 `services/updater-service.ts` 的既有手法（线上已跑）。没有抖动的话，
       集中部署的门店会长期同相位，每 5 分钟齐刷刷打一次携程 —— 正是触发风控的形状
-- [ ] 4.2d ⚠️ `random` **注入**（`random?: () => number`），与 updater-service 同一
+- [x] 4.2d ⚠️ `random` **注入**（`random?: () => number`），与 updater-service 同一
       理由：否则「间隔落在 [idleMs, idleMs+jitterMs) 区间」断言不了，只能撞概率
-- [ ] 4.3 ⚠️ 首轮延迟一个间隔，不在启动时立刻跑（不与迁移/登录/凭证发现抢）
-- [ ] 4.4 单轮失败不中断循环（catch 后照常排下一轮）
-- [ ] 4.5 空闲判据：距上次用户写操作 < N 分钟则跳过本轮（design 决策 4）
-- [ ] 4.6 `dispose()`：置位 + `clearTimeout`；in-flight 结果丢弃
-- [ ] 4.7 遍历凭证串行扫描；单账号失败不影响其余
-- [ ] 4.8 ⚠️ `masterHotelId` 取不到 → 跳过该账号（与 Change A 同口径）
-- [ ] 4.9 单测：不叠加（上轮未完不开下轮）；失败仍排下轮；dispose 后不再跑；
+- [x] 4.3 ⚠️ 首轮延迟一个间隔，不在启动时立刻跑（不与迁移/登录/凭证发现抢）
+- [x] 4.4 单轮失败不中断循环（catch 后照常排下一轮）
+- [x] 4.5 空闲判据：距上次用户写操作 < N 分钟则跳过本轮（design 决策 4）
+- [x] 4.6 `dispose()`：置位 + `clearTimeout`；in-flight 结果丢弃
+- [x] 4.7 遍历凭证串行扫描；单账号失败不影响其余
+- [x] 4.8 ⚠️ `masterHotelId` 取不到 → 跳过该账号（与 Change A 同口径）
+- [x] 4.9 单测：不叠加（上轮未完不开下轮）；失败仍排下轮；dispose 后不再跑；
       空闲判据生效；单账号失败不影响其余；⭐ 抖动落在
       `[idleMs, idleMs + jitterMs)` 区间（注入 random 钉死两端：0 → 恰好 idleMs，
       接近 1 → 接近上界）
