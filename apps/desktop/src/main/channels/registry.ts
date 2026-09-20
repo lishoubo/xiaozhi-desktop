@@ -23,6 +23,7 @@ import { meituanReadbackFetcher } from './meituan/inventory-readback-fetcher';
 import { meituanHotelProbe } from './meituan/hotel-prob';
 import { meituanLoginUrlMatcher } from './meituan/login-url-matcher';
 import { createCtripInventoryReadback } from './ctrip/inventory-readback';
+import { createCtripInventoryScan, type CtripScanFetcher } from './ctrip/inventory-scan';
 import { ctripReadbackFetcher } from './ctrip/inventory-readback-fetcher';
 import { ctripBatchTaskGate } from './ctrip/batch-task-gate';
 import type { AppConfig } from '../app-config/types';
@@ -30,6 +31,7 @@ import type {
   AmountChangeAdapter,
   HotelProbe,
   InventoryReadback,
+  InventoryScan,
   LoginUrlMatcher,
 } from './types';
 
@@ -51,11 +53,25 @@ export type ChannelAdapter = Readonly<{
    * 同一理由。
    */
   inventoryReadback?: InventoryReadback;
+  /**
+   * 定时扫描取数能力。**可选**：本期只有携程。
+   *
+   * 与 `inventoryReadback` 的差别是**不依赖标签页** —— 它用账号会话发请求，
+   * 定时触发时用户可能压根没开页面。
+   */
+  inventoryScan?: InventoryScan;
 }>;
 
 export function createChannelRegistry(
   logger: AppLogger,
   appConfig: () => AppConfig,
+  /**
+   * 用账号会话发请求。由 composition 注入 —— `session.fromPartition()` 的唯一持有者是
+   * `browser/session-factory.ts`，渠道层够不着。
+   *
+   * **可选**：省略即不注册扫描能力（`inventoryScans()` 自然跳过），既有调用方不用改。
+   */
+  scanFetcher?: CtripScanFetcher,
 ): ReadonlyMap<ChannelId, ChannelAdapter> {
   // 批量任务门控是渠道级单例（状态按全局唯一的 taskId 分键），logger 在这里才有。
   ctripBatchTaskGate.setLogger(logger);
@@ -72,6 +88,13 @@ export function createChannelRegistry(
         // 每次调用时才读配置 —— 将来服务端下发是会在运行中变的，构造时取一次会让下发失效。
         config: () => appConfig().ctripInventoryReadback,
       }),
+      inventoryScan: scanFetcher
+        ? createCtripInventoryScan({
+            logger,
+            fetcher: scanFetcher,
+            config: () => ({ timeoutMs: appConfig().inventoryScan.timeoutMs }),
+          })
+        : undefined,
     },
     {
       channel: toChannelId('douyin'),
@@ -144,6 +167,20 @@ export function inventoryReadbacks(
   const entries: (readonly [ChannelId, InventoryReadback])[] = [];
   for (const [channel, adapter] of registry) {
     if (adapter.inventoryReadback) entries.push([channel, adapter.inventoryReadback] as const);
+  }
+  return new Map(entries);
+}
+
+/**
+ * 从注册表投影出 `InventoryScanDispatcher` 需要的那一份。**跳过没有这项能力的渠道** ——
+ * 照 `inventoryReadbacks()` 的写法。
+ */
+export function inventoryScans(
+  registry: ReadonlyMap<ChannelId, ChannelAdapter>,
+): ReadonlyMap<ChannelId, InventoryScan> {
+  const entries: (readonly [ChannelId, InventoryScan])[] = [];
+  for (const [channel, adapter] of registry) {
+    if (adapter.inventoryScan) entries.push([channel, adapter.inventoryScan] as const);
   }
   return new Map(entries);
 }

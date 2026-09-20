@@ -23,6 +23,15 @@ import { SqliteOtaCredentialRepository } from '../database/ota-credential-reposi
 import { SqliteOtaHotelRepository } from '../database/ota-hotel-repository';
 import { SqliteOtaInventorySnapshotRepository } from '../database/ota-inventory-snapshot-repository';
 import { SnapshotWriteQueue } from '../inventory-snapshot/snapshot-write-queue';
+import { createScanResultHandler } from '../inventory-snapshot/scan-to-report';
+import { mapCtripReadRows } from '../inventory-snapshot/ctrip-cells';
+import { InventoryScanDispatcher, type ScanTarget } from '../channels/inventory-scan-dispatcher';
+import { inventoryScans } from '../channels/registry';
+import { buildCtripScanReport } from '../channels/ctrip/inventory-scan-payload';
+import { AmountChangeReportService } from '../services/amount-change-report-service';
+import { HttpRmsAmountChangeGateway } from '../gateway/rms/rms-amount-change-gateway-http';
+import { StaffAuthService } from '../services/staff-auth-service';
+import { masterHotelIdOf } from '../inventory-snapshot/page-read-to-cells';
 import { readOrCreateDeviceId } from '../file-store/device-id';
 import { updatePartitionState } from '../file-store/partition-ledger';
 import {
@@ -32,7 +41,7 @@ import {
 import { reportError } from '../error-reporting/report-error';
 import { HttpRmsHotelGateway } from '../gateway/rms/rms-hotel-gateway-http';
 import { HttpRmsOtaAccountGateway } from '../gateway/rms/rms-ota-account-gateway-http';
-import type { ChannelId } from '../ids';
+import { toChannelId, type ChannelId } from '../ids';
 import { SessionFactory } from '../browser/session-factory';
 import { collectCookieSnapshot } from '../browser/cookie-snapshot/collect-cookie-snapshot';
 import { createElectronSessionFetch } from '../server-client/trpc-client';
@@ -263,6 +272,153 @@ export function createAppScope(logger: AppLogger): AppScope {
     reportError,
   });
 
+  // 用账号会话发请求：`session.fromPartition()` 的唯一持有者是 session-factory，
+  // 渠道层够不着，所以在这里兑换成一个只能发请求的窄函数。
+  const scanFetcher = async (
+    partitionName: string,
+    url: string,
+    body: Record<string, unknown>,
+    headers: Readonly<Record<string, string>>,
+    timeoutMs: number,
+  ): Promise<unknown> => {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const response = await sessionFactory.sessionForAccount(partitionName).fetch(url, {
+        method: 'POST',
+        // 让 Chromium 自己从该 partition 的 cookie jar 带 cookie —— 不手拼 Cookie 头。
+        credentials: 'include',
+        headers,
+        body: JSON.stringify(body),
+        signal: controller.signal,
+      });
+      const text = await response.text();
+      if (response.status === 403) return { __httpStatus: 403 };
+      try {
+        return JSON.parse(text);
+      } catch {
+        // 解析不了就回传原文 —— 登录失效时携程返回 200 + 整页登录页 HTML，
+        // 那种情况必须让判据看到原文，不能吞成 null。
+        return text;
+      }
+    } catch {
+      return null;
+    } finally {
+      clearTimeout(timer);
+    }
+  };
+
+  // 每次取值时才读配置 —— 将来接服务端下发时，运行中改的值才能被读到。
+  const channelRegistry = createChannelRegistry(logger, () => appConfig.get(), scanFetcher);
+
+  // ── 价量态定时扫描 ──────────────────────────────────────────────────────────
+  // 建在 app-scope 而非 window-scope：对账不该因为用户关了窗口就停。
+  //
+  // 上报服务在这里**另建一份**（window-scope 里那份服务的是改价/回读链路）。两份
+  // 各自生成 operationId，本就不该互相去重 —— 它们是不同的事实。
+  const scanReportService = new AmountChangeReportService({
+    gateway: new HttpRmsAmountChangeGateway({
+      origin: rmsOrigin,
+      fetch: authenticatedRmsFetch,
+      logger,
+      reportError,
+    }),
+    identity: {
+      currentStaff: async () => {
+        const identity = await new StaffAuthService({
+          client: rmsAuthClient,
+          tokens: rmsTokens,
+          logger,
+        }).currentSession();
+        if (!identity) return null;
+        return {
+          userId: identity.userId,
+          username: identity.username,
+          fullName: identity.fullName,
+        };
+      },
+      credentialByPartition: (partitionName) => {
+        const credential = otaCredentialRepository.findByPartitionName(partitionName);
+        return Promise.resolve(
+          credential
+            ? {
+                channelAccountId: credential.channelAccountId,
+                credentialExtra: credential.credentialExtra,
+              }
+            : null,
+        );
+      },
+    },
+    logger,
+  });
+
+  const inventoryScanDispatcher = new InventoryScanDispatcher({
+    scans: inventoryScans(channelRegistry),
+    logger,
+    // ⚠️ 每轮重新读配置 —— 构造时取一次会让服务端下发要等重启才生效。
+    config: () => {
+      const scan = appConfig.get().inventoryScan;
+      const scopeOf = (channel: string, otaHotelId: string) => ({
+        channel: scan.channels[channel],
+        hotel: scan.byHotel[otaHotelId],
+      });
+      return {
+        enabled: scan.enabled,
+        idleMs: scan.idleMs,
+        jitterMs: scan.jitterMs,
+        windowDays: scan.window.days,
+        quietAfterWriteMs: scan.quietAfterWriteMs,
+        // ⚠️ 未列出的渠道 = 关（接渠道是开发行为，必须显式开）。
+        isChannelEnabled: (channel) => scan.channels[channel]?.enabled === true,
+        // ⚠️ 未列出的酒店 = 取上层值（酒店是用户动态绑的，要求显式登记会让新店静默不扫）。
+        isHotelEnabled: (channel, otaHotelId) => {
+          const { channel: channelScope, hotel } = scopeOf(channel, otaHotelId);
+          return hotel?.enabled ?? channelScope?.enabled ?? false;
+        },
+      };
+    },
+    listTargets: () => {
+      const targets: ScanTarget[] = [];
+      for (const channel of channelRegistry.keys()) {
+        for (const credential of otaCredentialRepository.listByChannel(channel)) {
+          // ⚠️ 归一取不到就跳过这个账号：存错的 otaHotelId 会永久污染基线，
+          // 且下次归一正确时会变成「另一家酒店」。与 Change A 同口径。
+          const otaHotelId = masterHotelIdOf(credential.credentialExtra);
+          if (otaHotelId === null) continue;
+          targets.push({ channel, partitionName: credential.partitionName, otaHotelId });
+        }
+      }
+      return targets;
+    },
+    onRows: createScanResultHandler({
+      mappers: new Map([['ctrip', mapCtripReadRows]]),
+      reportBuilders: new Map([
+        [
+          'ctrip',
+          (otaHotelId, cells, scanId, scannedAt) =>
+            buildCtripScanReport(
+              toChannelId('ctrip'),
+              otaHotelId,
+              cells,
+              scanId,
+              scannedAt,
+            ),
+        ],
+      ]),
+      readBaseline: (source, otaHotelId, startDate, endDate) =>
+        snapshotRepository.findByHotelAndDateRange(source, otaHotelId, startDate, endDate),
+      enqueue: (cells) => snapshotWriteQueue.push(cells),
+      report: (observed, partitionName) =>
+        void scanReportService.report(observed, partitionName),
+      logger,
+    }),
+    // 改价监听那侧记录的「上次用户写操作时刻」。本期先不接 —— 恒 null 表示
+    // 从未写过，静默判据自然不生效。接线点留在这里，见 tasks 8.x。
+    lastWriteAt: () => null,
+    reportError,
+  });
+  inventoryScanDispatcher.start();
+
   return {
     logger,
     userDataDir,
@@ -295,7 +451,7 @@ export function createAppScope(logger: AppLogger): AppScope {
     updaterService,
     appConfig,
     // 每次取值时才读 —— 将来接服务端下发时，运行中改的值才能被读到。
-    channelRegistry: createChannelRegistry(logger, () => appConfig.get()),
+    channelRegistry,
     windowCapabilities,
     rms: {
       origin: rmsOrigin,
@@ -340,6 +496,7 @@ export function createAppScope(logger: AppLogger): AppScope {
     },
     dispose() {
       updaterService.dispose();
+      inventoryScanDispatcher.dispose();
       // 必须在 database.close() 之前：队列里可能还压着没写的格子，
       // 让它先停掉消费，避免往一个已关闭的连接上写。
       snapshotWriteQueue.dispose();

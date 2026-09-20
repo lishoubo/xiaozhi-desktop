@@ -71,8 +71,14 @@ describe('AppConfigStore', () => {
 describe('inventoryScan', () => {
   it('默认值可用', () => {
     const config = new AppConfigStore().get();
-    expect(config.inventoryScan.window).toEqual({ kind: 'days', days: 7 });
+    // 15 天与携程页面自然读一次返回的范围对齐（真机实测）。取 7 的话，
+    // 8~15 天那部分基线永远不会被比对。
+    expect(config.inventoryScan.window).toEqual({ kind: 'days', days: 15 });
     expect(config.inventoryScan.timeoutMs).toBe(30_000);
+    expect(config.inventoryScan.idleMs).toBe(300_000);
+    expect(config.inventoryScan.jitterMs).toBe(60_000);
+    // ⚠️ 总闸默认关：有外部副作用的周期性行为不该因装新版本就自己跑。
+    expect(config.inventoryScan.enabled).toBe(false);
   });
 
   it('部分覆盖时同组未覆盖项保持默认', () => {
@@ -81,7 +87,7 @@ describe('inventoryScan', () => {
     ]).get();
     expect(config.inventoryScan.timeoutMs).toBe(5_000);
     // ⚠️ 浅合并会把 window 抹成 undefined —— 这条守住 mergeConfig 的深合并。
-    expect(config.inventoryScan.window).toEqual({ kind: 'days', days: 7 });
+    expect(config.inventoryScan.window).toEqual({ kind: 'days', days: 15 });
   });
 
   // ⚠️ 守住「联合/数组是整体替换，不是逐元素合并」的约定，见 types.ts 的 PartialAppConfig。
@@ -98,5 +104,67 @@ describe('inventoryScan', () => {
     ]).get();
     expect(config.ctripInventoryReadback.windowDays).toBe(7);
     expect(config.meituanInventoryReadback.timeoutMs).toBe(30_000);
+  });
+});
+
+describe('inventoryScan 三层开关的合并深度', () => {
+  // ⚠️ 本组守住 mergeConfig 的第二层深度。没有它，服务端只想关一家店会把其余店
+  // 的配置全抹掉 —— 而这种失效在类型上看不出来，只有运行期才暴露。
+  it('byHotel 逐店合并：只覆盖一家店，其余店保留', () => {
+    const base = new AppConfigStore([
+      {
+        read: () => ({
+          inventoryScan: {
+            byHotel: { A: { enabled: true }, B: { enabled: true } },
+          },
+        }),
+      },
+      { read: () => ({ inventoryScan: { byHotel: { B: { enabled: false } } } }) },
+    ]).get();
+
+    expect(base.inventoryScan.byHotel).toEqual({
+      A: { enabled: true },
+      B: { enabled: false },
+    });
+  });
+
+  it('channels 逐渠道合并：加一个渠道不抹掉既有渠道', () => {
+    const config = new AppConfigStore([
+      { read: () => ({ inventoryScan: { channels: { meituan: { enabled: true } } } }) },
+    ]).get();
+
+    expect(config.inventoryScan.channels).toEqual({
+      ctrip: { enabled: true },
+      meituan: { enabled: true },
+    });
+  });
+
+  it('同一家店的部分字段覆盖，其余字段保留', () => {
+    const config = new AppConfigStore([
+      {
+        read: () => ({
+          inventoryScan: {
+            byHotel: { A: { enabled: true, window: { kind: 'days' as const, days: 3 } } },
+          },
+        }),
+      },
+      { read: () => ({ inventoryScan: { byHotel: { A: { enabled: false } } } }) },
+    ]).get();
+
+    expect(config.inventoryScan.byHotel.A).toEqual({
+      enabled: false,
+      window: { kind: 'days', days: 3 },
+    });
+  });
+
+  it('默认渠道表里携程是开的，美团不出现（未列出=关）', () => {
+    const config = new AppConfigStore().get();
+    expect(config.inventoryScan.channels.ctrip).toEqual({ enabled: true });
+    expect(config.inventoryScan.channels.meituan).toBeUndefined();
+  });
+
+  it('默认 byHotel 为空（未列出=取上层值，新绑的店跟随渠道开关）', () => {
+    const config = new AppConfigStore().get();
+    expect(config.inventoryScan.byHotel).toEqual({});
   });
 });

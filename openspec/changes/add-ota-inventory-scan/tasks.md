@@ -70,20 +70,20 @@
 
 ## 5. 比对与写入接线
 
-- [ ] 5.1 ⚠️ **取完整批后**再读基线 + diff + 写入，三步之间不得 await（spec 硬要求）
-- [ ] 5.2 复用 `repository.findByHotelAndDateRange` 一次读一批
-- [ ] 5.3 复用 `snapshot-diff.diffSnapshots`
-- [ ] 5.4 ⚠️ `added` **只写基线不上报**（Change A 已实现并单测，此处只是不要绕过它）
-- [ ] 5.5 写入走 `SnapshotWriteQueue`，`sourceOfTruth: 'scan'`
-- [ ] 5.6 单测：首轮全 added → 零上报；第二轮有变化 → 只报 changed
+- [x] 5.1 ⚠️ **取完整批后**再读基线 + diff + 写入，三步之间不得 await（spec 硬要求）
+- [x] 5.2 复用 `repository.findByHotelAndDateRange` 一次读一批
+- [x] 5.3 复用 `snapshot-diff.diffSnapshots`
+- [x] 5.4 ⚠️ `added` **只写基线不上报**（Change A 已实现并单测，此处只是不要绕过它）
+- [x] 5.5 写入走 `SnapshotWriteQueue`，`sourceOfTruth: 'scan'`
+- [x] 5.6 单测：首轮全 added → 零上报；第二轮有变化 → 只报 changed
 
 ## 6. 上报
 
-- [ ] 6.1 组上报体：`changeType` 沿用 `inventoryReadback`，`endpointId` 用新值
+- [x] 6.1 组上报体：`changeType` 沿用 `inventoryReadback`，`endpointId` 用新值
       `inventoryScan`，`trigger.kind = 'scheduledScan'`
-- [ ] 6.2 ⚠️ **不带旧值**（已定）
-- [ ] 6.3 复用 `AmountChangeReportService.report`，不新增 gateway
-- [ ] 6.4 新建 payload 规格文件 `channels/ctrip/inventory-scan-payload.ts`
+- [x] 6.2 ⚠️ **不带旧值**（已定）
+- [x] 6.3 复用 `AmountChangeReportService.report`，不新增 gateway
+- [x] 6.4 新建 payload 规格文件 `channels/ctrip/inventory-scan-payload.ts`
       —— 照 `inventory-readback-payload.ts` 的形式：只导出常量 + 类型 + 组装函数，
       **重心在文件头注释**（RMS 侧对接读这份）。要写清：
       - 与回读上报的异同（`trigger` 形状不同，其余四字段同构）
@@ -96,44 +96,46 @@
       照既有两次对接的先例（`add-ctrip-inventory-readback/服务端需求.md`）
 - [ ] 6.7 ⚠️ 与服务端确认端点已就绪再开启上报；未就绪则先只写基线不上报
       （摘掉 report 回调即可，见 Migration Plan 阶段 4）
-- [ ] 6.5 单测：上报体字段；无差异时不发上报
+- [x] 6.5 单测：上报体字段；无差异时不发上报
 
 ## 7. 配置与开关
 
-- [ ] 7.1 `InventoryScanConfig` 加 `idleMs`（**默认 5 分钟**）、`jitterMs`
+- [x] 7.1 `InventoryScanConfig` 加 `idleMs`（**默认 5 分钟**）、`jitterMs`
       （**默认 1 分钟**，即 20%）与空闲阈值
       ⚠️ 注释写明它是 fixed-delay 的「歇多久」而非固定频率：实际间隔 =
       本轮耗时 + idleMs，恒大于 5 分钟。取名 `idleMs` 而非 `intervalMs` 正是为此
-- [ ] 7.2 ⚠️ 加三层开关：`enabled`（总闸）/ `channels[source].enabled` /
+- [x] 7.2 ⚠️ 加三层开关：`enabled`（总闸）/ `channels[source].enabled` /
       `byHotel[id].enabled`，逐层与，任一层关即不扫
-- [ ] 7.3 ⚠️ **总闸默认 false** —— 有外部副作用的周期性行为不得因装新版本自行启用
-- [ ] 7.4 ⚠️ 两处默认语义**刻意相反**：`channels` 未列出=**关**（加渠道是开发行为，
+- [x] 7.3 ⚠️ **总闸默认 false** —— 有外部副作用的周期性行为不得因装新版本自行启用
+- [x] 7.4 ⚠️ 两处默认语义**刻意相反**：`channels` 未列出=**关**（加渠道是开发行为，
       必须显式开）；`byHotel` 未列出=**取上层值**（酒店是用户动态绑的，要求显式登记
       会让新店静默不扫）。注释写明，否则后来者会"统一"成一种
-- [ ] 7.5 ⚠️ **扩展 `mergeConfig` 深度**（Change A 已标注的前置）：现有实现只深一层，
+- [x] 7.5 ⚠️ **扩展 `mergeConfig` 深度**（Change A 已标注的前置）：现有实现只深一层，
       `channels`/`byHotel` 会被整体替换 —— 服务端只想关一家店会抹掉其余店配置
-- [ ] 7.6 开关判定在**调度层**，不在取数层；整轮跳过记一条 info
+- [x] 7.6 开关判定在**调度层**，不在取数层；整轮跳过记一条 info
       （否则「开关关着」与「调度器挂了」日志上长得一样），单账号跳过不记 warn
-- [ ] 7.7 单测：三层任一关闭即不扫；渠道未配置=关；酒店未配置=取上层；
+- [x] 7.7 单测：三层任一关闭即不扫；渠道未配置=关；酒店未配置=取上层；
       逐店覆盖不影响其余店（守住 mergeConfig 深度）
-- [ ] 7.8 ⚠️ `window.days` 默认值 7 → **15**，与自然读实测范围对齐（design 决策 7）
-- [ ] 7.9 ⚠️ 默认**只在开发环境启用**扫描（与 7.3 的总闸是两道独立的闸）
-- [ ] 7.10 单测：默认值（含 idleMs = 5 分钟、jitterMs = 1 分钟）；
+- [x] 7.8 ⚠️ `window.days` 默认值 7 → **15**，与自然读实测范围对齐（design 决策 7）
+- [x] 7.9 ⚠️ 默认**只在开发环境启用**扫描（与 7.3 的总闸是两道独立的闸）
+- [x] 7.10 单测：默认值（含 idleMs = 5 分钟、jitterMs = 1 分钟）；
       部分覆盖不影响同组其余项
 
 ## 8. 装配与失效上报
 
-- [ ] 8.1 `app-scope` 建调度器（⚠️ 跨窗口，窗口关闭不停扫）
-- [ ] 8.2 注入六个窄回调（listCredentials / sessionFor / readBaseline / enqueue /
+- [x] 8.1 `app-scope` 建调度器（⚠️ 跨窗口，窗口关闭不停扫）
+- [x] 8.2 注入六个窄回调（listCredentials / sessionFor / readBaseline / enqueue /
       report / lastWriteAt）—— `channels/` 禁 import `database/` `services/`
       `inventory-snapshot/`
-- [ ] 8.3 失效走既有 `reportError`（GlitchTip），与回读同一手法
-- [ ] 8.4 `onDispose` 接入唯一 disposers 链
-- [ ] 8.5 `npm run lint:desktop` 无新增错误（分层禁令生效）
+- [x] 8.3 失效走既有 `reportError`（GlitchTip），与回读同一手法
+- [x] 8.4 `onDispose` 接入唯一 disposers 链
+- [x] 8.5 `npm run lint:desktop` 无新增错误（分层禁令生效）
 
 ## 9. 验证
 
-- [ ] 9.1 类型检查 + 受影响模块测试全绿
+- [x] 9.1 类型检查 + 受影响模块测试全绿 —— ✅ typecheck 干净；lint 12 个错误与基线
+      持平；单测 1120 passed / 1 failed，与基线一致（既有 `__SERVER_ORIGIN__` 问题）。
+      本次新增 72 项全绿
 - [ ] 9.2 真机：不开任何标签页 → 等一轮扫描 → 查库确认 `sourceOfTruth='scan'` 的格子出现
 - [ ] 9.3 真机：在渠道后台（**其他浏览器**）改一次房价 → 下一轮扫描应报出差异
       —— 这是本能力的立论场景，必须验

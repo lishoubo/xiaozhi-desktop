@@ -87,9 +87,38 @@ export type MeituanInventoryReadbackConfig = Readonly<{
  * 形状先定下来，是因为改形状比改值贵得多：`window` 的联合分支、`byHotel` 的深合并都会
  * 牵动 `mergeConfig`，而那是全局的。值可以随时改，形状定错了后面每加一项都要动结构。
  */
+/**
+ * 按渠道 / 按酒店可覆盖的那部分参数。开关与窗口都在这里 —— 两层用同一个形状，
+ * 合并时逐层取值即可。
+ */
+export type InventoryScanScopeConfig = Readonly<{
+  enabled: boolean;
+  window: Readonly<{ kind: 'days'; days: number }>;
+}>;
+
+/**
+ * 价量态定时扫描的可调参数。行为定义见 `channels/inventory-scan-dispatcher.ts`。
+ *
+ * ## ⚠️ 三层开关，逐层与，任一层关即不扫
+ *
+ * ```
+ * enabled                      总闸
+ *   └─ channels[source]          渠道级
+ *        └─ byHotel[otaHotelId]   酒店级
+ * ```
+ *
+ * 周期性打渠道接口**有外部副作用**，必须能按最小粒度关停：某家店触发风控、某个渠道
+ * 改版导致取数异常时，要能只关那一个，而不是整个功能下线或重新发版。
+ */
 export type InventoryScanConfig = Readonly<{
   /**
-   * 日期窗口 —— 快照覆盖从今天起的哪些天。
+   * 总闸。⚠️ **默认 `false`** —— 有外部副作用的周期性行为不该因为装了新版本就
+   * 自己跑起来。
+   */
+  enabled: boolean;
+
+  /**
+   * 日期窗口 —— 扫描覆盖从今天起的哪些天。
    *
    * ## ⚠️ 为什么是带 `kind` 的联合，而不是一个 `windowDays: number`
    *
@@ -97,14 +126,8 @@ export type InventoryScanConfig = Readonly<{
    * 那时只能加一个并列的 `ranges?: [...]`，于是出现「两个字段都有值时听谁的」这种
    * 说不清的状态，且消费方漏判新字段时**静默按旧字段跑**。
    *
-   * 带 `kind` 的联合让扩展变成**加一个分支**：
-   *
-   * ```ts
-   * | { kind: 'days'; days: number }
-   * | { kind: 'ranges'; ranges: readonly { start: string; end: string }[] }   // 将来
-   * ```
-   *
-   * 消费方的 `switch` 会被类型系统强制处理新分支 —— 漏了编译就过不去，不会静默跑错。
+   * 带 `kind` 的联合让扩展变成**加一个分支**，消费方的 `switch` 会被类型系统强制
+   * 处理新分支 —— 漏了编译就过不去。
    */
   window: Readonly<{ kind: 'days'; days: number }>;
 
@@ -112,15 +135,50 @@ export type InventoryScanConfig = Readonly<{
   timeoutMs: number;
 
   /**
-   * ⚠️ **预留，本期不实现。** 按酒店覆盖上面的值（不同酒店关注的窗口不同）。
+   * 两轮之间歇多久（毫秒）。**默认 5 分钟。**
    *
-   * 合并语义是**以 hotelId 为键逐店深合并**，不是整体替换 —— 服务端只下发一家店的覆盖时，
-   * 其余店的配置必须保留。而现有 `mergeConfig` **只深一层**（见它的注释），到这里会把整个
-   * `byHotel` 整体替换掉，把其余店的覆盖全抹掉。
-   *
-   * 所以实现它的时候**必须同时扩展 `mergeConfig` 的深度**，不能只加字段。
+   * ⚠️ 是 fixed-delay 的「歇多久」，**不是固定频率**：上一轮完全结束后才开始计时，
+   * 所以实际间隔 = 本轮耗时 + `idleMs` + 抖动，恒大于它。取名 `idleMs` 而非
+   * `intervalMs` 正是为此 —— 后者会让人以为是「每 5 分钟一次」。
    */
-  byHotel?: Readonly<Record<string, Partial<Omit<InventoryScanConfig, 'byHotel'>>>>;
+  idleMs: number;
+
+  /**
+   * 随机抖动上限（毫秒）。**默认 1 分钟**（`idleMs` 的 20%）。
+   * 每轮实际歇 `idleMs + [0, jitterMs)`。
+   *
+   * ⚠️ 不是可选项：没有抖动，同一批装机的机器（集中部署的门店）会按各自启动时刻形成
+   * 固定节拍、长期同相位，每 `idleMs` 齐刷刷打一次渠道 —— 正是触发风控的形状。
+   */
+  jitterMs: number;
+
+  /**
+   * 距上次用户写操作不足这个毫秒数则跳过本轮。默认 1 分钟。
+   *
+   * 用户正在改价时扫描，取到的可能是改了一半的中间态，且与回读抢同一批数据。
+   */
+  quietAfterWriteMs: number;
+
+  /**
+   * 渠道级开关与覆盖。
+   *
+   * ⚠️ **未列出的渠道视为关闭**（不是默认开）—— 渠道是有限且已知的，接一个渠道是
+   * 开发行为，必须显式开；新接入的渠道在踩点完成前不该被自动扫描。
+   *
+   * ⚠️ 与 `byHotel` 的默认语义**刻意相反**，见那边的注释。
+   */
+  channels: Readonly<Record<string, Partial<InventoryScanScopeConfig>>>;
+
+  /**
+   * 酒店级开关与覆盖，键是 `otaHotelId`。
+   *
+   * ⚠️ **未列出的酒店取上层的值**（与 `channels` 相反）—— 酒店是用户动态绑定的，
+   * 要求每家店都显式登记才扫，会让新绑的店**静默不扫且没人发现**。
+   *
+   * 两处默认语义相反是有意的，不要「统一」成一种：统一成默认关 → 新店不扫；
+   * 统一成默认开 → 新渠道没踩点就自动跑。
+   */
+  byHotel: Readonly<Record<string, Partial<InventoryScanScopeConfig>>>;
 }>;
 
 export type AppConfig = Readonly<{

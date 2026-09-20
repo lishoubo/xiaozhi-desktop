@@ -16,6 +16,35 @@ import type { AppConfig, AppConfigSource, PartialAppConfig } from './types';
  * 给了 `delayMs`」把同组的 `windowDays`/`timeoutMs` 整组抹成 undefined —— 类型上看不出来
  * （`Partial` 允许缺键），运行期才炸。
  */
+/**
+ * 「按 ID 分组」的那些字段（`channels` / `byHotel`）—— 它们要**逐 ID 深合并**，
+ * 不能整体替换。
+ *
+ * ⚠️ 这是必须列举而非自动识别的：形状上它们与普通对象没有区别，靠启发式（比如
+ * 「值是对象就深合并」）会把 `window` 这种联合也当成分组给合坏。
+ */
+const ID_KEYED_FIELDS: ReadonlySet<string> = new Set(['channels', 'byHotel']);
+
+/**
+ * 逐 ID 合并一个分组字段。基础层有 A、覆盖层只给了 B 时，A **必须保留**。
+ *
+ * ⚠️ 不这么做的后果很具体：服务端只想关掉一家店，会把其余店的配置**全抹掉**。
+ */
+function mergeIdKeyed(base: unknown, patch: unknown): unknown {
+  if (!isPlainObject(base) || !isPlainObject(patch)) return patch ?? base;
+  const merged: Record<string, unknown> = { ...base };
+  for (const [id, override] of Object.entries(patch)) {
+    const current = merged[id];
+    merged[id] =
+      isPlainObject(current) && isPlainObject(override) ? { ...current, ...override } : override;
+  }
+  return merged;
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
 function mergeConfig(base: AppConfig, patch: PartialAppConfig): AppConfig {
   // 按 base 的键遍历，而不是逐组手写 —— 手写版每加一个配置组都要改这里，
   // 漏改的表现是「新组的覆盖永远不生效」。键以 base 为准，覆盖层引入不了新键。
@@ -24,7 +53,18 @@ function mergeConfig(base: AppConfig, patch: PartialAppConfig): AppConfig {
   // 键的联合类型，于是值被推成**所有组的交集**而报错。泛型把单次调用的 K 钉死。
   const merged = {} as { -readonly [K in keyof AppConfig]: AppConfig[K] };
   const assign = <K extends keyof AppConfig>(key: K): void => {
-    merged[key] = { ...base[key], ...(patch[key] ?? {}) };
+    const group = { ...base[key], ...(patch[key] ?? {}) } as Record<string, unknown>;
+    // ⚠️ 上面那行对「按 ID 分组」的字段是**整体替换**，必须再补一层逐 ID 合并。
+    // 数组与联合类型（如 `window`）**保持整体替换** —— 语义是「这一层说了算」，
+    // 把两层的列表 concat 起来会得到一个谁都没要求过的并集。
+    for (const field of Object.keys(group)) {
+      if (!ID_KEYED_FIELDS.has(field)) continue;
+      const baseGroup = (base[key] as Record<string, unknown>)[field];
+      const patchGroup = (patch[key] as Record<string, unknown> | undefined)?.[field];
+      if (patchGroup === undefined) continue;
+      group[field] = mergeIdKeyed(baseGroup, patchGroup);
+    }
+    merged[key] = group as AppConfig[K];
   };
   for (const key of Object.keys(base) as (keyof AppConfig)[]) assign(key);
   return merged;

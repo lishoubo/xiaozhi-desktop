@@ -20,8 +20,21 @@ export const DEFAULT_APP_CONFIG: AppConfig = {
     timeoutMs: 30_000,
   },
   inventoryScan: {
-    // 7 天：与携程回读的 windowDays 同口径。真机观察取数耗时与渠道稳定性后再调。
-    window: { kind: 'days', days: 7 },
+    // ⚠️ 默认关闭：有外部副作用的周期性行为不该因为装了新版本就自己跑起来。
+    enabled: false,
+    // 15 天：与携程页面自然读一次返回的范围对齐（真机实测）。取 7 天的话，
+    // 8~15 天那部分基线永远不会被比对，只占库。
+    window: { kind: 'days', days: 15 },
     timeoutMs: 30_000,
+    idleMs: 5 * 60_000,
+    // idleMs 的 20%。比更新检查的 50% 小：那个是低频动作，散开 1 小时无所谓；
+    // 扫描要保证对账时效，散太开会让「最坏多久发现一次变更」不可预期。
+    jitterMs: 60_000,
+    quietAfterWriteMs: 60_000,
+    // ⚠️ 未列出的渠道 = 关。美团/抖音未接入扫描，不在这里出现即不扫。
+    channels: { ctrip: { enabled: true } },
+    // ⚠️ 未列出的酒店 = 取上层值（与 channels 相反）。默认不逐店配置，
+    // 新绑的店跟随渠道开关，不会静默不扫。
+    byHotel: {},
   },
 };

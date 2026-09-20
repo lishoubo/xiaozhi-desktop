@@ -39,7 +39,7 @@
  */
 import type { JsonObject } from '../../shared/types/json';
 import type { AppLogger } from '../../shared/logging';
-import type { SnapshotCell, SnapshotSourceOfTruth } from './types';
+import type { SnapshotCell, SnapshotCellMapper } from './types';
 
 /**
  * 从凭证的 `credentialExtra` 里取归一用的门店 ID。
@@ -55,13 +55,7 @@ export function masterHotelIdOf(credentialExtra: JsonObject | null): string | nu
   return null;
 }
 
-/** 各渠道把原始 cell 行转成快照格子的函数。渠道差异全在它里面。 */
-export type SnapshotCellMapper = (
-  rows: readonly JsonObject[],
-  otaHotelId: string,
-  sourceOfTruth: SnapshotSourceOfTruth,
-  observedAt: number,
-) => readonly SnapshotCell[];
+
 
 export type PageReadSnapshotPersisterDependencies = Readonly<{
   /** 按渠道取 mapper。没注册的渠道直接跳过。 */
@@ -114,3 +108,7 @@ export function createPageReadSnapshotPersister(
     deps.enqueue(cells);
   };
 }
+
+// SnapshotCellMapper 已移到 ./types —— 扫描链路也要用它，放在类型文件里两边都够得着。
+// 这里再导出一次，既有 import 点不用改。
+export type { SnapshotCellMapper } from './types';

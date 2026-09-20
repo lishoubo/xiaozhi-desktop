@@ -155,3 +155,16 @@ export function snapshotKeyOf(key: SnapshotKey): string {
 export function hasRoomIdentity(key: SnapshotKey): boolean {
   return key.otaPhysicalRoomId !== '' || key.otaSaleRoomId !== '';
 }
+
+/**
+ * 各渠道把原始 cell 行转成快照格子的函数。渠道差异全在它里面。
+ *
+ * 三条写入路径共用同一个映射（自然读、回读、扫描）—— 各写一份的话，同一格会被不同
+ * 路径写成不同内容，定时扫描于是反复报差异。
+ */
+export type SnapshotCellMapper = (
+  rows: readonly JsonObject[],
+  otaHotelId: string,
+  sourceOfTruth: SnapshotSourceOfTruth,
+  observedAt: number,
+) => readonly SnapshotCell[];
