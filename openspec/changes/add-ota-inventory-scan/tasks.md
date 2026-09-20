@@ -27,9 +27,13 @@
 
 ## 3. 取数层
 
-- [ ] 3.1 新建携程扫描取数实现：两步请求（`getRcProductList` → `getRoomInventoryInfo`）
-- [ ] 3.2 走注入的 `fetch` 窄回调，**不直接 import `session`**（`session.fromPartition`
-      的唯一持有者是 `session-factory.ts`）
+- [ ] 3.1 新建 `channels/ctrip/inventory-scan.ts`：两步请求
+      （`getRcProductList` → `getRoomInventoryInfo`）
+- [ ] 3.2 ⚠️ 注入 **`fetch` 函数**而非 `Session` 对象（design 决策 9.1）：
+      `session-factory.ts` 声明它是全仓唯一能调 `session.fromPartition()` 的地方；
+      且注入函数比注入 Session 权限更小、更好测，与既有 `CtripReadbackFetcher` 同形状
+- [ ] 3.2b ⚠️ `Referer` / `Origin` 由**渠道实现**给，不在注入的 fetcher 里写死
+      —— 那是渠道知识。连通性验证已确认只需这两个头
 - [ ] 3.3 日期窗口从配置取，按 `window.kind` 分支（本期只有 `days`）
 - [ ] 3.4 复用 `inventory-snapshot/ctrip-cells.ts` 的行→格子映射，**不另写一份**
 - [ ] 3.5 ⚠️ 房态与价格两类格子都要产出（Change A 实证：同一响应含
@@ -39,7 +43,11 @@
 
 ## 4. 调度器
 
-- [ ] 4.1 新建 `channels/inventory-scan-dispatcher.ts`（第六种触发模型）
+- [ ] 4.1 新建 `channels/inventory-scan-dispatcher.ts`（**第六种**触发模型，
+      与既有五个 dispatcher 并列；渠道无关，不认识任何端点名）
+- [ ] 4.1b `channels/types.ts` 加 `InventoryScan` 接口；`registry.ts` 加可选字段
+      `inventoryScan?` 与 `inventoryScans()` 投影（照 `inventoryReadbacks()` 的写法）
+      —— 没这项能力的渠道不注册即可，本期只注册携程
 - [ ] 4.2 fixed-delay 自我重排：`setTimeout` 在 `finally` 里排下一轮
       —— ⚠️ **不用 `setInterval`**（会叠加并发打同一账号）
 - [ ] 4.2b ⚠️ 间隔**每轮重新读配置**，不在构造时取一次 —— 否则服务端下发的新值

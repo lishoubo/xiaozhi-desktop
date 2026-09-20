@@ -355,7 +355,71 @@ type InventoryScanConfig = Readonly<{
 ⚠️ 没有这项能力的渠道**不注册**，调度层自然跳过（`ChannelAdapter.inventoryScan` 为
 可选字段）—— 与 `amountChangeAdapter` / `inventoryReadback` 同一手法。本期只注册携程。
 
-### 9. 装配
+### 9. 文件清单
+
+```
+main/
+├── channels/
+│   ├── types.ts                        ← 加 InventoryScan 接口（照 InventoryReadback 的形状）
+│   ├── registry.ts                     ← ChannelAdapter += inventoryScan?（可选字段）
+│   │                                      + inventoryScans() 投影（照 inventoryReadbacks()）
+│   ├── inventory-scan-dispatcher.ts    ⭐ 调度器：渠道无关，第六种触发模型
+│   └── ctrip/
+│       ├── inventory-scan.ts           ⭐ 携程取数：两步请求、六字段请求体
+│       ├── inventory-scan-payload.ts   ⭐ 上报体规格（RMS 对接读这份）
+│       └── session-expiry.ts           ← 失效判据，从 inventory-readback.ts 抽出
+│                                          携程内部共用（扫描 + 回读），见决策 8.5
+│
+├── inventory-snapshot/                 ← **无新增文件**
+│   └── （queue / diff / ctrip-cells / types 都是 Change A 已有，本次只调用）
+│
+├── database/                           ← 无新增（repository 已有 findByHotelAndDateRange）
+├── services/                           ← 无新增（复用 AmountChangeReportService）
+└── app-config/types.ts                 ← 加开关与 jitterMs（决策 8、3.1）
+```
+
+⭐ = 真正新写的三个文件。其余是接线、抽取或改配置类型。
+
+**六个 dispatcher 并列**（本次加第六个）：
+
+```
+                              触发                  次数
+HotelProbeDispatcher          intent（点绑定）       一次性
+AmountChangeWatcher           URL（走到改价页）      常驻
+OtaReauthDispatcher           credential-checked    每次登录判定
+InventoryReadbackDispatcher   改动事件              每次改动一次
+InventoryScanDispatcher       **定时**              周期性       ← 本次
+```
+
+### 9.1 ⚠️ 取数层不能自己拿 Session，注入 `fetch` 而非 `Session`
+
+`session-factory.ts` 声明「**全仓库唯一允许出现 partition 字符串的地方**，其他任何文件
+都不得调用 `session.fromPartition()`」。所以渠道取数实现拿不到 Session，只能走注入。
+
+注入什么形状，两个选择：
+
+| | 注入 `Session` 对象 | **注入 `fetch` 函数** |
+|---|---|---|
+| 渠道层能做什么 | 发请求 + 读 cookie + 清存储 | **只能发请求** |
+| 可测性 | 要 mock 整个 Session | mock 一个函数 |
+| 与既有形状 | — | 与 `CtripReadbackFetcher` 一致（回读注入的也是 fetcher，不是 webContents） |
+
+**采用注入 `fetch`** —— 权限最小，且照既有形状：
+
+```ts
+/** 由 composition 注入：内部转 SessionFactory.sessionForAccount(partitionName).fetch */
+export type ScanFetcher = (
+  partitionName: string,
+  url: string,
+  body: JsonObject,
+  timeoutMs: number,
+) => Promise<unknown>;
+```
+
+⚠️ `Referer` / `Origin` 由**渠道实现**给（它才知道该报哪个页面），不在注入的 fetcher 里
+写死 —— 那是渠道知识。连通性验证已确认只需这两个头。
+
+### 10. 装配
 
 ```
 app-scope      InventoryScanDispatcher        ← 跨窗口，生命周期长于任何窗口
