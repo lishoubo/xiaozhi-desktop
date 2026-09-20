@@ -90,7 +90,7 @@
       - ⚠️ 为何 `changeType` 沿用 `inventoryReadback` 而非新增值
       - ⚠️ `cells` 里**只含有差异的格子**，不是完整快照（与回读不同）
       - ⚠️ 无基线的格子不上报（首轮只建基线），所以「没报」≠「没变」
-- [ ] 6.6 ⚠️ **产出 `服务端需求.md`** —— `endpointId: 'inventoryScan'` 是新端点，
+- [x] 6.6 ⚠️ **产出 `服务端需求.md`** —— `endpointId: 'inventoryScan'` 是新端点，
       服务端要写对应 Translator 才能消费。不写的话 desktop 照发、服务端回
       `PARSE_FAILED`/`SKIPPED`（那是正常响应，单向通知），**desktop 侧看不出问题**。
       照既有两次对接的先例（`add-ctrip-inventory-readback/服务端需求.md`）

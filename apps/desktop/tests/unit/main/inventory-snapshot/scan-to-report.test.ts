@@ -105,12 +105,13 @@ describe('有基线时比对', () => {
 });
 
 describe('上报体', () => {
-  it('endpointId 是 inventoryScan，changeType 沿用 inventoryReadback', () => {
+  it('endpointId 是 inventoryScan，changeType 是 inventoryDiff', () => {
     const { handle, reported } = create([baselineCell(1, '2026-10-20', 'OLD')]);
     handle(TARGET, [statusRow(1, '2026-10-20')]);
     expect(reported[0]?.observed).toMatchObject({
       endpointId: 'inventoryScan',
-      changeType: 'inventoryReadback',
+      // ⚠️ 与回读的 inventoryReadback 区分：那个报现状，这个报比对出的差异。
+      changeType: 'inventoryDiff',
       otaHotelId: '122244992',
     });
   });

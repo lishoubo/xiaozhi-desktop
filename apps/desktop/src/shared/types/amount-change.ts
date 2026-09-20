@@ -147,7 +147,23 @@ export type AmountSaveObserved = Readonly<{
  * 服务端按 `(source, endpointId)` 分派 Translator，`changeType` 只进日志、不参与分流，
  * 所以新增这个值不影响既有分派。
  */
-export type OtaChangeType = 'price' | 'roomStatus' | 'inventoryReadback';
+/**
+ * ## ⚠️ `inventoryDiff` 与前三个的语义差别
+ *
+ * ```
+ * price / roomStatus   用户**想改成什么**   —— 渠道的写请求报文
+ * inventoryReadback    渠道**实际是什么**   —— 改完之后主动读回来的事实
+ * inventoryDiff        渠道**悄悄变成了什么** —— 定时扫描与本地基线比对出的差异
+ * ```
+ *
+ * 前两个都跟在用户操作后面；`inventoryDiff` **与用户操作无关**，它报的是「没人在本应用
+ * 里动过，但渠道那边变了」—— 用户在其他浏览器改价、或渠道自行关房（订满、活动到期）。
+ *
+ * ⚠️ 一条 `inventoryDiff` 的 `cells` 里**可能同时含价、量、态三类**，它们是本轮扫描
+ * 发现的全部差异，不区分类型。所以这个值不叫 `inventoryScanPrice` 之类 —— 扫描的产出
+ * 本就是混合的。
+ */
+export type OtaChangeType = 'price' | 'roomStatus' | 'inventoryReadback' | 'inventoryDiff';
 
 export type OtaAmountChangeReport = Readonly<{
   /** 幂等键，desktop 生成。RMS 据此去重（同一次改价重试上报不该跟两次价）。 */

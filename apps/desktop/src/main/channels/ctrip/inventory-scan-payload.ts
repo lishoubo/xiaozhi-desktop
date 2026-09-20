@@ -4,7 +4,7 @@
  * | | |
  * |---|---|
  * | `source` | `ctrip` |
- * | `changeType` | `inventoryReadback` ⚠️ 沿用，见下 |
+ * | `changeType` | `inventoryDiff` ⚠️ **新值**，见下 |
  * | `endpointId` | `inventoryScan` ⚠️ **新端点，服务端要写对应 Translator** |
  * | 触发 | 定时器，与用户操作无关 |
  *
@@ -17,8 +17,12 @@
  * ```
  * price / roomStatus    用户在本应用里改了什么      ← 写请求报文
  * inventoryReadback     用户改完后渠道实际是什么    ← 主动读回
- * inventoryScan         **没人操作，渠道自己变了**  ← 本上报
+ * inventoryDiff         **没人操作，渠道自己变了**  ← 本上报
  * ```
+ *
+ * ⚠️ `changeType` 叫 `inventoryDiff` 而非 `inventoryScan`：报的是**比对出的差异**，
+ * 不是「扫描到的现状」。一条上报的 `cells` 里可能同时含**价、量、态三类**，
+ * 是本轮发现的全部差异，不区分类型。
  *
  * 立论场景有两个，共同点是**本应用收不到任何信号**：
  *
@@ -132,9 +136,9 @@ export function buildCtripScanReport(
 ): OtaAmountChangeObserved {
   return {
     source,
-    // ⚠️ 沿用 inventoryReadback：服务端按 (source, endpointId) 分派，changeType 只进
-    // 日志、不参与分流；且语义对得上 —— 报的同样是「渠道实际是什么」。
-    changeType: 'inventoryReadback',
+    // ⚠️ 与回读区分开：那个报「渠道实际是什么」，这个报「比对出的差异」。
+    // 一条上报可能同时含价、量、态三类格子。
+    changeType: 'inventoryDiff',
     endpointId: CTRIP_SCAN_ENDPOINT_ID,
     endpointUrl: CTRIP_SCAN_ENDPOINT_URL,
     otaHotelId,
