@@ -208,11 +208,18 @@ timer = setTimeout(loop, delayMs);
 }
 ```
 
-| 字段 | 取值 |
-|---|---|
-| `changeType` | **沿用 `inventoryReadback`** —— 服务端按 `(source, endpointId)` 分派，`changeType` 只进日志 |
-| `endpointId` | 新值 `inventoryScan`，让服务端单独分派 Translator |
-| 旧值 | **不带**（已定） |
+| 字段 | 取值 | 依据 |
+|---|---|---|
+| `changeType` | **沿用 `inventoryReadback`**，不新增值 | `shared/types/amount-change.ts:147` 写死：服务端按 `(source, endpointId)` 分派 Translator，`changeType` **只进日志、不参与分流**。语义也对得上（都是「渠道实际是什么」）。加新值要改联合类型且服务端得跟着认，无收益 |
+| `endpointId` | **新值 `inventoryScan`** | 它决定 RMS 怎么解析 `changeRaw` —— 扫描的 `trigger` 形状与回读不同，必须能单独分派 |
+| 旧值 | **不带**（已定） | |
+
+⚠️ **`inventoryScan` 是新端点，服务端必须先写对应 Translator**。否则 desktop 照发、
+服务端回 `PARSE_FAILED` / `SKIPPED` —— 那是 `code=0` 的**正常响应**（上报是单向通知，
+失败沉淀成台账），**desktop 这侧看不出任何异常**。所以要：
+
+1. 产出 `服务端需求.md`（照既有两次对接的先例）
+2. 确认端点就绪再开启上报；未就绪先只写基线（摘掉 report 回调即可）
 
 ⚠️ 复用 `AmountChangeReportService.report(observed, partitionName)` —— 它已做齐补身份、
 归一 `masterHotelId`、重试 1 次，无一行新逻辑。

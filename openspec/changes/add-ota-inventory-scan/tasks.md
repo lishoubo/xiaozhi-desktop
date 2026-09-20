@@ -75,7 +75,19 @@
       `inventoryScan`，`trigger.kind = 'scheduledScan'`
 - [ ] 6.2 ⚠️ **不带旧值**（已定）
 - [ ] 6.3 复用 `AmountChangeReportService.report`，不新增 gateway
-- [ ] 6.4 新建 payload 规格文件（RMS 侧对接读这份），说明与回读上报的异同
+- [ ] 6.4 新建 payload 规格文件 `channels/ctrip/inventory-scan-payload.ts`
+      —— 照 `inventory-readback-payload.ts` 的形式：只导出常量 + 类型 + 组装函数，
+      **重心在文件头注释**（RMS 侧对接读这份）。要写清：
+      - 与回读上报的异同（`trigger` 形状不同，其余四字段同构）
+      - ⚠️ 为何 `changeType` 沿用 `inventoryReadback` 而非新增值
+      - ⚠️ `cells` 里**只含有差异的格子**，不是完整快照（与回读不同）
+      - ⚠️ 无基线的格子不上报（首轮只建基线），所以「没报」≠「没变」
+- [ ] 6.6 ⚠️ **产出 `服务端需求.md`** —— `endpointId: 'inventoryScan'` 是新端点，
+      服务端要写对应 Translator 才能消费。不写的话 desktop 照发、服务端回
+      `PARSE_FAILED`/`SKIPPED`（那是正常响应，单向通知），**desktop 侧看不出问题**。
+      照既有两次对接的先例（`add-ctrip-inventory-readback/服务端需求.md`）
+- [ ] 6.7 ⚠️ 与服务端确认端点已就绪再开启上报；未就绪则先只写基线不上报
+      （摘掉 report 回调即可，见 Migration Plan 阶段 4）
 - [ ] 6.5 单测：上报体字段；无差异时不发上报
 
 ## 7. 配置与开关
