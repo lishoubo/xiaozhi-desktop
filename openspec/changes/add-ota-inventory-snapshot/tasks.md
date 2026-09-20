@@ -159,9 +159,13 @@
 
 ## 11. 待定（不阻塞提交）
 
-- [ ] 11.1 **回读 persist 是否保留** —— 10.5 证明它产出的每一格都会被 2ms 后的
-      page-read 覆盖，且后者内容完全包含前者。砍掉可少一次重复写入（每次改动少写 3 行）；
-      保留则无害但 `source_of_truth` 的 `readback` 值永远不出现。**待用户定**
+- [x] 11.1 **回读 persist —— 已删（2026-09-20，用户决定）**。10.5 证明它产出的每一格
+      都会被 2ms 后的 page-read 覆盖，且后者内容完全包含前者（多 3 格价格）。
+      改动：`InventoryReadbackDispatcher` 去掉 persist 依赖与方法、删
+      `createReadbackSnapshotPersister`、`readback-to-cells.ts` 更名
+      `page-read-to-cells.ts`、window-scope 去掉一处接线。
+      ⚠️ `SnapshotSourceOfTruth` 的 `'readback'` **保留不删** —— 删它要改 DB 的
+      CHECK 约束（加 migration v10），而 Change B 的主动取数可能用得上。注释写明现状
 - [ ] 11.2 扫描窗口与自然读范围不一致 —— 自然读存 15 天（携程一次返这么多），
       而 `window.days` 默认 7，8~15 天的基线永不被比对。倾向对齐到 15 天，
       **属 Change B 范围**

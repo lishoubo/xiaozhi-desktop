@@ -44,9 +44,8 @@ import { AmountChangeWatcher } from '../channels/amount-change-watcher';
 import { InventoryReadbackDispatcher } from '../channels/inventory-readback-dispatcher';
 import {
   createPageReadSnapshotPersister,
-  createReadbackSnapshotPersister,
   type SnapshotCellMapper,
-} from '../inventory-snapshot/readback-to-cells';
+} from '../inventory-snapshot/page-read-to-cells';
 import { mapCtripReadRows } from '../inventory-snapshot/ctrip-cells';
 import { HotelProbeDispatcher } from '../channels/hotel-probe-dispatcher';
 import { OtaReauthDispatcher } from '../channels/ota-reauth-dispatcher';
@@ -231,13 +230,6 @@ export function createWindowScope(scope: WindowScopeDependencies): WindowScope {
     // 回读失败只在本地日志里留痕的话，没人会知道 —— 它是后台链路，用户看不见，
     // 也不影响他手上的操作。GlitchTip 是「不用等业户发日志就知道出事了」的唯一途径。
     reportError,
-    // 回读的结果同时写进基线。与上报是两条互不阻塞的下游。
-    persistSnapshot: createReadbackSnapshotPersister({
-      mappers: snapshotMappers,
-      credentialExtraByPartition,
-      enqueue: (cells) => scope.snapshotWriteQueue.push(cells),
-      logger,
-    }),
   });
   onDispose(() => inventoryReadbackDispatcher.dispose());
 

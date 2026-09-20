@@ -32,6 +32,17 @@
  * 两条链路**互不阻塞**：回读失败不影响既有上报，既有上报失败也不阻止回读。两条上报的
  * `operationId` 由 service 层各自生成，**独立、不互相去重** —— 它们是两个不同的事实
  * （「想改成什么」与「实际是什么」）。
+ *
+ * ## ⚠️ 本类**不写基线快照**，这是有意的
+ *
+ * 回读发的 `getRoomInventoryInfo` 请求跑在页面上下文里，**必然被改价监听的 CDP 拦到**
+ * （2026-09-20 真机实证：两次投递相隔 2ms，格子键逐字符相同），于是同一批数据会由
+ * 自然读那条路径落库。曾经在这里挂过一个 persist 回调，实测每一格都被 2ms 后的
+ * 自然读写入覆盖 —— 纯冗余。
+ *
+ * 更关键的是**自然读那条路产出得更多**：回读只取响应里的 `roomStatusResult`，而自然读
+ * 拦截同时取 `roomPriceResult`，多出价格格子。所以不能反过来「让拦截跳过回读的请求」，
+ * 那会丢价格。
  */
 import type { WebContents } from 'electron';
 import type { ChannelId } from '../ids';
@@ -52,25 +63,6 @@ export type InventoryReadbackDispatcherDependencies = Readonly<{
    * 由 composition root 接到上报服务 —— 与 `AmountChangeWatcher.report` 同一手法。
    */
   report: (observed: OtaAmountChangeObserved, partitionName: string) => void;
-  /**
-   * 回读成功时把 cells 写进基线快照。**可选**，省略即不写（单测默认不注入）。
-   *
-   * ## ⚠️ 为什么在这一层写，而不是各渠道实现里
-   *
-   * 回读产出的 `changeRaw.cells` 是**两个渠道同构**的（携程与美团的 payload 文件刻意对齐了
-   * 外层四个字段），所以取 cells 这一步渠道无关。写在这里，加一个渠道自动就有。
-   *
-   * ## ⚠️ 与 `report` 是两条互不阻塞的下游
-   *
-   * ```
-   * readback ok ─┬─→ report   （既有，发 RMS）
-   *              └─→ persist  （本次新增，写基线）
-   * ```
-   *
-   * persist 抛错**绝不能**影响 report —— 上报是用户可感知的业务动作，写基线是后台账本。
-   * 实现侧是投递队列（同步入队、不等写库），这里再兜一层 try。
-   */
-  persistSnapshot?: (report: OtaAmountChangeObserved, partitionName: string) => void;
   /**
    * 回读失败时同时上报到 GlitchTip。**可选**，省略即不上报（单测默认走 noop）。
    *
@@ -117,12 +109,7 @@ export class InventoryReadbackDispatcher {
     // 该渠道没注册回读能力 —— 正常情况，不记日志（否则每次改价都会刷一条噪音）。
     if (!readback) return;
 
-    // 链路起点。与下面的 outcome 日志配对，能看出「进来了但没出去」。
-    this.deps.logger.info('Inventory readback starting', {
-      channel: report.source,
-      triggerEndpointId: report.endpointId,
-      hasPersist: this.deps.persistSnapshot !== undefined,
-    });
+
 
     try {
       const outcome = await readback.readback(report, webContents);
@@ -132,16 +119,6 @@ export class InventoryReadbackDispatcher {
 
       switch (outcome.kind) {
         case 'ok':
-          this.deps.logger.info('Inventory readback ok', {
-            channel: report.source,
-            cells: Array.isArray(outcome.report.changeRaw.cells)
-              ? outcome.report.changeRaw.cells.length
-              : -1,
-            hasPersist: this.deps.persistSnapshot !== undefined,
-          });
-          // 先写基线再上报：两者互不依赖，但基线是本地账本、上报要走网络，
-          // 先做本地的那件事能让「上报失败但基线已更新」成为可能的状态，反过来则不行。
-          this.persist(outcome.report, partitionName);
           this.deps.report(outcome.report, partitionName);
           return;
         case 'skipped':
@@ -188,24 +165,6 @@ export class InventoryReadbackDispatcher {
         channel: report.source,
         hotelId: report.otaHotelId || undefined,
         extra: { triggerEndpointId: report.endpointId, reason: 'threw' },
-      });
-    }
-  }
-
-  /**
-   * 写基线。**吞掉所有异常** —— 见 `persistSnapshot` 的注释：这条链路绝不能影响上报。
-   */
-  private persist(report: OtaAmountChangeObserved, partitionName: string): void {
-    if (!this.deps.persistSnapshot) {
-      this.deps.logger.warn('Inventory snapshot persist not wired', { channel: report.source });
-      return;
-    }
-    try {
-      this.deps.persistSnapshot(report, partitionName);
-    } catch (error) {
-      this.deps.logger.warn('Inventory snapshot persist threw', {
-        channel: report.source,
-        error: safeLogErrorDetails(error),
       });
     }
   }

@@ -46,11 +46,7 @@ function readbackOf(outcome: ReadbackOutcome | (() => Promise<ReadbackOutcome>))
   };
 }
 
-function create(
-  readbacks: ReadonlyMap<string, InventoryReadback>,
-  logger = createLogger(),
-  persistSnapshot: ((...args: never[]) => void) | undefined = undefined,
-) {
+function create(readbacks: ReadonlyMap<string, InventoryReadback>, logger = createLogger()) {
   const report = vi.fn();
   const reportError = vi.fn();
   const dispatcher = new InventoryReadbackDispatcher({
@@ -58,7 +54,6 @@ function create(
     logger,
     report,
     reportError,
-    persistSnapshot: persistSnapshot as never,
   });
   return { dispatcher, report, logger, reportError };
 }
@@ -261,59 +256,5 @@ describe('InventoryReadbackDispatcher', () => {
 
       await expect(dispatcher.onReported(reportOf(), FAKE_WC, PARTITION)).resolves.toBeUndefined();
     });
-  });
-});
-
-describe('写入基线快照', () => {
-  it('ok 时既上报又写基线', async () => {
-    const { readback } = readbackOf({ kind: 'ok', report: READBACK_REPORT });
-    const persist = vi.fn();
-    const { dispatcher, report } = create(new Map([[CTRIP, readback]]), createLogger(), persist);
-
-    await dispatcher.onReported(reportOf(), FAKE_WC, PARTITION);
-
-    expect(persist).toHaveBeenCalledWith(READBACK_REPORT, PARTITION);
-    expect(report).toHaveBeenCalledWith(READBACK_REPORT, PARTITION);
-  });
-
-  // ⚠️ 本条守住「两条下游互不阻塞」：写基线是后台账本，绝不能拖累用户可感知的上报。
-  it('写基线抛错不影响上报', async () => {
-    const { readback } = readbackOf({ kind: 'ok', report: READBACK_REPORT });
-    const persist = vi.fn(() => {
-      throw new Error('queue exploded');
-    });
-    const logger = createLogger();
-    const { dispatcher, report } = create(new Map([[CTRIP, readback]]), logger, persist);
-
-    await expect(dispatcher.onReported(reportOf(), FAKE_WC, PARTITION)).resolves.toBeUndefined();
-
-    expect(report).toHaveBeenCalledWith(READBACK_REPORT, PARTITION);
-    expect(logger.warn).toHaveBeenCalledWith(
-      'Inventory snapshot persist threw',
-      expect.objectContaining({ channel: CTRIP }),
-    );
-  });
-
-  it('skipped 与 failed 都不写基线', async () => {
-    const persistSkipped = vi.fn();
-    const skipped = readbackOf({ kind: 'skipped', reason: 'x' });
-    const a = create(new Map([[CTRIP, skipped.readback]]), createLogger(), persistSkipped);
-    await a.dispatcher.onReported(reportOf(), FAKE_WC, PARTITION);
-    expect(persistSkipped).not.toHaveBeenCalled();
-
-    const persistFailed = vi.fn();
-    const failed = readbackOf({ kind: 'failed', reason: 'NETWORK_ERROR' });
-    const b = create(new Map([[CTRIP, failed.readback]]), createLogger(), persistFailed);
-    await b.dispatcher.onReported(reportOf(), FAKE_WC, PARTITION);
-    expect(persistFailed).not.toHaveBeenCalled();
-  });
-
-  it('未注入 persistSnapshot 时行为与从前一致', async () => {
-    const { readback } = readbackOf({ kind: 'ok', report: READBACK_REPORT });
-    const { dispatcher, report } = create(new Map([[CTRIP, readback]]));
-
-    await expect(dispatcher.onReported(reportOf(), FAKE_WC, PARTITION)).resolves.toBeUndefined();
-
-    expect(report).toHaveBeenCalledWith(READBACK_REPORT, PARTITION);
   });
 });
