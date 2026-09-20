@@ -31,18 +31,22 @@
  *
  * ```json
  * {
- *   "trigger": { "kind": "scheduledScan", "scanId": "…", "scannedAt": "2026-09-20T10:00:00.000Z" },
  *   "probedAt": "2026-09-20T10:00:03.000Z",
- *   "truncated": false,
  *   "cells": [
- *     { "roomTypeID": 1569052074, "effectDate": "2026-10-20", "roomStatus": "G", … },
- *     { "roomTypeID": 1569052074, "effectDate": "2026-10-20", "price": 434, … }
+ *     { "roomTypeID": 1569052074, "effectDate": "2026-10-20", "roomStatus": "G",
+ *       "limitSale": "T", "totalQuantity": 7, "canUsedQuantity": 7, … },
+ *     { "roomTypeID": 1569052074, "effectDate": "2026-10-20", "price": 434,
+ *       "currency": "RMB", … }
  *   ]
  * }
  * ```
  *
- * 外层四个字段与回读上报**同构**（`ctrip/inventory-readback-payload.ts`），服务端可以
- * 复用同一套外层处理，差异只在 `trigger`：回读的 trigger 指向一次写操作，这里没有。
+ * ⚠️ **比回读上报少两个字段**，都是有意删的：
+ *
+ * | 字段 | 为何没有 |
+ * |---|---|
+ * | `trigger` | 回读的 trigger 指向触发它的那次写操作；扫描由定时器触发，没有对应的用户操作可指。留一个 `{kind:'scheduledScan'}` 只是同义反复 —— `endpointId` 已经说明了这是扫描 |
+ * | `truncated` | 回读有「应用到所有日期」这种客户端算不出范围的情况；扫描窗口由配置决定且完全可知，这个字段恒为 `false`，留着会让人以为存在「可能不完整」的情况 |
  *
  * ============================================================================
  * ⚠️ 与回读上报的三条关键差异
@@ -65,11 +69,20 @@
  *
  * **所以「没报」有两种可能**：确实没变，或那一格是第一次见。两者本上报区分不了。
  *
- * ## 3. 房态与价格是**两条独立的格子**
+ * ## 3. ⚠️ 房态与房量在**同一条** cell，价格是**独立的另一条**
  *
- * 同一房型同一天会出现两条 cell：一条带 `roomStatus`/`limitSale`/房量字段，另一条带
- * `price`/`currency`。⚠️ 携程的价格路径可能不覆盖全部格子（关房日无价），所以
- * **有房态没价格是正常的**，不是数据缺失。
+ * ```
+ * 一条 cell：roomStatus（房态）+ limitSale/totalQuantity/canUsedQuantity（房量）
+ * 另一条  ：price / cost / commissionRate / currency
+ * ```
+ *
+ * 房态房量合一，是因为携程读接口本就把它们返回在同一行（`roomStatusResult`）；
+ * 价格分开，是因为它来自响应的另一个路径（`roomPriceResult.roomPriceInfo`）。
+ *
+ * ⚠️ **不可合并成一行**：携程的价格路径可能不覆盖全部格子（关房日无价），合并会让
+ * 关房日因无价而丢掉整行房态 —— `rms-rpa-worker` 侧记载过这个失效。
+ *
+ * 所以**有房态没价格是正常的**，不是数据缺失。
  *
  * ============================================================================
  * 其他须知
@@ -77,8 +90,6 @@
  *
  * - **不带旧值**：本上报只说「现在是什么」，不说「原来是什么」。需要对比请查
  *   服务端自己的历史。
- * - **`truncated` 恒 `false`**：扫描窗口由配置决定且完全可知，不存在回读那种
- *   「应用到所有日期」的无界范围。字段保留纯为与回读同构。
  * - **枚举原样透传**：`"G"`/`"N"`/`"Y"` 不转开关，`"T"`/`"F"` 不转布尔。字段语义
  *   见 `inventory-readback-payload.ts` 的「四条反直觉约定」，此处不重复。
  * - **偶发漏报是已知取舍**：扫描失败不重试、不补扫，下一轮自然覆盖。
@@ -99,9 +110,9 @@ export const CTRIP_SCAN_ENDPOINT_URL =
 
 export type CtripInventoryScanRaw = JsonObject &
   Readonly<{
-    trigger: Readonly<{ kind: 'scheduledScan'; scanId: string; scannedAt: string }>;
+    /** 本轮扫描取回数据的时刻。 */
     probedAt: string;
-    truncated: boolean;
+    /** **只含有差异的格子**，渠道原始行。见文件头的三条差异。 */
     cells: readonly JsonObject[];
   }>;
 
@@ -117,8 +128,6 @@ export function buildCtripScanReport(
   source: ChannelId,
   otaHotelId: string,
   cells: readonly JsonObject[],
-  scanId: string,
-  scannedAt: string,
   probedAt: string = new Date().toISOString(),
 ): OtaAmountChangeObserved {
   return {
@@ -130,10 +139,7 @@ export function buildCtripScanReport(
     endpointUrl: CTRIP_SCAN_ENDPOINT_URL,
     otaHotelId,
     changeRaw: {
-      trigger: { kind: 'scheduledScan', scanId, scannedAt },
       probedAt,
-      // 扫描窗口完全可知，不存在需要裁剪的无界范围。保留字段为与回读同构。
-      truncated: false,
       cells,
     } satisfies CtripInventoryScanRaw,
   };

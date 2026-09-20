@@ -24,7 +24,6 @@
  * 基线天然稀疏（自然读只覆盖用户实际翻到的范围）。把「没读过」当成「渠道新增了」，
  * 会在首次扫描时把整个窗口灌给服务端。判定在 `snapshot-diff.ts`，这里只是不绕过它。
  */
-import { randomUUID } from 'node:crypto';
 import type { AppLogger } from '../../shared/logging';
 import type { JsonObject } from '../../shared/types/json';
 import type { OtaAmountChangeObserved } from '../../shared/types/amount-change';
@@ -43,8 +42,7 @@ export type ReadBaseline = (
 export type ScanReportBuilder = (
   otaHotelId: string,
   cells: readonly JsonObject[],
-  scanId: string,
-  scannedAt: string,
+  probedAt: string,
 ) => OtaAmountChangeObserved;
 
 export type ScanResultHandlerDependencies = Readonly<{
@@ -59,7 +57,6 @@ export type ScanResultHandlerDependencies = Readonly<{
   report: (observed: OtaAmountChangeObserved, partitionName: string) => void;
   logger: AppLogger;
   now?: () => number;
-  newScanId?: () => string;
 }>;
 
 export type ScanResultTarget = Readonly<{
@@ -77,7 +74,6 @@ export function createScanResultHandler(
   deps: ScanResultHandlerDependencies,
 ): (target: ScanResultTarget, rows: readonly JsonObject[]) => void {
   const now = deps.now ?? (() => Date.now());
-  const newScanId = deps.newScanId ?? (() => randomUUID());
 
   return (target, rows) => {
     const mapper = deps.mappers.get(target.channel);
@@ -127,7 +123,6 @@ export function createScanResultHandler(
       buildReport(
         target.otaHotelId,
         changed.map((cell) => cell.itemData),
-        newScanId(),
         new Date(observedAt).toISOString(),
       ),
       target.partitionName,

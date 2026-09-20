@@ -395,14 +395,8 @@ export function createAppScope(logger: AppLogger): AppScope {
       reportBuilders: new Map([
         [
           'ctrip',
-          (otaHotelId, cells, scanId, scannedAt) =>
-            buildCtripScanReport(
-              toChannelId('ctrip'),
-              otaHotelId,
-              cells,
-              scanId,
-              scannedAt,
-            ),
+          (otaHotelId, cells, probedAt) =>
+            buildCtripScanReport(toChannelId('ctrip'), otaHotelId, cells, probedAt),
         ],
       ]),
       readBaseline: (source, otaHotelId, startDate, endDate) =>

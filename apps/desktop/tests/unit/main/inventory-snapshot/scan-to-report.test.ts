@@ -33,8 +33,8 @@ function create(baseline: readonly SnapshotCell[], logger = createLogger()) {
     reportBuilders: new Map([
       [
         'ctrip',
-        (otaHotelId, cells, scanId, scannedAt) =>
-          buildCtripScanReport(toChannelId('ctrip'), otaHotelId, cells, scanId, scannedAt, 'probed'),
+        (otaHotelId, cells) =>
+          buildCtripScanReport(toChannelId('ctrip'), otaHotelId, cells, 'probed-at'),
       ],
     ]),
     readBaseline: () => baseline,
@@ -42,7 +42,6 @@ function create(baseline: readonly SnapshotCell[], logger = createLogger()) {
     report: (observed, partitionName) => void reported.push({ observed, partitionName }),
     logger,
     now: () => 1700,
-    newScanId: () => 'scan-1',
   });
   return { handle, enqueued, reported, logger };
 }
@@ -116,16 +115,14 @@ describe('上报体', () => {
     });
   });
 
-  it('trigger 标明是定时扫描，truncated 恒 false', () => {
+  // ⚠️ trigger 与 truncated 刻意不带：扫描由定时器触发，没有对应的用户操作可指；
+  // 扫描窗口完全可知，不存在「可能不完整」的情况。留着只会是同义反复。
+  it('changeRaw 只有 probedAt 与 cells，不含 trigger/truncated', () => {
     const { handle, reported } = create([baselineCell(1, '2026-10-20', 'OLD')]);
     handle(TARGET, [statusRow(1, '2026-10-20')]);
     const raw = (reported[0]?.observed as { changeRaw: JsonObject }).changeRaw;
-    expect(raw.trigger).toEqual({
-      kind: 'scheduledScan',
-      scanId: 'scan-1',
-      scannedAt: new Date(1700).toISOString(),
-    });
-    expect(raw.truncated).toBe(false);
+    expect(Object.keys(raw).sort()).toEqual(['cells', 'probedAt']);
+    expect(raw.probedAt).toBe('probed-at');
   });
 
   it('partitionName 透传给上报服务（它据此查凭证补身份）', () => {
