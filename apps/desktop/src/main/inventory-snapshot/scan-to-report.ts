@@ -60,6 +60,18 @@ export type ReadBaseline = (
 ) => readonly SnapshotCell[];
 
 /** 组上报体。渠道差异全在它里面（`endpointId`、`endpointUrl`、外层形状）。 */
+/**
+ * 上报的 cell 里标注「这一格是什么」的字段名。
+ *
+ * 取值就是 `SnapshotItemType`（`roomStatus` | `price`）—— 基线库里的同一维度，
+ * 字段名也与库保持一致。服务端据它分派 cell 的解析方式，不必靠字段特征反推。
+ *
+ * ⚠️ 不带 `__` 前缀：两个渠道的真实响应里都没有 `itemType` 字段，不会撞名；
+ * 与库同名让「库里那一维」和「报文里这个字段」是同一个概念，对接时不必翻译。
+ * 将来若有渠道返回同名字段，冲突会体现在这里 —— 那时再改名，别默默让它被覆盖。
+ */
+export const ITEM_TYPE_FIELD = 'itemType';
+
 export type ScanReportBuilder = (
   otaHotelId: string,
   cells: readonly JsonObject[],
@@ -140,7 +152,13 @@ export function createScanResultHandler(
     deps.report(
       buildReport(
         target.otaHotelId,
-        changed.map((cell) => cell.itemData),
+        // ⚠️ 每个 cell 带上 `itemType`（房态房量 / 价格）—— 基线库里本就有这一维，
+        // 只发 `itemData` 等于把它丢掉，逼服务端靠字段猜（「有 salePrice 就是价格」）。
+        //
+        // 携程两类格子共用同一个 roomTypeID，猜错代价有限；**美团是两个 ID 空间**
+        // （房态房量挂 roomId，价格挂 goodsId），猜错就会把价格当成房态、拿 goodsId
+        // 去查物理房型 —— 查不到，或更糟：查到一个同号的别的房型。
+        changed.map((cell) => ({ ...cell.itemData, [ITEM_TYPE_FIELD]: cell.itemType })),
         new Date(observedAt).toISOString(),
       ),
       target.partitionName,

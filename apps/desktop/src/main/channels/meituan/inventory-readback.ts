@@ -35,164 +35,23 @@
  */
 import type { WebContents } from 'electron';
 import { safeLogErrorDetails, type AppLogger } from '../../../shared/logging';
-import type { JsonObject } from '../../../shared/types/json';
 import type { OtaAmountChangeObserved } from '../../../shared/types/amount-change';
-import type { InventoryReadback, ReadbackFailureReason, ReadbackOutcome } from '../types';
+import type { InventoryReadback, ReadbackOutcome } from '../types';
 import {
   extractMeituanReadbackTargets,
   type MeituanReadbackTargets,
 } from './room-change-targets';
 import type { MeituanReadbackFetcher } from './inventory-readback-fetcher';
+import { parseMeituanResponse } from './session-expiry';
+import {
+  buildRoomStatusRequest,
+  flattenRoomStatusRows,
+  MEITUAN_ROOM_STATUS_URL,
+} from './room-status-endpoint';
 import {
   buildMeituanReadbackReport,
   MEITUAN_READBACK_ENDPOINT_ID,
-  MEITUAN_READBACK_URL,
 } from './inventory-readback-payload';
-
-/**
- * 美团认「成功」的业务码。
- *
- * ⚠️ **是 10000，不是 200 也不是 0** —— 与携程（`code: 200`）、抖音
- * （`BaseResp.StatusCode === 0`）都不同。判据按端点钉死，不做形状自辨。
- */
-const SUCCESS_CODE = 10000;
-
-/** 日历房。⚠️ 同一 roomId 会返回日租(1) + 钟点(2) 两行，见 payload 文件头。 */
-const ROOM_CATEGORY_DAILY = 1;
-
-type ParsedResponse =
-  | Readonly<{ kind: 'ok'; data: readonly unknown[] }>
-  | Readonly<{ kind: 'failed'; reason: ReadbackFailureReason }>;
-
-/**
- * 把一次响应判成成功或某种失败。
- *
- * ## 失效判据只判有确定语义的三种
- *
- * - HTTP 401 → `COOKIE_EXPIRED`
- * - HTTP 403 → `FORBIDDEN`（**403 ≠ 401**：身份认了但没权限，重登解决不了，
- *   归成 `COOKIE_EXPIRED` 会掩盖真因并触发一轮无意义的重新登录）
- * - `code !== 10000` → `PARSE_ERROR`（不猜哪个 code 代表失效）
- *
- * ## ⚠️ 「200 + 登录页 HTML」**刻意不判**，也不打算补
- *
- * 携程有这条判据，是因为它继承自 `rms-rpa-worker` —— 那是**后台无人值守**跑的，
- * cookie 放几天不用，失效是常态。
- *
- * desktop 这条路不一样：回读发生在**用户刚操作成功的那个标签页**里，上一秒才保存成功
- * （`isSuccessful` 已判过）、下一秒登录失效的场景基本不存在。即使发生了也无事可做 ——
- * 回读不重试、不落盘，判成哪种失败对行为没有任何影响，只是日志上一个词的差别。
- *
- * 为此去猜美团登录页的特征，收益为负：猜错会恒假、单测全绿、线上照样落 `PARSE_ERROR`，
- * 还在代码里留下一段「看起来已处理」的假象。
- */
-function parseResponse(raw: unknown): ParsedResponse {
-  if (raw === null || raw === undefined) return { kind: 'failed', reason: 'NETWORK_ERROR' };
-  // 非 JSON（可能是 HTML）。刻意不认 HTML 登录页特征，理由见文件头。
-  if (typeof raw !== 'object' || Array.isArray(raw)) {
-    return { kind: 'failed', reason: 'PARSE_ERROR' };
-  }
-
-  const body = raw as JsonObject;
-  if (body.__httpStatus === 403) return { kind: 'failed', reason: 'FORBIDDEN' };
-  if (body.__httpStatus === 401) return { kind: 'failed', reason: 'COOKIE_EXPIRED' };
-
-  if (body.code !== SUCCESS_CODE) return { kind: 'failed', reason: 'PARSE_ERROR' };
-
-  const data = body.data;
-  // `data` 必须是数组。空数组是**合法结果**（这些天确实没数据），由调用方处理。
-  if (!Array.isArray(data)) return { kind: 'failed', reason: 'PARSE_ERROR' };
-  return { kind: 'ok', data };
-}
-
-function asObject(value: unknown): JsonObject | null {
-  if (typeof value !== 'object' || value === null || Array.isArray(value)) return null;
-  return value as JsonObject;
-}
-
-function toFiniteNumber(value: unknown): number | null {
-  if (typeof value === 'number') return Number.isFinite(value) ? value : null;
-  if (typeof value === 'string') {
-    const n = Number(value.trim());
-    return value.trim() !== '' && Number.isFinite(n) ? n : null;
-  }
-  return null;
-}
-
-type PickResult = Readonly<{ cells: JsonObject[]; hourlySkipped: number }>;
-
-/**
- * 把 `data[]` 的嵌套结构展平成扁平 cells，并施加两道过滤。
- *
- * ## 展平：`roomStatusMap` 是**以日期为 key 的对象**
- *
- * 携程 `roomStatusResult` 是扁平数组（房型数 × 天数），美团是嵌套 map。展平时把
- * `roomId` / `roomName` / `roomCategory` / `containerId` 并进每个 cell，
- * 让 `cells` 与携程同构 —— 服务端两边可以一套逻辑处理。
- *
- * ## 两道过滤，缺一不可
- *
- * 1. **`roomCategory === 1`** —— 同一 `roomId` 会返回日租 + 钟点两行，房量完全独立。
- *    不过滤会让同一房型同一天报出两行互相矛盾的数据（一行限量 1、一行不限 999）。
- *    ⚠️ `roomCategory` 缺失 → **丢弃该行**，不保留：宁可漏读也不能把钟点房数据混进
- *    日历房，后者会真实影响下发。
- * 2. **按目标日期集合筛** —— 请求只认区间，目标日期不连续时（用户只勾了周末）区间会
- *    比目标多。⚠️ 漏了这步等于「多读」，而服务端拿 cells 去**追价**，多报的日期会被
- *    跟到抖音，那是擅自扩大用户的改动范围。
- */
-function pickCells(
-  data: readonly unknown[],
-  wantedRoomIds: ReadonlySet<number>,
-  wantedDates: ReadonlySet<string>,
-): PickResult {
-  const cells: JsonObject[] = [];
-  let hourlySkipped = 0;
-
-  for (const rawItem of data) {
-    const item = asObject(rawItem);
-    if (!item) continue;
-
-    const base = asObject(item.roomBaseInfo);
-    if (!base) continue;
-
-    const roomId = toFiniteNumber(base.roomId);
-    if (roomId === null || !wantedRoomIds.has(roomId)) continue;
-
-    // ⚠️ 日历房才要。缺失也丢 —— 见上。
-    const roomCategory = toFiniteNumber(base.roomCategory);
-    if (roomCategory !== ROOM_CATEGORY_DAILY) {
-      if (roomCategory !== null) hourlySkipped += 1;
-      continue;
-    }
-
-    const statusMap = asObject(item.roomStatusMap);
-    if (!statusMap) continue;
-
-    for (const [date, rawCell] of Object.entries(statusMap)) {
-      // ⚠️ 按目标日期集合筛，不是「区间内就要」。
-      if (!wantedDates.has(date)) continue;
-      const cell = asObject(rawCell);
-      if (!cell) continue;
-
-      cells.push({
-        roomName: base.roomName ?? null,
-        // 整行透传，不解读房量语义 —— 即使已实证 limitRemain 是用户设的那个值
-        // （见 payload 文件头），desktop 也不取它，取了美团改字段时会静默错报。
-        ...cell,
-        // ⚠️ 这三个放在 spread **之后**：它们来自 `roomBaseInfo`（或 map 的 key），
-        // 那才是权威来源。cell 里已经出现过 `containerId` / `date` 这种与 roomBaseInfo
-        // 重名的字段，美团哪天补一个 `roomId` 进 cell 并不离谱 —— 若被它覆盖，
-        // 一行刚通过 `roomCategory === 1` 过滤的日租数据会带着 `roomCategory: 2`
-        // 上报出去，静默错报。
-        roomId,
-        roomCategory,
-        date,
-      });
-    }
-  }
-
-  return { cells, hourlySkipped };
-}
 
 export type MeituanInventoryReadbackDependencies = Readonly<{
   logger: AppLogger;
@@ -263,28 +122,29 @@ export function createMeituanInventoryReadback(
     targets: MeituanReadbackTargets,
     timeoutMs: number,
   ): Promise<ReadbackOutcome> {
-    // 接口只认区间。目标日期不连续时按 min~max 发，回来再按集合筛（见 pickCells）。
+    // 接口只认区间。目标日期不连续时按 min~max 发，回来再按集合筛（见下）。
     const raw = await deps.fetcher(
       webContents,
-      MEITUAN_READBACK_URL,
-      {
-        roomIds: [...targets.roomIds],
-        startDate: targets.dates[0],
-        endDate: targets.dates[targets.dates.length - 1],
+      MEITUAN_ROOM_STATUS_URL,
+      buildRoomStatusRequest({
+        roomIds: targets.roomIds,
+        startDate: targets.dates[0] as string,
+        endDate: targets.dates[targets.dates.length - 1] as string,
         poiId: targets.poiId,
         partnerId: targets.partnerId,
-      },
+      }),
       timeoutMs,
     );
 
-    const parsed = parseResponse(raw);
+    const parsed = parseMeituanResponse(raw);
     if (parsed.kind === 'failed') return parsed;
 
-    const { cells, hourlySkipped } = pickCells(
-      parsed.data,
-      new Set(targets.roomIds),
-      new Set(targets.dates),
-    );
+    // ⚠️ 回读**要收窄**：它的产出直接就是上报体，多报一天等于替用户宣告了他没做的
+    // 改动（服务端拿 cells 去追价）。扫描不传这个参数 —— 见 room-status-endpoint 文件头。
+    const { rows: cells, hourlySkipped } = flattenRoomStatusRows(parsed.data, {
+      roomIds: new Set(targets.roomIds),
+      dates: new Set(targets.dates),
+    });
     if (hourlySkipped > 0) {
       deps.logger.info('Meituan inventory readback: skipped non-daily rooms', { hourlySkipped });
     }

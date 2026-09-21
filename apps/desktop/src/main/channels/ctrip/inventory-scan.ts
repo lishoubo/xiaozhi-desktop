@@ -35,7 +35,7 @@
 import type { AppLogger } from '../../../shared/logging';
 import { safeLogErrorDetails } from '../../../shared/logging';
 import type { JsonObject } from '../../../shared/types/json';
-import type { InventoryScan, InventoryScanOutcome } from '../types';
+import type { InventoryScan, InventoryScanOutcome, ScanFetcher } from '../types';
 import { parseCtripResponse } from './session-expiry';
 
 const PRODUCT_LIST_URL = 'https://ebooking.ctrip.com/ebkovsroom/api/inventory/getRcProductList';
@@ -52,19 +52,11 @@ const CTRIP_PAGE_URL = 'https://ebooking.ctrip.com/ebkovsroom/inventory/calendar
 const CTRIP_ORIGIN = 'https://ebooking.ctrip.com';
 
 /**
- * 用账号会话发请求。由 composition 注入 —— `session.fromPartition()` 的唯一持有者是
- * `browser/session-factory.ts`，渠道层够不着。
- *
- * ⚠️ 注入的是**函数**而非 `Session` 对象：渠道层只需要发请求的能力，给它整个 Session
- * 等于连读 cookie、清存储一并给了。
+ * @deprecated 用 `channels/types.ts` 的 `ScanFetcher` —— 这个形状本来就渠道无关
+ * （头由各渠道实现自己填），名字带 Ctrip 只是因为当时只有携程一家。保留别名是为了
+ * 不动既有引用。
  */
-export type CtripScanFetcher = (
-  partitionName: string,
-  url: string,
-  body: JsonObject,
-  headers: Readonly<Record<string, string>>,
-  timeoutMs: number,
-) => Promise<unknown>;
+export type CtripScanFetcher = ScanFetcher;
 
 /**
  * 分流标记：告诉下游这一行是房态还是价格。
@@ -177,7 +169,7 @@ function pickPriceRows(data: JsonObject): JsonObject[] {
 
 export type CtripInventoryScanDependencies = Readonly<{
   logger: AppLogger;
-  fetcher: CtripScanFetcher;
+  fetcher: ScanFetcher;
   /** 窄回调，从 appConfig 取；不在这里读全局配置，否则不可测。 */
   config: () => Readonly<{ timeoutMs: number }>;
   /** 窗口基准日，**入参**以便测试。 */
@@ -195,6 +187,8 @@ export function createCtripInventoryScan(deps: CtripInventoryScanDependencies): 
   };
 
   return {
+    // ⚠️ 不取第三参 `channelExtra`：携程的门店上下文完全由 cookie 决定（第一步请求体是
+    // `{}`），没有需要外部传入的取数入参。
     async scan(partitionName: string, windowDays: number): Promise<InventoryScanOutcome> {
       const { timeoutMs } = deps.config();
       const startedAt = Date.now();

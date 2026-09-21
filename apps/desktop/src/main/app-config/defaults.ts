@@ -41,8 +41,15 @@ export const DEFAULT_APP_CONFIG: AppConfig = {
     timeoutMs: 30_000,
   },
   inventoryScan: {
-    // ⚠️ 默认关闭：有外部副作用的周期性行为不该因为装了新版本就自己跑起来。
-    enabled: false,
+    /**
+     * 总闸。**dev 开，pre / online 关。**
+     *
+     * ⚠️ 正式环境默认关闭：周期性打渠道接口是有外部副作用的行为，不该因为装了新版本
+     * 就自己跑起来。开启由服务端下发（配置形状已预留），不发版即可逐店灰度。
+     *
+     * dev 开着是为了让真机验证不必每次手改代码 —— 与 `SCAN_PACE` 同一分档手法。
+     */
+    enabled: APP_ENVIRONMENT === 'dev',
     // 15 天：与携程页面自然读一次返回的范围对齐（真机实测）。取 7 天的话，
     // 8~15 天那部分基线永远不会被比对，只占库。
     window: { kind: 'days', days: 15 },
@@ -52,8 +59,8 @@ export const DEFAULT_APP_CONFIG: AppConfig = {
     // 「最坏多久发现一次变更」不可预期。
     idleMs: SCAN_PACE.idleMs,
     jitterMs: SCAN_PACE.jitterMs,
-    // ⚠️ 未列出的渠道 = 关。美团/抖音未接入扫描，不在这里出现即不扫。
-    channels: { ctrip: { enabled: true } },
+    // ⚠️ 未列出的渠道 = 关（接渠道是开发行为，必须显式开）。抖音尚未接入扫描。
+    channels: { ctrip: { enabled: true }, meituan: { enabled: true } },
     // ⚠️ 未列出的酒店 = 取上层值（与 channels 相反）。默认不逐店配置，
     // 新绑的店跟随渠道开关，不会静默不扫。
     byHotel: {},

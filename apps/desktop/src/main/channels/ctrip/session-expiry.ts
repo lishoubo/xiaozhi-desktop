@@ -74,6 +74,9 @@ export function parseCtripResponse(raw: unknown): CtripParsedResponse {
 
   const body = raw as JsonObject;
   if (body.__httpStatus === 403) return { kind: 'failed', reason: 'FORBIDDEN' };
+  // HTTP 401 归成形态 1 —— 这个归一是**携程自己的**判断（它的 `EXPIRED_CODES` 里
+  // 恰好也有业务码 401），不是 fetcher 替所有渠道做的。见 app-scope 的 scanFetcher。
+  if (body.__httpStatus === 401) return { kind: 'failed', reason: 'COOKIE_EXPIRED' };
   if (isAuthFailureBody(body)) return { kind: 'failed', reason: 'COOKIE_EXPIRED' };
 
   const code = body.code;

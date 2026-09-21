@@ -18,12 +18,13 @@ import {
   createMeituanAmountChangeAdapter,
   INVENTORY_ENDPOINT_ID as MEITUAN_INVENTORY_ENDPOINT_ID,
 } from './meituan/amount-change-adapter';
+import { createMeituanInventoryScan } from './meituan/inventory-scan';
 import { createMeituanInventoryReadback } from './meituan/inventory-readback';
 import { meituanReadbackFetcher } from './meituan/inventory-readback-fetcher';
 import { meituanHotelProbe } from './meituan/hotel-prob';
 import { meituanLoginUrlMatcher } from './meituan/login-url-matcher';
 import { createCtripInventoryReadback } from './ctrip/inventory-readback';
-import { createCtripInventoryScan, type CtripScanFetcher } from './ctrip/inventory-scan';
+import { createCtripInventoryScan } from './ctrip/inventory-scan';
 import { ctripReadbackFetcher } from './ctrip/inventory-readback-fetcher';
 import { ctripBatchTaskGate } from './ctrip/batch-task-gate';
 import type { AppConfig } from '../app-config/types';
@@ -33,6 +34,7 @@ import type {
   InventoryReadback,
   InventoryScan,
   LoginUrlMatcher,
+  ScanFetcher,
 } from './types';
 
 export type ChannelAdapter = Readonly<{
@@ -71,7 +73,7 @@ export function createChannelRegistry(
    *
    * **可选**：省略即不注册扫描能力（`inventoryScans()` 自然跳过），既有调用方不用改。
    */
-  scanFetcher?: CtripScanFetcher,
+  scanFetcher?: ScanFetcher,
 ): ReadonlyMap<ChannelId, ChannelAdapter> {
   // 批量任务门控是渠道级单例（状态按全局唯一的 taskId 分键），logger 在这里才有。
   ctripBatchTaskGate.setLogger(logger);
@@ -120,6 +122,15 @@ export function createChannelRegistry(
         inventoryEndpointId: MEITUAN_INVENTORY_ENDPOINT_ID,
         config: () => appConfig().meituanInventoryReadback,
       }),
+      // ⚠️ 与携程共用同一个 scanFetcher（形状本就渠道无关，头由各渠道实现自己填）。
+      // 省略 scanFetcher 即不注册 —— `inventoryScans()` 投影会自然跳过。
+      inventoryScan: scanFetcher
+        ? createMeituanInventoryScan({
+            logger,
+            fetcher: scanFetcher,
+            config: () => ({ timeoutMs: appConfig().inventoryScan.timeoutMs }),
+          })
+        : undefined,
     },
   ];
   return new Map(adapters.map((adapter) => [adapter.channel, adapter]));

@@ -173,7 +173,20 @@ export interface AmountChangeAdapter {
    * ⚠️ 这里**只返回行，不返回格子**：格子需要 `otaHotelId`（取自登录凭证），而
    * `channels/` 被 eslint 禁止访问 `database/`。补齐在装配层做，与回读同一手法。
    */
-  onReadResponse?(endpointId: string, responseBody: string): readonly JsonObject[];
+  onReadResponse?(
+    endpointId: string,
+    responseBody: string,
+    /**
+     * 该次查询的**请求体**（原始文本，可能为空）。
+     *
+     * ⚠️ 加这一参是因为**有的渠道的门店标识只在请求里，不在响应里**：美团
+     * `queryRoomStatusInfo` 的响应里没有 `poiId`，而一个美团账号挂多家门店 ——
+     * 没有它就无从判断这批数据属于哪家店，格子会落到错误的门店上或被整批丢弃。
+     *
+     * 携程不需要它（一个凭证对应一家店，门店由凭证归一）。
+     */
+    requestBody: JsonObject | null,
+  ): readonly JsonObject[];
 }
 
 /** 见 `AmountChangeAdapter.parse`。 */
@@ -257,12 +270,38 @@ export type InventoryScanOutcome =
  *
  * 没有这项能力的渠道**不注册**即可（`ChannelAdapter.inventoryScan` 是可选字段）。
  */
+/**
+ * 用账号会话发一次请求。由 composition 注入 —— `session.fromPartition()` 的唯一持有者是
+ * `browser/session-factory.ts`，渠道层够不着。
+ *
+ * ⚠️ 注入的是**函数**而非 `Session` 对象：渠道层只需要发请求的能力，给它整个 Session
+ * 等于连读 cookie、清存储一并给了。
+ *
+ * 形状本身渠道无关 —— `Referer` / `M-APPKEY` 这类头由**各渠道实现**填进 `headers`
+ * （哪个页面发的请求、网关认什么头，都是渠道知识），不在注入方写死。
+ */
+export type ScanFetcher = (
+  partitionName: string,
+  url: string,
+  /** `null` 表示 GET（美团的门店列表端点是 GET，携程两步都是 POST）。 */
+  body: JsonObject | null,
+  headers: Readonly<Record<string, string>>,
+  timeoutMs: number,
+) => Promise<unknown>;
+
 export interface InventoryScan {
   /**
    * @param partitionName 该账号的会话标识 —— 由调度层从凭证取得
    * @param windowDays 从今天起取多少天
+   * @param channelExtra 渠道专有的取数上下文，调度层原样透传（见 `ScanTarget.channelExtra`）。
+   *        携程不需要（门店上下文由 cookie 决定）；美团需要 `otaPartnerId`。
+   *        ⚠️ 形状由各渠道自己校验 —— 调度层不认识任何渠道的入参。
    */
-  scan(partitionName: string, windowDays: number): Promise<InventoryScanOutcome>;
+  scan(
+    partitionName: string,
+    windowDays: number,
+    channelExtra: JsonObject,
+  ): Promise<InventoryScanOutcome>;
 }
 
 export interface InventoryReadback {

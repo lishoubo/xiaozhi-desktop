@@ -299,7 +299,7 @@ export class AmountSaveCapture {
       if (!this.onReadRows || !this.adapter.onReadResponse) return;
       let rows: readonly JsonObject[];
       try {
-        rows = this.adapter.onReadResponse(saved.endpointId, responseBody);
+        rows = this.adapter.onReadResponse(saved.endpointId, responseBody, saved.requestBody ?? null);
       } catch (error) {
         // 建基线是后台账本，解析失败绝不能影响这条 CDP 连接上的改价监听。
         this.logger.warn('Amount save capture: read response parse threw', {

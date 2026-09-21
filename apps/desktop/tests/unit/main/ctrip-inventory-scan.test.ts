@@ -41,7 +41,7 @@ function inventory(statusRows: JsonObject[], priceRows: JsonObject[] = []): Json
 }
 
 function fetcherOf(...responses: unknown[]) {
-  const calls: { partitionName: string; url: string; body: JsonObject }[] = [];
+  const calls: { partitionName: string; url: string; body: JsonObject | null }[] = [];
   const fetcher: CtripScanFetcher = async (partitionName, url, body) => {
     calls.push({ partitionName, url, body });
     return responses[calls.length - 1];
@@ -84,20 +84,20 @@ describe('分流标记与映射侧一致', () => {
 describe('两步请求', () => {
   it('第一步 body 为空对象 —— 门店上下文完全由 cookie 决定', async () => {
     const { scan } = create(defaultFetcher.fetcher);
-    await scan.scan(PARTITION, 7);
+    await scan.scan(PARTITION, 7, {});
     expect(defaultFetcher.calls[0]?.body).toEqual({});
     expect(defaultFetcher.calls[0]?.url).toContain('getRcProductList');
   });
 
   it('partitionName 原样透传给 fetcher', async () => {
     const { scan } = create(defaultFetcher.fetcher);
-    await scan.scan(PARTITION, 7);
+    await scan.scan(PARTITION, 7, {});
     expect(defaultFetcher.calls.every((c) => c.partitionName === PARTITION)).toBe(true);
   });
 
   it('第二步带上全部房型的六字段', async () => {
     const { scan } = create(defaultFetcher.fetcher);
-    await scan.scan(PARTITION, 7);
+    await scan.scan(PARTITION, 7, {});
     const body = defaultFetcher.calls[1]?.body as JsonObject;
     const refs = body.hotelRoomInfoDtoList as JsonObject[];
     expect(refs).toHaveLength(2);
@@ -122,7 +122,7 @@ describe('两步请求', () => {
     };
     const { fetcher, calls } = fetcherOf(productList([withoutRateCode]), inventory([]));
     const { scan } = create(fetcher);
-    await scan.scan(PARTITION, 7);
+    await scan.scan(PARTITION, 7, {});
     const refs = (calls[1]?.body as JsonObject).hotelRoomInfoDtoList as JsonObject[];
     expect(refs[0]?.rateCodeID).toBeNull();
   });
@@ -131,7 +131,7 @@ describe('两步请求', () => {
 describe('窗口计算', () => {
   it('windowDays 含今天：7 天 = 今天 + 往后 6 天', async () => {
     const { scan } = create(defaultFetcher.fetcher);
-    await scan.scan(PARTITION, 7);
+    await scan.scan(PARTITION, 7, {});
     const body = defaultFetcher.calls[1]?.body as JsonObject;
     expect(body.startDate).toBe('2026-10-20');
     expect(body.endDate).toBe('2026-10-26');
@@ -139,7 +139,7 @@ describe('窗口计算', () => {
 
   it('windowDays 为 1 时起止同日', async () => {
     const { scan } = create(defaultFetcher.fetcher);
-    await scan.scan(PARTITION, 1);
+    await scan.scan(PARTITION, 1, {});
     const body = defaultFetcher.calls[1]?.body as JsonObject;
     expect(body.startDate).toBe('2026-10-20');
     expect(body.endDate).toBe('2026-10-20');
@@ -153,7 +153,7 @@ describe('房型过滤', () => {
       inventory([]),
     );
     const { scan } = create(fetcher);
-    await scan.scan(PARTITION, 7);
+    await scan.scan(PARTITION, 7, {});
     const refs = (calls[1]?.body as JsonObject).hotelRoomInfoDtoList as JsonObject[];
     expect(refs.map((r) => r.roomTypeID)).toEqual([1]);
   });
@@ -165,7 +165,7 @@ describe('房型过滤', () => {
       inventory([]),
     );
     const { scan } = create(fetcher);
-    await scan.scan(PARTITION, 7);
+    await scan.scan(PARTITION, 7, {});
     const refs = (calls[1]?.body as JsonObject).hotelRoomInfoDtoList as JsonObject[];
     expect(refs).toHaveLength(2);
   });
@@ -176,7 +176,7 @@ describe('房型过滤', () => {
       inventory([]),
     );
     const { scan } = create(fetcher);
-    await scan.scan(PARTITION, 7);
+    await scan.scan(PARTITION, 7, {});
     const refs = (calls[1]?.body as JsonObject).hotelRoomInfoDtoList as JsonObject[];
     expect(refs.map((r) => r.roomTypeID)).toEqual([1, 2]);
   });
@@ -184,7 +184,7 @@ describe('房型过滤', () => {
   it('没有可扫房型时 skipped，不发第二个请求', async () => {
     const { fetcher, calls } = fetcherOf(productList([]));
     const { scan } = create(fetcher);
-    const outcome = await scan.scan(PARTITION, 7);
+    const outcome = await scan.scan(PARTITION, 7, {});
     expect(outcome).toEqual({ kind: 'skipped', reason: 'no-scannable-room-types' });
     expect(calls).toHaveLength(1);
   });
@@ -193,7 +193,7 @@ describe('房型过滤', () => {
 describe('产出', () => {
   it('房态与价格都抽出，各带分流标记', async () => {
     const { scan } = create(defaultFetcher.fetcher);
-    const outcome = await scan.scan(PARTITION, 7);
+    const outcome = await scan.scan(PARTITION, 7, {});
     expect(outcome.kind).toBe('ok');
     if (outcome.kind !== 'ok') return;
     expect(outcome.rows).toEqual([
@@ -209,7 +209,7 @@ describe('产出', () => {
       inventory([{ roomTypeID: 1, effectDate: '2026-10-20', roomStatus: 'N' }]),
     );
     const { scan } = create(fetcher);
-    const outcome = await scan.scan(PARTITION, 7);
+    const outcome = await scan.scan(PARTITION, 7, {});
     expect(outcome.kind === 'ok' && outcome.rows).toHaveLength(1);
   });
 
@@ -217,7 +217,7 @@ describe('产出', () => {
   it('两批都为空时仍是 ok', async () => {
     const { fetcher } = fetcherOf(productList([room(1)]), inventory([]));
     const { scan } = create(fetcher);
-    const outcome = await scan.scan(PARTITION, 7);
+    const outcome = await scan.scan(PARTITION, 7, {});
     expect(outcome).toEqual({ kind: 'ok', rows: [] });
   });
 });
@@ -226,7 +226,7 @@ describe('失效与异常', () => {
   it('第一步登录页 → COOKIE_EXPIRED，不发第二个请求', async () => {
     const { fetcher, calls } = fetcherOf('<html>htl-ebk-login-web</html>');
     const { scan } = create(fetcher);
-    const outcome = await scan.scan(PARTITION, 7);
+    const outcome = await scan.scan(PARTITION, 7, {});
     expect(outcome).toEqual({ kind: 'failed', reason: 'COOKIE_EXPIRED' });
     expect(calls).toHaveLength(1);
   });
@@ -235,14 +235,14 @@ describe('失效与异常', () => {
   it('403 判成 FORBIDDEN 而非 COOKIE_EXPIRED', async () => {
     const { fetcher } = fetcherOf({ __httpStatus: 403 });
     const { scan } = create(fetcher);
-    const outcome = await scan.scan(PARTITION, 7);
+    const outcome = await scan.scan(PARTITION, 7, {});
     expect(outcome).toEqual({ kind: 'failed', reason: 'FORBIDDEN' });
   });
 
   it('第二步失效同样被判出来', async () => {
     const { fetcher } = fetcherOf(productList([room(1)]), { code: 401 });
     const { scan } = create(fetcher);
-    const outcome = await scan.scan(PARTITION, 7);
+    const outcome = await scan.scan(PARTITION, 7, {});
     expect(outcome).toEqual({ kind: 'failed', reason: 'COOKIE_EXPIRED' });
   });
 
@@ -251,7 +251,7 @@ describe('失效与异常', () => {
     const { scan } = create(async () => {
       throw new Error('socket hang up');
     }, logger);
-    const outcome = await scan.scan(PARTITION, 7);
+    const outcome = await scan.scan(PARTITION, 7, {});
     expect(outcome).toEqual({ kind: 'failed', reason: 'UNEXPECTED' });
     expect(logger.warn).toHaveBeenCalled();
   });

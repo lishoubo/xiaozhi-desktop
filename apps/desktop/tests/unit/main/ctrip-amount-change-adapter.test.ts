@@ -1024,26 +1024,26 @@ describe('读端点', () => {
   it('从响应里抽出房态房量行，渠道字段原样 + 一个分流标记', () => {
     const row = { roomTypeID: 1, effectDate: '2026-10-20', roomStatus: 'G', limitSale: 'T' };
     // 标记是我们加的（同一响应里还有价格行，下游要分得开），映射侧会剥掉，不进 item_data。
-    expect(adapter.onReadResponse?.(READ_ID, response([row]))).toEqual([
+    expect(adapter.onReadResponse?.(READ_ID, response([row]), null)).toEqual([
       { ...row, __snapshotKind: 'roomStatus' },
     ]);
   });
 
   // ⚠️ 登录失效时携程返回 HTTP 200 + 整页登录页 HTML —— 建基线是尽力而为，静默跳过即可。
   it('响应不是 JSON 时返回空数组，不抛错', () => {
-    expect(adapter.onReadResponse?.(READ_ID, '<html>login</html>')).toEqual([]);
+    expect(adapter.onReadResponse?.(READ_ID, '<html>login</html>', null)).toEqual([]);
   });
 
   it('响应形状不对时返回空数组', () => {
-    expect(adapter.onReadResponse?.(READ_ID, '{"code":200}')).toEqual([]);
-    expect(adapter.onReadResponse?.(READ_ID, '{"code":200,"data":null}')).toEqual([]);
-    expect(adapter.onReadResponse?.(READ_ID, response('nope'))).toEqual([]);
-    expect(adapter.onReadResponse?.(READ_ID, '[]')).toEqual([]);
+    expect(adapter.onReadResponse?.(READ_ID, '{"code":200}', null)).toEqual([]);
+    expect(adapter.onReadResponse?.(READ_ID, '{"code":200,"data":null}', null)).toEqual([]);
+    expect(adapter.onReadResponse?.(READ_ID, response('nope'), null)).toEqual([]);
+    expect(adapter.onReadResponse?.(READ_ID, '[]', null)).toEqual([]);
   });
 
   it('过滤掉非对象的行', () => {
     const row = { roomTypeID: 1, effectDate: '2026-10-20' };
-    expect(adapter.onReadResponse?.(READ_ID, response([row, null, 'x', 1]))).toEqual([
+    expect(adapter.onReadResponse?.(READ_ID, response([row, null, 'x', 1]), null)).toEqual([
       { ...row, __snapshotKind: 'roomStatus' },
     ]);
   });
@@ -1066,7 +1066,7 @@ describe('读端点 · 价格', () => {
   const P = { roomTypeID: 1, effectDate: '2026-10-20', price: 328 };
 
   it('房态与价格都被抽出，各带分流标记', () => {
-    const rows = adapter.onReadResponse?.(READ_ID, full([S], [P])) ?? [];
+    const rows = adapter.onReadResponse?.(READ_ID, full([S], [P]), null) ?? [];
     expect(rows).toEqual([
       { ...S, __snapshotKind: 'roomStatus' },
       { ...P, __snapshotKind: 'price' },
@@ -1075,23 +1075,23 @@ describe('读端点 · 价格', () => {
 
   // ⚠️ roomPriceResult 可能不覆盖全部格子（关房日无价）—— 房态不能因此丢。
   it('没有价格时房态照常抽出', () => {
-    const rows = adapter.onReadResponse?.(READ_ID, full([S], [])) ?? [];
+    const rows = adapter.onReadResponse?.(READ_ID, full([S], []), null) ?? [];
     expect(rows).toHaveLength(1);
     expect(rows[0]?.__snapshotKind).toBe('roomStatus');
   });
 
   it('roomPriceResult 缺失或形状不对时不抛错', () => {
     const noPrice = JSON.stringify({ code: 200, data: { roomStatusResult: [S] } });
-    expect(adapter.onReadResponse?.(READ_ID, noPrice)).toHaveLength(1);
+    expect(adapter.onReadResponse?.(READ_ID, noPrice, null)).toHaveLength(1);
     const badPrice = JSON.stringify({
       code: 200,
       data: { roomStatusResult: [S], roomPriceResult: 'nope' },
     });
-    expect(adapter.onReadResponse?.(READ_ID, badPrice)).toHaveLength(1);
+    expect(adapter.onReadResponse?.(READ_ID, badPrice, null)).toHaveLength(1);
   });
 
   it('只有价格没有房态时也能抽出价格', () => {
-    const rows = adapter.onReadResponse?.(READ_ID, full([], [P])) ?? [];
+    const rows = adapter.onReadResponse?.(READ_ID, full([], [P]), null) ?? [];
     expect(rows).toHaveLength(1);
     expect(rows[0]?.__snapshotKind).toBe('price');
   });

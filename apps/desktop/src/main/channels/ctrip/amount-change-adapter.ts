@@ -659,6 +659,8 @@ export function createCtripAmountChangeAdapter(logger: AppLogger): AmountChangeA
      * ⚠️ 只解析、不落库、不补 `otaHotelId` —— 那个要查凭证，而 `channels/` 够不着
      * `database/`。这里交出的是渠道原始行。
      */
+    // ⚠️ 不取第三参 `requestBody`：携程一个凭证对应一家店，门店由凭证的 masterHotelId
+    // 归一，不需要从请求里取门店标识（美团需要，见 types.ts 那段注释）。
     onReadResponse(_endpointId: string, responseBody: string): readonly JsonObject[] {
       let parsed: unknown;
       try {

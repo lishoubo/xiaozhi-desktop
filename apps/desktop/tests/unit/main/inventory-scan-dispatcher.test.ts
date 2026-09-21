@@ -17,7 +17,13 @@ function createLogger() {
 }
 
 function target(overrides: Partial<ScanTarget> = {}): ScanTarget {
-  return { channel: CTRIP, partitionName: 'persist:ctrip:a', otaHotelId: '122244992', ...overrides };
+  return {
+    channel: CTRIP,
+    partitionName: 'persist:ctrip:a',
+    otaHotelId: '122244992',
+    channelExtra: {},
+    ...overrides,
+  };
 }
 
 function config(overrides: Partial<ScanRuntimeConfig> = {}): ScanRuntimeConfig {
@@ -244,6 +250,30 @@ describe('开关', () => {
     await h.fire();
     expect(h.onRows).toHaveBeenCalledTimes(1);
     expect(h.onRows.mock.calls[0]?.[0]).toMatchObject({ otaHotelId: 'on' });
+  });
+
+
+  // ⚠️ 第 2 组引入的契约：调度层**原样透传**渠道专有上下文，自己不解读。
+  // 美团靠它拿 poiId / partnerId；透传断了的话美团会整体落 skipped，且日志上只看到
+  // 「缺门店级参数」，很难反查到是调度层丢的。
+  it('把 channelExtra 原样透传给渠道实现', async () => {
+    const seen: JsonObject[] = [];
+    const scan: InventoryScan = {
+      scan: async (_partitionName, _windowDays, channelExtra) => {
+        seen.push(channelExtra);
+        return { kind: 'ok', rows: [] };
+      },
+    };
+    const extra: JsonObject = { otaHotelId: '1834077877', otaPartnerId: '4595635' };
+    const h = createHarness({
+      scans: new Map([[CTRIP, scan]]),
+      listTargets: () => [target({ channelExtra: extra })],
+    });
+
+    h.dispatcher.start();
+    await h.fire();
+
+    expect(seen).toEqual([extra]);
   });
 
   it('未注册扫描能力的渠道直接跳过', async () => {

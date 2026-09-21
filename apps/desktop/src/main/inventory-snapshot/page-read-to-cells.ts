@@ -41,21 +41,57 @@ import type { JsonObject } from '../../shared/types/json';
 import type { AppLogger } from '../../shared/logging';
 import type { SnapshotCell, SnapshotCellMapper } from './types';
 
-/**
- * 从凭证的 `credentialExtra` 里取归一用的门店 ID。
- *
- * 与 `AmountChangeReportService.resolveOtaHotelId()` 同一取值逻辑（数字或非空字符串），
- * 但**不做「取不到就回退原值」** —— 见文件头。
- */
-export function masterHotelIdOf(credentialExtra: JsonObject | null): string | null {
-  if (credentialExtra === null) return null;
-  const raw = credentialExtra.masterHotelId;
+/** 从一袋 extra 里取一个 ID：数字或非空字符串才算有值，其余一律 `null`。 */
+function idFieldOf(extra: JsonObject | null, field: string): string | null {
+  if (extra === null) return null;
+  const raw = extra[field];
   if (typeof raw === 'number' && Number.isFinite(raw)) return String(raw);
   if (typeof raw === 'string' && raw.trim().length > 0) return raw.trim();
   return null;
 }
 
+/**
+ * 从凭证的 `credentialExtra` 里取归一用的门店 ID。
+ *
+ * 与 `AmountChangeReportService.resolveOtaHotelId()` 同一取值逻辑（数字或非空字符串），
+ * 但**不做「取不到就回退原值」** —— 见文件头。
+ *
+ * ⚠️ **只有携程写这个字段**。美团的门店 ID 走另一条路：自然读从**请求体**里取
+ * （响应里没有 `poiId`），随行带出，见 `PAGE_READ_OTA_HOTEL_ID_FIELD`。
+ */
+export function masterHotelIdOf(credentialExtra: JsonObject | null): string | null {
+  return idFieldOf(credentialExtra, 'masterHotelId');
+}
 
+/**
+ * 渠道层随行带出的门店标识字段。
+ *
+ * ⚠️ 与 `channels/meituan/amount-change-adapter.ts` 的同名常量必须逐字符相同
+ * （跨模块断言钉住）—— 那边 eslint 禁止依赖本目录，所以两处各写一份字面量。
+ * 不一致时美团的自然读基线会被整批丢弃，只留一条 warn。
+ */
+export const PAGE_READ_OTA_HOTEL_ID_FIELD = '__otaHotelId';
+
+/**
+ * 取这批行归属的门店 ID。
+ *
+ * ```
+ * 携程   凭证的 masterHotelId          一个凭证对应一家店
+ * 美团   渠道层从请求体取出、随行带出   一个账号挂多家店，且标识只在请求里
+ * ```
+ *
+ * ⚠️ 优先用行里带的：有它说明渠道明确知道这批数据属于哪家店，比从凭证推更可靠。
+ * 两者都没有时**拒绝整批** —— 归不了属的格子写进基线会落到别家店头上，而基线是长期
+ * 留存的，一条脏数据会持续误报。
+ */
+function hotelIdOfRows(
+  rows: readonly JsonObject[],
+  credentialExtra: JsonObject | null,
+): string | null {
+  const carried = rows[0]?.[PAGE_READ_OTA_HOTEL_ID_FIELD];
+  if (typeof carried === 'string' && carried.trim() !== '') return carried.trim();
+  return masterHotelIdOf(credentialExtra);
+}
 
 export type PageReadSnapshotPersisterDependencies = Readonly<{
   /** 按渠道取 mapper。没注册的渠道直接跳过。 */
@@ -84,10 +120,10 @@ export function createPageReadSnapshotPersister(
     const mapper = deps.mappers.get(channel);
     if (!mapper || rows.length === 0) return;
 
-    const otaHotelId = masterHotelIdOf(deps.credentialExtraByPartition(partitionName));
+    const otaHotelId = hotelIdOfRows(rows, deps.credentialExtraByPartition(partitionName));
     if (otaHotelId === null) {
       // 与回读同一处置：拒绝整批，不退回报文原值。见文件头。
-      deps.logger.warn('Snapshot skipped: credential has no masterHotelId', {
+      deps.logger.warn('Snapshot skipped: cannot resolve otaHotelId', {
         channel,
         endpointId,
         droppedRows: rows.length,

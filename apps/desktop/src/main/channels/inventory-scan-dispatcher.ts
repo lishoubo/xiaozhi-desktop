@@ -33,12 +33,28 @@ import { noopErrorReporter, type ErrorReporter } from '../error-reporting/error-
 import type { JsonObject } from '../../shared/types/json';
 import type { InventoryScan } from './types';
 
-/** 一个待扫账号 —— 调度层只需要这三样，不碰完整的凭证对象。 */
+/** 一个待扫目标 —— 调度层只需要这几样，不碰完整的凭证对象。 */
 export type ScanTarget = Readonly<{
   channel: ChannelId;
   partitionName: string;
-  /** 归一后的门店 ID（凭证的 `masterHotelId`）。取不到的账号由调用方剔除。 */
+  /**
+   * 归一后的门店 ID。取不到的目标由调用方剔除。
+   *
+   * ⚠️ 取值来源按渠道不同：携程取凭证的 `masterHotelId`（一个凭证天然对应一家店），
+   * 美团取**已绑定门店**的 `poiId`（一个凭证挂多店，且美团没有 `masterHotelId`）。
+   * 调度层不认识这个差异，由 `listTargets` 的实现负责。
+   */
   otaHotelId: string;
+  /**
+   * 渠道专有的取数上下文。**调度层原样透传，不解读**。
+   *
+   * 与既有 `bindExtra` / `credentialExtra` 同一手法：给 `ScanTarget` 加具名的渠道字段
+   * （如 `partnerId?`）会让调度层看见渠道知识，且每接一个渠道就多一个可选字段。
+   *
+   * 携程：`{}`（取数不需要额外入参，门店上下文由 cookie 决定）
+   * 美团：`{ otaPartnerId }`（来自 `ota_hotel.bind_extra`）
+   */
+  channelExtra: JsonObject;
 }>;
 
 /** 扫描的运行期参数。**每轮重新读**，服务端下发才能不重启生效。 */
@@ -184,7 +200,7 @@ export class InventoryScanDispatcher {
     windowDays: number,
   ): Promise<void> {
     try {
-      const outcome = await scan.scan(target.partitionName, windowDays);
+      const outcome = await scan.scan(target.partitionName, windowDays, target.channelExtra);
       if (this.disposed) return;
 
       switch (outcome.kind) {

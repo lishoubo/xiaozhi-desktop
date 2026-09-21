@@ -70,14 +70,14 @@ describe('createPageReadSnapshotPersister', () => {
     });
   });
 
-  it('拿不到 masterHotelId 时拒绝整批并告警', () => {
+  it('拿不到 otaHotelId 时拒绝整批并告警', () => {
     const { persist, enqueued, logger } = createPageRead(null);
 
     persist('ctrip', 'getRoomInventoryInfo:read', [ROW], 'persist:ota-1');
 
     expect(enqueued).toHaveLength(0);
     expect(logger.warn).toHaveBeenCalledWith(
-      'Snapshot skipped: credential has no masterHotelId',
+      'Snapshot skipped: cannot resolve otaHotelId',
       expect.objectContaining({ droppedRows: 1 }),
     );
   });

@@ -172,6 +172,8 @@ import type { AppLogger } from '../../../shared/logging';
 import type { AmountSaveObserved } from '../../../shared/types/amount-change';
 import type { JsonObject } from '../../../shared/types/json';
 import { isTrustedHotelUrl } from '../trusted-hotel-url';
+import { flattenRoomStatusRows } from './room-status-endpoint';
+import { flattenPriceRows } from './price-inventory-endpoint';
 import type { AmountChangeAdapter, AmountParseResult } from '../types';
 import {
   capMeituanCalcCells,
@@ -242,6 +244,16 @@ const ROOM_CLOSE_ENDPOINT_ID = 'inventory-roomstatus-submitaudit';
 export const INVENTORY_ENDPOINT_ID = 'inventory-update';
 
 /**
+ * 读端点的标识。⚠️ 与写端点分开：它们不产上报体，只用来建基线。
+ *
+ * `queryRoomStatusInfo` 同时也是**回读**与**扫描**主动打的那个端点 —— 用户页面自己发的
+ * 那次由这里拦到，我们主动发的那次走 `session.fetch`（主进程，不经渲染进程，
+ * 不会被自己的 CDP 拦到，2026-09-21 实证）。
+ */
+export const READ_PRICE_ENDPOINT_ID = 'queryPriceInventoryStatusInfo';
+export const READ_ROOM_STATUS_ENDPOINT_ID = 'queryRoomStatusInfo';
+
+/**
  * 要拦的端点 —— **五个里只有四个构成上报**。
  *
  * | endpointId | 用途 | 上报吗 |
@@ -291,6 +303,58 @@ const WATCHED_ENDPOINTS: ReadonlyMap<string, string> = new Map([
   [ROOM_CLOSE_ENDPOINT_ID, '/api/gw/v1/product/goods/inventory/roomstatus/submitaudit'],
   // ⚠️ 只认 `/inventory/update`，**不认** `/inventory/check`（见上方说明）。
   [INVENTORY_ENDPOINT_ID, '/api/gw/v1/product/goods/inventory/update'],
+  // 读端点 —— 拦到但**不构成一次改动**，走 isReadEndpoint / onReadResponse 那条路。
+  [READ_PRICE_ENDPOINT_ID, '/api/gw/v1/product/goods/queryPriceInventoryStatusInfo'],
+  [READ_ROOM_STATUS_ENDPOINT_ID, '/api/gw/v1/product/goods/queryRoomStatusInfo'],
+]);
+
+/**
+ * 读端点集合 —— 用户浏览价量态页面时**页面自己发**的查询请求。
+ *
+ * ```
+ * 用户翻日历 → 页面发查询 → CDP 拦到 → onReadResponse → 建基线
+ * ```
+ *
+ * ⚠️ 与写端点的区别：拦到了但**不判成败、不产上报体**。机制层见 `isReadEndpoint`
+ * 返回 true 就把响应交给 `onReadResponse`，不再走 `isSuccessful` / `parse`。
+ *
+ * ## 为什么要拦
+ *
+ * 定时扫描的比对需要**基线打底**。没有自然读这条路，美团首轮扫描的整个窗口都会落进
+ * `added`（只写不报），要等第二轮才可能报出差异。
+ *
+ * ## ⚠️ 与扫描**共用同一个 mapper**
+ *
+ * 两条路径打的是同一批端点，抽出的行必须同构 —— 各写一份的话，同一格会被写成不同内容，
+ * 定时扫描于是反复报差异。所以装配层两处（`app-scope` 扫描链、`window-scope` 自然读链）
+ * 注册的是**同一个** `mapMeituanReadRows`。
+ */
+/**
+ * 分流标记 —— 打在读端点抽出的行上，告诉下游这一行是房态还是价格。
+ *
+ * ⚠️ **必须与 `inventory-scan.ts` 的 `MEITUAN_SCAN_KIND_MARKER`、
+ * `inventory-snapshot/meituan-cells.ts` 的 `MEITUAN_SNAPSHOT_KIND_MARKER` 逐字符相同**。
+ * 三处各写一份字面量是**有意的**（eslint 禁止 `channels/` 依赖 `inventory-snapshot/`），
+ * 由跨模块断言测试钉住 —— 不一致时映射侧会把价格行当成房态，取不到 `roomId` 而**静默
+ * 丢失整批价格基线**，日志上看不出任何异常。
+ */
+const KIND_MARKER = '__snapshotKind';
+
+/**
+ * 门店标识随行带出的字段名。
+ *
+ * ⚠️ 为什么要带：美团一个账号挂多家门店，而门店标识只在**请求体**里 —— 装配层拿不到
+ * 请求，凭证也推不出是哪家店（携程可以，它一个凭证一家店）。所以由认识请求形状的渠道层
+ * 取出来，随行交给装配层。
+ *
+ * ⚠️ 与 `inventory-snapshot/page-read-to-cells.ts` 的同名常量必须逐字符相同（跨模块断言
+ * 钉住）—— 不一致时装配层取不到门店 ID，美团的自然读基线会被整批丢弃且只留一条 warn。
+ */
+const OTA_HOTEL_ID_FIELD = '__otaHotelId';
+
+const READ_ENDPOINTS: ReadonlySet<string> = new Set([
+  READ_PRICE_ENDPOINT_ID,
+  READ_ROOM_STATUS_ENDPOINT_ID,
 ]);
 
 const MEITUAN_CHANNEL = toChannelId('meituan');
@@ -570,6 +634,71 @@ function parseRoomStatusOrInventory(
 export function createMeituanAmountChangeAdapter(logger: AppLogger): AmountChangeAdapter {
   return {
     watchedEndpoints: WATCHED_ENDPOINTS,
+
+    /**
+     * 读端点：拦到但不判成败、不产上报体，响应交给 `onReadResponse` 去建基线。
+     *
+     * ⚠️ 机制层见它返回 true 就**不再走** `isSuccessful` / `parse` —— 这正是要的：
+     * 一次查询不构成一次改动。
+     */
+    isReadEndpoint(endpointId: string): boolean {
+      return READ_ENDPOINTS.has(endpointId);
+    },
+
+    /**
+     * 从查询响应里抽出价量态原始行，交给装配层去建基线。
+     *
+     * ⚠️ 只解析、不落库、不补 `otaHotelId` —— 那个要查绑定关系，而 `channels/` 够不着
+     * `database/`。这里交出的是**渠道原始行**。
+     *
+     * ⚠️ 两个端点各产一类行，打上标记后下游按 `item_type` 分成两格存：
+     *
+     * ```
+     * queryRoomStatusInfo             → roomStatus 行（roomId）
+     * queryPriceInventoryStatusInfo   → price 行（goodsId）
+     * ```
+     *
+     * ⛔ 价格那个端点的响应里也带 `goodsStatusMap`，**刻意不读** —— 它的字段集比
+     * `queryRoomStatusInfo` 少两个，用它建房态基线会让同一格在两条路径上算出不同的
+     * `contentHash`，扫描于是反复误报。见 `price-inventory-endpoint.ts` 文件头。
+     */
+    onReadResponse(
+      endpointId: string,
+      responseBody: string,
+      requestBody: JsonObject | null,
+    ): readonly JsonObject[] {
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(responseBody);
+      } catch {
+        // 建基线是尽力而为的后台链路，解析不了静默跳过即可 —— 真正需要感知失效的是
+        // 回读与扫描那两条（它们有自己的判据）。
+        return [];
+      }
+      if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return [];
+      const data = (parsed as JsonObject).data;
+
+      // ⚠️ 门店标识**只在请求里**：这两个端点的响应体里都没有 `poiId`，而一个美团账号
+      // 挂多家门店。拿不到就交出空 —— 归不了属的格子写进基线，会落到别家店头上。
+      const otaHotelId = idToString(requestBody?.poiId);
+      if (otaHotelId === '') {
+        logger.warn('Meituan read response has no poiId in request, dropped', { endpointId });
+        return [];
+      }
+
+      if (endpointId === READ_ROOM_STATUS_ENDPOINT_ID) {
+        // ⚠️ 不收窄：自然读是「用户翻到什么就存什么」，没有「目标范围」这回事。
+        // 钟点房过滤内建在展平层里（同一 roomId 的两副身份会撞格子键）。
+        const { rows } = flattenRoomStatusRows(data);
+        return rows.map((row) => ({ ...row, [KIND_MARKER]: 'roomStatus', [OTA_HOTEL_ID_FIELD]: otaHotelId }));
+      }
+
+      return flattenPriceRows(data).map((row) => ({
+        ...row,
+        [KIND_MARKER]: 'price',
+        [OTA_HOTEL_ID_FIELD]: otaHotelId,
+      }));
+    },
 
     isWatchableUrl(url: string): boolean {
       if (!isTrustedHotelUrl(url, MEITUAN_HOTEL_HOSTNAME)) return false;

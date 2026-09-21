@@ -47,6 +47,7 @@ import {
   type SnapshotCellMapper,
 } from '../inventory-snapshot/page-read-to-cells';
 import { mapCtripReadRows } from '../inventory-snapshot/ctrip-cells';
+import { mapMeituanReadRows } from '../inventory-snapshot/meituan-cells';
 import { HotelProbeDispatcher } from '../channels/hotel-probe-dispatcher';
 import { OtaReauthDispatcher } from '../channels/ota-reauth-dispatcher';
 import { ReauthByHotelDispatcher } from '../channels/reauth-by-hotel-dispatcher';
@@ -216,6 +217,9 @@ export function createWindowScope(scope: WindowScopeDependencies): WindowScope {
   const snapshotMappers: ReadonlyMap<string, SnapshotCellMapper> = new Map([
     // 行已带分流标记（房态 / 价格），mapper 据此分成两类格子。
     ['ctrip', mapCtripReadRows satisfies SnapshotCellMapper],
+    // ⚠️ 与 app-scope 的扫描链注册的是**同一个函数** —— 两条写入路径共用一份映射，
+    // 各写一份的话同一格会被写成不同内容，定时扫描于是反复报差异。
+    ['meituan', mapMeituanReadRows satisfies SnapshotCellMapper],
   ]);
   // 两个 persister 共用的窄回调：查凭证拿 masterHotelId。
   // ⚠️ 快照的门店维度必须取凭证，不能取渠道响应 —— 携程同店预付/现付两个 hotelID。

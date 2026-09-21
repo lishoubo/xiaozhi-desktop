@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { toChannelId, toOtaCredentialId, toOtaHotelId } from '../../../src/main/ids';
+import type { JsonValue } from '../../../src/shared/types/json';
 import type { OtaCredential } from '../../../src/shared/types/ota-credential';
 import {
   OtaCredentialService,
@@ -622,5 +623,65 @@ describe('OtaCredentialService', () => {
     expect(deps.credentialRepository.deleteById).toHaveBeenCalledWith(
       toOtaCredentialId('credential-a'),
     );
+  });
+
+  /**
+   * ⚠️ `credentialExtra` 更新时是**整体替换**，而美团门店探测失败时返回空数组 ——
+   * 两者相乘会让一次网络抖动把已有的门店清单抹掉，扫描静默停摆到下次**成功**登录。
+   */
+  describe('门店清单在探测失败时保留', () => {
+    const meituan = toChannelId('meituan');
+    const pois = [{ poiId: '1834077877', otaPartnerId: '4595635', poiName: '云朵' }];
+
+    function meituanDeps(existingPois: JsonValue, discoveredPois: JsonValue) {
+      const deps = createDeps({
+        discoverMeituan: vi.fn().mockResolvedValue({
+          kind: 'found',
+          credential: {
+            channelAccountId: 'acct-1',
+            credentialExtra: { partnerId: '4824962', pois: discoveredPois },
+          },
+        }),
+      });
+      deps.credentialRepository.findByPartitionName = vi.fn(() =>
+        credential({
+          channel: meituan,
+          channelAccountId: 'acct-1',
+          credentialExtra: { partnerId: '4824962', pois: existingPois },
+        }),
+      );
+      deps.credentialRepository.updateIdentity = vi.fn((_id, update) => credential(update));
+      return deps;
+    }
+
+    async function run(deps: DiscoverAndCreateDependencies) {
+      await new OtaCredentialService(deps).trigger(
+        partitionName,
+        meituan,
+        'https://me.meituan.com/',
+        {} as never,
+      );
+      return (deps.credentialRepository.updateIdentity as ReturnType<typeof vi.fn>).mock.calls[0]?.[1];
+    }
+
+    it('探测到空数组而库里有清单时，保留旧清单', async () => {
+      const update = await run(meituanDeps(pois, []));
+
+      expect(update?.credentialExtra?.pois).toEqual(pois);
+    });
+
+    it('探测到新清单时正常覆盖', async () => {
+      const fresh = [{ poiId: '999', otaPartnerId: '888', poiName: '新店' }];
+      const update = await run(meituanDeps(pois, fresh));
+
+      expect(update?.credentialExtra?.pois).toEqual(fresh);
+    });
+
+    // 两边都空时没什么可保留的 —— 不该凭空造出一个键。
+    it('两边都空时写空数组', async () => {
+      const update = await run(meituanDeps([], []));
+
+      expect(update?.credentialExtra?.pois).toEqual([]);
+    });
   });
 });

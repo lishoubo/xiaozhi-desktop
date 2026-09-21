@@ -22,7 +22,12 @@
  *
  * ⚠️ `changeType` 叫 `inventoryDiff` 而非 `inventoryScan`：报的是**比对出的差异**，
  * 不是「扫描到的现状」。一条上报的 `cells` 里可能同时含**价、量、态三类**，
- * 是本轮发现的全部差异，不区分类型。
+ * 是本轮发现的全部差异。
+ *
+ * ⚠️ 每个 cell 带 `itemType`（`roomStatus` | `price`），服务端据它分派，不必靠字段特征
+ * 推断。这个字段由 `inventory-snapshot/scan-to-report.ts` 统一加，两个渠道一致 ——
+ * 携程两类 cell 共用同一个 `roomTypeID`，有没有它都能定位；**美团是两个 ID 空间**
+ * （房态房量挂 `roomId`、价格挂 `goodsId`），猜错就会定位到错误的房型。
  *
  * 立论场景有两个，共同点是**本应用收不到任何信号**：
  *
@@ -37,10 +42,10 @@
  * {
  *   "probedAt": "2026-09-20T10:00:03.000Z",
  *   "cells": [
- *     { "roomTypeID": 1569052074, "effectDate": "2026-10-20", "roomStatus": "G",
- *       "limitSale": "T", "totalQuantity": 7, "canUsedQuantity": 7, … },
- *     { "roomTypeID": 1569052074, "effectDate": "2026-10-20", "price": 434,
- *       "currency": "RMB", … }
+ *     { "itemType": "roomStatus", "roomTypeID": 1569052074, "effectDate": "2026-10-20",
+ *       "roomStatus": "G", "limitSale": "T", "totalQuantity": 7, "canUsedQuantity": 7, … },
+ *     { "itemType": "price", "roomTypeID": 1569052074, "effectDate": "2026-10-20",
+ *       "price": 434, "currency": "RMB", … }
  *   ]
  * }
  * ```

@@ -1,4 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
+import { MEITUAN_SCAN_KIND_MARKER } from '../../../src/main/channels/meituan/inventory-scan';
+import { MEITUAN_SNAPSHOT_KIND_MARKER } from '../../../src/main/inventory-snapshot/meituan-cells';
+import { PAGE_READ_OTA_HOTEL_ID_FIELD } from '../../../src/main/inventory-snapshot/page-read-to-cells';
 import { createMeituanAmountChangeAdapter } from '../../../src/main/channels/meituan/amount-change-adapter';
 import type { AmountParseResult } from '../../../src/main/channels/types';
 import type { AmountSaveObserved } from '../../../src/shared/types/amount-change';
@@ -2082,7 +2085,17 @@ describe('美团价量态改动适配器', () => {
   });
 
   describe('watchedEndpoints', () => {
-    it('拦改价三个端点 + 房态房量三个端点', () => {
+
+    it('两个读端点被认成读端点，写端点不是', () => {
+      const adapter = createMeituanAmountChangeAdapter(createLogger());
+
+      expect(adapter.isReadEndpoint?.('queryRoomStatusInfo')).toBe(true);
+      expect(adapter.isReadEndpoint?.('queryPriceInventoryStatusInfo')).toBe(true);
+      expect(adapter.isReadEndpoint?.('inventory-update')).toBe(false);
+      expect(adapter.isReadEndpoint?.('updatePriceV2')).toBe(false);
+    });
+
+    it('拦改价三个端点 + 房态房量三个端点 + 读端点两个', () => {
       const adapter = createMeituanAmountChangeAdapter(createLogger());
 
       expect([...adapter.watchedEndpoints.entries()]).toEqual([
@@ -2095,6 +2108,12 @@ describe('美团价量态改动适配器', () => {
           '/api/gw/v1/product/goods/inventory/roomstatus/submitaudit',
         ],
         ['inventory-update', '/api/gw/v1/product/goods/inventory/update'],
+        // 读端点：拦到但不构成一次改动，响应拿去建基线（见 isReadEndpoint）。
+        [
+          'queryPriceInventoryStatusInfo',
+          '/api/gw/v1/product/goods/queryPriceInventoryStatusInfo',
+        ],
+        ['queryRoomStatusInfo', '/api/gw/v1/product/goods/queryRoomStatusInfo'],
       ]);
     });
 
@@ -2424,5 +2443,147 @@ describe('美团价量态改动适配器', () => {
       const rejected = JSON.stringify({ code: 10000, error: '房态修改失败', data: false, success: false });
       expect(adapter.isSuccessful(rejected, 'inventory-status-switch')).toBe(false);
     });
+  });
+});
+
+
+/**
+ * 读端点钩子 —— 自然读那条路，拦到页面自己发的查询，把行交出去建基线。
+ */
+describe('onReadResponse', () => {
+  const adapter = () => createMeituanAmountChangeAdapter(createLogger());
+  const POI = '1834077877';
+
+  const statusBody = JSON.stringify({
+    code: 10000,
+    data: [
+      {
+        roomBaseInfo: { roomId: 111, roomName: '大床房', roomCategory: 1 },
+        roomStatusMap: { '2026-09-21': { date: '2026-09-21', roomStatus: 1, limitRemain: 5 } },
+      },
+    ],
+  });
+
+  const priceBody = JSON.stringify({
+    code: 10000,
+    data: [
+      {
+        goodsBaseInfo: { goodsId: 222, goodsName: '不含早' },
+        goodsPriceMap: { '2026-09-21': [{ salePrice: '20700' }] },
+        goodsStatusMap: { '2026-09-21': { roomStatus: 1, limitRemain: 9 } },
+      },
+    ],
+  });
+
+  it('房态端点产出 roomStatus 行，带上物理房型与门店', () => {
+    const rows = adapter().onReadResponse?.('queryRoomStatusInfo', statusBody, { poiId: POI });
+
+    expect(rows).toHaveLength(1);
+    expect(rows?.[0]).toMatchObject({
+      roomId: 111,
+      date: '2026-09-21',
+      __snapshotKind: 'roomStatus',
+      __otaHotelId: POI,
+    });
+  });
+
+  it('价格端点产出 price 行，带上售卖房型与门店', () => {
+    const rows = adapter().onReadResponse?.('queryPriceInventoryStatusInfo', priceBody, {
+      poiId: POI,
+    });
+
+    expect(rows).toHaveLength(1);
+    expect(rows?.[0]).toMatchObject({
+      goodsId: 222,
+      date: '2026-09-21',
+      salePrice: '20700',
+      __snapshotKind: 'price',
+      __otaHotelId: POI,
+    });
+  });
+
+  // ⚠️ 价格端点的响应里也带房态，但它的字段集比 queryRoomStatusInfo 少两个
+  // （remainCount / usedCount）。用它建房态基线会让同一格在两条路径上算出不同的
+  // contentHash，扫描于是反复误报。
+  it('价格端点不读同响应里的 goodsStatusMap', () => {
+    const rows = adapter().onReadResponse?.('queryPriceInventoryStatusInfo', priceBody, {
+      poiId: POI,
+    });
+
+    expect(rows?.every((row) => row.__snapshotKind === 'price')).toBe(true);
+    expect(rows?.[0]).not.toHaveProperty('roomStatus');
+  });
+
+  // ⚠️ 门店标识只在请求里 —— 响应体里没有 poiId，而一个账号挂多家门店。
+  // 归不了属的格子写进基线会落到别家店头上，而基线是长期留存的。
+  it('请求里没有 poiId 时交出空，不猜门店', () => {
+    expect(adapter().onReadResponse?.('queryRoomStatusInfo', statusBody, null)).toEqual([]);
+    expect(adapter().onReadResponse?.('queryRoomStatusInfo', statusBody, {})).toEqual([]);
+  });
+
+  it('响应不是 JSON 时交出空而不抛', () => {
+    expect(adapter().onReadResponse?.('queryRoomStatusInfo', '<html>login</html>', { poiId: POI })).toEqual(
+      [],
+    );
+  });
+
+  // 钟点房与日历房共用同一个 roomId，混进基线会撞格子键。
+  it('钟点房那一行被挡掉', () => {
+    const body = JSON.stringify({
+      code: 10000,
+      data: [
+        {
+          roomBaseInfo: { roomId: 111, roomCategory: 2 },
+          roomStatusMap: { '2026-09-21': { roomStatus: 1 } },
+        },
+      ],
+    });
+
+    expect(adapter().onReadResponse?.('queryRoomStatusInfo', body, { poiId: POI })).toEqual([]);
+  });
+});
+
+/**
+ * ⚠️ 三处常量跨模块一致 —— eslint 禁止 `channels/` 依赖 `inventory-snapshot/`，
+ * 所以各写一份字面量，由这条断言钉住。
+ *
+ * 不一致的后果都是**静默**的：分流标记漂了，价格行会被当成房态、取不到 roomId 而整批
+ * 消失；门店字段漂了，美团自然读基线会被整批丢弃，只留一条 warn。
+ */
+describe('跨模块常量一致', () => {
+  it('分流标记三处相同', () => {
+    expect(MEITUAN_SCAN_KIND_MARKER).toBe(MEITUAN_SNAPSHOT_KIND_MARKER);
+    // adapter 里那份是私有常量，通过它产出的行来验
+    const rows = createMeituanAmountChangeAdapter(createLogger()).onReadResponse?.(
+      'queryRoomStatusInfo',
+      JSON.stringify({
+        code: 10000,
+        data: [
+          {
+            roomBaseInfo: { roomId: 1, roomCategory: 1 },
+            roomStatusMap: { '2026-09-21': { roomStatus: 1 } },
+          },
+        ],
+      }),
+      { poiId: '1' },
+    );
+    expect(rows?.[0]).toHaveProperty(MEITUAN_SNAPSHOT_KIND_MARKER);
+  });
+
+  it('门店字段两处相同', () => {
+    const rows = createMeituanAmountChangeAdapter(createLogger()).onReadResponse?.(
+      'queryRoomStatusInfo',
+      JSON.stringify({
+        code: 10000,
+        data: [
+          {
+            roomBaseInfo: { roomId: 1, roomCategory: 1 },
+            roomStatusMap: { '2026-09-21': { roomStatus: 1 } },
+          },
+        ],
+      }),
+      { poiId: '1' },
+    );
+    expect(rows?.[0]).toHaveProperty(PAGE_READ_OTA_HOTEL_ID_FIELD);
   });
 });

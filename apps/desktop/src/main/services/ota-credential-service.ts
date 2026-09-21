@@ -16,6 +16,8 @@ import { toOtaCredentialId } from '../ids';
 import type { OtaCredential } from '../../shared/types/ota-credential';
 import type { OtaCredentialRepository } from '../database/ota-credential-repository';
 import { channelAccountNameOf } from '../channels/bind-extra';
+import { MEITUAN_POIS_FIELD } from '../channels/meituan/poi-infos';
+import type { JsonObject } from '../../shared/types/json';
 import { safeLogErrorDetails, type AppLogger } from '../../shared/logging';
 import type { DiscoverCtrip } from '../channels/ctrip/discovery';
 import type { DiscoverDouyin } from '../channels/douyin/discovery';
@@ -149,6 +151,11 @@ export class OtaCredentialService {
     );
     let credential: OtaCredential;
     let replacedPartitionName: string | null = null;
+    // ⚠️ 探测失败时不覆盖已有的门店清单 —— 见 `keepDiscoveredPois`。
+    const credentialExtra = keepDiscoveredPois(
+      identity.credentialExtra,
+      (identified ?? existing)?.credentialExtra ?? null,
+    );
     if (identified && identified.id !== existing?.id) {
       if (identified.channel !== channel) {
         throw new Error('渠道账号身份对应 credential 的渠道不一致');
@@ -173,7 +180,7 @@ export class OtaCredentialService {
         partitionName,
         channelAccountId: identity.channelAccountId,
         channelAccountName,
-        credentialExtra: identity.credentialExtra,
+        credentialExtra,
         lastRefreshedAt: now,
       });
     } else if (existing) {
@@ -183,7 +190,7 @@ export class OtaCredentialService {
       credential = this.deps.credentialRepository.updateIdentity(existing.id, {
         channelAccountId: identity.channelAccountId,
         channelAccountName,
-        credentialExtra: identity.credentialExtra,
+        credentialExtra,
         lastRefreshedAt: now,
       });
     } else {
@@ -193,7 +200,7 @@ export class OtaCredentialService {
         channelAccountId: identity.channelAccountId,
         channelAccountName,
         partitionName,
-        credentialExtra: identity.credentialExtra,
+        credentialExtra,
         discoveredAt: now,
         lastRefreshedAt: now,
       });
@@ -213,4 +220,45 @@ export class OtaCredentialService {
     this.deps.onAccountBound?.(channel);
     return credential;
   }
+}
+
+/**
+ * 门店清单（`pois`）探测失败时，保留上一次探测到的值。
+ *
+ * ## ⚠️ 为什么需要这一层
+ *
+ * `credentialExtra` 在更新时是**整体替换**的（`{ ...existing, ...update }` 只到顶层）。
+ * 而 `meituan/discovery.ts` 的门店探测**失败时返回空数组**，于是：
+ *
+ * ```
+ * 账号已登录、扫描正常跑着 N 家店
+ *    ↓ 用户重新登录，恰好赶上网络抖动
+ * poiInfos 失败 → pois: []
+ *    ↓ 整体替换
+ * 库里的 pois 被清空 → 扫描静默停摆，直到下次**成功**的登录
+ * ```
+ *
+ * 原注释「下次登录会重新写」假设的是「缺失」，但代码是**主动销毁**已有的好值。
+ *
+ * ## 判据：只在「新值是空数组、旧值非空」时保留
+ *
+ * 空数组有两种含义，这里分不开（探测失败 / 这个账号确实没有门店），所以取**保守**的
+ * 那一侧：宁可多留一份可能过期的清单，也不要让扫描静默停摆。
+ *
+ * ⚠️ 代价是「账号名下的门店真的被全部移除」时，旧清单会残留到下次成功探测。
+ * 那种情况下扫描会对着不存在的门店取数、失败、记 warn —— **可观测**，
+ * 比静默不扫好。
+ */
+function keepDiscoveredPois(
+  next: JsonObject | null,
+  previous: JsonObject | null,
+): JsonObject | null {
+  if (next === null) return next;
+  const nextPois = next[MEITUAN_POIS_FIELD];
+  if (!Array.isArray(nextPois) || nextPois.length > 0) return next;
+
+  const previousPois = previous?.[MEITUAN_POIS_FIELD];
+  if (!Array.isArray(previousPois) || previousPois.length === 0) return next;
+
+  return { ...next, [MEITUAN_POIS_FIELD]: previousPois };
 }

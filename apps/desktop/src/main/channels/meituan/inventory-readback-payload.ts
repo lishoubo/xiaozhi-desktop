@@ -153,8 +153,13 @@ import type { OtaAmountChangeObserved } from '../../../shared/types/amount-chang
 /** 回读端点。⚠️ 用它而非触发它的写端点 —— `inventory-update` 已被既有 Translator 认领。 */
 export const MEITUAN_READBACK_ENDPOINT_ID = 'queryRoomStatusInfo';
 
-export const MEITUAN_READBACK_URL =
-  'https://me.meituan.com/api/gw/v1/product/goods/queryRoomStatusInfo';
+/**
+ * ⚠️ 单一定义在 `room-status-endpoint.ts` —— 该端点被回读与定时扫描共用，
+ * 两处各写一份 URL 会漂。这里 re-export 只为不动既有引用。
+ */
+import { MEITUAN_ROOM_STATUS_URL } from './room-status-endpoint';
+
+export const MEITUAN_READBACK_URL = MEITUAN_ROOM_STATUS_URL;
 
 /**
  * 美团房量回读的 `changeRaw`。

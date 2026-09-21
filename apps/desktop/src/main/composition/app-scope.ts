@@ -28,10 +28,12 @@ import { mapCtripReadRows } from '../inventory-snapshot/ctrip-cells';
 import { InventoryScanDispatcher, type ScanTarget } from '../channels/inventory-scan-dispatcher';
 import { inventoryScans } from '../channels/registry';
 import { buildCtripScanReport } from '../channels/ctrip/inventory-scan-payload';
+import { buildMeituanScanReport } from '../channels/meituan/inventory-scan-payload';
+import { mapMeituanReadRows } from '../inventory-snapshot/meituan-cells';
 import { AmountChangeReportService } from '../services/amount-change-report-service';
 import { HttpRmsAmountChangeGateway } from '../gateway/rms/rms-amount-change-gateway-http';
 import { StaffAuthService } from '../services/staff-auth-service';
-import { masterHotelIdOf } from '../inventory-snapshot/page-read-to-cells';
+import { createScanTargetsOf } from './scan-targets';
 import { readOrCreateDeviceId } from '../file-store/device-id';
 import { updatePartitionState } from '../file-store/partition-ledger';
 import {
@@ -106,6 +108,9 @@ export type AppScope = Readonly<{
    */
   dispose(): void;
 }>;
+
+/** 扫描的枚举口径按渠道分流，见 `scanTargetsOf`。 */
+const MEITUAN_CHANNEL = toChannelId('meituan');
 
 export function createAppScope(logger: AppLogger): AppScope {
   const userDataDir = app.getPath('userData');
@@ -272,12 +277,14 @@ export function createAppScope(logger: AppLogger): AppScope {
     reportError,
   });
 
+  const scanTargetsOf = createScanTargetsOf({ meituanChannel: MEITUAN_CHANNEL, logger });
+
   // 用账号会话发请求：`session.fromPartition()` 的唯一持有者是 session-factory，
   // 渠道层够不着，所以在这里兑换成一个只能发请求的窄函数。
   const scanFetcher = async (
     partitionName: string,
     url: string,
-    body: Record<string, unknown>,
+    body: Record<string, unknown> | null,
     headers: Readonly<Record<string, string>>,
     timeoutMs: number,
   ): Promise<unknown> => {
@@ -285,19 +292,22 @@ export function createAppScope(logger: AppLogger): AppScope {
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     try {
       const response = await sessionFactory.sessionForAccount(partitionName).fetch(url, {
-        method: 'POST',
+        // body 为 null 即 GET —— 美团的门店列表端点是 GET，其余都是 POST。
+        method: body === null ? 'GET' : 'POST',
         // 让 Chromium 自己从该 partition 的 cookie jar 带 cookie —— 不手拼 Cookie 头。
         credentials: 'include',
         headers,
-        body: JSON.stringify(body),
+        ...(body === null ? {} : { body: JSON.stringify(body) }),
         signal: controller.signal,
       });
       const text = await response.text();
-      // ⚠️ 状态码阶梯与 `ctripReadbackFetcher` 保持一致 —— 两条路打的是同一批端点，
-      // 判据分叉会让同一种失效在两条路上报出不同的 reason。
-      // 403 是身份认了但没权限（重登无用），401 是登录失效，归入形态 1。
+      // ⚠️ **HTTP 状态原样回传，不替渠道翻译成业务码**。
+      //
+      // 这个 fetcher 服务所有渠道，而「HTTP 401 等价于业务码 401」只对携程成立
+      // （它的 `EXPIRED_CODES` 里恰好有 401）。美团的业务码空间里 401 是另一回事 ——
+      // 翻译过去会让一个正常的业务错误被误报成登录失效。归一由各渠道的判据自己做。
       if (response.status === 403) return { __httpStatus: 403 };
-      if (response.status === 401) return { code: 401 };
+      if (response.status === 401) return { __httpStatus: 401 };
       if (!response.ok) return null;
       try {
         return JSON.parse(text);
@@ -395,22 +405,28 @@ export function createAppScope(logger: AppLogger): AppScope {
       const targets: ScanTarget[] = [];
       for (const channel of channelRegistry.keys()) {
         for (const credential of otaCredentialRepository.listByChannel(channel)) {
-          // ⚠️ 归一取不到就跳过这个账号：存错的 otaHotelId 会永久污染基线，
-          // 且下次归一正确时会变成「另一家酒店」。与 Change A 同口径。
-          const otaHotelId = masterHotelIdOf(credential.credentialExtra);
-          if (otaHotelId === null) continue;
-          targets.push({ channel, partitionName: credential.partitionName, otaHotelId });
+          targets.push(...scanTargetsOf(channel, credential));
         }
       }
       return targets;
     },
     onRows: createScanResultHandler({
-      mappers: new Map([['ctrip', mapCtripReadRows]]),
+      // ⚠️ 与 window-scope 的自然读链注册的是**同一批函数** —— 两条写入路径共用一份
+      // 映射，各写一份的话同一格会被写成不同内容，定时扫描于是反复报差异。
+      mappers: new Map([
+        ['ctrip', mapCtripReadRows],
+        ['meituan', mapMeituanReadRows],
+      ]),
       reportBuilders: new Map([
         [
           'ctrip',
           (otaHotelId, cells, probedAt) =>
             buildCtripScanReport(toChannelId('ctrip'), otaHotelId, cells, probedAt),
+        ],
+        [
+          'meituan',
+          (otaHotelId, cells, probedAt) =>
+            buildMeituanScanReport(MEITUAN_CHANNEL, otaHotelId, cells, probedAt),
         ],
       ]),
       readBaseline: (source, otaHotelId, startDate, endDate) =>

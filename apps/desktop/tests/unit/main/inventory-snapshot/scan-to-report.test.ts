@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { createScanResultHandler } from '../../../../src/main/inventory-snapshot/scan-to-report';
+import { ITEM_TYPE_FIELD } from '../../../../src/main/inventory-snapshot/scan-to-report';
 import { mapCtripReadRows } from '../../../../src/main/inventory-snapshot/ctrip-cells';
 import { buildCtripScanReport } from '../../../../src/main/channels/ctrip/inventory-scan-payload';
 import type { SnapshotCell } from '../../../../src/main/inventory-snapshot/types';
@@ -151,6 +152,22 @@ describe('上报体', () => {
     const cells = raw.cells as JsonObject[];
     expect(cells[0]).toMatchObject({ roomTypeID: 1, roomStatus: 'G' });
     expect(cells[0]).not.toHaveProperty('__snapshotKind');
+  });
+
+  /**
+   * ⚠️ 基线库里本就有 `itemType` 这一维，只发 `itemData` 等于把它丢掉，逼服务端靠
+   * 字段特征猜（「有 salePrice 就是价格」）。
+   *
+   * 携程两类格子共用同一个 `roomTypeID`，猜错代价有限；**美团是两个 ID 空间**
+   * （房态房量挂 roomId、价格挂 goodsId），猜错会拿 goodsId 去查物理房型 ——
+   * 查不到，或更糟：查到一个同号的别的房型。
+   */
+  it('每个 cell 带上 __itemType，标明这一格是什么', () => {
+    const { handle, reported } = create([baselineCell(1, '2026-10-20', 'OLD')]);
+    handle(TARGET, [statusRow(1, '2026-10-20')]);
+    const raw = (reported[0]?.observed as { changeRaw: JsonObject }).changeRaw;
+    const cells = raw.cells as JsonObject[];
+    expect(cells[0]).toHaveProperty(ITEM_TYPE_FIELD, 'roomStatus');
   });
 });
 
