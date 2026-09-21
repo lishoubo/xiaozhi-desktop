@@ -10,24 +10,19 @@ import { APP_ENVIRONMENT } from '../../shared/app-environment';
 import type { AppConfig } from './types';
 
 /**
- * 扫描节奏按环境分档。
+ * 扫描节奏 —— **所有环境统一 5 分钟 + [0,60s) 抖动**。
  *
- * ```
- * dev           1 分钟 + [0,12s)    调试要快速看到下一轮，等 5 分钟没法迭代
- * pre / online  5 分钟 + [0,60s)    对账时效与渠道压力的平衡点
- * ```
+ * 曾按环境分档（dev 1 分钟），理由是「调试要快速看到下一轮」。实测下来 dev 也用
+ * 5 分钟即可，于是分档取消 —— 两档取同一组值时，那个三元判断就只是让人以为
+ * 存在差异。
  *
- * ⚠️ 抖动在**所有环境**都保留，不因 dev 就去掉：没有抖动，集中部署的门店会按各自启动
- * 时刻长期同相位，每 `idleMs` 齐刷刷打一次渠道 —— 正是触发风控的形状。dev 的抖动按
- * 同样的 20% 比例缩到 12 秒，不影响调试节奏。
+ * ⚠️ 抖动不可去掉：没有抖动，集中部署的门店会按各自启动时刻长期同相位，每 `idleMs`
+ * 齐刷刷打一次渠道 —— 正是触发风控的形状。恒为 `idleMs` 的 20%。
  *
- * ⚠️ 这是**构建期**分档（`APP_ENVIRONMENT` 是编译期常量），不是运行期开关。理由见
+ * ⚠️ 要临时调快调试节奏，改这里的值重新构建，**不要改回运行期读环境变量**。理由见
  * `shared/app-environment.ts`：打包产物被双击启动时读不到父进程环境变量。
  */
-const SCAN_PACE =
-  APP_ENVIRONMENT === 'dev'
-    ? { idleMs: 60_000, jitterMs: 12_000 }
-    : { idleMs: 5 * 60_000, jitterMs: 60_000 };
+const SCAN_PACE = { idleMs: 5 * 60_000, jitterMs: 60_000 };
 
 export const DEFAULT_APP_CONFIG: AppConfig = {
   // 回读与扫描共用。30s 沿用 `rms-rpa-worker` 侧 `inventory.py` 的口径。
@@ -49,7 +44,7 @@ export const DEFAULT_APP_CONFIG: AppConfig = {
     // 15 天：与携程页面自然读一次返回的范围对齐（真机实测）。取 7 天的话，
     // 8~15 天那部分基线永远不会被比对，只占库。
     windows: { kind: 'days', days: 15 },
-    // 按环境分档，见上面的 SCAN_PACE。抖动恒为 idleMs 的 20% —— 比更新检查的 50% 小：
+    // 见上面的 SCAN_PACE。抖动恒为 idleMs 的 20% —— 比更新检查的 50% 小：
     // 那个是低频动作，散开 1 小时无所谓；扫描要保证对账时效，散太开会让
     // 「最坏多久发现一次变更」不可预期。
     idleMs: SCAN_PACE.idleMs,

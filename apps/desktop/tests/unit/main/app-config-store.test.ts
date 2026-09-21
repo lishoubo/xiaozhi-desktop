@@ -83,9 +83,8 @@ describe('inventoryScan', () => {
     // 15 天与携程页面自然读一次返回的范围对齐（真机实测）。取 7 的话，
     // 8~15 天那部分基线永远不会被比对。
     expect(config.inventoryScan.windows).toEqual({ kind: 'days', days: 15 });
-    // ⚠️ 节奏按构建环境分档（dev 1 分钟 / pre·online 5 分钟），所以这里断言的是
-    // **不变量**而非某一档的字面量 —— 钉死字面量会让另一档构建下的同一份代码测不过。
-    expect([60_000, 300_000]).toContain(config.inventoryScan.idleMs);
+    // 节奏所有环境统一 5 分钟（曾按 dev / pre·online 分档，两档取同值后取消分档）。
+    expect(config.inventoryScan.idleMs).toBe(5 * 60_000);
     // 抖动恒为 idleMs 的 20%：没有抖动，集中部署的门店会长期同相位齐刷刷打渠道。
     expect(config.inventoryScan.jitterMs).toBe(config.inventoryScan.idleMs * 0.2);
     // 必须高于调度器的下限钳制，否则默认值本身就会被钳。
