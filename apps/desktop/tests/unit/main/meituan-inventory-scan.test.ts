@@ -404,7 +404,24 @@ describe('createMeituanInventoryScan', () => {
 
       expect(await scan.scan(PARTITION, 2, EXTRA)).toEqual({
         kind: 'failed',
-        reason: 'NETWORK_ERROR',
+        reason: 'PARSE_ERROR',
+      });
+    });
+
+    /**
+     * ⚠️ 失败原因**不能塌缩** —— 403（身份认了但没权限，重登无用）与 cookie 失效
+     * 的处置完全不同，都报成 `NETWORK_ERROR` 会让 GlitchTip 里两者长得一样。
+     * 携程那条路是原样上传的，两个渠道要一致。
+     */
+    it('两侧都失败时上报真实原因，不塌缩成 NETWORK_ERROR', async () => {
+      const responses = happyResponses();
+      responses[MEITUAN_PRICE_INVENTORY_URL] = { __httpStatus: 403 };
+      responses[MEITUAN_ROOM_STATUS_URL] = { __httpStatus: 403 };
+      const { scan } = createScan(responses);
+
+      expect(await scan.scan(PARTITION, 2, EXTRA)).toEqual({
+        kind: 'failed',
+        reason: 'FORBIDDEN',
       });
     });
 

@@ -172,16 +172,29 @@ design 决策 3.1   ②组参：roomCategory === 2 排除，缺失保留
 已废弃的设计。→ 已删，同步修 `page-read-to-cells.ts` 的过时注释与 design 决策 4
 （加修订说明，不抹历史）。
 
-### ⏸️ 未改 2 条（记为待办）
+### ✅ 补修 1 条
 
-**③ 双边失败塌缩成 `NETWORK_ERROR`** —— `fetchPriceRows`/`fetchStatusRows` 丢掉
-`parsed.reason` 只返回 `null`，调用方一律报 `NETWORK_ERROR`。403（重登无用）与
-cookie 问题在 GlitchTip 里长得一样，与携程的失败分类不一致。
-⚠️ **影响仅诊断层面**：reason 不被任何重登路径消费，且过期 cookie 通常在①就失败。
+**③ 双边失败塌缩成 `NETWORK_ERROR`** —— 两侧 fetch 丢掉 `parsed.reason` 只返回 `null`，
+调用方一律报 `NETWORK_ERROR`。403（身份认了但没权限，**重登无用**）与 cookie 失效
+在 GlitchTip 里长得一样，与携程（原样上传）不一致。
+→ 两侧改为返回带 `kind` 的结果，两边都失败时上报**房态那侧**的真实原因
+（两侧同网关同 cookie，原因通常一致；房态那条与回读共用端点，reason 更有对照价值）。
+补 1 条测试（403 不被塌缩）。
 
-**④ 价格侧空数组掩盖房态失败** —— `fetchPriceRows` 在 `goodsIds` 为空时返回 `[]` 而非
-`null`。「有房型但全部商品不可售 + 房态取数失败」时，双边失败的护栏不触发，
-整轮记成功且 GlitchTip 无感。要分开「没尝试」与「返回空」才能堵住。
+### ⏸️ 未改 1 条（评估后决定不修，已在代码里标注）
+
+**④ 价格侧空数组掩盖房态失败** —— `fetchPriceRows` 在 `goodsIds` 为空时返回
+`{kind:'ok', rows:[]}`，让「没东西可查」与「查了返回空」用了同一个表示。
+
+```
+门店有房型但商品全不可售  →  价格侧 ok/空
+同一轮房态取数真的失败    →  房态侧 failed
+                              ↓
+        「两侧都失败」的护栏不触发 → 整轮记 ok，GlitchTip 无感
+```
+
+⚠️ 触发条件很窄（要同时满足两个条件），代价是一轮静默跳过、下一轮会重来。
+**用户评估后决定不修**，已在 `inventory-scan.ts` 的 `fetchPriceRows` 里标注。
 
 ### ✅ 确认 1 条
 

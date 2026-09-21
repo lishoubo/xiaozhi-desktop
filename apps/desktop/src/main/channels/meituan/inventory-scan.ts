@@ -74,7 +74,12 @@
 import type { AppLogger } from '../../../shared/logging';
 import { safeLogErrorDetails } from '../../../shared/logging';
 import type { JsonObject } from '../../../shared/types/json';
-import type { InventoryScan, InventoryScanOutcome, ScanFetcher } from '../types';
+import type {
+  InventoryScan,
+  InventoryScanOutcome,
+  ReadbackFailureReason,
+  ScanFetcher,
+} from '../types';
 import { parseMeituanResponse } from './session-expiry';
 import {
   buildRoomStatusRequest,
@@ -244,6 +249,17 @@ export function pickMeituanRoomCatalog(data: unknown): MeituanRoomCatalog {
   return { roomIds, goodsIds, hourlySkipped, unsellableSkipped };
 }
 
+/**
+ * 一侧取数的结果。
+ *
+ * ⚠️ 失败时**带上原因**，不塌缩成 `null` —— 两侧都失败时调用方要把真实原因报上去。
+ * 早先两侧都返回 `null`，于是无论 403（没权限，重登无用）还是 cookie 失效，
+ * GlitchTip 里看到的都是 `NETWORK_ERROR`，与携程（原样上传）不一致。
+ */
+type SideOutcome =
+  | Readonly<{ kind: 'ok'; rows: JsonObject[] }>
+  | Readonly<{ kind: 'failed'; reason: ReadbackFailureReason }>;
+
 export type MeituanInventoryScanDependencies = Readonly<{
   logger: AppLogger;
   fetcher: ScanFetcher;
@@ -319,7 +335,7 @@ export function createMeituanInventoryScan(
         const endDateKey = toDateKey(endDate);
 
         // ②③ 串行发。⚠️ 单边失败不放弃另一边：价格与房态是两类独立事实。
-        const priceRows = await fetchPriceRows(
+        const price = await fetchPriceRows(
           partitionName,
           {
             poiId,
@@ -331,15 +347,18 @@ export function createMeituanInventoryScan(
           },
           timeoutMs,
         );
-        const statusRows = await fetchStatusRows(
+        const status = await fetchStatusRows(
           partitionName,
           { poiId, partnerId, roomIds: catalog.roomIds, startDate, endDate: endDateKey },
           timeoutMs,
         );
 
-        if (priceRows === null && statusRows === null) {
+        if (price.kind === 'failed' && status.kind === 'failed') {
           // 两边都失败才算本门店失败。
-          return { kind: 'failed', reason: 'NETWORK_ERROR' };
+          //
+          // ⚠️ 报**房态那侧**的原因：两侧打的是同一个网关、同一份 cookie，失败原因
+          // 通常一致；而房态那条是与回读共用的端点，它的 reason 更有对照价值。
+          return status;
         }
 
         deps.logger.info('Meituan inventory scan finished', {
@@ -349,13 +368,19 @@ export function createMeituanInventoryScan(
           hourlySkipped: catalog.hourlySkipped,
           unsellableSkipped: catalog.unsellableSkipped,
           windowDays,
-          priceRows: priceRows?.length ?? 'failed',
-          statusRows: statusRows?.length ?? 'failed',
+          priceRows: price.kind === 'ok' ? price.rows.length : `failed:${price.reason}`,
+          statusRows: status.kind === 'ok' ? status.rows.length : `failed:${status.reason}`,
           durationMs: Date.now() - startedAt,
         });
 
         // 空结果是**合法结果**（这些天确实没数据），不是失败。
-        return { kind: 'ok', rows: [...(priceRows ?? []), ...(statusRows ?? [])] };
+        return {
+          kind: 'ok',
+          rows: [
+            ...(price.kind === 'ok' ? price.rows : []),
+            ...(status.kind === 'ok' ? status.rows : []),
+          ],
+        };
       } catch (error) {
         deps.logger.warn('Meituan inventory scan threw', {
           poiId,
@@ -379,8 +404,15 @@ export function createMeituanInventoryScan(
       endDate: string;
     }>,
     timeoutMs: number,
-  ): Promise<JsonObject[] | null> {
-    if (args.goodsIds.length === 0) return [];
+  ): Promise<SideOutcome> {
+    // ⚠️ 没有可卖商品是**正常结果**，不是失败 —— 返回空行而非失败。
+    //
+    // ⚠️ **已知缺口（评估后决定不修）**：这让「没东西可查」与「查了返回空」用了同一个
+    // 表示。于是「门店有房型但商品全不可售 + 房态取数失败」这一种组合下，
+    // 下面那道「两侧都失败」的护栏不触发，整轮记成 ok 且 GlitchTip 无感 ——
+    // 日志里只看到 `produced no cells`，与「这门店确实没数据」分不清。
+    // 触发条件很窄（要同时满足两个条件），代价是一轮静默跳过，下一轮会重来。
+    if (args.goodsIds.length === 0) return { kind: 'ok', rows: [] };
     const raw = await deps.fetcher(
       partitionName,
       MEITUAN_PRICE_INVENTORY_URL,
@@ -403,9 +435,12 @@ export function createMeituanInventoryScan(
         poiId: args.poiId,
         reason: parsed.reason,
       });
-      return null;
+      return parsed;
     }
-    return flattenPriceRows(parsed.data).map((row) => ({ ...row, [KIND_MARKER]: 'price' }));
+    return {
+      kind: 'ok',
+      rows: flattenPriceRows(parsed.data).map((row) => ({ ...row, [KIND_MARKER]: 'price' })),
+    };
   }
 
   /** ③ 房态房量。与回读同一端点，共用展平逻辑（**不收窄**：扫描要整个窗口）。 */
@@ -419,7 +454,7 @@ export function createMeituanInventoryScan(
       endDate: string;
     }>,
     timeoutMs: number,
-  ): Promise<JsonObject[] | null> {
+  ): Promise<SideOutcome> {
     const raw = await deps.fetcher(
       partitionName,
       MEITUAN_ROOM_STATUS_URL,
@@ -439,13 +474,13 @@ export function createMeituanInventoryScan(
         poiId: args.poiId,
         reason: parsed.reason,
       });
-      return null;
+      return parsed;
     }
     const { rows, hourlySkipped } = flattenRoomStatusRows(parsed.data);
     if (hourlySkipped > 0) {
       // ②已在源头筛过钟点房，这里还挡下东西说明接口夹带了同 roomId 的钟点房那一行。
       deps.logger.info('Meituan scan: skipped non-daily rows from response', { hourlySkipped });
     }
-    return rows.map((row) => ({ ...row, [KIND_MARKER]: 'roomStatus' }));
+    return { kind: 'ok', rows: rows.map((row) => ({ ...row, [KIND_MARKER]: 'roomStatus' })) };
   }
 }
