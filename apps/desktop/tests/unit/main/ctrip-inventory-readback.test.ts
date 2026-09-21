@@ -291,7 +291,7 @@ describe('createCtripInventoryReadback — skipped', () => {
     expect(outcome.kind).toBe('skipped');
   });
 
-  it('钟点房与预售被源头过滤', async () => {
+  it('钟点房被源头过滤', async () => {
     const { fetcher } = fetcherOf(
       productList([room(1569052069, { hourRoom: true })]),
     );
@@ -300,6 +300,21 @@ describe('createCtripInventoryReadback — skipped', () => {
     const outcome = await readback.readback(batchReport(ONE_DAY_CHANGE), FAKE_WC);
 
     expect(outcome.kind).toBe('skipped');
+  });
+
+  // ⚠️ 预售**不再过滤**（2026-09-21 去掉，与扫描侧同步）。
+  // 滤掉的后果在回读这边尤其直接：`wanted` 已限定成「用户本次改动的房型」，用户改的
+  // 恰好是预售房型时，过滤会把它滤空，整次回读退化成 skipped —— 改了却什么都没读回来。
+  it('预售房型被保留，回读正常读回', async () => {
+    const { fetcher } = fetcherOf(
+      productList([room(1569052069, { advanceSale: true })]),
+      inventory([cell(1569052069, '2026-10-20')]),
+    );
+    const { readback } = create(fetcher);
+
+    const outcome = await readback.readback(batchReport(ONE_DAY_CHANGE), FAKE_WC);
+
+    expect(outcome.kind).toBe('ok');
   });
 
   it('钟点房标记缺失或非 true 时不排除', async () => {

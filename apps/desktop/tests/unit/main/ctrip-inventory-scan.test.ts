@@ -147,15 +147,28 @@ describe('窗口计算', () => {
 });
 
 describe('房型过滤', () => {
-  it('钟点房与预售在源头被排除', async () => {
+  it('钟点房在源头被排除', async () => {
     const { fetcher, calls } = fetcherOf(
-      productList([room(1), room(2, { hourRoom: true }), room(3, { advanceSale: true })]),
+      productList([room(1), room(2, { hourRoom: true })]),
       inventory([]),
     );
     const { scan } = create(fetcher);
     await scan.scan(PARTITION, 7, {});
     const refs = (calls[1]?.body as JsonObject).hotelRoomInfoDtoList as JsonObject[];
     expect(refs.map((r) => r.roomTypeID)).toEqual([1]);
+  });
+
+  // ⚠️ 扫描侧**不滤预售**（2026-09-21 去掉）—— 预售房型也是在售的渠道事实，
+  // 滤掉等于它们的价量变化永远不对账。回读那边仍滤，两者语境不同，见 inventory-scan.ts。
+  it('预售房型被保留，不再在源头排除', async () => {
+    const { fetcher, calls } = fetcherOf(
+      productList([room(1), room(2, { advanceSale: true })]),
+      inventory([]),
+    );
+    const { scan } = create(fetcher);
+    await scan.scan(PARTITION, 7, {});
+    const refs = (calls[1]?.body as JsonObject).hotelRoomInfoDtoList as JsonObject[];
+    expect(refs.map((r) => r.roomTypeID)).toEqual([1, 2]);
   });
 
   // ⚠️ 判据是「明确为 true 才排除」—— 缺失或非 true 一律保留，宁可多读也不误杀。

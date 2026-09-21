@@ -74,8 +74,10 @@ type CtripRoomRef = JsonObject &
  *
  * ⚠️ 只读 `roomInfos`：`roomPPInfos`/`roomFGInfos` 是同批数据按支付方式的切片，读了会重复。
  *
- * ⚠️ 源头过滤钟点房与预售，**在去重之前** —— 判据是携程的权威布尔字段，「明确为 true 才
+ * ⚠️ 源头过滤钟点房，**在去重之前** —— 判据是携程的权威布尔字段，「明确为 true 才
  * 排除」，缺失或非 true 一律保留（宁可多读也不误杀）。
+ *
+ * ⚠️ 预售（`advanceSale`）**不滤**（2026-09-21 去掉，与扫描侧同步），见函数体内说明。
  */
 function pickRoomRefs(
   data: unknown,
@@ -84,7 +86,9 @@ function pickRoomRefs(
   const refs: CtripRoomRef[] = [];
   const seen = new Set<number>();
   let hourlySkipped = 0;
-  let presaleSkipped = 0;
+  // ⚠️ 预售过滤已去掉，这个计数器**恒为 0** —— 刻意保留，见下面 `seen.add` 前的说明。
+  // 加回过滤时改回 `let`。
+  const presaleSkipped = 0;
 
   const groups = Array.isArray(data) ? data : [];
   for (const group of groups) {
@@ -103,10 +107,24 @@ function pickRoomRefs(
         hourlySkipped += 1;
         continue;
       }
-      if (room.advanceSale === true) {
-        presaleSkipped += 1;
-        continue;
-      }
+      // ⚠️ **预售（`advanceSale`）过滤已去掉 —— 2026-09-21，与扫描侧同步。**
+      //
+      // 这里滤掉的后果比扫描侧更直接：`wanted` 已经把范围限定成「用户本次改动的房型」，
+      // 用户改的**恰好就是预售房型**时，过滤会把它滤空，整次回读退化成
+      // `no-matching-room-types` 空转 —— 用户明明改了，却什么都没读回来。
+      //
+      // 要加回来就在**这个位置**（去重 `seen.add` 之前），照 `hourRoom` 的样子写：
+      //
+      // ```ts
+      // if (room.advanceSale === true) {
+      //   presaleSkipped += 1;
+      //   continue;
+      // }
+      // ```
+      //
+      // `presaleSkipped` 计数器与它的日志字段**刻意保留**（恒为 0），正是为了加回来时
+      // 只动这一处。⚠️ 加回来前先同步 `inventory-scan.ts` 的同名逻辑 —— 两边不一致会让
+      // 预售房型被扫描建了基线、回读却永远不更新，下一轮扫描又比对出差异，重复上报。
       seen.add(roomTypeID);
       refs.push({
         hotelID: typeof room.hotelID === 'number' ? room.hotelID : 0,

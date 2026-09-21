@@ -23,7 +23,7 @@
  *         所在的那家店，不需要传酒店 ID，也不需要遍历绑定关系
  *      data[] → .roomInfos[]  只读这层（售卖房型）
  *         ⚠️ roomPPInfos / roomFGInfos 是同批数据按支付方式的切片，读了会重复
- *         过滤 hourRoom / advanceSale，按 roomTypeID 去重
+ *         过滤 hourRoom（预售 advanceSale 已不滤，见 pickAllRoomRefs），按 roomTypeID 去重
  * ② POST /ebkovsroom/api/inventory/getRoomInventoryInfo
  *      body: { hotelRoomInfoDtoList: [六字段…], startDate, endDate, … }
  *      data.roomStatusResult[]              房态房量
@@ -92,8 +92,9 @@ type CtripRoomRef = JsonObject &
 /**
  * 从房型清单里挑出全部可扫房型。
  *
- * 与回读的同名逻辑差别只有一处：**回读按本次改动的房型过滤，扫描要全部**。
- * 过滤与去重规则一致（源头过滤钟点房/预售，按 `roomTypeID` 去重）。
+ * 与回读的同名逻辑有两处差别：**回读按本次改动的房型过滤，扫描要全部**；
+ * 且**扫描不滤预售**（回读仍滤，见 `pickAllRoomRefs` 里的说明）。
+ * 其余一致（源头过滤钟点房，按 `roomTypeID` 去重）。
  */
 function pickAllRoomRefs(data: unknown): {
   refs: CtripRoomRef[];
@@ -103,7 +104,9 @@ function pickAllRoomRefs(data: unknown): {
   const refs: CtripRoomRef[] = [];
   const seen = new Set<number>();
   let hourlySkipped = 0;
-  let presaleSkipped = 0;
+  // ⚠️ 预售过滤已去掉，这个计数器**恒为 0** —— 刻意保留，见下面 `seen.add` 前的说明。
+  // 加回过滤时改回 `let`。
+  const presaleSkipped = 0;
 
   const groups = Array.isArray(data) ? data : [];
   for (const group of groups) {
@@ -122,10 +125,24 @@ function pickAllRoomRefs(data: unknown): {
         hourlySkipped += 1;
         continue;
       }
-      if (room.advanceSale === true) {
-        presaleSkipped += 1;
-        continue;
-      }
+      // ⚠️ **预售（`advanceSale`）过滤已去掉 —— 2026-09-21，扫描侧现在全收。**
+      //
+      // 去掉的理由：预售房型也是在售的渠道事实，滤掉等于这些房型的价量变化永远不对账。
+      // 原先滤掉是沿用回读那边的规则（见 `inventory-readback.ts` 的同名逻辑），
+      // 而回读的语境不同 —— 那边按「本次改动的房型」取数，预售本就不该混进来。
+      //
+      // 要加回来就在**这个位置**（去重 `seen.add` 之前），照 `hourRoom` 的样子写：
+      //
+      // ```ts
+      // if (room.advanceSale === true) {
+      //   presaleSkipped += 1;
+      //   continue;
+      // }
+      // ```
+      //
+      // `presaleSkipped` 计数器与它的日志字段**刻意保留**（恒为 0），正是为了加回来时
+      // 只动这一处。⚠️ 加回来前先想清楚回读那边要不要同步 —— 两边不一致会让预售房型
+      // 被扫描建了基线、回读却永远不更新，下一轮扫描又比对出差异。
       seen.add(roomTypeID);
       refs.push({
         hotelID: typeof room.hotelID === 'number' ? room.hotelID : 0,
