@@ -137,14 +137,20 @@ export function createScanResultHandler(
     // 无论变没变都要写：未变的格子刷新 observedAt，让「这格是什么时候确认过的」有据可查。
     deps.enqueue(latest);
 
+    // ⚠️ **不打基线总数**（`baseline.length`）。它是「窗口内库里有多少格」，包含本轮
+    // 压根没取的格子 —— 自然读会写入扫描范围之外的东西（例如钟点房商品，扫描侧按
+    // `roomCategory` 滤掉，自然读照页面返回全收）。拿它和 `cells` 对照会得出
+    // 「差了 N 格、是不是漏扫了」这种不存在的结论，而比对本身以 `latest` 为准，
+    // 基线里多出来的格子不参与任何判断（见 `snapshot-diff.ts`「不做删除判定」）。
+    //
+    // 三个数字自洽即可：`compared + 首次见到的 = cells`。
     deps.logger.info('Inventory scan compared', {
       channel: target.channel,
       otaHotelId: target.otaHotelId,
       cells: latest.length,
-      baseline: baseline.length,
+      // 本轮读到的格子里，有多少在基线里找到了对照。
+      compared: latest.length - added.length,
       changed: changed.length,
-      // ⚠️ added 只写基线不上报 —— 首次见到的格子不是「渠道新增了」。
-      addedBaseline: added.length,
     });
 
     if (changed.length === 0) return;
