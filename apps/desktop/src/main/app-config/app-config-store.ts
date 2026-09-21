@@ -53,9 +53,19 @@ function mergeConfig(base: AppConfig, patch: PartialAppConfig): AppConfig {
   // 键的联合类型，于是值被推成**所有组的交集**而报错。泛型把单次调用的 K 钉死。
   const merged = {} as { -readonly [K in keyof AppConfig]: AppConfig[K] };
   const assign = <K extends keyof AppConfig>(key: K): void => {
-    const group = { ...base[key], ...(patch[key] ?? {}) } as Record<string, unknown>;
+    // ⚠️ 顶层标量（`requestTimeoutMs`）走这里：它没有「组内逐键」可言，覆盖即整体替换。
+    // 不分流的话下面的展开会炸 —— `{ ...5 }` 在类型上就是 TS2698。
+    // 先落到局部变量：`base[key]` 是泛型索引访问，TS 不会把类型守卫的窄化传导回去，
+    // 直接在下面展开仍报 TS2698。
+    const baseValue: unknown = base[key];
+    const patchValue: unknown = patch[key];
+    if (!isPlainObject(baseValue)) {
+      merged[key] = (patchValue ?? baseValue) as AppConfig[K];
+      return;
+    }
+    const group = { ...baseValue, ...(isPlainObject(patchValue) ? patchValue : {}) };
     // ⚠️ 上面那行对「按 ID 分组」的字段是**整体替换**，必须再补一层逐 ID 合并。
-    // 数组与联合类型（如 `window`）**保持整体替换** —— 语义是「这一层说了算」，
+    // 数组与联合类型（如 `windows`）**保持整体替换** —— 语义是「这一层说了算」，
     // 把两层的列表 concat 起来会得到一个谁都没要求过的并集。
     for (const field of Object.keys(group)) {
       if (!ID_KEYED_FIELDS.has(field)) continue;

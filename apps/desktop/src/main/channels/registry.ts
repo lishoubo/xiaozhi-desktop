@@ -88,13 +88,16 @@ export function createChannelRegistry(
         logger,
         fetcher: ctripReadbackFetcher,
         // 每次调用时才读配置 —— 将来服务端下发是会在运行中变的，构造时取一次会让下发失效。
-        config: () => appConfig().ctripInventoryReadback,
+        config: () => ({
+          applyAllDatesReadbackDays: appConfig().inventoryReadback.applyAllDatesReadbackDays,
+          timeoutMs: appConfig().requestTimeoutMs,
+        }),
       }),
       inventoryScan: scanFetcher
         ? createCtripInventoryScan({
             logger,
             fetcher: scanFetcher,
-            config: () => ({ timeoutMs: appConfig().inventoryScan.timeoutMs }),
+            config: () => ({ timeoutMs: appConfig().requestTimeoutMs }),
           })
         : undefined,
     },
@@ -120,7 +123,7 @@ export function createChannelRegistry(
         logger,
         fetcher: meituanReadbackFetcher,
         inventoryEndpointId: MEITUAN_INVENTORY_ENDPOINT_ID,
-        config: () => appConfig().meituanInventoryReadback,
+        config: () => ({ timeoutMs: appConfig().requestTimeoutMs }),
       }),
       // ⚠️ 与携程共用同一个 scanFetcher（形状本就渠道无关，头由各渠道实现自己填）。
       // 省略 scanFetcher 即不注册 —— `inventoryScans()` 投影会自然跳过。
@@ -128,7 +131,7 @@ export function createChannelRegistry(
         ? createMeituanInventoryScan({
             logger,
             fetcher: scanFetcher,
-            config: () => ({ timeoutMs: appConfig().inventoryScan.timeoutMs }),
+            config: () => ({ timeoutMs: appConfig().requestTimeoutMs }),
           })
         : undefined,
     },

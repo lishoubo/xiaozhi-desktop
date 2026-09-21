@@ -174,14 +174,14 @@ function finish(roomTypeIds: number[], dates: string[], truncated: boolean): Rea
 }
 
 /**
- * @param windowDays `applyAllDates` 时的裁剪窗口，**入参**（来自 appConfig，不硬编码）
+ * @param applyAllDatesReadbackDays `applyAllDates` 时的裁剪窗口，**入参**（来自 appConfig，不硬编码）
  * @param today      **入参**，不读全局时钟 —— 否则这个函数不可测
  * @returns `null` = 本次改动不需要回读（不是房量端点、房型或日期为空）
  */
 export function extractCtripReadbackTargets(
   endpointId: string,
   changeRaw: JsonObject,
-  windowDays: number,
+  applyAllDatesReadbackDays: number,
   today: Date,
 ): ReadbackTargets | null {
   if (endpointId === CTRIP_ROOM_STATUS_ENDPOINT_ID) {
@@ -217,7 +217,7 @@ export function extractCtripReadbackTargets(
     // 「应用到所有日期」：携程会改从今日起约两年，且改变未显式设置过的日期的默认值。
     // 那个集合客户端算不出来 —— 裁剪到配置窗口，并标记 truncated（design 决策 4.2）。
     if (d.applyAllDates === true) {
-      return finish(roomTypeIds, nextNDays(today, windowDays), true);
+      return finish(roomTypeIds, nextNDays(today, applyAllDatesReadbackDays), true);
     }
 
     const ranges = d.dateRanges;

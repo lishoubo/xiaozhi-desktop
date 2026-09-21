@@ -158,7 +158,7 @@ export type CtripInventoryReadbackDependencies = Readonly<{
   logger: AppLogger;
   fetcher: CtripReadbackFetcher;
   /** 窄回调，从 appConfig 取；不在这里读全局配置，否则不可测。 */
-  config: () => Readonly<{ windowDays: number; timeoutMs: number }>;
+  config: () => Readonly<{ applyAllDatesReadbackDays: number; timeoutMs: number }>;
   /** `applyAllDates` 裁剪的基准日，**入参**以便测试。 */
   now?: () => Date;
 }>;
@@ -178,11 +178,11 @@ export function createCtripInventoryReadback(
         return { kind: 'skipped', reason: 'not-a-room-inventory-endpoint' };
       }
 
-      const { windowDays, timeoutMs } = deps.config();
+      const { applyAllDatesReadbackDays, timeoutMs } = deps.config();
       const targets = extractCtripReadbackTargets(
         report.endpointId,
         report.changeRaw,
-        windowDays,
+        applyAllDatesReadbackDays,
         now(),
       );
       if (!targets) {

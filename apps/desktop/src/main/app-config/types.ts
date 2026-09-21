@@ -30,61 +30,47 @@
  * 下发失败兜底、版本兼容），塞进本次会让房量回读本身的验证被配置链路的问题干扰。
  */
 
-/** 携程房量回读的可调参数。行为定义见 `channels/ctrip/inventory-readback.ts`。 */
-export type CtripInventoryReadbackConfig = Readonly<{
+/**
+ * 房量回读的可调参数 —— **渠道无关，携程与美团共用一组**。
+ *
+ * ## ⚠️ 为什么合并成一组（原先是 ctrip / meituan 两组）
+ *
+ * 拆成两组的理由当时是「美团没有 delayMs / windowDays」。但那两项一个已删（`delayMs`
+ * 全仓无消费方），另一个只是**携程独有的裁剪上限**而非通用回读参数 —— 剩下的部分渠道
+ * 之间没有任何差异。两组配置里放同一个 30s 超时，只会让改的人不知道该改哪个。
+ *
+ * 将来某渠道真需要独有参数时，加一个 `channels: Record<string, ...>` 分组即可，
+ * 不要再按渠道复制整组。
+ */
+export type InventoryReadbackConfig = Readonly<{
   /**
-   * 改动被判定成功后，等多久再回读（毫秒）。
+   * 「应用到所有日期」触发时的回读上限（天，从今日起算）。
    *
-   * **默认 `0`（不延迟）—— 这是留位，不是经验值。**
+   * ## ⚠️ 这不是回读的常规范围
    *
-   * ⚠️ 批量页的写接口是**异步**的（响应只给 `taskId` + 受理成功，不代表已写库），所以
-   * 不延迟时**可能读到改动前的值**。这是第一期的已知取舍：先把链路跑通，避开定时器带来的
-   * 整类复杂度（登记/清理、dispose 取消、延迟期间标签页被关）。
+   * 常规回读只读**用户实际改动过的那些日期**，不看这个值。它只在一个场景生效：
+   * 用户在携程批量页勾选「应用到所有日期」。
    *
-   * 真机若确认读到旧值，改这个默认值即可，**不动代码结构**。
-   */
-  delayMs: number;
-
-  /**
-   * 「应用到所有日期」时的回读窗口（天，从今日起算）。
-   *
-   * 用户勾选该选项时携程会修改**从今日起约两年**的日期，并改变未显式设置过的日期的默认值
-   * —— 这个集合客户端算不出来（要知道哪些日期被设置过，本身就得先有全量快照），也不可能
-   * 回读两年。所以裁剪到这个窗口。
+   * 那时携程会修改**从今日起约两年**的日期，并改变未显式设置过的日期的默认值 —— 这个
+   * 集合客户端算不出来（要知道哪些日期被设置过，本身就得先有全量快照），也不可能回读
+   * 两年。所以裁剪到这个窗口。
    *
    * ⚠️ 裁剪后上报的**不是完整快照**。服务端据 `rawRequest` 里保留的 `applyAllDates`
    * 字段自行处理。
+   *
+   * ⚠️ **当前只有携程消费**（美团没有「应用到所有日期」选项）。名字绑死场景是有意的 ——
+   * 原名 `windowDays` 太宽泛，既与扫描窗口（`inventoryScan.windows.days`）重名，也容易
+   * 被误用到常规回读上。
    */
-  windowDays: number;
-
-  /** 单次回读请求的超时（毫秒）。沿用 `rms-rpa-worker` 侧 `inventory.py` 的口径。 */
-  timeoutMs: number;
-}>;
-
-/**
- * 美团房量回读的可调参数。行为定义见 `channels/meituan/inventory-readback.ts`。
- *
- * ## ⚠️ 为什么**只有** `timeoutMs` —— 不要照携程补另外两项
- *
- * | 携程有 | 美团为何没有 |
- * |---|---|
- * | `delayMs` | 美团写接口是**同步**的（用户确认）。携程那个是为异步批量页留的位，而美团页面保存后**不发任何任务轮询请求**，连门控对象都没有。留一个永远取 0 的旋钮，会让后来者以为这里存在异步风险。 |
- * | `windowDays` | 美团**没有**「应用到所有日期」选项，不存在需要裁剪的无界范围，`truncated` 恒 `false`。 |
- *
- * 真机若发现读到旧值 —— 那是决策 1.2 的前提被推翻，应回到 design 重新设计门控，
- * **不是**在这里加一个延迟绕过去。
- */
-export type MeituanInventoryReadbackConfig = Readonly<{
-  /** 单次回读请求的超时（毫秒）。沿用携程同项的口径。 */
-  timeoutMs: number;
+  applyAllDatesReadbackDays: number;
 }>;
 
 /**
  * 价量态基线快照与定时扫描的可调参数。
  *
- * ## ⚠️ 本期（Change A）只有快照写入在用，`window` 与 `timeoutMs` 是给 Change B 留的
+ * ## ⚠️ 本期（Change A）只有快照写入在用，`windows` 与超时是给 Change B 留的
  *
- * 形状先定下来，是因为改形状比改值贵得多：`window` 的联合分支、`byHotel` 的深合并都会
+ * 形状先定下来，是因为改形状比改值贵得多：`windows` 的联合分支、`byHotel` 的深合并都会
  * 牵动 `mergeConfig`，而那是全局的。值可以随时改，形状定错了后面每加一项都要动结构。
  */
 /**
@@ -93,7 +79,7 @@ export type MeituanInventoryReadbackConfig = Readonly<{
  */
 export type InventoryScanScopeConfig = Readonly<{
   enabled: boolean;
-  window: Readonly<{ kind: 'days'; days: number }>;
+  windows: Readonly<{ kind: 'days'; days: number }>;
 }>;
 
 /**
@@ -120,19 +106,25 @@ export type InventoryScanConfig = Readonly<{
   /**
    * 日期窗口 —— 扫描覆盖从今天起的哪些天。
    *
+   * ## ⚠️ 名字是复数，值**暂时仍是单段**
+   *
+   * 后续要支持多时间段（`[1.1-1.2, 3.1-3.10]` 这种）。名字先定成复数，是因为改名要动
+   * 所有消费方，而改值的形状只动这里 —— 先把名字占住，下一个 change 再把类型换成
+   * 数组并打通 dispatcher 与渠道层。
+   *
+   * ⚠️ **当前配多段是配不了的**（类型就是单个对象，不是数组）。不要在消费侧写
+   * 「取第一段」这种兼容代码假装支持了 —— 那会让「配了第二段不生效」变成静默失效。
+   *
    * ## ⚠️ 为什么是带 `kind` 的联合，而不是一个 `windowDays: number`
    *
-   * 后续要支持多时间段（`[1.1-1.2, 3.1-3.10]` 这种）。若现在写成 `windowDays: number`，
-   * 那时只能加一个并列的 `ranges?: [...]`，于是出现「两个字段都有值时听谁的」这种
-   * 说不清的状态，且消费方漏判新字段时**静默按旧字段跑**。
+   * 写成 `windowDays: number` 的话，支持多段时只能加一个并列的 `ranges?: [...]`，
+   * 于是出现「两个字段都有值时听谁的」这种说不清的状态，且消费方漏判新字段时
+   * **静默按旧字段跑**。
    *
    * 带 `kind` 的联合让扩展变成**加一个分支**，消费方的 `switch` 会被类型系统强制
    * 处理新分支 —— 漏了编译就过不去。
    */
-  window: Readonly<{ kind: 'days'; days: number }>;
-
-  /** 单次取数请求的超时（毫秒）。沿用回读同项的口径。 */
-  timeoutMs: number;
+  windows: Readonly<{ kind: 'days'; days: number }>;
 
   /**
    * 两轮之间歇多久（毫秒）。**默认按环境分档：dev 1 分钟，pre/online 5 分钟**
@@ -179,10 +171,66 @@ export type InventoryScanConfig = Readonly<{
   byHotel: Readonly<Record<string, Partial<InventoryScanScopeConfig>>>;
 }>;
 
+/**
+ * 快照清理的可调参数。行为定义见 `inventory-snapshot/snapshot-cleaner.ts`。
+ *
+ * ## ⚠️ 为什么单独一组，而不是并进 `inventoryScan`
+ *
+ * 清理的确只清扫描写进去的那张表，但它与扫描是**两件相反的事**（一个写、一个删），
+ * 放一组会让 `enabled` 的语义含糊：关掉扫描是否连清理也关？不该 —— 扫描关了，
+ * 库里既有的旧数据仍然要被清掉，否则关闭扫描反而变成「停止清理」。
+ */
+export type SnapshotCleanupConfig = Readonly<{
+  /**
+   * 保留多少天以内的格子，更早的删掉（按 `item_date` 判定，不是写入时间）。
+   *
+   * ⚠️ 判据是**格子代表的日期**而非 `observed_at`：一条今天才抓到的、描述上周某天的
+   * 记录，价值随那一天过去而消失，与什么时候抓到无关。
+   */
+  retentionDays: number;
+
+  /**
+   * 一批最多删多少行，删完让出事件循环。
+   *
+   * ⚠️ 不设上限会让积压久了的一次 DELETE 卡住主进程 —— better-sqlite3 是**同步** API，
+   * 包 Promise 没用，唯一有效的是分批让出。手法与 `SnapshotWriteQueue` 一致。
+   */
+  batchSize: number;
+
+  /**
+   * 两轮清理之间歇多久（毫秒）。与扫描的 `idleMs` 同为 fixed-delay 语义。
+   *
+   * ⚠️ 需要定时而非只在启动时跑一次：桌面应用的常态是**常年不关**，只在启动时清理
+   * 意味着这类机器永远不清。
+   *
+   * 不设抖动 —— 清理是纯本地动作，没有外部副作用，不存在扫描那种「集中部署的机器
+   * 同相位打渠道」的风控问题。
+   */
+  idleMs: number;
+
+  /**
+   * 窗口就绪后等多久跑首轮（毫秒）。
+   *
+   * ⚠️ 不得改回 0 或挪回启动路径：原实现同步跑在 `createAppScope` 里（数据库刚打开、
+   * 窗口还没创建），**这段卡多久窗口就晚出来多久**。
+   */
+  startupDelayMs: number;
+}>;
+
 export type AppConfig = Readonly<{
-  ctripInventoryReadback: CtripInventoryReadbackConfig;
-  meituanInventoryReadback: MeituanInventoryReadbackConfig;
+  /**
+   * 单次渠道请求的超时（毫秒）—— **回读与扫描共用**。
+   *
+   * ⚠️ 顶层的标量，不属于任何分组：它描述的是「打渠道接口」这个动作本身，回读和扫描
+   * 只是两个调用场景。原先回读两组、扫描一组各放一个 30s，改的人不知道该改哪个。
+   *
+   * ⚠️ `PartialAppConfig` 的形状是「分组 → 标量」两层，顶层标量的覆盖走
+   * `mergeConfig` 的同名分支 —— 加顶层标量时看一眼那里，别假设它和分组一样处理。
+   */
+  requestTimeoutMs: number;
+  inventoryReadback: InventoryReadbackConfig;
   inventoryScan: InventoryScanConfig;
+  snapshotCleanup: SnapshotCleanupConfig;
 }>;
 
 /**
@@ -191,11 +239,15 @@ export type AppConfig = Readonly<{
  * 逐层深合并：某一层只给了部分键时，未给的键仍取下层的值，**不得变成 undefined**。
  *
  * ⚠️ **数组与联合类型的值是整体替换，不是逐元素合并。** 这是有意的：多时间段窗口
- * （`window.ranges`）与将来的房型清单，语义都是「这一层说了算」，把两层的列表 concat
+ * （`windows`）与将来的房型清单，语义都是「这一层说了算」，把两层的列表 concat
  * 起来会得到一个谁都没要求过的并集。改成 concat 之前先想清楚这一点。
  */
 export type PartialAppConfig = {
-  readonly [K in keyof AppConfig]?: Partial<AppConfig[K]>;
+  // ⚠️ 顶层标量（`requestTimeoutMs`）不能套 `Partial` —— `Partial<number>` 是个
+  // 没有意义的类型，会让覆盖层写什么都通得过。分流成「对象才 Partial，标量原样」。
+  readonly [K in keyof AppConfig]?: AppConfig[K] extends object
+    ? Partial<AppConfig[K]>
+    : AppConfig[K];
 };
 
 /** 配置来源。本期只有 `defaults` 真正实现，其余两个是预留形状。 */

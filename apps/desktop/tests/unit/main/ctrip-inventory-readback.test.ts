@@ -8,7 +8,7 @@ import type { WebContents } from 'electron';
 
 const CTRIP = toChannelId('ctrip');
 const TODAY = new Date(2026, 7, 31); // 周一
-const CONFIG = { windowDays: 7, timeoutMs: 30_000 };
+const CONFIG = { applyAllDatesReadbackDays: 7, timeoutMs: 30_000 };
 
 function createLogger() {
   return { info: vi.fn(), warn: vi.fn(), error: vi.fn() };

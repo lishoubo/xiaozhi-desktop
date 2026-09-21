@@ -30,15 +30,11 @@ const SCAN_PACE =
     : { idleMs: 5 * 60_000, jitterMs: 60_000 };
 
 export const DEFAULT_APP_CONFIG: AppConfig = {
-  ctripInventoryReadback: {
-    // 留位，不是经验值 —— 第一期不延迟，真机确认读到旧值后再调。见 types.ts。
-    delayMs: 0,
-    windowDays: 7,
-    timeoutMs: 30_000,
-  },
-  meituanInventoryReadback: {
-    // ⚠️ 刻意没有 delayMs / windowDays —— 美团写入同步、无「应用到所有日期」。见 types.ts。
-    timeoutMs: 30_000,
+  // 回读与扫描共用。30s 沿用 `rms-rpa-worker` 侧 `inventory.py` 的口径。
+  requestTimeoutMs: 30_000,
+  inventoryReadback: {
+    // 只在携程「应用到所有日期」时生效 —— 常规回读读的是用户实际改动的日期。见 types.ts。
+    applyAllDatesReadbackDays: 7,
   },
   inventoryScan: {
     /**
@@ -52,8 +48,7 @@ export const DEFAULT_APP_CONFIG: AppConfig = {
     enabled: APP_ENVIRONMENT === 'dev',
     // 15 天：与携程页面自然读一次返回的范围对齐（真机实测）。取 7 天的话，
     // 8~15 天那部分基线永远不会被比对，只占库。
-    window: { kind: 'days', days: 15 },
-    timeoutMs: 30_000,
+    windows: { kind: 'days', days: 15 },
     // 按环境分档，见上面的 SCAN_PACE。抖动恒为 idleMs 的 20% —— 比更新检查的 50% 小：
     // 那个是低频动作，散开 1 小时无所谓；扫描要保证对账时效，散太开会让
     // 「最坏多久发现一次变更」不可预期。
@@ -64,5 +59,18 @@ export const DEFAULT_APP_CONFIG: AppConfig = {
     // ⚠️ 未列出的酒店 = 取上层值（与 channels 相反）。默认不逐店配置，
     // 新绑的店跟随渠道开关，不会静默不扫。
     byHotel: {},
+  },
+  snapshotCleanup: {
+    // 3 天：扫描窗口 15 天写进来的格子，过了自己代表的那天就没有对账价值了。
+    // 比窗口短是对的 —— 留的是「刚过去的几天」，不是「扫过的所有天」。
+    retentionDays: 3,
+    // 一批 500 行。与写入队列的 200 不同量级：删除比 upsert 轻，且清理是低频动作，
+    // 批大一点少让出几次；真积压了也不会一次卡住。
+    batchSize: 500,
+    // 6 小时一轮。过期按天发生，一天跑几次绰绰有余；取 6h 而非 24h 是为了让
+    // 「开着不关的机器」在一天内多几次机会，不必卡在某个整点。
+    idleMs: 6 * 60 * 60_000,
+    // 窗口就绪后等 30 秒再跑首轮 —— 让启动阶段的 IPC、页面加载先过去。
+    startupDelayMs: 30_000,
   },
 };
