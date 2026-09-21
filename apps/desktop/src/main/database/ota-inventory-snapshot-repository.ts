@@ -37,8 +37,15 @@ export interface OtaInventorySnapshotRepository {
     endDate: string,
   ): readonly SnapshotCell[];
 
-  /** 删除 `beforeDate` 之前的格子，返回删除行数。防止窗口滚动后旧日期无限累积。 */
-  deleteOlderThan(beforeDate: string): number;
+  /**
+   * 删除 `beforeDate` 之前的格子，**最多删 `limit` 行**，返回实际删除行数。
+   * 防止窗口滚动后旧日期无限累积。
+   *
+   * ⚠️ 必须带 `limit`：better-sqlite3 是同步 API，积压久了的一次无界 DELETE 会卡住
+   * 主进程。调用方按返回值判断是否还有剩余（删满 `limit` 即可能还有），分批让出事件
+   * 循环再删下一批 —— 见 `inventory-snapshot/snapshot-cleaner.ts`。
+   */
+  deleteOlderThan(beforeDate: string, limit: number): number;
 }
 
 type SnapshotRow = Readonly<{
@@ -151,10 +158,17 @@ export class SqliteOtaInventorySnapshotRepository implements OtaInventorySnapsho
     return rows.map(cellFromRow);
   }
 
-  deleteOlderThan(beforeDate: string): number {
+  deleteOlderThan(beforeDate: string, limit: number): number {
+    // ⚠️ 用子查询限行，不用 `DELETE ... LIMIT` —— 后者要 SQLite 编译时开
+    // `SQLITE_ENABLE_UPDATE_DELETE_LIMIT`，better-sqlite3 的预编译产物默认没开，
+    // 写了会在运行期报语法错误（而不是编译期）。
     const result = this.database
-      .prepare('DELETE FROM ota_inventory_snapshot WHERE item_date < ?')
-      .run(beforeDate);
+      .prepare(
+        `DELETE FROM ota_inventory_snapshot WHERE id IN (
+           SELECT id FROM ota_inventory_snapshot WHERE item_date < ? LIMIT ?
+         )`,
+      )
+      .run(beforeDate, limit);
     return result.changes;
   }
 }

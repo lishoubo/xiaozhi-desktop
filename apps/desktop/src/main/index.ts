@@ -83,6 +83,8 @@ function initializeApplication(): void {
   log.info('Application initialization completed');
   // 卫生工作，不挡启动路径：此刻还没有标签页占用任何 partition，是最安全的清理时机。
   void appScope.cleanupPartitionsOnStartup();
+  // 同上 —— 窗口已经创建，清理自带启动延迟并分批让出，不与启动阶段抢事件循环。
+  appScope.startBackgroundCleanup();
 }
 
 // Handle creating/removing shortcuts on Windows when installing/uninstalling.

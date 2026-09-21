@@ -162,7 +162,21 @@ describe('deleteOlderThan', () => {
       cell({ itemDate: '2026-10-18', otaSaleRoomId: 'r1' }),
       cell({ itemDate: '2026-10-20', otaSaleRoomId: 'r1' }),
     ]);
-    expect(repository.deleteOlderThan('2026-10-20')).toBe(1);
+    expect(repository.deleteOlderThan('2026-10-20', 100)).toBe(1);
     expect(countRows(database)).toBe(1);
+  });
+
+  // ⚠️ limit 是防「积压久了一次无界 DELETE 卡住主进程」的，必须真的生效 ——
+  // 子查询写错（比如 LIMIT 落在外层）会让它静默失效，行为上看不出来。
+  it('一次最多删 limit 行，剩下的留给下一批', () => {
+    repository.upsertMany([
+      cell({ itemDate: '2026-10-10', otaSaleRoomId: 'r1' }),
+      cell({ itemDate: '2026-10-11', otaSaleRoomId: 'r2' }),
+      cell({ itemDate: '2026-10-12', otaSaleRoomId: 'r3' }),
+    ]);
+    expect(repository.deleteOlderThan('2026-10-20', 2)).toBe(2);
+    expect(countRows(database)).toBe(1);
+    expect(repository.deleteOlderThan('2026-10-20', 2)).toBe(1);
+    expect(countRows(database)).toBe(0);
   });
 });
