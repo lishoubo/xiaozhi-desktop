@@ -82,7 +82,7 @@ describe('readCtripQuantity', () => {
 describe('readMeituanQuantity', () => {
   it('限量房：总房量 = limitRemain + usedCount（配额，非物理房量）', () => {
     // 真实行：云舒双床房 limitRemain=39 usedCount=1 → 配额 40
-    // ⚠️ remainCount=1，若按 remainCount+usedCount 会算成 2，是物理房量不是配额。
+    // ⚠️ remainCount=1 是**预留房量**，与配额无关 —— 拿它参与总量计算会算成 2。
     expect(
       readMeituanQuantity({
         limitType: 1,
@@ -113,8 +113,9 @@ describe('readMeituanQuantity', () => {
     ).toEqual({ total: 10, soldOut: true });
   });
 
-  // ⭐ 库里这类行有 32 条，配额都还有剩；真售罄只有 1 条。
-  it('⭐ remainCount=0 但配额有剩：不判售罄', () => {
+  // ⭐ remainCount 是预留房量，为 0 只说明没预留，与售罄无关。
+  // 库里这类行有 32 条，配额都还有剩；真售罄只有 1 条。
+  it('⭐ remainCount=0（无预留）但配额有剩：不判售罄', () => {
     expect(
       readMeituanQuantity({
         limitType: 1,

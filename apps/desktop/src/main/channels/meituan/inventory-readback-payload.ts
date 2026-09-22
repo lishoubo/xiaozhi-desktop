@@ -99,14 +99,15 @@
  *
  * ```
  * limitRemain + usedCount  = 用户设的配额   ← 卖房时恒定
- * remainCount + usedCount  = 物理房量       ← 与配额无关
  * ```
  *
- * 本地快照库 201 行实测佐证：云憩大床房 15 个日期上 `limitRemain+usedCount` 恒为 20
- * （其间 `usedCount` 0→5），而 `remainCount+usedCount` 在 2/3/5 之间跳。
+ * 本地快照库 201 行实测佐证：云憩大床房 15 个日期上该和恒为 20（其间 `usedCount` 0→5）。
  * 完整证据见 `add-meituan-inventory-readback/服务端需求.md` §4.1（标题即「已修正」）。
  *
- * ⚠️ **有预留房**（`countType` 152x）时三字段如何分配**尚无样本**。
+ * ⛔ **`remainCount` 是预留房量**，不是「剩余可卖」，与配额无算术关系（实测多为 0、
+ * 偶尔 1，而同格 `limitRemain` 可达 39）。早期文档里
+ * 「`remainCount + usedCount` = 物理房量」的说法**不成立** —— 云舒双床房照此算出 2，
+ * 而该房型配额有 40。不要据此推算任何总量。
  *
  * ⚠️ `limitType: 2`（不限量）时 `limitRemain` 是**哨兵值**，不是真实房量。已实测到的有
  * **998 / 999 / 1002**（1002 来自本地快照库，`limitType=2` 的 15 行全是它）——

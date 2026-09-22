@@ -101,30 +101,33 @@ export function readCtripQuantity(row: JsonObject): QuantityReading {
 /**
  * 美团：先判限量，再算配额。
  *
- * ## ⚠️ 美团有**两个总量**，判据要的是配额那个
+ * ## ⚠️ 总房量取 `limitRemain + usedCount`
  *
  * ```
  * limitRemain + usedCount  = 用户设的配额   ← 本函数取这个
- * remainCount + usedCount  = 物理房量       ← 另一回事，与配额无关
  * ```
  *
- * 本地快照库实测（201 行）：
- *
- * | 房型 | `limitRemain+usedCount` | `remainCount+usedCount` |
- * |---|---|---|
- * | 云憩大床房（15 个日期，usedCount 0→5） | **恒为 20** | 2 / 3 / 5 跳动 |
- * | 轻奢标准间（usedCount 1→5） | **恒为 8** | 3 / 5 跳动 |
+ * 本地快照库实测（201 行）：云憩大床房 15 个日期上该和**恒为 20**（其间 `usedCount`
+ * 从 0 变到 5），轻奢标准间恒为 8（`usedCount` 1→5）。
  *
  * **卖出一间时 `limitRemain` −1、`usedCount` +1，和不变** —— 这正是「有订单不误报」
- * 所依赖的不变量。用物理房量那个和，卖房时会变，噪音照旧。
+ * 所依赖的不变量。
  *
- * > `meituan-cells.ts` 里「`remainCount` 与 `usedCount` 一起才能还原出总量」说的是
- * > **物理房量**，两句话都对，但判据要的是配额。
+ * ## ⛔ `remainCount` 是**预留房量**，判据完全不用它
  *
- * ## ⛔ 为什么 `remainCount === 0` 不是售罄
+ * 它既不是「剩余可卖」，也不参与任何总量计算。实测值大多为 0、偶尔 1，与
+ * `limitRemain`（15/19/39）和 `usedCount` 之间**没有算术关系**：
  *
- * 实测 `remainCount = 0` 的 32 行**配额都还有剩**，真正售罄（`limitRemain = 0`）
- * 只有 1 行。拿 `remainCount` 判售罄会误报 32 倍。
+ * | 房型 | date | `remainCount` | `limitRemain` | `usedCount` |
+ * |---|---|---|---|---|
+ * | 云舒双床房 | 09-25 | 1 | 39 | 1 |
+ * | 云憩大床房 | 09-21 | 0 | 15 | 5 |
+ *
+ * ⛔ 早期文档里「`remainCount + usedCount` = 物理房量」的说法**不成立**（云舒双床房
+ * 算出来是 2，而该房型配额有 40）。不要据此推算任何总量。
+ *
+ * ⛔ 更不能拿 `remainCount === 0` 判售罄：实测为 0 的 32 行配额都还有剩，
+ * 真正售罄（`limitRemain = 0`）只有 1 行。
  *
  * ## ⚠️ 不限量时 `limitRemain` 是哨兵值，不是房量
  *

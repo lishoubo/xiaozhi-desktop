@@ -101,22 +101,16 @@ export type QuantityReader = (itemData: JsonObject) => QuantityReading;
 | 渠道 | `total` | `soldOut` | 依据 |
 |---|---|---|---|
 | 携程 | `freeSale==="T" \|\| limitSale==="F"` 时 null，否则 `totalQuantity` | 不限量时 false，否则 `hasInventory === false` | 先判不限量，再读数字 |
-| 美团 | `limitType === 1 ? limitRemain + usedCount : null` | `limitType === 1 && limitRemain === 0` | 配额，非物理房量 |
+| 美团 | `limitType === 1 ? limitRemain + usedCount : null` | `limitType === 1 && limitRemain === 0` | 配额；⛔ 不碰 `remainCount`（预留房量） |
 
-**⚠️ 美团的坑（两个总量，别选错）**：
+**⚠️ 美团总房量取 `limitRemain + usedCount`**
 
-```
-limitRemain + usedCount  = 用户设的配额   ← 判据用这个
-remainCount + usedCount  = 物理房量       ← 不是判据要的
-```
+真机数据（本地快照库 201 行）：云憩大床房该和在 15 个日期上**恒为 20**，其中 `usedCount`
+从 0 变到 5 —— 卖出一间时 `limitRemain` −1、`usedCount` +1，和不变。
 
-真机数据（本地快照库 201 行）：云憩大床房 `limitRemain+usedCount` 在 15 个日期上**恒为 20**，
-其中 `usedCount` 从 0 变到 5；而 `remainCount+usedCount` 在 2/3/5 之间跳。12 个房型里 8 个的
-配额式总量完全恒定，物理式只有 2 个恒定。
-
-> `meituan-cells.ts:96` 的注释「`remainCount` 与 `usedCount` 一起才能还原出总量」说的是
-> **物理房量**，不是配额 —— 两者都对，但判据要的是配额。
-> 见 `add-meituan-inventory-readback/服务端需求.md` §4.1（标题即「已修正」）。
+> ⛔ `remainCount` 是**预留房量**，不是「剩余可卖」，与配额无算术关系（实测多为 0、
+> 偶尔 1，而同格 `limitRemain` 可达 39）。早期文档「`remainCount + usedCount` = 物理房量」
+> 的说法**不成立**（云舒双床房照此算出 2，而配额有 40）。判据完全不用这个字段。
 
 **⚠️ 携程：`hasInventory` 单独用会误判，必须先过不限量**
 
@@ -137,8 +131,8 @@ freeSale === "T"        → 不限量，soldOut = false，total = null
 
 ⛔ 直接用 `canUsedQuantity === 0` 或裸用 `hasInventory === false`，都会把 68 行不限量房误判成售罄。
 
-**⚠️ 美团为什么不用 `remainCount === 0`**：库里 `remainCount=0` 的 32 行**配额都还有剩**，
-不是售罄；真正售罄（`limitRemain=0`）只有 1 行。用 `remainCount` 会误报 32 倍。
+**⚠️ 美团为什么不用 `remainCount === 0`**：它是预留房量，为 0 只说明没预留。库里
+`remainCount=0` 的 32 行**配额都还有剩**；真正售罄（`limitRemain=0`）只有 1 行。
 
 **⚠️ 哨兵值**：美团 `limitType=2`（不限量）时 `limitRemain` 是哨兵。文档记的是 998/999，
 **本地库实测到 1002**（15/15 行）——说明哨兵不是固定几个值，所以判据**先看 `limitType`**，
@@ -216,6 +210,7 @@ freeSale === "T"        → 不限量，soldOut = false，total = null
   本地库能证明 `canUsedQuantity ≤ totalQuantity` 恒成立（684 行相等 / 71 行小于 / **0 行大于**），
   支持「total 是总量」的读法，但这仍是推断。
   **不阻塞**：判据用 `totalQuantity` 做相等比较，即使它的语义是别的，「它变了就报」也不会漏报。
-- 美团有**预留房**（`countType` 152x）时三个房量字段如何分配，现有样本未覆盖
-  （`add-meituan-inventory-readback/服务端需求.md` 已记为待确认）。
-  **不阻塞**：Risk 2 的兜底保证异常形状朝多报方向失效。
+- 美团**预留房**（`remainCount`）对配额的影响：已确认 `remainCount` 是预留房量、
+  与 `limitRemain`/`usedCount` 无算术关系，判据不用它。但「预留一间时配额是否随之变化」
+  现有样本未覆盖（库里 `remainCount > 0` 仅 3 行，且同格配额未见变动）。
+  **不阻塞**：若预留导致配额变化，那本就是应当上报的事实；Risk 2 的兜底覆盖异常形状。
