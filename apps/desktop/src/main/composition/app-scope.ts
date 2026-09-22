@@ -25,10 +25,7 @@ import { SqliteOtaInventorySnapshotRepository } from '../database/ota-inventory-
 import { SnapshotCleaner } from '../inventory-snapshot/snapshot-cleaner';
 import { SnapshotWriteQueue } from '../inventory-snapshot/snapshot-write-queue';
 import { createScanResultHandler } from '../inventory-snapshot/scan-to-report';
-import {
-  readCtripQuantity,
-  readMeituanQuantity,
-} from '../inventory-snapshot/quantity-reading';
+import { readCtripQuantity, readMeituanQuantity } from '../inventory-snapshot/quantity-reading';
 import { mapCtripReadRows } from '../inventory-snapshot/ctrip-cells';
 import { InventoryScanDispatcher, type ScanTarget } from '../channels/inventory-scan-dispatcher';
 import { inventoryScans } from '../channels/registry';
@@ -41,10 +38,7 @@ import { StaffAuthService } from '../services/staff-auth-service';
 import { createScanTargetsOf } from './scan-targets';
 import { readOrCreateDeviceId } from '../file-store/device-id';
 import { updatePartitionState } from '../file-store/partition-ledger';
-import {
-  cleanupOrphanPartitions,
-  cleanupRetiredPartitions,
-} from '../browser/partition-cleanup';
+import { cleanupOrphanPartitions, cleanupRetiredPartitions } from '../browser/partition-cleanup';
 import { reportError } from '../error-reporting/report-error';
 import { HttpRmsHotelGateway } from '../gateway/rms/rms-hotel-gateway-http';
 import { HttpRmsOtaAccountGateway } from '../gateway/rms/rms-ota-account-gateway-http';
@@ -444,8 +438,8 @@ export function createAppScope(logger: AppLogger): AppScope {
       readBaseline: (source, otaHotelId, startDate, endDate) =>
         snapshotRepository.findByHotelAndDateRange(source, otaHotelId, startDate, endDate),
       enqueue: (cells) => snapshotWriteQueue.push(cells),
-      report: (observed, partitionName) =>
-        void scanReportService.report(observed, partitionName),
+      report: (observed, partitionName) => void scanReportService.report(observed, partitionName),
+      newTraceId: () => randomUUID(),
       logger,
     }),
     reportError,

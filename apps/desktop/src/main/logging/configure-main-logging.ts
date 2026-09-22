@@ -1,3 +1,4 @@
+import os from 'node:os';
 import path from 'node:path';
 import { redactLogData, type LogMessageData } from '../../shared/logging';
 
@@ -34,7 +35,7 @@ type MainLoggingOptions = Readonly<{
 }>;
 
 type ElectronLogDirectoryTarget = Readonly<{
-  getPath(name: 'logs'): string;
+  getPath(name: 'logs' | 'userData'): string;
   setAppLogsPath(path?: string): void;
 }>;
 
@@ -61,12 +62,38 @@ const MAX_LOG_FILE_SIZE = 10 * 1024 * 1024;
  */
 const FILE_LOG_INSPECT_DEPTH = 8;
 
+/**
+ * 日志根目录 —— **必须显式算出来,不能让 Electron 自己挑**。
+ *
+ * ⚠️ `setAppLogsPath()` **无参调用时用的是 bundle 名,不是 `app.setName()` 设的名字**。
+ * 打包后两者一致（forge 的 `packagerConfig.name` 已经把 bundle 改成环境专属名），
+ * 但 **dev 模式跑的是 `Electron.app` 这个通用壳**,于是日志落到
+ * `~/Library/Logs/Electron/`,与 userData 的 `小智酒店管家[开发]/` 对不上 ——
+ * 找日志时会扑空,以为 dev 压根不落盘。
+ *
+ * 所以这里按 `productName` 自己拼路径,让三个环境在 dev 与打包下都落到同一个地方：
+ *
+ * ```
+ * macOS    ~/Library/Logs/<productName>/<变体>/
+ * Windows  %APPDATA%\<productName>\logs\<变体>\
+ * Linux    ~/.config/<productName>/logs/<变体>/
+ * ```
+ */
+function appLogsRoot(electronApp: ElectronLogDirectoryTarget, productName: string): string {
+  if (process.platform === 'darwin') {
+    return path.join(os.homedir(), 'Library', 'Logs', productName);
+  }
+  // Windows / Linux：Electron 的惯例就是 userData 下的 logs/，
+  // 而 userData 已经由 `app.setName()` 隔离过环境,直接接上即可。
+  return path.join(electronApp.getPath('userData'), 'logs');
+}
+
 export function configureDesktopLogDirectory(
   electronApp: ElectronLogDirectoryTarget,
   profileDirectoryName: string,
+  productName: string,
 ): string {
-  electronApp.setAppLogsPath();
-  const profileDirectory = path.join(electronApp.getPath('logs'), profileDirectoryName);
+  const profileDirectory = path.join(appLogsRoot(electronApp, productName), profileDirectoryName);
   electronApp.setAppLogsPath(profileDirectory);
   return electronApp.getPath('logs');
 }

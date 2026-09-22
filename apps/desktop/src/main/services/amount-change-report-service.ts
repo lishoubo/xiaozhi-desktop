@@ -73,7 +73,9 @@ export class AmountChangeReportService {
     const report: OtaAmountChangeReport = {
       ...observed,
       otaHotelId,
-      operationId: randomUUID(),
+      // ⚠️ 发起方给了 traceId 就复用它当 operationId —— 这样扫描那一轮的取数、比对、
+      // 上报日志与 RMS 台账里的这条记录**是同一个 ID**，排查时能直接串起来。
+      operationId: observed.traceId ?? randomUUID(),
       loginUserId: staff?.userId ?? null,
       loginUserName: staff?.fullName?.trim() || staff?.username || null,
       channelAccountId: credential?.channelAccountId ?? null,

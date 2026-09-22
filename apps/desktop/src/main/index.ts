@@ -37,7 +37,7 @@ let appScope: AppScope | null = null;
 let windowScope: WindowScope | null = null;
 
 configureNetworkPrivacy(app.commandLine);
-const logsDirectory = configureDesktopLogDirectory(app, AUTH_PROFILE_DIRECTORY);
+const logsDirectory = configureDesktopLogDirectory(app, AUTH_PROFILE_DIRECTORY, APP_PRODUCT_NAME);
 configureMainLogging(log, {
   appVersion: app.getVersion(),
   isPackaged: app.isPackaged,

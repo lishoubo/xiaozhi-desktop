@@ -35,18 +35,24 @@ describe('desktop production logging', () => {
     expect(redacted.error.message).not.toContain('private');
   });
 
-  it('uses Electron native logs with a profile-specific directory', () => {
+  // ⚠️ 这条钉住的是 dev 与打包**落在同一个目录**：`setAppLogsPath()` 无参调用时
+  // Electron 用的是 bundle 名（dev 下是 `Electron`），不是 `app.setName()` 设的名字 ——
+  // 日志会落到 `~/Library/Logs/Electron/`，找日志时扑空。所以必须显式传路径。
+  it('按 productName 算日志目录，不依赖 bundle 名', () => {
     const setAppLogsPath = vi.fn();
     const getPath = vi
-      .fn<(name: 'logs') => string>()
-      .mockReturnValueOnce('/native/app/logs')
-      .mockReturnValueOnce('/native/app/logs/staff');
+      .fn<(name: 'logs' | 'userData') => string>()
+      .mockReturnValue('/native/app/logs/staff');
 
-    expect(configureDesktopLogDirectory({ getPath, setAppLogsPath }, 'staff')).toBe(
-      '/native/app/logs/staff',
-    );
-    expect(setAppLogsPath).toHaveBeenNthCalledWith(1);
-    expect(setAppLogsPath).toHaveBeenNthCalledWith(2, path.join('/native/app/logs', 'staff'));
+    expect(
+      configureDesktopLogDirectory({ getPath, setAppLogsPath }, 'staff', '小智酒店管家[开发]'),
+    ).toBe('/native/app/logs/staff');
+
+    // ⛔ 不再有「先无参调一次」那步 —— 那正是 dev 落错目录的原因。
+    expect(setAppLogsPath).toHaveBeenCalledTimes(1);
+    const [passed] = setAppLogsPath.mock.calls[0] as [string];
+    expect(passed).toContain('小智酒店管家[开发]');
+    expect(passed.endsWith(path.join('小智酒店管家[开发]', 'staff'))).toBe(true);
   });
 
   it('writes packaged logs to a bounded file inside the resolved directory', () => {

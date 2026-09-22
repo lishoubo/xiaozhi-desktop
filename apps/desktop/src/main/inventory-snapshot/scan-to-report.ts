@@ -98,6 +98,8 @@ export type ScanResultHandlerDependencies = Readonly<{
   /** 差异上报。窄回调，由装配层接到上报服务。 */
   report: (observed: OtaAmountChangeObserved, partitionName: string) => void;
   logger: AppLogger;
+  /** 链路 ID 生成器。注入而非直接 `randomUUID()`，是为了让测试能断言 ID 的流向。 */
+  newTraceId: () => string;
   now?: () => number;
 }>;
 
@@ -123,12 +125,18 @@ export function createScanResultHandler(
     // 该渠道没接快照/上报 —— 正常情况，不记日志。
     if (!mapper || !buildReport) return;
 
+    // ⚠️ 链路 ID 在**这一轮这个门店的起点**生成，此后每条日志都带上它，最终作为
+    // `operationId` 发给 RMS —— 于是「取数 → 比对 → 上报 → RMS 台账」是同一个 ID。
+    // 不这么做的话，一轮扫描打出来的几条日志之间没有任何字段能串起来，
+    // 排查时只能靠时间戳猜是不是同一轮（而四个门店的扫描只隔几百毫秒）。
+    const traceId = deps.newTraceId();
     const observedAt = now();
     const latest = mapper(rows, target.otaHotelId, 'scan', observedAt);
     if (latest.length === 0) {
       // 取回的行映射不出任何格子。空结果是合法的（这些天确实没数据），
       // 但也可能是渠道改了字段 —— 记一条 info 便于事后分辨。
       deps.logger.info('Inventory scan produced no cells', {
+        traceId,
         channel: target.channel,
         otaHotelId: target.otaHotelId,
         rows: rows.length,
@@ -159,36 +167,48 @@ export function createScanResultHandler(
     // 基线里多出来的格子不参与任何判断（见 `snapshot-diff.ts`「不做删除判定」）。
     //
     // 三个数字自洽即可：`compared + 首次见到的 = cells`。
+    // ⚠️ `changed` 与 `reported` **按 itemType 拆开**。只打两个总数的话，
+    // 「changed 211 → reported 205」这种数字完全看不出判据有没有生效 ——
+    // 价格不收窄、房量才收窄，两类混在一个数里就分不出滤掉的是什么。
+    const countByType = (cells: readonly { itemType: string }[]) => ({
+      roomStatus: cells.filter((c) => c.itemType === 'roomStatus').length,
+      price: cells.filter((c) => c.itemType === 'price').length,
+    });
+
     deps.logger.info('Inventory scan compared', {
+      traceId,
       channel: target.channel,
       otaHotelId: target.otaHotelId,
       cells: latest.length,
       // 本轮读到的格子里，有多少在基线里找到了对照。
       compared: latest.length - added.length,
-      changed: changed.length,
-      // ⚠️ `changed` 与 `reported` 的差额就是被判据滤掉的销售噪音。两个数字都打，
-      // 才能在日志上分辨「渠道没变」与「变了但不值得报」—— 只打一个的话，
-      // 收窄之后看到上报变少，无从判断是判据生效还是扫描挂了。
-      reported: reportable.length,
+      changed: countByType(changed.map((c) => c.latest)),
+      reported: countByType(reportable.map((c) => c.latest)),
+      // 被判据滤掉的房量噪音 —— 这个数字大就说明收窄正在起作用。
+      suppressed: changed.length - reportable.length,
     });
 
     if (reportable.length === 0) return;
 
     deps.report(
-      buildReport(
-        target.otaHotelId,
-        // ⚠️ 每个 cell 带上 `itemType`（房态房量 / 价格）—— 基线库里本就有这一维，
-        // 只发 `itemData` 等于把它丢掉，逼服务端靠字段猜（「有 salePrice 就是价格」）。
-        //
-        // 携程两类格子共用同一个 roomTypeID，猜错代价有限；**美团是两个 ID 空间**
-        // （房态房量挂 roomId，价格挂 goodsId），猜错就会把价格当成房态、拿 goodsId
-        // 去查物理房型 —— 查不到，或更糟：查到一个同号的别的房型。
-        reportable.map(({ latest: cell }) => ({
-          ...cell.itemData,
-          [ITEM_TYPE_FIELD]: cell.itemType,
-        })),
-        new Date(observedAt).toISOString(),
-      ),
+      {
+        ...buildReport(
+          target.otaHotelId,
+          // ⚠️ 每个 cell 带上 `itemType`（房态房量 / 价格）—— 基线库里本就有这一维，
+          // 只发 `itemData` 等于把它丢掉，逼服务端靠字段猜（「有 salePrice 就是价格」）。
+          //
+          // 携程两类格子共用同一个 roomTypeID，猜错代价有限；**美团是两个 ID 空间**
+          // （房态房量挂 roomId，价格挂 goodsId），猜错就会把价格当成房态、拿 goodsId
+          // 去查物理房型 —— 查不到，或更糟：查到一个同号的别的房型。
+          reportable.map(({ latest: cell }) => ({
+            ...cell.itemData,
+            [ITEM_TYPE_FIELD]: cell.itemType,
+          })),
+          new Date(observedAt).toISOString(),
+        ),
+        // service 层据此复用为 operationId —— 见 `amount-change-report-service.ts`。
+        traceId,
+      },
       target.partitionName,
     );
   };

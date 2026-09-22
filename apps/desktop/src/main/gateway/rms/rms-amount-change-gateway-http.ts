@@ -90,14 +90,33 @@ export class HttpRmsAmountChangeGateway implements RmsAmountChangeGateway {
     const parsed = ingestResultSchema.safeParse(data);
     // 终态只记日志：desktop 对 PARSE_FAILED / HOTEL_UNRESOLVED / SKIPPED 都没有补救动作，
     // 重试同一份报文只会再走同一条分支。排查时靠 operationId 与远端台账对上。
-    this.deps.logger.info('Amount change reported to RMS', {
+    const rmsStatus = parsed.success ? (parsed.data.status ?? null) : null;
+    const rmsItems = parsed.success ? (parsed.data.items ?? null) : null;
+
+    // ⚠️ `status` **不是成败** —— `SKIPPED` / `PARSE_FAILED` / `HOTEL_UNRESOLVED`
+    // 都是 `code=0` 的正常响应，HTTP 也是 200。它们的实际含义是「服务端收下了，
+    // 但没有对应的 Translator，数据被丢弃」，`items: 0` 就是证据。
+    //
+    // 打 info 的话，「发出去了」与「等于没发」在日志里长得一模一样，排查时看不出
+    // 异常（这正是本链路最隐蔽的失效方式：desktop 侧全程无感）。所以这里升到 warn。
+    const dropped = rmsItems === 0;
+    const payload = {
       operationId: report.operationId,
       source: report.source,
       changeType: report.changeType,
       endpointId: report.endpointId,
       rmsChangeId: parsed.success ? (parsed.data.id ?? null) : null,
-      rmsStatus: parsed.success ? (parsed.data.status ?? null) : null,
-      rmsItems: parsed.success ? (parsed.data.items ?? null) : null,
-    });
+      rmsStatus,
+      rmsItems,
+    };
+
+    if (dropped) {
+      this.deps.logger.warn(
+        'Amount change accepted but dropped by RMS (no items persisted)',
+        payload,
+      );
+      return;
+    }
+    this.deps.logger.info('Amount change reported to RMS', payload);
   }
 }

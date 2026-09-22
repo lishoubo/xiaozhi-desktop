@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
-import { createScanResultHandler } from '../../../../src/main/inventory-snapshot/scan-to-report';
-import { ITEM_TYPE_FIELD } from '../../../../src/main/inventory-snapshot/scan-to-report';
+import {
+  createScanResultHandler,
+  ITEM_TYPE_FIELD,
+} from '../../../../src/main/inventory-snapshot/scan-to-report';
 import { mapCtripReadRows } from '../../../../src/main/inventory-snapshot/ctrip-cells';
 import { readCtripQuantity } from '../../../../src/main/inventory-snapshot/quantity-reading';
 import { buildCtripScanReport } from '../../../../src/main/channels/ctrip/inventory-scan-payload';
@@ -42,6 +44,7 @@ function create(baseline: readonly SnapshotCell[], logger = createLogger()) {
       ],
     ]),
     quantityReaders: new Map([['ctrip', readCtripQuantity]]),
+    newTraceId: () => 'trace-1',
     readBaseline: (source, _otaHotelId, startDate, endDate) => {
       baselineQueries.push({ source, startDate, endDate });
       return baseline;
@@ -166,7 +169,33 @@ describe('上报判据接线', () => {
 
     expect(logger.info).toHaveBeenCalledWith(
       'Inventory scan compared',
-      expect.objectContaining({ changed: 1, reported: 0 }),
+      expect.objectContaining({
+        traceId: 'trace-1',
+        changed: { roomStatus: 1, price: 0 },
+        reported: { roomStatus: 0, price: 0 },
+        suppressed: 1,
+      }),
+    );
+  });
+});
+
+describe('链路 ID', () => {
+  // ⚠️ 立论：一轮扫描打出的几条日志之间，必须有一个字段能串起来 ——
+  // 四个门店的扫描只隔几百毫秒，靠时间戳分不出谁是谁。
+  it('traceId 随上报体一起交给 service（复用为 operationId）', () => {
+    const { handle, reported } = create([baselineCell(1, '2026-10-20', 'OLD')]);
+    handle(TARGET, [statusRow(1, '2026-10-20')]);
+
+    expect((reported[0]?.observed as { traceId?: string }).traceId).toBe('trace-1');
+  });
+
+  it('比对日志带上同一个 traceId', () => {
+    const { handle, logger } = create([baselineCell(1, '2026-10-20', 'OLD')]);
+    handle(TARGET, [statusRow(1, '2026-10-20')]);
+
+    expect(logger.info).toHaveBeenCalledWith(
+      'Inventory scan compared',
+      expect.objectContaining({ traceId: 'trace-1' }),
     );
   });
 });

@@ -104,9 +104,29 @@ describe('HttpRmsAmountChangeGateway', () => {
     });
 
     await expect(gateway.reportAmountChange(REPORT)).resolves.toBeUndefined();
+    // ⚠️ 不抛错，但**打 warn 不打 info**：`items: 0` 意味着服务端收下了却没落任何条目
+    // （多半是没写对应的 Translator）。打 info 的话，「发出去了」与「等于没发」
+    // 在日志里长得一模一样，排查时看不出异常。
+    expect(logger.warn).toHaveBeenCalledWith(
+      'Amount change accepted but dropped by RMS (no items persisted)',
+      expect.objectContaining({ rmsStatus: 'HOTEL_UNRESOLVED', rmsChangeId: 777, rmsItems: 0 }),
+    );
+    expect(logger.info).not.toHaveBeenCalledWith(
+      'Amount change reported to RMS',
+      expect.anything(),
+    );
+  });
+
+  it('真正入库（items > 0）时打 info', async () => {
+    const { gateway, logger } = setup({
+      code: 0,
+      data: { id: 778, status: 'SUCCESS', items: 3 },
+    });
+
+    await expect(gateway.reportAmountChange(REPORT)).resolves.toBeUndefined();
     expect(logger.info).toHaveBeenCalledWith(
       'Amount change reported to RMS',
-      expect.objectContaining({ rmsStatus: 'HOTEL_UNRESOLVED', rmsChangeId: 777 }),
+      expect.objectContaining({ rmsStatus: 'SUCCESS', rmsItems: 3 }),
     );
   });
 

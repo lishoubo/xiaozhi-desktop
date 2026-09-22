@@ -246,4 +246,17 @@ export type OtaAmountChangeObserved = Omit<
   | 'loginUserName'
   | 'channelAccountId'
   | 'channelAccountName'
->;
+> &
+  Readonly<{
+    /**
+     * 链路追踪 ID。**由发起方在链路起点生成**，`operationId` 直接复用它。
+     *
+     * 定时扫描在「这一轮这个门店」的起点生成一个（见 `scan-to-report.ts`），此后
+     * 取数、比对、上报的每条日志都带上它 —— 不然一轮扫描打出来的几条日志之间
+     * 没有任何字段能串起来，排查时只能靠时间戳猜。
+     *
+     * ⚠️ 不给则由 service 层生成一个新的（被动监听那条路就是这样，它的「一次用户
+     * 操作」本来就只产出一条上报，没有跨日志串联的需求）。
+     */
+    traceId?: string;
+  }>;
