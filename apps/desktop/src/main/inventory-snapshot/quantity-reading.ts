@@ -74,27 +74,34 @@ function numberOf(row: JsonObject, field: string): number | null {
  * | FS | `"F"` | `"T"` | 0 | **有房** |
  * | 不限 | `"F"` | — | 0 | **有房** |
  *
- * ## ⛔ 为什么不能裸用 `hasInventory`
+ * ## ⛔ 为什么售罄判 `canUsedQuantity` 而不是 `hasInventory`
  *
- * 曾设想「`hasInventory` 是携程自己的有房标记，已内含不限量判读，直接采信即可」。
- * **本地快照库证伪了这个设想**：`canUsedQuantity = 0` 且 `freeSale = "T"` 的 68 行，
- * `hasInventory` **全部为 `false`** —— 不限量的房型在这个字段上与真售罄长得一模一样。
+ * `hasInventory` **在限量场景下恒为 `true`**，拿它判售罄等于写了一条永不触发的死代码。
+ * 本地快照库实测：
  *
- * 所以 `hasInventory` 只在**确认是限量之后**才拿来判售罄。
+ * ```
+ * limitSale = "T"（限量）的 291 行  → hasInventory 全部为 true，一个 false 都没有
+ * hasInventory = false 的 203 行    → 全部落在 limitSale = "F"（不限量）
+ * ```
  *
- * ## ⛔ 为什么不用 `canUsedQuantity === 0`
+ * 也就是说 `hasInventory` 更像是「**是不是不限量模式**」的副产品，不是「还有没有房」。
+ * 渠道文档那句「不要仅凭 `hasInventory` 判无房」说的是**不限量时**别看它 ——
+ * 而不限量的行在上面两个 `return` 就已经滤掉了，走到这里它必然是 `true`。
  *
- * 同上：它为 0 的行里混着 68 行不限量房。限量场景下它与 `hasInventory` 基本同步
- * （实测仅 3 行不一致），采信渠道自己的结论比自行推导可靠。
+ * 限量场景下可售房量就是 `canUsedQuantity`（渠道文档：`limitSale:"T"` 时才读
+ * `totalQuantity` / `canUsedQuantity`）。实测限量的 291 行里它从 0 到 18 都有，
+ * 其中 3 行为 0（`roomStatus:"N"`，关房且可售为 0）—— 那正是「售罄」该捕获的。
  */
 export function readCtripQuantity(row: JsonObject): QuantityReading {
+  // ⚠️ 判读顺序不可颠倒：先 freeSale，再 limitSale。
   if (row.freeSale === 'T') return UNKNOWN;
   if (row.limitSale !== 'T') return UNKNOWN;
 
+  const canUsed = numberOf(row, 'canUsedQuantity');
   return {
     total: numberOf(row, 'totalQuantity'),
-    // 限量场景才走到这里，此时 hasInventory 就是携程对「还有没有房」的结论。
-    soldOut: row.hasInventory === false,
+    // 限量场景才走到这里，此时房量数字才有意义。
+    soldOut: canUsed === 0,
   };
 }
 

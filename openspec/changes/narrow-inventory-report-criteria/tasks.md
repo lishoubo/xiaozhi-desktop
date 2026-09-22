@@ -8,10 +8,10 @@
 ## 2. 渠道房量口径
 
 - [x] 2.1 新建 `inventory-snapshot/quantity-reading.ts`：定义 `QuantityReading`（`total: number | null`、`soldOut: boolean`）与 `QuantityReader`
-- [x] 2.2 携程 reader：先判不限量（`freeSale === "T"` 或 `limitSale !== "T"` → `total=null`、`soldOut=false`），限量时 `total=totalQuantity`、`soldOut=hasInventory===false`
+- [x] 2.2 携程 reader：先判不限量（`freeSale === "T"` 或 `limitSale !== "T"` → `total=null`、`soldOut=false`），限量时 `total=totalQuantity`、`soldOut=canUsedQuantity===0`
 - [x] 2.3 美团 reader：`limitType !== 1` → `total=null`、`soldOut=false`（哨兵值不参与比较）；`limitType===1` → `total=limitRemain+usedCount`、`soldOut=limitRemain===0`
 - [x] 2.4 两个 reader 的字段缺失/类型不符一律返回 `total=null`，由判据按「变化」处理（失效朝多报方向）
-- [x] 2.5 注释写清两个易错点：美团 `limitRemain+usedCount` 是**配额**而非物理房量（`remainCount+usedCount` 才是），携程 `hasInventory` 在不限量时与真售罄同值、不可裸用
+- [x] 2.5 注释写清两个易错点：美团 `limitRemain+usedCount` 是**配额**而非物理房量（`remainCount+usedCount` 才是），携程 `hasInventory` 在限量时恒为 true、不能用来判售罄
 - [x] 2.6 单测：用本地快照库的真实样本做 fixture，覆盖携程不限量 68 行场景、美团 `remainCount=0` 但配额有剩、美团哨兵 `limitType=2`
 
 ## 3. 上报判据

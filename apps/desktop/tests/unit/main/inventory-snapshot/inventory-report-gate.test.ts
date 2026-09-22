@@ -206,20 +206,35 @@ describe('shouldReport — 携程', () => {
     ).toBe(true);
   });
 
+  // ⚠️ 两侧 hasInventory 都是 true —— 限量场景下它恒为 true，售罄只能靠 canUsedQuantity。
   it('限量房售罄跃迁上报', () => {
     expect(
       shouldReport(
         change(
           'ctrip',
           { roomStatus: 'G', limitSale: 'T', freeSale: 'F', totalQuantity: 5, canUsedQuantity: 1, hasInventory: true },
-          { roomStatus: 'G', limitSale: 'T', freeSale: 'F', totalQuantity: 5, canUsedQuantity: 0, hasInventory: false },
+          { roomStatus: 'G', limitSale: 'T', freeSale: 'F', totalQuantity: 5, canUsedQuantity: 0, hasInventory: true },
         ),
         reader,
       ),
     ).toBe(true);
   });
 
-  // ⭐ 库里 68 行这种，hasInventory 恒为 false，裸用会全判成售罄。
+  // ⚠️ 售罄是持续状态，只报跃迁那一轮。
+  it('携程已售罄且仍售罄：不重复上报', () => {
+    expect(
+      shouldReport(
+        change(
+          'ctrip',
+          { roomStatus: 'G', limitSale: 'T', freeSale: 'F', totalQuantity: 5, canUsedQuantity: 0, hasInventory: true, recommend: 1 },
+          { roomStatus: 'G', limitSale: 'T', freeSale: 'F', totalQuantity: 5, canUsedQuantity: 0, hasInventory: true, recommend: 2 },
+        ),
+        reader,
+      ),
+    ).toBe(false);
+  });
+
+  // ⭐ 库里 68 行这种：不限量时房量数字本就是 0，不先判不限量会全判成售罄。
   it('⭐ 不限量房（freeSale=T、房量恒 0）的房量变化不上报', () => {
     expect(
       shouldReport(

@@ -12,8 +12,8 @@ import {
 } from '../../../../src/main/inventory-snapshot/quantity-reading';
 
 describe('readCtripQuantity', () => {
-  it('限量房读出总房量，hasInventory 为 true 时不算售罄', () => {
-    // 真实行：limitSale=T freeSale=F total=4 canUsed=2 hasInventory=true
+  it('限量房读出总房量，可售大于 0 时不算售罄', () => {
+    // 真实行：limitSale=T freeSale=F total=4 canUsed=2（库里 150 条同形状）
     expect(
       readCtripQuantity({
         limitSale: 'T',
@@ -25,21 +25,23 @@ describe('readCtripQuantity', () => {
     ).toEqual({ total: 4, soldOut: false });
   });
 
-  it('限量房 hasInventory 为 false 判为售罄', () => {
+  // ⭐ 真实行：limitSale=T total=4 canUsed=0 roomStatus=N（关房且可售为 0），库里 3 条。
+  // ⚠️ 注意 hasInventory 仍是 true —— 限量场景下它恒为 true，不能拿它判售罄。
+  it('⭐ 限量房 canUsedQuantity=0 判为售罄（此时 hasInventory 仍为 true）', () => {
     expect(
       readCtripQuantity({
         limitSale: 'T',
         freeSale: 'F',
         totalQuantity: 4,
         canUsedQuantity: 0,
-        hasInventory: false,
+        hasInventory: true,
       }),
     ).toEqual({ total: 4, soldOut: true });
   });
 
-  // ⭐ 本模块的立论：这类行在库里有 68 条，hasInventory 全是 false，
-  // 但渠道文档明写「实际有房」。裸用 hasInventory 会把它们全判成售罄。
-  it('⭐ freeSale=T 的不限量房：房量 0 且 hasInventory=false，仍不判售罄', () => {
+  // ⭐ 本模块的立论：这类行在库里有 68 条，房量字段全是 0，
+  // 但渠道文档明写「实际有房」。不先判不限量就会把它们全判成售罄。
+  it('⭐ freeSale=T 的不限量房：房量 0 仍不判售罄', () => {
     expect(
       readCtripQuantity({
         limitSale: 'F',
@@ -64,8 +66,16 @@ describe('readCtripQuantity', () => {
   });
 
   it('限量但 totalQuantity 缺失时 total 为 null，不臆造数字', () => {
-    expect(readCtripQuantity({ limitSale: 'T', hasInventory: true })).toEqual({
+    expect(readCtripQuantity({ limitSale: 'T', canUsedQuantity: 3 })).toEqual({
       total: null,
+      soldOut: false,
+    });
+  });
+
+  // ⚠️ canUsedQuantity 缺失 ≠ 售罄。缺字段要朝「多报」方向失效，不能判成售罄。
+  it('限量但 canUsedQuantity 缺失时不判售罄', () => {
+    expect(readCtripQuantity({ limitSale: 'T', totalQuantity: 5 })).toEqual({
+      total: 5,
       soldOut: false,
     });
   });

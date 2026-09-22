@@ -100,7 +100,7 @@ export type QuantityReader = (itemData: JsonObject) => QuantityReading;
 
 | 渠道 | `total` | `soldOut` | 依据 |
 |---|---|---|---|
-| 携程 | `freeSale==="T" \|\| limitSale==="F"` 时 null，否则 `totalQuantity` | 不限量时 false，否则 `hasInventory === false` | 先判不限量，再读数字 |
+| 携程 | 限量时 `totalQuantity`，否则 null | 限量时 `canUsedQuantity === 0`，不限量恒 false | 先判不限量，再读数字 |
 | 美团 | `limitType === 1 ? limitRemain + usedCount : null` | `limitType === 1 && limitRemain === 0` | 配额；⛔ 不碰 `remainCount`（预留房量） |
 
 **⚠️ 美团总房量取 `limitRemain + usedCount`**
@@ -112,24 +112,21 @@ export type QuantityReader = (itemData: JsonObject) => QuantityReading;
 > 偶尔 1，而同格 `limitRemain` 可达 39）。早期文档「`remainCount + usedCount` = 物理房量」
 > 的说法**不成立**（云舒双床房照此算出 2，而配额有 40）。判据完全不用这个字段。
 
-**⚠️ 携程：`hasInventory` 单独用会误判，必须先过不限量**
-
-原本设想「`hasInventory` 已内含 freeSale 判读，直接采信即可」，**本地库证伪了这个设想**：
-
-| 样本 | 行数 | `hasInventory` |
-|---|---|---|
-| `canUsedQuantity=0` 且 `freeSale="T"`（文档明写**有房**） | 68 | **全部为 0** |
-
-也就是说不限量的房型在 `hasInventory` 上与真售罄**长得一模一样**，它并没有替我们判掉这层。
-所以必须按文档的判读顺序自己判：
+**⚠️ 携程：先判不限量，再读房量数字**
 
 ```
-freeSale === "T"        → 不限量，soldOut = false，total = null
+freeSale === "T"        → 不限量，total = null、soldOut = false
 否则 limitSale !== "T"  → 不限量，同上
-否则（limitSale === "T"）→ 限量，才读 totalQuantity / hasInventory
+否则（limitSale === "T"）→ 限量，才读 totalQuantity / canUsedQuantity
 ```
 
-⛔ 直接用 `canUsedQuantity === 0` 或裸用 `hasInventory === false`，都会把 68 行不限量房误判成售罄。
+不限量时房量字段本来就是 0（文档：`totalQuantity:0` 不代表没房），库里这类行有 68 条，
+不先判模式就会把它们全判成售罄。
+
+⛔ **售罄不能判 `hasInventory`**：限量的 291 行里它**恒为 `true`**，
+拿它判等于写一条永不触发的死代码。它为 `false` 的 203 行全部落在不限量，
+而那些行在前两步就已经返回了。限量场景下可售房量就是 `canUsedQuantity`
+（实测限量行里它 0~18 都有，其中 3 行为 0，正是「售罄」该捕获的）。
 
 **⚠️ 美团为什么不用 `remainCount === 0`**：它是预留房量，为 0 只说明没预留。库里
 `remainCount=0` 的 32 行**配额都还有剩**；真正售罄（`limitRemain=0`）只有 1 行。
@@ -173,7 +170,7 @@ freeSale === "T"        → 不限量，soldOut = false，total = null
 ## Risks / Trade-offs
 
 **1. 携程不限量房的房量变化一律不报** → `freeSale="T"` / `limitSale="F"` 时 `total=null`
-且 `soldOut=false`，这类格子的房量变化不会触发上报（房态变化仍照报）。
+且 `soldOut=false`，这类格子的房量变化不会触发上报（房态变化与模式切换仍照报）。
 **取舍**：不限量模式下携程的房量数字本就不是真实房量（文档：`totalQuantity:0` 不代表没房），
 拿它比大小得出的「变化」没有业务含义。本地库这类样本 173 行，`totalQuantity` 只有 2 个不同取值，
 本就没什么可报的。
