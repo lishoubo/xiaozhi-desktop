@@ -1,40 +1,40 @@
 ## 1. 让比对交出旧值
 
-- [ ] 1.1 `snapshot-diff.ts`：新增 `SnapshotChange`（`latest` + `baseline`），`SnapshotDiff.changed` 由 `SnapshotCell[]` 改为 `SnapshotChange[]`；`added` 不变
-- [ ] 1.2 更新文件头注释：说明为什么 `changed` 要带基线（房量判据需比数值，hash 反解不出旧值），`added` 为什么不带
-- [ ] 1.3 改既有单测 `snapshot-diff.test.ts`（`diff.changed[i]` → `diff.changed[i].latest`），补一条「changed 带上了对应的基线格子」
-- [ ] 1.4 `scan-to-report.ts` 跟着改（`changed.map(cell => …)` → `changed.map(({ latest }) => …)`），本步只保证编译与行为不变，暂不接判据
+- [x] 1.1 `snapshot-diff.ts`：新增 `SnapshotChange`（`latest` + `baseline`），`SnapshotDiff.changed` 由 `SnapshotCell[]` 改为 `SnapshotChange[]`；`added` 不变
+- [x] 1.2 更新文件头注释：说明为什么 `changed` 要带基线（房量判据需比数值，hash 反解不出旧值），`added` 为什么不带
+- [x] 1.3 改既有单测 `snapshot-diff.test.ts`（`diff.changed[i]` → `diff.changed[i].latest`），补一条「changed 带上了对应的基线格子」
+- [x] 1.4 `scan-to-report.ts` 跟着改（`changed.map(cell => …)` → `changed.map(({ latest }) => …)`），本步只保证编译与行为不变，暂不接判据
 
 ## 2. 渠道房量口径
 
-- [ ] 2.1 新建 `inventory-snapshot/quantity-reading.ts`：定义 `QuantityReading`（`total: number | null`、`soldOut: boolean`）与 `QuantityReader`
-- [ ] 2.2 携程 reader：先判不限量（`freeSale === "T"` 或 `limitSale !== "T"` → `total=null`、`soldOut=false`），限量时 `total=totalQuantity`、`soldOut=hasInventory===false`
-- [ ] 2.3 美团 reader：`limitType !== 1` → `total=null`、`soldOut=false`（哨兵值不参与比较）；`limitType===1` → `total=limitRemain+usedCount`、`soldOut=limitRemain===0`
-- [ ] 2.4 两个 reader 的字段缺失/类型不符一律返回 `total=null`，由判据按「变化」处理（失效朝多报方向）
-- [ ] 2.5 注释写清两个易错点：美团 `limitRemain+usedCount` 是**配额**而非物理房量（`remainCount+usedCount` 才是），携程 `hasInventory` 在不限量时与真售罄同值、不可裸用
-- [ ] 2.6 单测：用本地快照库的真实样本做 fixture，覆盖携程不限量 68 行场景、美团 `remainCount=0` 但配额有剩、美团哨兵 `limitType=2`
+- [x] 2.1 新建 `inventory-snapshot/quantity-reading.ts`：定义 `QuantityReading`（`total: number | null`、`soldOut: boolean`）与 `QuantityReader`
+- [x] 2.2 携程 reader：先判不限量（`freeSale === "T"` 或 `limitSale !== "T"` → `total=null`、`soldOut=false`），限量时 `total=totalQuantity`、`soldOut=hasInventory===false`
+- [x] 2.3 美团 reader：`limitType !== 1` → `total=null`、`soldOut=false`（哨兵值不参与比较）；`limitType===1` → `total=limitRemain+usedCount`、`soldOut=limitRemain===0`
+- [x] 2.4 两个 reader 的字段缺失/类型不符一律返回 `total=null`，由判据按「变化」处理（失效朝多报方向）
+- [x] 2.5 注释写清两个易错点：美团 `limitRemain+usedCount` 是**配额**而非物理房量（`remainCount+usedCount` 才是），携程 `hasInventory` 在不限量时与真售罄同值、不可裸用
+- [x] 2.6 单测：用本地快照库的真实样本做 fixture，覆盖携程不限量 68 行场景、美团 `remainCount=0` 但配额有剩、美团哨兵 `limitType=2`
 
 ## 3. 上报判据
 
-- [ ] 3.1 新建 `inventory-snapshot/inventory-report-gate.ts`：输入一个 `SnapshotChange` + 渠道 reader，输出是否上报
-- [ ] 3.2 `itemType === 'price'` 直接放行（维持「变了就报」）
-- [ ] 3.3 房态字段变化直接放行（携程 `roomStatus`；美团 `roomStatus` + `invSwitch`）
-- [ ] 3.4 房量判据：`total` 新旧不等 → 报；`latest.soldOut && !baseline.soldOut` → 报；其余不报
-- [ ] 3.5 单测：卖出一间不报、改配额报、最后一间售出报、连续售罄只报首轮、售罄→恢复→再售罄报两次、房态变化恒报
+- [x] 3.1 新建 `inventory-snapshot/inventory-report-gate.ts`：输入一个 `SnapshotChange` + 渠道 reader，输出是否上报
+- [x] 3.2 `itemType === 'price'` 直接放行（维持「变了就报」）
+- [x] 3.3 房态字段变化直接放行（携程 `roomStatus`；美团 `roomStatus` + `invSwitch`）
+- [x] 3.4 房量判据：`total` 新旧不等 → 报；`latest.soldOut && !baseline.soldOut` → 报；其余不报
+- [x] 3.5 单测：卖出一间不报、改配额报、最后一间售出报、连续售罄只报首轮、售罄→恢复→再售罄报两次、房态变化恒报
 
 ## 4. 接线
 
-- [ ] 4.1 `scan-to-report.ts`：`changed` 经 gate 过滤后再组上报体；`added` 仍只写基线不上报
-- [ ] 4.2 装配层按渠道注册 reader（与 `mappers`/`reportBuilders` 同一处，渠道没注册时按「变了就报」兜底）
-- [ ] 4.3 扫描日志补一个 `reported` 计数（与既有 `compared`/`changed` 并列），使「变了多少 / 报了多少」在日志里可对账
-- [ ] 4.4 定向跑受影响单测（`snapshot-diff` / `scan-to-report` / 新增两个模块），不跑全量
+- [x] 4.1 `scan-to-report.ts`：`changed` 经 gate 过滤后再组上报体；`added` 仍只写基线不上报
+- [x] 4.2 装配层按渠道注册 reader（与 `mappers`/`reportBuilders` 同一处，渠道没注册时按「变了就报」兜底）
+- [x] 4.3 扫描日志补一个 `reported` 计数（与既有 `compared`/`changed` 并列），使「变了多少 / 报了多少」在日志里可对账
+- [x] 4.4 定向跑受影响单测（`snapshot-diff` / `scan-to-report` / 新增两个模块），不跑全量
 
 ## 5. 文档
 
-- [ ] 5.1 写 `服务端需求.md`：两渠道房量计算口径、上报触发条件、与既有两份的关系（只收窄触发条件，报文结构不变）
-- [ ] 5.2 订正 `meituan-cells.ts` 中「`remainCount` 与 `usedCount` 一起才能还原出总量」的表述，注明那是物理房量、配额是 `limitRemain+usedCount`
-- [ ] 5.3 订正 `channels/meituan/inventory-readback-payload.ts:84` 已被 §4.1 取代的旧结论（仍写着「`limitRemain` 是用户设置的房量」）
-- [ ] 5.4 补记本地库实测到的未文档化取值：`limitRemain=1002` 哨兵、`roomStatus=100`、`fullRoomCode=4`
+- [x] 5.1 写 `服务端需求.md`：两渠道房量计算口径、上报触发条件、与既有两份的关系（只收窄触发条件，报文结构不变）
+- [x] 5.2 订正 `meituan-cells.ts` 中「`remainCount` 与 `usedCount` 一起才能还原出总量」的表述，注明那是物理房量、配额是 `limitRemain+usedCount`
+- [x] 5.3 订正 `channels/meituan/inventory-readback-payload.ts:84` 已被 §4.1 取代的旧结论（仍写着「`limitRemain` 是用户设置的房量」）
+- [x] 5.4 补记本地库实测到的未文档化取值：`limitRemain=1002` 哨兵、`roomStatus=100`、`fullRoomCode=4`
 
 ## 6. 验证与收尾
 
