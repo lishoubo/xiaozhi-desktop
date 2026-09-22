@@ -251,6 +251,37 @@ const migrations: readonly Migration[] = [
       `);
     },
   },
+  {
+    version: 10,
+    name: 'add-ota-inventory-snapshot-room-name',
+    apply(database) {
+      // 房型名。此前库里只有房型 ID，排查时没法回答「`1569052072` 是哪个房型」。
+      //
+      // ## 为什么是**一列**而不是配对两个 ID 各一列
+      //
+      // 两个房型 ID 列**恒有且仅有一个非空**（四个映射点全是「一个填、另一个写 `''`」，
+      // 实测 2133 行无一例外）：
+      //
+      //   携程 roomStatus/price   sale=roomTypeID   physical=''
+      //   美团 roomStatus         sale=''           physical=roomId
+      //   美团 price              sale=''           physical=goodsId
+      //
+      // 配两列的话每行必有一列是 NULL，纯浪费。一列 `room_name` 指的就是「这一格
+      // 那个非空 ID 的名字」，语义完整无歧义。
+      //
+      // ⚠️ **不参与比对**：`content_hash` 只取价量态事实字段，房型名改了不构成
+      // 价量态变更。写进指纹会让全部既有基线失效，下一轮扫描把整个窗口判成变更。
+      //
+      // ⚠️ **不进唯一键**：格子的身份仍是 (source, 酒店, 两个房型 ID, 类型, 日期)。
+      // 名字只是个标注，渠道改名不该产生一行新记录。
+      //
+      // 不回填历史数据：老记录这一列为 NULL，下次扫描到该格时自然写上。
+      // **读取方必须容忍 NULL。**
+      database.exec(`
+        ALTER TABLE ota_inventory_snapshot ADD COLUMN room_name TEXT;
+      `);
+    },
+  },
 ];
 
 function migrate(database: ApplicationDatabase): number {

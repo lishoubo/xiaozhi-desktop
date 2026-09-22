@@ -71,6 +71,20 @@ export type CtripScanFetcher = ScanFetcher;
 export const CTRIP_SCAN_KIND_MARKER = '__snapshotKind';
 const KIND_MARKER = CTRIP_SCAN_KIND_MARKER;
 
+/**
+ * 随行带出的房型名 —— **我们自己贴的**，不是 `getRoomInventoryInfo` 的字段。
+ *
+ * 携程的房型名只出现在①的房型清单里，②的房态/价格行里只有 `roomTypeID`。
+ * 映射侧读它填进 `SnapshotCell.roomName`，并从 `item_data` 里剥掉
+ * （与 `__snapshotKind` 同样处置，见 `inventory-snapshot/ctrip-cells.ts`）。
+ *
+ * ⚠️ 与映射侧的 `CTRIP_SNAPSHOT_ROOM_NAME_FIELD` 必须逐字符相同 ——
+ * eslint 禁止 `channels/` 依赖 `inventory-snapshot/`，所以两处各写一份，
+ * 由跨模块断言测试钉住。
+ */
+export const CTRIP_SCAN_ROOM_NAME_FIELD = '__roomName';
+const ROOM_NAME_FIELD = CTRIP_SCAN_ROOM_NAME_FIELD;
+
 /** `getRoomInventoryInfo` 需要的六字段。`hotelID` 是「门店 × 售卖模式」层，非账号粒度。 */
 type CtripRoomRef = JsonObject &
   Readonly<{
@@ -244,14 +258,23 @@ export function createCtripInventoryScan(deps: CtripInventoryScanDependencies): 
         const inventoryParsed = parseCtripResponse(inventoryRaw);
         if (inventoryParsed.kind === 'failed') return inventoryParsed;
 
+        // 房型名只有①的清单里有，②的响应行里没有 —— 按 roomTypeID 贴回去，
+        // 映射侧据此填 `SnapshotCell.roomName`（纯标注，不参与比对）。
+        const roomNameById = new Map(refs.map((ref) => [ref.roomTypeID, ref.roomName]));
+        const withRoomName = (row: JsonObject): JsonObject => {
+          const roomName = roomNameById.get(row.roomTypeID as number);
+          // `JsonValue` 不含 undefined —— 取不到就不带这个键。
+          return roomName === undefined ? row : { ...row, [ROOM_NAME_FIELD]: roomName };
+        };
+
         // ⚠️ 两批数据分别打标记 —— 下游按 item_type 分成两格存。
         // ⛔ 不要合并成一行：关房日无价，合并会因无价丢掉整行房态。
         const statusRows = pickRows(inventoryParsed.data, 'roomStatusResult').map((row) => ({
-          ...row,
+          ...withRoomName(row),
           [KIND_MARKER]: 'roomStatus',
         }));
         const priceRows = pickPriceRows(inventoryParsed.data).map((row) => ({
-          ...row,
+          ...withRoomName(row),
           [KIND_MARKER]: 'price',
         }));
 

@@ -49,6 +49,50 @@ describe('迁移', () => {
   });
 });
 
+describe('房型名', () => {
+  it('写入后能读回来', () => {
+    repository.upsertMany([cell({ roomName: '云享三人间' })]);
+    const [stored] = repository.findByHotelAndDateRange(
+      'ctrip',
+      '122247738',
+      '2026-10-20',
+      '2026-10-20',
+    );
+    expect(stored?.roomName).toBe('云享三人间');
+  });
+
+  // ⚠️ 老记录没有名字（migration 10 之前写的），读取方必须容忍。
+  it('没有名字时读回 undefined，不是空串', () => {
+    repository.upsertMany([cell()]);
+    const [stored] = repository.findByHotelAndDateRange(
+      'ctrip',
+      '122247738',
+      '2026-10-20',
+      '2026-10-20',
+    );
+    expect(stored?.roomName).toBeUndefined();
+  });
+
+  it('重写同一格时名字跟着更新 —— 谁写的就是谁的名字', () => {
+    repository.upsertMany([cell({ roomName: '旧名' })]);
+    repository.upsertMany([cell({ roomName: '新名' })]);
+    const [stored] = repository.findByHotelAndDateRange(
+      'ctrip',
+      '122247738',
+      '2026-10-20',
+      '2026-10-20',
+    );
+    expect(stored?.roomName).toBe('新名');
+  });
+
+  // 名字不在格子键里 —— 改名不该产生一行新记录。
+  it('名字不同不产生新行', () => {
+    repository.upsertMany([cell({ roomName: '旧名' })]);
+    repository.upsertMany([cell({ roomName: '新名' })]);
+    expect(countRows(database)).toBe(1);
+  });
+});
+
 describe('upsertMany', () => {
   it('同一格重复写入是覆盖，不新增行', () => {
     repository.upsertMany([cell({ contentHash: 'old', itemData: { roomStatus: 'G' } })]);

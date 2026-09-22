@@ -194,6 +194,12 @@ function idOf(row: JsonObject, field: string): string {
   return '';
 }
 
+/** 取房型名。⚠️ 纯标注字段，**不校验不加工** —— 渠道给什么就写什么。 */
+function nameOf(row: JsonObject, field: string): string | undefined {
+  const raw = row[field];
+  return typeof raw === 'string' ? raw : undefined;
+}
+
 /** 剥掉我们自己加的分流标记 —— `item_data` 只存渠道原字段。 */
 function withoutMarker(row: JsonObject): JsonObject {
   if (!CARRIED_FIELDS.some((field) => field in row)) return row;
@@ -235,6 +241,8 @@ function toRoomStatusCell(
     contentHash: meituanContentHash(data, ROOM_STATUS_HASH_FIELDS),
     observedAt,
     sourceOfTruth,
+    // 房态挂物理房型，名字取 `roomName`（渠道行自带）。
+    roomName: nameOf(row, 'roomName'),
   };
 }
 
@@ -270,6 +278,9 @@ function toPriceCell(
     contentHash: meituanContentHash(data, PRICE_HASH_FIELDS),
     observedAt,
     sourceOfTruth,
+    // ⚠️ 价格挂售卖商品，名字取 `goodsName`（不是 `roomName`）——
+    // 同一物理房型下多个商品各有各的名字，取错会让所有商品显示成同一个名。
+    roomName: nameOf(row, 'goodsName'),
   };
 }
 

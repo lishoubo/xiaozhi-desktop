@@ -115,6 +115,26 @@ export type SnapshotKey = Readonly<{
 export type SnapshotCell = SnapshotKey &
   Readonly<{
     /**
+     * 房型名 —— **纯排查用的标注**，取不到时为 `undefined`。
+     *
+     * 指的是这一格那个**非空房型 ID** 的名字。两个 ID 恒有且仅有一个非空
+     * （见 `SnapshotKey`），所以一个字段就够，不必配对两列。
+     *
+     * ```
+     * 携程  roomStatus/price  → roomTypeID 的名字（取自房型清单，响应行里没有）
+     * 美团  roomStatus        → roomId 的名字（渠道行自带 roomName）
+     * 美团  price             → goodsId 的名字（渠道行自带 goodsName）
+     * ```
+     *
+     * ⛔ **不参与 `contentHash`**：房型改名不构成价量态变更。写进指纹会让全部既有
+     * 基线失效，下一轮扫描把整个窗口判成变更。
+     *
+     * ⛔ **不参与格子键**：格子的身份是 `SnapshotKey`，渠道改名不该产生一行新记录。
+     *
+     * ⚠️ 老记录没有这个值（不回填），读取方必须容忍缺失。
+     */
+    roomName?: string;
+    /**
      * 渠道返回的原始 cell，**整行原样**。
      *
      * 与既有两处同口径：回读的 `pickCells` 整行透传不裁剪；改价上报只剔框架噪音字段

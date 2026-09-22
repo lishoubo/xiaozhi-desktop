@@ -59,6 +59,8 @@ type SnapshotRow = Readonly<{
   contentHash: string;
   observedAt: number;
   sourceOfTruth: string;
+  /** ⚠️ 老记录没有（migration 10 之后才写），读取方必须容忍 null。 */
+  roomName: string | null;
 }>;
 
 const SELECT_COLUMNS = `
@@ -71,7 +73,8 @@ const SELECT_COLUMNS = `
   item_data AS itemData,
   content_hash AS contentHash,
   observed_at AS observedAt,
-  source_of_truth AS sourceOfTruth
+  source_of_truth AS sourceOfTruth,
+  room_name AS roomName
 `;
 
 function cellFromRow(row: SnapshotRow): SnapshotCell {
@@ -87,6 +90,8 @@ function cellFromRow(row: SnapshotRow): SnapshotCell {
     contentHash: row.contentHash,
     observedAt: row.observedAt,
     sourceOfTruth: row.sourceOfTruth as SnapshotSourceOfTruth,
+    // null（老记录）与空串都收敛成 undefined —— 调用方只需判一种「没有」。
+    ...(row.roomName ? { roomName: row.roomName } : {}),
   };
 }
 
@@ -106,16 +111,19 @@ export class SqliteOtaInventorySnapshotRepository implements OtaInventorySnapsho
     const statement = this.database.prepare(`
       INSERT INTO ota_inventory_snapshot
         (id, source, ota_hotel_id, ota_physical_room_id, ota_sale_room_id,
-         item_type, item_date, item_data, content_hash, observed_at, source_of_truth)
+         item_type, item_date, item_data, content_hash, observed_at, source_of_truth,
+         room_name)
       VALUES
         (@id, @source, @otaHotelId, @otaPhysicalRoomId, @otaSaleRoomId,
-         @itemType, @itemDate, @itemData, @contentHash, @observedAt, @sourceOfTruth)
+         @itemType, @itemDate, @itemData, @contentHash, @observedAt, @sourceOfTruth,
+         @roomName)
       ON CONFLICT(source, ota_hotel_id, ota_sale_room_id, ota_physical_room_id, item_type, item_date)
       DO UPDATE SET
         item_data = excluded.item_data,
         content_hash = excluded.content_hash,
         observed_at = excluded.observed_at,
         source_of_truth = excluded.source_of_truth,
+        room_name = excluded.room_name,
         updated_at = CURRENT_TIMESTAMP
     `);
 
@@ -136,6 +144,9 @@ export class SqliteOtaInventorySnapshotRepository implements OtaInventorySnapsho
           contentHash: cell.contentHash,
           observedAt: cell.observedAt,
           sourceOfTruth: cell.sourceOfTruth,
+          // ⚠️ better-sqlite3 不接受 undefined 绑定，必须显式转成 null。
+          // 空串也当没有 —— 上面的 COALESCE 会保留住旧名字。
+          roomName: cell.roomName || null,
         });
         written += 1;
       }

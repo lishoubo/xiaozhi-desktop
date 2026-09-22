@@ -103,6 +103,19 @@ export const CTRIP_SNAPSHOT_KIND_MARKER = '__snapshotKind';
 const KIND_MARKER = CTRIP_SNAPSHOT_KIND_MARKER;
 
 /**
+ * 扫描侧随行贴上的房型名（携程的房型名只在房型清单里，房态/价格行里只有 `roomTypeID`）。
+ * 读进 `SnapshotCell.roomName` 后**从 `item_data` 里剥掉** —— 与分流标记同样处置，
+ * `item_data` 只存渠道原字段。
+ *
+ * ⚠️ 与 `channels/ctrip/inventory-scan.ts` 的 `CTRIP_SCAN_ROOM_NAME_FIELD` 必须逐字符
+ * 相同，由跨模块断言测试钉住。
+ *
+ * ⚠️ 自然读那条路没有房型清单，拿不到名字 —— 那条路写的格子 `roomName` 为空。
+ */
+export const CTRIP_SNAPSHOT_ROOM_NAME_FIELD = '__roomName';
+const ROOM_NAME_FIELD = CTRIP_SNAPSHOT_ROOM_NAME_FIELD;
+
+/**
  * 内容指纹。取字段的**稳定拼接**而非 `JSON.stringify(整行)`。
  *
  * ⚠️ 不用 `JSON.stringify` 整行的两个理由：键序不稳定（同样内容可能算出不同 hash）、
@@ -187,14 +200,23 @@ function roomTypeIdOf(cell: JsonObject): string {
   return '';
 }
 
-/** 剥掉我们自己加的分流标记 —— `item_data` 只存渠道原字段。 */
+/** 我们自己加在行上的字段 —— 都要剥掉，`item_data` 只存渠道原字段。 */
+const CARRIED_FIELDS: readonly string[] = [KIND_MARKER, ROOM_NAME_FIELD];
+
+/** 剥掉我们自己加的字段 —— `item_data` 只存渠道原字段。 */
 function withoutMarker(cell: JsonObject): JsonObject {
-  if (!(KIND_MARKER in cell)) return cell;
+  if (!CARRIED_FIELDS.some((field) => field in cell)) return cell;
   const rest: Record<string, JsonObject[string]> = {};
   for (const [key, value] of Object.entries(cell)) {
-    if (key !== KIND_MARKER) rest[key] = value;
+    if (!CARRIED_FIELDS.includes(key)) rest[key] = value;
   }
   return rest;
+}
+
+/** 取房型名。⚠️ 纯标注字段，**不校验不加工** —— 贴的时候是什么就是什么。 */
+function nameOf(cell: JsonObject): string | undefined {
+  const raw = cell[ROOM_NAME_FIELD];
+  return typeof raw === 'string' ? raw : undefined;
 }
 
 function toSnapshotCell(
@@ -223,6 +245,7 @@ function toSnapshotCell(
     contentHash: ctripContentHash(data),
     observedAt,
     sourceOfTruth,
+    roomName: nameOf(cell),
   };
 }
 
@@ -258,5 +281,6 @@ function toPriceCell(
     contentHash: ctripContentHash(data, PRICE_HASH_FIELDS),
     observedAt,
     sourceOfTruth,
+    roomName: nameOf(cell),
   };
 }
