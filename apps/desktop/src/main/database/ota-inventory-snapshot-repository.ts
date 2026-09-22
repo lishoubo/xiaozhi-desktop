@@ -123,7 +123,14 @@ export class SqliteOtaInventorySnapshotRepository implements OtaInventorySnapsho
         content_hash = excluded.content_hash,
         observed_at = excluded.observed_at,
         source_of_truth = excluded.source_of_truth,
-        room_name = excluded.room_name,
+        -- ⚠️ 取不到名字时**保留旧值**，不要用 NULL 覆盖。
+        --
+        -- 格子键里已经含房型 ID，所以同一行的新旧名字**必然属于同一个房型** ——
+        -- 保留旧名字不会张冠李戴。而写入路径里只有扫描拿得到名字（房型清单在那一步），
+        -- 自然读（旁听页面响应）压根没有房型清单，直接覆盖会把扫描刚写对的名字抹掉。
+        --
+        -- 实测代价：2026-09-22 未加此保护时，携程 page-read 的 504 行**全部无名字**。
+        room_name = COALESCE(excluded.room_name, room_name),
         updated_at = CURRENT_TIMESTAMP
     `);
 
@@ -145,7 +152,7 @@ export class SqliteOtaInventorySnapshotRepository implements OtaInventorySnapsho
           observedAt: cell.observedAt,
           sourceOfTruth: cell.sourceOfTruth,
           // ⚠️ better-sqlite3 不接受 undefined 绑定，必须显式转成 null。
-          // 空串也当没有 —— 上面的 COALESCE 会保留住旧名字。
+          // 空串也一并转成 null —— 上面的 `COALESCE` 据此保留住旧名字。
           roomName: cell.roomName || null,
         });
         written += 1;

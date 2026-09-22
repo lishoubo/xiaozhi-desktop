@@ -85,6 +85,40 @@ describe('房型名', () => {
     expect(stored?.roomName).toBe('新名');
   });
 
+  // ⭐ 只有扫描拿得到房型名（房型清单在那一步），自然读旁听页面响应时没有清单。
+  // 不保留旧值的话，用户翻一次日历就把扫描写对的名字抹成 NULL ——
+  // 实测未加保护时携程 page-read 的 504 行全部无名字。
+  //
+  // ⚠️ 格子键里已含房型 ID，新旧名字必属同一房型，保留不会张冠李戴。
+  it('⭐ 写入方没有名字时保留旧名字，不被 NULL 覆盖', () => {
+    repository.upsertMany([cell({ roomName: '云享三人间', sourceOfTruth: 'scan' })]);
+    // 自然读那条路：同一格、同样的内容，但没有房型名
+    repository.upsertMany([cell({ roomName: undefined, sourceOfTruth: 'page-read' })]);
+
+    const [stored] = repository.findByHotelAndDateRange(
+      'ctrip',
+      '122247738',
+      '2026-10-20',
+      '2026-10-20',
+    );
+    expect(stored?.roomName).toBe('云享三人间');
+    // 其余字段仍按「后写的覆盖」
+    expect(stored?.sourceOfTruth).toBe('page-read');
+  });
+
+  it('空串与 undefined 一样，都不覆盖旧名字', () => {
+    repository.upsertMany([cell({ roomName: '云享三人间' })]);
+    repository.upsertMany([cell({ roomName: '' })]);
+
+    const [stored] = repository.findByHotelAndDateRange(
+      'ctrip',
+      '122247738',
+      '2026-10-20',
+      '2026-10-20',
+    );
+    expect(stored?.roomName).toBe('云享三人间');
+  });
+
   // 名字不在格子键里 —— 改名不该产生一行新记录。
   it('名字不同不产生新行', () => {
     repository.upsertMany([cell({ roomName: '旧名' })]);
