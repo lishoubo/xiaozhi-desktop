@@ -2,9 +2,14 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   createCtripInventoryScan,
   CTRIP_SCAN_KIND_MARKER,
+  CTRIP_SCAN_ROOM_NAME_FIELD,
   type CtripScanFetcher,
 } from '../../../src/main/channels/ctrip/inventory-scan';
-import { CTRIP_SNAPSHOT_KIND_MARKER } from '../../../src/main/inventory-snapshot/ctrip-cells';
+import {
+  CTRIP_SNAPSHOT_KIND_MARKER,
+  ctripContentHash,
+  mapCtripReadRows,
+} from '../../../src/main/inventory-snapshot/ctrip-cells';
 import type { JsonObject } from '../../../src/shared/types/json';
 
 function createLogger() {
@@ -209,9 +214,22 @@ describe('产出', () => {
     const outcome = await scan.scan(PARTITION, 7, {});
     expect(outcome.kind).toBe('ok');
     if (outcome.kind !== 'ok') return;
+    // ⚠️ `__roomName` 是我们按 roomTypeID 从房型清单贴回去的，不是渠道字段。
     expect(outcome.rows).toEqual([
-      { roomTypeID: 1, effectDate: '2026-10-20', roomStatus: 'G', __snapshotKind: 'roomStatus' },
-      { roomTypeID: 1, effectDate: '2026-10-20', price: 328, __snapshotKind: 'price' },
+      {
+        roomTypeID: 1,
+        effectDate: '2026-10-20',
+        roomStatus: 'G',
+        __roomName: '房型1',
+        __snapshotKind: 'roomStatus',
+      },
+      {
+        roomTypeID: 1,
+        effectDate: '2026-10-20',
+        price: 328,
+        __roomName: '房型1',
+        __snapshotKind: 'price',
+      },
     ]);
   });
 
@@ -267,5 +285,76 @@ describe('失效与异常', () => {
     const outcome = await scan.scan(PARTITION, 7, {});
     expect(outcome).toEqual({ kind: 'failed', reason: 'UNEXPECTED' });
     expect(logger.warn).toHaveBeenCalled();
+  });
+
+  // ⚠️ 携程的房型名只在①的清单里，②的行里只有 roomTypeID —— 不贴回去的话
+  // 基线库里只剩一串数字，排查时无从知道「1569052072 是哪个房型」。
+  describe('房型名', () => {
+    it('按 roomTypeID 贴到房态行与价格行上', async () => {
+      const { fetcher } = fetcherOf(
+        productList([room(1), room(2)]),
+        inventory(
+          [{ roomTypeID: 1, effectDate: '2026-10-20', roomStatus: 'G' }],
+          [{ roomTypeID: 2, effectDate: '2026-10-20', price: 270 }],
+        ),
+      );
+      const { scan } = create(fetcher);
+      const outcome = await scan.scan(PARTITION, 7, {});
+
+      if (outcome.kind !== 'ok') throw new Error('expected ok');
+      const status = outcome.rows.find((r) => r[CTRIP_SCAN_KIND_MARKER] === 'roomStatus');
+      const price = outcome.rows.find((r) => r[CTRIP_SCAN_KIND_MARKER] === 'price');
+      expect(status?.[CTRIP_SCAN_ROOM_NAME_FIELD]).toBe('房型1');
+      expect(price?.[CTRIP_SCAN_ROOM_NAME_FIELD]).toBe('房型2');
+    });
+
+    it('清单里没有该房型时不加这个键（不留空串）', async () => {
+      const { fetcher } = fetcherOf(
+        productList([room(1)]),
+        // 响应里混进一个清单外的房型 —— 取不到名字
+        inventory([{ roomTypeID: 999, effectDate: '2026-10-20', roomStatus: 'G' }]),
+      );
+      const { scan } = create(fetcher);
+      const outcome = await scan.scan(PARTITION, 7, {});
+
+      if (outcome.kind !== 'ok') throw new Error('expected ok');
+      expect(CTRIP_SCAN_ROOM_NAME_FIELD in (outcome.rows[0] ?? {})).toBe(false);
+    });
+
+    // ⭐ 最关键的一条：加字段不能动指纹，否则全部既有基线失效、下一轮全窗口误报。
+    it('⭐ 不参与 contentHash —— 既有基线不失效', () => {
+      const row: JsonObject = {
+        roomTypeID: 1,
+        effectDate: '2026-10-20',
+        roomStatus: 'G',
+        limitSale: 'T',
+        freeSale: 'F',
+        totalQuantity: 5,
+        canUsedQuantity: 5,
+        hasInventory: true,
+      };
+      expect(ctripContentHash({ ...row, [CTRIP_SCAN_ROOM_NAME_FIELD]: '大床房' })).toBe(
+        ctripContentHash(row),
+      );
+    });
+
+    it('房型名保留进 item_data（与分流标记不同，不剥掉）', () => {
+      const cells = mapCtripReadRows(
+        [
+          {
+            roomTypeID: 1,
+            effectDate: '2026-10-20',
+            roomStatus: 'G',
+            [CTRIP_SCAN_ROOM_NAME_FIELD]: '大床房',
+            [CTRIP_SNAPSHOT_KIND_MARKER]: 'roomStatus',
+          },
+        ],
+        '122244992',
+        'scan',
+        1,
+      );
+      expect(cells[0]?.itemData[CTRIP_SCAN_ROOM_NAME_FIELD]).toBe('大床房');
+      expect(CTRIP_SNAPSHOT_KIND_MARKER in (cells[0]?.itemData ?? {})).toBe(false);
+    });
   });
 });
