@@ -82,16 +82,19 @@ export const MEITUAN_SOURCE = 'meituan';
 /**
  * 参与房态房量 `contentHash` 的字段 —— **美团房态房量的事实字段**。
  *
- * ⚠️ 顺序即 hash 的拼接顺序，**不要改动**（改了会让全部既有基线的 hash 失效，
- * 下一轮扫描把整个窗口判成变更）。加字段追加到末尾。
+ * ⚠️ 顺序即 hash 的拼接顺序。**改动字段集或顺序会让全部既有基线的 hash 失效** ——
+ * 过去这是硬禁令；现在**基线新鲜度保护**兜住了（改字段必然伴随发版 → 重启 →
+ * 首轮 `first-round` 跳过比对、只用新 hash 重写基线 → 第二轮起对得上），
+ * 所以可以改，但仍要**确认改动值得**：每改一次就浪费一轮对账。
+ *
+ * ⛔ 仅仅「不带重启的热更新」场景下这条保护不成立 —— 本应用没有这种场景。
  *
  * | 字段 | 为什么必须参与 |
  * |---|---|
  * | `roomStatus` | 房态本身 |
  * | `limitType` | 是否限量 —— 它变了，`limitRemain` 的含义就变了 |
  * | `limitRemain` | ⚠️ 是「配额 − 已售」，**不是**用户设的配额本身 |
- * | `remainCount` | **预留房量**。⛔ 不是「剩余可卖」，判据不用它 |
- * | `usedCount` | 已售 |
+ * | `usedCount` | 已售。与 `limitRemain` 相加才是配额，两者都必须参与 |
  * | `invSwitch` | 房态开关 |
  *
  * ⚠️ **总房量 = `limitRemain + usedCount`**（本地快照库 201 行实测）：云憩大床房
@@ -99,23 +102,36 @@ export const MEITUAN_SOURCE = 'meituan';
  * `limitRemain` −1、`usedCount` +1，和不变。上报判据据此区分「用户改配额」与
  * 「正常销售」，实现见 `quantity-reading.ts`。
  *
- * ⛔ `remainCount` 是预留房量，与配额无算术关系（实测多为 0、偶尔 1，而同格
- * `limitRemain` 可达 39）。早期文档「`remainCount + usedCount` = 物理房量」的说法
- * **不成立**，不要据此推算总量。
+ * ## ⛔ 为什么**不含 `remainCount`**（2026-09-22 移除）
+ *
+ * 它是**预留房量**，不是「剩余可卖」，与配额（`limitRemain + usedCount`）**无算术关系**
+ * —— 实测多为 0、偶尔 1~2，而同格 `limitRemain` 可达 39。
+ *
+ * 留在指纹里的唯一效果是**制造噪音**：它一抖动，格子就被判成 `changed`，而上报判据
+ * 只看配额变化与售罄跃迁，两者都没发生 → 又被判据滤掉。真机实测 2026-09-22 的
+ * 19:06 与 19:51 各出现一次这种「白比对一场」（`changed: 1 → reported: 0`）。
+ *
+ * ⚠️ 移除它会让**全部既有美团基线的 hash 失效**（拼接段数从 6 变 5）。这在过去是
+ * 不可接受的 —— 下一轮扫描会把整个窗口判成变更。现在可以做，是因为
+ * **基线新鲜度保护**兜住了：改字段必然伴随发版 → 重启 → 内存里没有上次比对时刻
+ * → 首轮 `first-round` 跳过（只用新 hash 重写基线）→ 第二轮起全部对得上。
+ *
+ * ⛔ 早期文档「`remainCount + usedCount` = 物理房量」的说法**不成立**，
+ * 不要据此推算总量。
  *
  * ⛔ **不含 `containerId`**：渠道内部标识，它变化不代表房态变了。
  * ⛔ **不含 `shareType`**：语义未踩点，不确定它变化是否构成事实变更。
  * ⛔ **不含 `date` / `roomId`**：已经在格子键里。
  *
- * ⚠️ `remainCount` / `usedCount` 必须参与 —— 它们只有 `queryRoomStatusInfo` 才返回，
- * 而 `queryPriceInventoryStatusInfo` 的 `goodsStatusMap` 里没有。扫描之所以额外发一次
- * 前者而不复用后者，正是为了这两个字段（见 `channels/meituan/inventory-scan.ts` 文件头）。
+ * ⚠️ `usedCount` **必须参与** —— 少了它，「卖出一间的同时配额加一间」（`limitRemain`
+ * 不变、`usedCount` +1）这种变化测不出来。它只有 `queryRoomStatusInfo` 才返回，
+ * 而 `queryPriceInventoryStatusInfo` 的 `goodsStatusMap` 里没有 —— 扫描之所以额外发
+ * 一次前者而不复用后者，正是为了它（见 `channels/meituan/inventory-scan.ts` 文件头）。
  */
 const ROOM_STATUS_HASH_FIELDS: readonly string[] = [
   'roomStatus',
   'limitType',
   'limitRemain',
-  'remainCount',
   'usedCount',
   'invSwitch',
 ];

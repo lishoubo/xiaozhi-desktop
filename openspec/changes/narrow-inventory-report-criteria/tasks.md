@@ -56,3 +56,8 @@
 - [x] 7.7 基线太旧时只写不报（`baselineFreshnessMs`，默认 1 小时，可配）
 - [x] 7.8 真机验证 7.1~7.7（见 `verification.md`）
 - [ ] 7.9 观测 `reason: 'stale'`（需运行期间断档 > 1 小时）
+- [x] 7.10 `remainCount`（预留房量）移出美团 `HASH_FIELDS` —— 它只制造噪音，
+      真机两次 `changed:1 → reported:0` 都是它引起的。基线新鲜度保护兜住了
+      「改 hash 导致既有基线失效」这个历史约束
+- [ ] 7.11 真机确认 7.10：重启后首轮 `first-round` 跳过，第二轮起不再出现
+      `remainCount` 引起的空比对

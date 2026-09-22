@@ -183,6 +183,24 @@ describe('contentHash', () => {
     expect(map([statusRow({ roomName: '改了名字' })])[0]!.contentHash).toBe(before);
   });
 
+  // ⭐ `remainCount` 是**预留房量**，与配额（limitRemain + usedCount）无算术关系。
+  // 留在指纹里的唯一效果是制造噪音：它一抖动格子就判成 changed，而上报判据只看
+  // 配额变化与售罄跃迁 → 又被滤掉，白比对一场。真机 2026-09-22 实测过两次。
+  it('⭐ remainCount（预留房量）不参与 hash', () => {
+    const before = map([statusRow()])[0]!.contentHash;
+
+    expect(map([statusRow({ remainCount: 0 })])[0]!.contentHash).toBe(before);
+    expect(map([statusRow({ remainCount: 7 })])[0]!.contentHash).toBe(before);
+  });
+
+  // ⚠️ 少了 usedCount，「卖出一间的同时配额加一间」（limitRemain 不变、usedCount +1）
+  // 这种变化就测不出来 —— 它和 limitRemain 必须成对参与。
+  it('usedCount 必须参与 —— 单独变化也要测得出来', () => {
+    const before = map([statusRow({ limitRemain: 5, usedCount: 0 })])[0]!.contentHash;
+
+    expect(map([statusRow({ limitRemain: 5, usedCount: 1 })])[0]!.contentHash).not.toBe(before);
+  });
+
   it('价格事实字段变化时 hash 变化', () => {
     const before = map([priceRow()])[0]!.contentHash;
 
