@@ -29,7 +29,13 @@ function statusRow(roomTypeID: number, date: string, extra: JsonObject = {}): Js
   };
 }
 
-function create(baseline: readonly SnapshotCell[], logger = createLogger()) {
+function create(
+  baseline: readonly SnapshotCell[],
+  logger = createLogger(),
+  freshnessMs = 60 * 60_000,
+) {
+  let clock = 1700;
+  const warmed = new Set<string>();
   const enqueued: SnapshotCell[][] = [];
   const reported: { observed: unknown; partitionName: string }[] = [];
   /** 记录查基线的入参 —— 区间是否按请求窗口算，只有这里看得出来。 */
@@ -45,6 +51,7 @@ function create(baseline: readonly SnapshotCell[], logger = createLogger()) {
     ]),
     quantityReaders: new Map([['ctrip', readCtripQuantity]]),
     newTraceId: () => 'trace-1',
+    baselineFreshnessMs: () => freshnessMs,
     readBaseline: (source, _otaHotelId, startDate, endDate) => {
       baselineQueries.push({ source, startDate, endDate });
       return baseline;
@@ -52,15 +59,49 @@ function create(baseline: readonly SnapshotCell[], logger = createLogger()) {
     enqueue: (cells) => void enqueued.push([...cells]),
     report: (observed, partitionName) => void reported.push({ observed, partitionName }),
     logger,
-    now: () => 1700,
+    now: () => clock,
   });
-  /** 默认 15 天窗口（与 defaults.ts 同值），个别用例可覆盖。 */
+
+  /**
+   * ⚠️ **默认先跑一轮「热身」再跑用例要测的那一轮**。
+   *
+   * 启动后第一轮必然跳过比对（基线新鲜度保护，见 `scan-to-report.ts` 文件头），
+   * 而绝大多数用例测的是「稳定运行时怎么比对」—— 不热身的话它们全都只会撞上首轮跳过。
+   *
+   * 要测首轮行为本身的用例用 `handleRaw`（不热身）。
+   */
   const handle = (
     target: Parameters<typeof raw>[0],
     rows: Parameters<typeof raw>[1],
     windowDays = 15,
-  ) => raw(target, rows, windowDays);
-  return { handle, enqueued, reported, logger, baselineQueries };
+  ) => {
+    if (!warmed.has(`${target.channel}\u0000${target.otaHotelId}`)) {
+      warmed.add(`${target.channel}\u0000${target.otaHotelId}`);
+      raw(target, rows, windowDays);
+      // 热身那轮的副作用不该算进断言里。
+      enqueued.length = 0;
+      reported.length = 0;
+      baselineQueries.length = 0;
+      logger.info.mockClear();
+    }
+    raw(target, rows, windowDays);
+  };
+
+  return {
+    handle,
+    /** 不热身，直接调 —— 测首轮跳过与基线过期用。 */
+    handleRaw: (
+      target: Parameters<typeof raw>[0],
+      rows: Parameters<typeof raw>[1],
+      windowDays = 15,
+    ) => raw(target, rows, windowDays),
+    /** 推进时钟，用于制造「基线太旧」。 */
+    advance: (ms: number) => void (clock += ms),
+    enqueued,
+    reported,
+    logger,
+    baselineQueries,
+  };
 }
 
 /** 造一条与 mapCtripReadRows 产出同键的基线格子。 */
@@ -176,6 +217,109 @@ describe('上报判据接线', () => {
         suppressed: 1,
       }),
     );
+  });
+});
+
+describe('基线新鲜度保护', () => {
+  // ⭐ 立论：旧基线与现状的差异不代表「渠道刚变了」，只代表「这段时间我们没在看」。
+  // 真机实测：隔 17 小时的基线，一个门店一次报了 205 条。
+  it('⭐ 启动后第一轮只写基线，不上报', () => {
+    const { handleRaw, enqueued, reported } = create([baselineCell(1, '2026-10-20', 'OLD')]);
+
+    handleRaw(TARGET, [statusRow(1, '2026-10-20')]);
+
+    expect(reported).toHaveLength(0);
+    // ⚠️ 基线照写 —— 不写的话下一轮拿到的还是旧基线，会永远跳过。
+    expect(enqueued[0]).toHaveLength(1);
+  });
+
+  it('第二轮（基线够新）恢复正常比对与上报', () => {
+    const { handleRaw, reported } = create([baselineCell(1, '2026-10-20', 'OLD')]);
+
+    handleRaw(TARGET, [statusRow(1, '2026-10-20')]);
+    handleRaw(TARGET, [statusRow(1, '2026-10-20')]);
+
+    expect(reported).toHaveLength(1);
+  });
+
+  it('⭐ 距上次超过阈值：只写基线，不上报', () => {
+    const { handleRaw, advance, enqueued, reported } = create([
+      baselineCell(1, '2026-10-20', 'OLD'),
+    ]);
+
+    handleRaw(TARGET, [statusRow(1, '2026-10-20')]); // 首轮，热身
+    advance(61 * 60_000); // 超过默认 1 小时
+    handleRaw(TARGET, [statusRow(1, '2026-10-20')]);
+
+    expect(reported).toHaveLength(0);
+    expect(enqueued.at(-1)).toHaveLength(1);
+  });
+
+  // ⚠️ 跳过时不更新时刻的话，下一轮算出来的年龄仍然超限 → 连续跳过、再也不比对。
+  it('⭐ 跳过之后下一轮能恢复，不会连续跳过', () => {
+    const { handleRaw, advance, reported } = create([baselineCell(1, '2026-10-20', 'OLD')]);
+
+    handleRaw(TARGET, [statusRow(1, '2026-10-20')]);
+    advance(61 * 60_000);
+    handleRaw(TARGET, [statusRow(1, '2026-10-20')]); // 跳过
+    advance(5 * 60_000); // 正常间隔
+    handleRaw(TARGET, [statusRow(1, '2026-10-20')]);
+
+    expect(reported).toHaveLength(1);
+  });
+
+  it('刚好等于阈值算够新（边界不跳过）', () => {
+    const { handleRaw, advance, reported } = create([baselineCell(1, '2026-10-20', 'OLD')]);
+
+    handleRaw(TARGET, [statusRow(1, '2026-10-20')]);
+    advance(60 * 60_000); // 恰好 1 小时
+    handleRaw(TARGET, [statusRow(1, '2026-10-20')]);
+
+    expect(reported).toHaveLength(1);
+  });
+
+  // ⚠️ 四个扫描目标独立调度：某个门店连续扫不到时，不该让它搭其他门店的便车。
+  it('⭐ 按门店分别记时刻，互不影响', () => {
+    const other = { ...TARGET, otaHotelId: '131576652' };
+    const { handleRaw, reported } = create([baselineCell(1, '2026-10-20', 'OLD')]);
+
+    handleRaw(TARGET, [statusRow(1, '2026-10-20')]); // A 首轮
+    handleRaw(TARGET, [statusRow(1, '2026-10-20')]); // A 第二轮 → 上报
+    handleRaw(other, [statusRow(1, '2026-10-20')]); // B 首轮 → 不该上报
+
+    expect(reported).toHaveLength(1);
+    expect((reported[0]?.observed as { otaHotelId: string }).otaHotelId).toBe('122244992');
+  });
+
+  it('跳过时记日志，并区分 first-round 与 stale', () => {
+    const { handleRaw, advance, logger } = create([baselineCell(1, '2026-10-20', 'OLD')]);
+
+    handleRaw(TARGET, [statusRow(1, '2026-10-20')]);
+    expect(logger.info).toHaveBeenCalledWith(
+      'Inventory scan skipped diff: baseline not fresh',
+      expect.objectContaining({ reason: 'first-round', baselineAgeMs: null }),
+    );
+
+    advance(61 * 60_000);
+    handleRaw(TARGET, [statusRow(1, '2026-10-20')]);
+    expect(logger.info).toHaveBeenCalledWith(
+      'Inventory scan skipped diff: baseline not fresh',
+      expect.objectContaining({ reason: 'stale', baselineAgeMs: 61 * 60_000 }),
+    );
+  });
+
+  it('阈值可配：配大之后不再跳过', () => {
+    const { handleRaw, advance, reported } = create(
+      [baselineCell(1, '2026-10-20', 'OLD')],
+      createLogger(),
+      3 * 60 * 60_000, // 3 小时
+    );
+
+    handleRaw(TARGET, [statusRow(1, '2026-10-20')]);
+    advance(2 * 60 * 60_000); // 2 小时，仍在阈值内
+    handleRaw(TARGET, [statusRow(1, '2026-10-20')]);
+
+    expect(reported).toHaveLength(1);
   });
 });
 

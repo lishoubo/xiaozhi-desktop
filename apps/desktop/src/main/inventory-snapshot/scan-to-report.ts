@@ -6,7 +6,8 @@
  *      ↓ 本模块
  *   ① 行 → 格子（渠道映射）
  *   ② 读基线 + diff + 写入   ← ⚠️ 这三步之间不得 await
- *   ③ changed 过判据 → 组上报体（added 只写不报）
+ *   ③ 基线够新吗？不够 → 只写不报（见下）
+ *   ④ changed 过判据 → 组上报体（added 只写不报）
  *      ↓
  *   上报服务
  * ```
@@ -23,6 +24,15 @@
  *
  * 基线天然稀疏（自然读只覆盖用户实际翻到的范围）。把「没读过」当成「渠道新增了」，
  * 会在首次扫描时把整个窗口灌给服务端。判定在 `snapshot-diff.ts`，这里只是不绕过它。
+ *
+ * ## ⚠️ 基线太旧时也只写不报
+ *
+ * 同一条理由的时间维度版：**基线太旧 ≈ 没有基线**。关着应用过了一夜再打开，整批价格
+ * 都跟昨天不同 —— 那是这一夜里陆续变的，不是此刻的事件（真机实测：隔 17 小时的基线，
+ * 一个门店一次报了 205 条）。
+ *
+ * 上次比对时刻按**渠道 × 门店**记在内存里，阈值见 `app-config` 的 `baselineFreshnessMs`。
+ * 代价是**每次启动必然漏掉一次对账**，取舍与理由见那边的注释。
  */
 import type { AppLogger } from '../../shared/logging';
 import type { JsonObject } from '../../shared/types/json';
@@ -100,6 +110,11 @@ export type ScanResultHandlerDependencies = Readonly<{
   logger: AppLogger;
   /** 链路 ID 生成器。注入而非直接 `randomUUID()`，是为了让测试能断言 ID 的流向。 */
   newTraceId: () => string;
+  /**
+   * 基线新鲜度上限（毫秒）。窄回调而非取值，因为配置可热更新 —— 取值会把启动那一刻的
+   * 值钉死。语义见 `app-config/types.ts` 的 `baselineFreshnessMs`。
+   */
+  baselineFreshnessMs: () => number;
   now?: () => number;
 }>;
 
@@ -118,6 +133,18 @@ export function createScanResultHandler(
   deps: ScanResultHandlerDependencies,
 ): (target: ScanResultTarget, rows: readonly JsonObject[], windowDays: number) => void {
   const now = deps.now ?? (() => Date.now());
+
+  /**
+   * 每个「渠道 × 门店」上次**成功比对**的时刻。
+   *
+   * ⚠️ **按门店分开记，不能用一个全局值**：四个扫描目标独立调度，某个门店可能因为
+   * 登录失效连续几轮扫不到，而其他三个正常 —— 全局值会让那个门店搭便车，
+   * 拿着几小时前的基线照常比对。
+   *
+   * ⚠️ **只在内存里，重启即丢**。这是有意的：重启意味着中断过，那一轮的基线年龄
+   * 不可信，丢失记录正好让启动后首轮自动跳过，不必再写一套「上次时间是不是太久」的判断。
+   */
+  const lastComparedAt = new Map<string, number>();
 
   return (target, rows, windowDays) => {
     const mapper = deps.mappers.get(target.channel);
@@ -153,6 +180,36 @@ export function createScanResultHandler(
 
     // 无论变没变都要写：未变的格子刷新 observedAt，让「这格是什么时候确认过的」有据可查。
     deps.enqueue(latest);
+
+    // ⚠️ 基线太旧时**只写不报** —— 旧基线与现状的差异不代表「渠道刚刚变了」，
+    // 只代表「这段时间我们没在看」。与 `added` 的处置同一条理由（见 `snapshot-diff.ts`）。
+    //
+    // ⚠️ 位置在 `enqueue` **之后**：跳过的是「比对与上报」，不是「写基线」——
+    // 不写的话下一轮拿到的还是旧基线，会永远跳过。
+    const targetKey = `${target.channel}\u0000${target.otaHotelId}`;
+    const previousComparedAt = lastComparedAt.get(targetKey);
+    const baselineAgeMs =
+      previousComparedAt === undefined ? undefined : observedAt - previousComparedAt;
+    const freshnessMs = deps.baselineFreshnessMs();
+
+    // ⚠️ 无论走哪条路都要更新时刻 —— 跳过时不更新的话，下一轮（`idleMs` 后）算出来的
+    // 年龄仍然超限，于是**连续跳过、再也不比对**。
+    lastComparedAt.set(targetKey, observedAt);
+
+    if (baselineAgeMs === undefined || baselineAgeMs > freshnessMs) {
+      deps.logger.info('Inventory scan skipped diff: baseline not fresh', {
+        traceId,
+        channel: target.channel,
+        otaHotelId: target.otaHotelId,
+        cells: latest.length,
+        // 两种原因含义不同：`first-round` 每次启动都会有（预期内）；
+        // `stale` 说明运行期间断档过（睡眠 / 断网 / 渠道连续失败），值得注意。
+        reason: baselineAgeMs === undefined ? 'first-round' : 'stale',
+        baselineAgeMs: baselineAgeMs ?? null,
+        freshnessMs,
+      });
+      return;
+    }
 
     // ⚠️ **「变了」不等于「该报」**：房量会因正常销售持续变动（卖出一间 → 已售 +1、
     // 剩余 −1），这类噪音不上报。房态与价格维持「变了就报」。判据见

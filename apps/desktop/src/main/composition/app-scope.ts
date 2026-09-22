@@ -440,6 +440,7 @@ export function createAppScope(logger: AppLogger): AppScope {
       enqueue: (cells) => snapshotWriteQueue.push(cells),
       report: (observed, partitionName) => void scanReportService.report(observed, partitionName),
       newTraceId: () => randomUUID(),
+      baselineFreshnessMs: () => appConfig.get().inventoryScan.baselineFreshnessMs,
       logger,
     }),
     reportError,

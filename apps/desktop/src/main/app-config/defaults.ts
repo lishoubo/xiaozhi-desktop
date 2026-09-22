@@ -49,6 +49,10 @@ export const DEFAULT_APP_CONFIG: AppConfig = {
     // 「最坏多久发现一次变更」不可预期。
     idleMs: SCAN_PACE.idleMs,
     jitterMs: SCAN_PACE.jitterMs,
+    // 1 小时：正常运行时基线年龄恒为一轮之内（5 分钟），这个阈值只在**断档**时触发 ——
+    // 关闭过夜、睡眠、断网、渠道连续失败。取 1 小时而非更短，是为了让睡眠/断网这类
+    // 短暂中断恢复后仍能对账；取而非更长，是因为隔越久「差异=事件」越不成立。
+    baselineFreshnessMs: 60 * 60_000,
     // ⚠️ 未列出的渠道 = 关（接渠道是开发行为，必须显式开）。抖音尚未接入扫描。
     channels: { ctrip: { enabled: true }, meituan: { enabled: true } },
     // ⚠️ 未列出的酒店 = 取上层值（与 channels 相反）。默认不逐店配置，
