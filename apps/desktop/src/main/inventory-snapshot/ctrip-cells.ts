@@ -103,22 +103,6 @@ export const CTRIP_SNAPSHOT_KIND_MARKER = '__snapshotKind';
 const KIND_MARKER = CTRIP_SNAPSHOT_KIND_MARKER;
 
 /**
- * ⚠️ **`__roomName` 是有意保留进 `item_data` 的**（与 `__snapshotKind` 不同）。
- *
- * 携程的房型名只在房型清单那步有，房态/价格行里只有 `roomTypeID`，所以扫描侧按
- * `roomTypeID` 贴了个 `__roomName`（见 `channels/ctrip/inventory-scan.ts`）。
- * 不留着的话基线库里只剩一串数字，排查时没法回答「`1569052072` 是哪个房型」。
- *
- * 它**不参与 `contentHash`**（不在 `HASH_FIELDS` 里），所以：
- * - 既有基线不失效（指纹字段集没变）
- * - 改房型名不会被判成价量态变更
- *
- * ⚠️ 自然读那条路**不贴**这个字段（页面响应里没有房型清单），所以同一格由扫描写和由
- * 自然读写，`item_data` 会差这一个键 —— 这不影响比对（比的是 `contentHash`），
- * 只是排查时可能看到有的格子有名字、有的没有。
- */
-
-/**
  * 内容指纹。取字段的**稳定拼接**而非 `JSON.stringify(整行)`。
  *
  * ⚠️ 不用 `JSON.stringify` 整行的两个理由：键序不稳定（同样内容可能算出不同 hash）、

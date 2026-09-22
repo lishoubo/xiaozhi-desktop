@@ -71,23 +71,6 @@ export type CtripScanFetcher = ScanFetcher;
 export const CTRIP_SCAN_KIND_MARKER = '__snapshotKind';
 const KIND_MARKER = CTRIP_SCAN_KIND_MARKER;
 
-/**
- * 房型名 —— **我们自己贴的**，不是 `getRoomInventoryInfo` 的字段。
- *
- * 携程的房型名只出现在①的房型清单里，②的房态/价格行里只有 `roomTypeID`。不贴回去的话
- * 基线库里只剩一串数字，排查时没法回答「`1569052072` 是哪个房型」——
- * 美团那边渠道自带 `roomName` / `goodsName`，本来就有。
- *
- * ⚠️ 带 `__` 前缀与渠道字段区分开，理由同 `__snapshotKind`：将来携程真的加了同名字段
- * 时不会互相覆盖。
- *
- * ⛔ **绝不能进 `contentHash`**（`ctrip-cells.ts` 的 `HASH_FIELDS` 不含它）：
- * 参与指纹会让全部既有基线失效，下一轮扫描把整个窗口判成变更。它只是排查用的标注，
- * 改名不构成价量态事实变更。
- */
-export const CTRIP_SCAN_ROOM_NAME_FIELD = '__roomName';
-const ROOM_NAME_FIELD = CTRIP_SCAN_ROOM_NAME_FIELD;
-
 /** `getRoomInventoryInfo` 需要的六字段。`hotelID` 是「门店 × 售卖模式」层，非账号粒度。 */
 type CtripRoomRef = JsonObject &
   Readonly<{
@@ -261,25 +244,14 @@ export function createCtripInventoryScan(deps: CtripInventoryScanDependencies): 
         const inventoryParsed = parseCtripResponse(inventoryRaw);
         if (inventoryParsed.kind === 'failed') return inventoryParsed;
 
-        // ⚠️ 房型名只有①的清单里有，②的响应行里**没有** —— 按 roomTypeID 贴回去。
-        // 不贴的话库里只剩一串房型 ID，排查时无从知道「1569052072 是哪个房型」。
-        const roomNameById = new Map(refs.map((ref) => [ref.roomTypeID, ref.roomName]));
-        const withRoomName = (row: JsonObject): JsonObject => {
-          const roomTypeID = row.roomTypeID;
-          if (typeof roomTypeID !== 'number') return row;
-          const roomName = roomNameById.get(roomTypeID);
-          // 取不到就不加这个键 —— 留空串会让「没取到」和「渠道就叫空名」分不开。
-          return roomName ? { ...row, [ROOM_NAME_FIELD]: roomName } : row;
-        };
-
         // ⚠️ 两批数据分别打标记 —— 下游按 item_type 分成两格存。
         // ⛔ 不要合并成一行：关房日无价，合并会因无价丢掉整行房态。
         const statusRows = pickRows(inventoryParsed.data, 'roomStatusResult').map((row) => ({
-          ...withRoomName(row),
+          ...row,
           [KIND_MARKER]: 'roomStatus',
         }));
         const priceRows = pickPriceRows(inventoryParsed.data).map((row) => ({
-          ...withRoomName(row),
+          ...row,
           [KIND_MARKER]: 'price',
         }));
 
