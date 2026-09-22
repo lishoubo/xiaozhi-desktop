@@ -66,7 +66,17 @@ function numberOf(row: JsonObject, field: string): number | null {
  * 否则                    → 限量，这时房量数字才有意义
  * ```
  *
- * 不限量时 `totalQuantity` / `canUsedQuantity` **本来就是 0**，但实际有房：
+ * ⚠️ **同一个 0 在两种模式下含义相反** —— 这正是必须先判模式的原因。
+ * 本地快照库 755 行携程数据实测：
+ *
+ * ```
+ * 不限量   total=0  canUsed=0   → 有房（数字无意义）
+ * 限量     total≥2  canUsed>0   → 有房
+ * 限量     total≥2  canUsed=0   → 真售罄        ← 判据要捕获的（实测 3 行）
+ *                  ↑ 限量时 totalQuantity 从不为 0（实测最小值 2）
+ * ```
+ *
+ * 渠道文档的原始样本（`inventory-readback-payload.ts` 的「四条反直觉约定」）：
  *
  * | 页面显示 | limitSale | freeSale | totalQuantity | 实际 |
  * |---|---|---|---|---|
