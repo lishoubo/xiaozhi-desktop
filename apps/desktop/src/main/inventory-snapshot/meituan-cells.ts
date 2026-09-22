@@ -91,8 +91,20 @@ export const MEITUAN_SOURCE = 'meituan';
  * | `limitType` | 是否限量 —— 它变了，`limitRemain` 的含义就变了 |
  * | `limitRemain` | ⚠️ 是「配额 − 已售」，**不是**用户设的配额本身 |
  * | `remainCount` | 剩余可卖 |
- * | `usedCount` | 已售。与 `remainCount` 一起才能还原出总量 |
+ * | `usedCount` | 已售 |
  * | `invSwitch` | 房态开关 |
+ *
+ * ⚠️ **美团有两个「总量」，别混**（本地快照库 201 行实测）：
+ *
+ * ```
+ * limitRemain + usedCount  = 用户设的配额   ← 卖房时恒定，上报判据用这个
+ * remainCount + usedCount  = 物理房量       ← 另一回事，与配额无关
+ * ```
+ *
+ * 实测云憩大床房 15 个日期上 `limitRemain+usedCount` **恒为 20**（其间 `usedCount`
+ * 从 0 变到 5），而 `remainCount+usedCount` 在 2/3/5 之间跳。12 个房型里 8 个的配额式
+ * 总量完全恒定，物理式只有 2 个。判读依据见
+ * `add-meituan-inventory-readback/服务端需求.md` §4.1，判据实现见 `quantity-reading.ts`。
  *
  * ⛔ **不含 `containerId`**：渠道内部标识，它变化不代表房态变了。
  * ⛔ **不含 `shareType`**：语义未踩点，不确定它变化是否构成事实变更。

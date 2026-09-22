@@ -25,6 +25,10 @@ import { SqliteOtaInventorySnapshotRepository } from '../database/ota-inventory-
 import { SnapshotCleaner } from '../inventory-snapshot/snapshot-cleaner';
 import { SnapshotWriteQueue } from '../inventory-snapshot/snapshot-write-queue';
 import { createScanResultHandler } from '../inventory-snapshot/scan-to-report';
+import {
+  readCtripQuantity,
+  readMeituanQuantity,
+} from '../inventory-snapshot/quantity-reading';
 import { mapCtripReadRows } from '../inventory-snapshot/ctrip-cells';
 import { InventoryScanDispatcher, type ScanTarget } from '../channels/inventory-scan-dispatcher';
 import { inventoryScans } from '../channels/registry';
@@ -430,6 +434,12 @@ export function createAppScope(logger: AppLogger): AppScope {
           (otaHotelId, cells, probedAt) =>
             buildMeituanScanReport(MEITUAN_CHANNEL, otaHotelId, cells, probedAt),
         ],
+      ]),
+      // 房量上报判据用的渠道口径。⚠️ 漏注册的渠道会退回「变了就报」，
+      // 失效方向是多报而不是漏报（见 `inventory-report-gate.ts`）。
+      quantityReaders: new Map([
+        ['ctrip', readCtripQuantity],
+        ['meituan', readMeituanQuantity],
       ]),
       readBaseline: (source, otaHotelId, startDate, endDate) =>
         snapshotRepository.findByHotelAndDateRange(source, otaHotelId, startDate, endDate),

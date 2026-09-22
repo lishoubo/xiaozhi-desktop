@@ -30,13 +30,41 @@
  * 基线里有、最新数据里没有的格子**不产出任何结果**。原因：取数范围由日期窗口与房型范围
  * 决定，窗口外或本次没取的格子必然「缺席」，把缺席判成删除会误报一大片。真正的删除
  * （房型下架）由基线的过期清理处理，不走比对。
+ *
+ * ## ⚠️ `changed` 带上基线格子，`added` 不带
+ *
+ * 「变了没有」只需要比 `contentHash`，但**「怎么变的」需要旧值** —— 房量判据要回答
+ * 「总房量变了吗」「可售是不是刚从非 0 变成 0」，这两个问题都得拿新旧两个数字比。
+ *
+ * ⛔ **不能从 `contentHash` 反解旧值**：它是固定字段按顺序拼的字符串，拆不回
+ * 「`limitRemain` 当时是几」。所以旧格子必须原样交给调用方。
+ *
+ * `added` 不带基线是因为它的定义就是「基线里没有」—— 没有旧值可言。这也是判据对两者
+ * 处置不同的根据：`added` 只写基线不上报，压根不进判据。
  */
 import type { SnapshotCell } from './types';
 import { snapshotKeyOf } from './types';
 
+/**
+ * 一格的变化：新值 + 它在基线里的旧值。
+ *
+ * ⚠️ `baseline` **必有** —— `changed` 的定义就是「基线里有且 `contentHash` 不同」。
+ * 类型上不做可空，调用方不必写 `if (baseline)` 这种永远为真的分支。
+ */
+export type SnapshotChange = Readonly<{
+  latest: SnapshotCell;
+  baseline: SnapshotCell;
+}>;
+
 export type SnapshotDiff = Readonly<{
-  /** 基线里有，但内容变了 —— 这些才是「渠道侧发生了我们不知道的变更」。 */
-  changed: readonly SnapshotCell[];
+  /**
+   * 基线里有，但内容变了 —— 这些才是「渠道侧发生了我们不知道的变更」。
+   *
+   * ⚠️ **「变了」不等于「该上报」**：房量会因正常销售持续变动（卖出一间 → 已售 +1、
+   * 剩余 −1），这类变化不构成需要跟进的渠道事实。是否上报由上报判据决定，本模块
+   * 只负责「变没变」，不含任何渠道知识。
+   */
+  changed: readonly SnapshotChange[];
   /** 基线里没有 —— ⚠️ 只写基线，**不上报**。见文件头。 */
   added: readonly SnapshotCell[];
 }>;
@@ -54,7 +82,7 @@ export function diffSnapshots(
 ): SnapshotDiff {
   const baselineByKey = new Map(baseline.map((cell) => [snapshotKeyOf(cell), cell]));
 
-  const changed: SnapshotCell[] = [];
+  const changed: SnapshotChange[] = [];
   const added: SnapshotCell[] = [];
 
   for (const cell of latest) {
@@ -63,7 +91,9 @@ export function diffSnapshots(
       added.push(cell);
       continue;
     }
-    if (previous.contentHash !== cell.contentHash) changed.push(cell);
+    if (previous.contentHash !== cell.contentHash) {
+      changed.push({ latest: cell, baseline: previous });
+    }
   }
 
   return { changed, added };

@@ -81,7 +81,38 @@ describe('diffSnapshots', () => {
       cell({ itemDate: '2026-10-22', contentHash: 'c' }), // 新增
     ];
     const diff = diffSnapshots(latest, baseline);
-    expect(diff.changed.map((c) => c.itemDate)).toEqual(['2026-10-21']);
+    expect(diff.changed.map((c) => c.latest.itemDate)).toEqual(['2026-10-21']);
     expect(diff.added.map((c) => c.itemDate)).toEqual(['2026-10-22']);
+  });
+
+  // ⚠️ 房量判据要比新旧数值（「总房量变了吗」「可售是不是刚变成 0」），
+  // 而 contentHash 是拼接串、反解不出旧值 —— 所以旧格子必须原样交出来。
+  it('changed 带上对应的基线格子，新旧值都能拿到', () => {
+    const diff = diffSnapshots(
+      [cell({ contentHash: 'new', itemData: { limitRemain: 3 } })],
+      [cell({ contentHash: 'old', itemData: { limitRemain: 5 } })],
+    );
+    expect(diff.changed).toHaveLength(1);
+    expect(diff.changed[0].latest.itemData).toEqual({ limitRemain: 3 });
+    expect(diff.changed[0].baseline.itemData).toEqual({ limitRemain: 5 });
+  });
+
+  it('基线格子按格子键配对，不串格', () => {
+    const diff = diffSnapshots(
+      [
+        cell({ itemDate: '2026-10-20', contentHash: 'x2', itemData: { n: 20 } }),
+        cell({ itemDate: '2026-10-21', contentHash: 'y2', itemData: { n: 21 } }),
+      ],
+      [
+        cell({ itemDate: '2026-10-20', contentHash: 'x1', itemData: { n: 10 } }),
+        cell({ itemDate: '2026-10-21', contentHash: 'y1', itemData: { n: 11 } }),
+      ],
+    );
+    expect(
+      diff.changed.map((c) => [c.latest.itemData.n, c.baseline.itemData.n]),
+    ).toEqual([
+      [20, 10],
+      [21, 11],
+    ]);
   });
 });

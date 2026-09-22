@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { createScanResultHandler } from '../../../../src/main/inventory-snapshot/scan-to-report';
 import { ITEM_TYPE_FIELD } from '../../../../src/main/inventory-snapshot/scan-to-report';
 import { mapCtripReadRows } from '../../../../src/main/inventory-snapshot/ctrip-cells';
+import { readCtripQuantity } from '../../../../src/main/inventory-snapshot/quantity-reading';
 import { buildCtripScanReport } from '../../../../src/main/channels/ctrip/inventory-scan-payload';
 import type { SnapshotCell } from '../../../../src/main/inventory-snapshot/types';
 import { toChannelId } from '../../../../src/main/ids';
@@ -40,6 +41,7 @@ function create(baseline: readonly SnapshotCell[], logger = createLogger()) {
           buildCtripScanReport(toChannelId('ctrip'), otaHotelId, cells, 'probed-at'),
       ],
     ]),
+    quantityReaders: new Map([['ctrip', readCtripQuantity]]),
     readBaseline: (source, _otaHotelId, startDate, endDate) => {
       baselineQueries.push({ source, startDate, endDate });
       return baseline;
@@ -73,6 +75,101 @@ function baselineCell(roomTypeID: number, date: string, contentHash: string): Sn
     sourceOfTruth: 'page-read',
   };
 }
+
+/**
+ * 造一条**带真实 itemData** 的基线格子 —— 上报判据要比新旧房量，
+ * `itemData: {}` 的基线会被判成「模式切换」而全部放行，测不出收窄效果。
+ */
+function baselineCellWith(roomTypeID: number, date: string, itemData: JsonObject): SnapshotCell {
+  return {
+    ...baselineCell(roomTypeID, date, 'OLD-HASH'),
+    itemData,
+  };
+}
+
+describe('上报判据接线', () => {
+  // ⭐ 本次收窄要解决的核心噪音：有订单的房型每轮都在变，但不该每轮都报。
+  it('⭐ 卖出一间（总房量未变、未售罄）不上报，但仍写基线', () => {
+    const { handle, enqueued, reported } = create([
+      baselineCellWith(1, '2026-10-20', {
+        roomStatus: 'G',
+        limitSale: 'T',
+        freeSale: 'F',
+        totalQuantity: 5,
+        canUsedQuantity: 5,
+        hasInventory: true,
+      }),
+    ]);
+
+    handle(TARGET, [
+      statusRow(1, '2026-10-20', { canUsedQuantity: 4, freeSale: 'F', hasInventory: true }),
+    ]);
+
+    expect(reported).toHaveLength(0);
+    expect(enqueued[0]).toHaveLength(1);
+  });
+
+  it('⭐ 总房量变化仍上报', () => {
+    const { handle, reported } = create([
+      baselineCellWith(1, '2026-10-20', {
+        roomStatus: 'G',
+        limitSale: 'T',
+        freeSale: 'F',
+        totalQuantity: 5,
+        canUsedQuantity: 5,
+        hasInventory: true,
+      }),
+    ]);
+
+    handle(TARGET, [
+      statusRow(1, '2026-10-20', { totalQuantity: 8, freeSale: 'F', hasInventory: true }),
+    ]);
+
+    expect(reported).toHaveLength(1);
+  });
+
+  it('⭐ 房态变化仍上报', () => {
+    const { handle, reported } = create([
+      baselineCellWith(1, '2026-10-20', {
+        roomStatus: 'G',
+        limitSale: 'T',
+        freeSale: 'F',
+        totalQuantity: 5,
+        canUsedQuantity: 5,
+        hasInventory: true,
+      }),
+    ]);
+
+    handle(TARGET, [
+      statusRow(1, '2026-10-20', { roomStatus: 'N', freeSale: 'F', hasInventory: true }),
+    ]);
+
+    expect(reported).toHaveLength(1);
+  });
+
+  // ⚠️ changed 与 reported 的差额就是被滤掉的销售噪音，日志上要看得出来。
+  it('日志同时打 changed 与 reported', () => {
+    const { handle, logger } = create([
+      baselineCellWith(1, '2026-10-20', {
+        roomStatus: 'G',
+        limitSale: 'T',
+        freeSale: 'F',
+        totalQuantity: 5,
+        canUsedQuantity: 5,
+        hasInventory: true,
+      }),
+    ]);
+
+    handle(TARGET, [
+      statusRow(1, '2026-10-20', { canUsedQuantity: 4, freeSale: 'F', hasInventory: true }),
+    ]);
+
+    expect(logger.info).toHaveBeenCalledWith(
+      'Inventory scan compared',
+      expect.objectContaining({ changed: 1, reported: 0 }),
+    );
+  });
+});
 
 describe('首次扫描', () => {
   // ⚠️ 本模块最重要的一条：基线天然稀疏，把「没读过」当成「渠道新增了」会在首轮

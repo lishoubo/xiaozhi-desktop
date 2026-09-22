@@ -6,7 +6,7 @@
  *      ↓ 本模块
  *   ① 行 → 格子（渠道映射）
  *   ② 读基线 + diff + 写入   ← ⚠️ 这三步之间不得 await
- *   ③ changed 组上报体（added 只写不报）
+ *   ③ changed 过判据 → 组上报体（added 只写不报）
  *      ↓
  *   上报服务
  * ```
@@ -28,6 +28,8 @@ import type { AppLogger } from '../../shared/logging';
 import type { JsonObject } from '../../shared/types/json';
 import type { OtaAmountChangeObserved } from '../../shared/types/amount-change';
 import { diffSnapshots } from './snapshot-diff';
+import { shouldReport } from './inventory-report-gate';
+import type { QuantityReader } from './quantity-reading';
 import type { SnapshotCell, SnapshotCellMapper } from './types';
 
 /** `YYYY-MM-DD`，取本地日期 —— 渠道的「今天」是营业日，不是 UTC 日。 */
@@ -83,6 +85,13 @@ export type ScanResultHandlerDependencies = Readonly<{
   mappers: ReadonlyMap<string, SnapshotCellMapper>;
   /** 按渠道取上报体组装函数。 */
   reportBuilders: ReadonlyMap<string, ScanReportBuilder>;
+  /**
+   * 按渠道取房量口径，供上报判据用。
+   *
+   * ⚠️ **没注册的渠道一律按「变了就报」放行**（见 `inventory-report-gate.ts`）——
+   * 漏注册的后果是多报，不是漏报。漏报在日志上看不出来。
+   */
+  quantityReaders: ReadonlyMap<string, QuantityReader>;
   readBaseline: ReadBaseline;
   /** 投递写入队列。**同步入队，不等写库**。 */
   enqueue: (cells: readonly SnapshotCell[]) => void;
@@ -137,6 +146,12 @@ export function createScanResultHandler(
     // 无论变没变都要写：未变的格子刷新 observedAt，让「这格是什么时候确认过的」有据可查。
     deps.enqueue(latest);
 
+    // ⚠️ **「变了」不等于「该报」**：房量会因正常销售持续变动（卖出一间 → 已售 +1、
+    // 剩余 −1），这类噪音不上报。房态与价格维持「变了就报」。判据见
+    // `inventory-report-gate.ts`，渠道房量口径见 `quantity-reading.ts`。
+    const quantityReader = deps.quantityReaders.get(target.channel);
+    const reportable = changed.filter((change) => shouldReport(change, quantityReader));
+
     // ⚠️ **不打基线总数**（`baseline.length`）。它是「窗口内库里有多少格」，包含本轮
     // 压根没取的格子 —— 自然读会写入扫描范围之外的东西（例如钟点房商品，扫描侧按
     // `roomCategory` 滤掉，自然读照页面返回全收）。拿它和 `cells` 对照会得出
@@ -151,9 +166,13 @@ export function createScanResultHandler(
       // 本轮读到的格子里，有多少在基线里找到了对照。
       compared: latest.length - added.length,
       changed: changed.length,
+      // ⚠️ `changed` 与 `reported` 的差额就是被判据滤掉的销售噪音。两个数字都打，
+      // 才能在日志上分辨「渠道没变」与「变了但不值得报」—— 只打一个的话，
+      // 收窄之后看到上报变少，无从判断是判据生效还是扫描挂了。
+      reported: reportable.length,
     });
 
-    if (changed.length === 0) return;
+    if (reportable.length === 0) return;
 
     deps.report(
       buildReport(
@@ -164,7 +183,10 @@ export function createScanResultHandler(
         // 携程两类格子共用同一个 roomTypeID，猜错代价有限；**美团是两个 ID 空间**
         // （房态房量挂 roomId，价格挂 goodsId），猜错就会把价格当成房态、拿 goodsId
         // 去查物理房型 —— 查不到，或更糟：查到一个同号的别的房型。
-        changed.map((cell) => ({ ...cell.itemData, [ITEM_TYPE_FIELD]: cell.itemType })),
+        reportable.map(({ latest: cell }) => ({
+          ...cell.itemData,
+          [ITEM_TYPE_FIELD]: cell.itemType,
+        })),
         new Date(observedAt).toISOString(),
       ),
       target.partitionName,
