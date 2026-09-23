@@ -6,7 +6,6 @@
  *
  * 每个值的依据写在 `types.ts` 的字段注释里，改默认值前先读那里。
  */
-import { APP_ENVIRONMENT } from '../../shared/app-environment';
 import type { AppConfig } from './types';
 
 /**
@@ -33,14 +32,14 @@ export const DEFAULT_APP_CONFIG: AppConfig = {
   },
   inventoryScan: {
     /**
-     * 总闸。**dev 开，pre / online 关。**
+     * 总闸。**所有环境默认开。**
      *
-     * ⚠️ 正式环境默认关闭：周期性打渠道接口是有外部副作用的行为，不该因为装了新版本
-     * 就自己跑起来。开启由服务端下发（配置形状已预留），不发版即可逐店灰度。
-     *
-     * dev 开着是为了让真机验证不必每次手改代码 —— 与 `SCAN_PACE` 同一分档手法。
+     * 曾按环境分档（dev 开、pre / online 关），打算由服务端下发配置逐店开启。但下发层
+     * 至今没接（见 `app-config-store.ts`），于是线上扫描永远是关的 —— 2026-09-23 真机
+     * 上只看到 `Inventory scan skipped: disabled`。改为默认开；要逐店或逐渠道关，
+     * 用下面的 `channels` / `byHotel`。
      */
-    enabled: APP_ENVIRONMENT === 'dev',
+    enabled: true,
     // 15 天：与携程页面自然读一次返回的范围对齐（真机实测）。取 7 天的话，
     // 8~15 天那部分基线永远不会被比对，只占库。
     windows: { kind: 'days', days: 15 },

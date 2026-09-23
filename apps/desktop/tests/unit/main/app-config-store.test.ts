@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest';
 import { AppConfigStore } from '../../../src/main/app-config/app-config-store';
-import { APP_ENVIRONMENT } from '../../../src/shared/app-environment';
 import { DEFAULT_APP_CONFIG } from '../../../src/main/app-config/defaults';
 import type { AppConfigSource, PartialAppConfig } from '../../../src/main/app-config/types';
 
@@ -89,9 +88,8 @@ describe('inventoryScan', () => {
     expect(config.inventoryScan.jitterMs).toBe(config.inventoryScan.idleMs * 0.2);
     // 必须高于调度器的下限钳制，否则默认值本身就会被钳。
     expect(config.inventoryScan.idleMs).toBeGreaterThanOrEqual(30_000);
-    // ⚠️ 总闸按构建环境分档：dev 开（真机验证不必手改代码），pre/online 关
-    //（有外部副作用的周期性行为不该因装新版本就自己跑）。与 idleMs 同样断言不变量。
-    expect(config.inventoryScan.enabled).toBe(APP_ENVIRONMENT === 'dev');
+    // 总闸所有环境默认开：服务端下发层尚未接通，按环境关掉等于线上永远不扫。
+    expect(config.inventoryScan.enabled).toBe(true);
   });
 
   it('部分覆盖时同组未覆盖项保持默认', () => {
