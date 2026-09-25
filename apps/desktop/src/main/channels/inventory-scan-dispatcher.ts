@@ -31,7 +31,7 @@ import type { ChannelId } from '../ids';
 import { safeLogErrorDetails, type AppLogger } from '../../shared/logging';
 import { noopErrorReporter, type ErrorReporter } from '../error-reporting/error-reporter';
 import type { JsonObject } from '../../shared/types/json';
-import type { InventoryScan } from './types';
+import type { InventoryScan, ReadbackFailureReason } from './types';
 
 /** 一个待扫目标 —— 调度层只需要这几样，不碰完整的凭证对象。 */
 export type ScanTarget = Readonly<{
@@ -55,6 +55,17 @@ export type ScanTarget = Readonly<{
    * 美团：`{ otaPartnerId }`（来自 `ota_hotel.bind_extra`）
    */
   channelExtra: JsonObject;
+}>;
+
+/**
+ * 一轮扫描的汇总 —— 轮末交给上层一次。
+ *
+ * ⚠️ 只收 `COOKIE_EXPIRED`：网络失败、403、解析失败重新登录解决不了，混进来会让
+ * 「登录已过期」提醒在断网时把所有账号一起报出来，用户很快就不再信它。
+ */
+export type ScanRoundSummary = Readonly<{
+  /** 本轮判为登录失效的目标。同一账号多家门店会各占一条，去重由上层按 partition 做。 */
+  expired: readonly ScanTarget[];
 }>;
 
 /** 扫描的运行期参数。**每轮重新读**，服务端下发才能不重启生效。 */
@@ -85,6 +96,13 @@ export type InventoryScanDispatcherDependencies = Readonly<{
     /** 本轮请求的窗口天数（含今天）。比对基线的区间据此算，不从返回数据反推。 */
     windowDays: number,
   ) => void;
+  /**
+   * 一轮**实际跑完**后调用一次（总闸关、或中途 dispose 不调）。窄回调：提醒怎么展示
+   * 由装配层决定，调度层只知道轮次边界 —— 轮次边界也只有它知道。
+   *
+   * ⚠️ 本轮没有失效时也调（`expired` 为空）：上层据此收起上一轮的提醒。
+   */
+  onRoundCompleted?: (summary: ScanRoundSummary) => void;
   /** 失效上报到 GlitchTip。可选，省略走 noop。 */
   reportError?: ErrorReporter;
   /** 定时器。**入参**以便测试同步驱动。 */
@@ -176,7 +194,7 @@ export class InventoryScanDispatcher {
     }
 
     const targets = this.deps.listTargets();
-    if (targets.length === 0) return;
+    const expired: ScanTarget[] = [];
 
     for (const target of targets) {
       if (this.disposed) return;
@@ -187,34 +205,40 @@ export class InventoryScanDispatcher {
       // 该渠道没注册扫描能力 —— 正常情况，不记日志。
       if (!scan) continue;
 
-      await this.scanOne(scan, target, config.windowDays);
+      const failure = await this.scanOne(scan, target, config.windowDays);
+      if (failure === 'COOKIE_EXPIRED') expired.push(target);
     }
+
+    if (this.disposed) return;
+    this.deps.onRoundCompleted?.({ expired });
   }
 
   /**
    * 扫一个账号。**异常与失败都不抛出** —— 一个账号的问题不该影响同轮其余账号。
+   *
+   * 返回失败原因（成功、跳过、抛错都返回 null），供轮末汇总。
    */
   private async scanOne(
     scan: InventoryScan,
     target: ScanTarget,
     windowDays: number,
-  ): Promise<void> {
+  ): Promise<ReadbackFailureReason | null> {
     try {
       const outcome = await scan.scan(target.partitionName, windowDays, target.channelExtra);
-      if (this.disposed) return;
+      if (this.disposed) return null;
 
       switch (outcome.kind) {
         case 'ok':
           // 空行也递出去：让上层决定「确实没数据」怎么处理，调度层不替它判断。
           this.deps.onRows(target, outcome.rows, windowDays);
-          return;
+          return null;
         case 'skipped':
           this.deps.logger.info('Inventory scan skipped for target', {
             channel: target.channel,
             otaHotelId: target.otaHotelId,
             reason: outcome.reason,
           });
-          return;
+          return null;
         case 'failed':
           // 先 warn 再上报：本地日志给逐行排查，GlitchTip 给「不用等业户发日志
           // 就知道谁失效了」。两者都要。
@@ -229,7 +253,7 @@ export class InventoryScanDispatcher {
             hotelId: target.otaHotelId || undefined,
             extra: { reason: outcome.reason },
           });
-          return;
+          return outcome.reason;
       }
     } catch (error) {
       // 渠道实现应已吞掉异常并返回 failed；走到这里说明它有没兜住的路径。
@@ -244,6 +268,7 @@ export class InventoryScanDispatcher {
         hotelId: target.otaHotelId || undefined,
         extra: { reason: 'threw' },
       });
+      return null;
     }
   }
 

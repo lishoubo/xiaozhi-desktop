@@ -29,6 +29,7 @@ function createIdentity(
     credentialByPartition: (
       partitionName: string,
     ) => Promise<{ channelAccountId: string | null; credentialExtra: JsonObject | null } | null>;
+    hotelNameOf: (channel: string, otaHotelId: string) => string | null;
   }> = {},
 ) {
   return {
@@ -39,6 +40,7 @@ function createIdentity(
         channelAccountId: '7426783989676935218',
         credentialExtra: { hotelName: '苏州平江府' } as JsonObject | null,
       }),
+    hotelNameOf: (_channel: string, _otaHotelId: string): string | null => null,
     ...overrides,
   };
 }
@@ -270,5 +272,78 @@ describe('AmountChangeReportService —— 携程门店 ID 归一', () => {
     });
     await service.report(OBSERVED, PARTITION);
     expect(reportAmountChange.mock.calls[0]?.[0].otaHotelId).toBe(OBSERVED.otaHotelId);
+  });
+});
+
+/** 门店名只为 RMS 台账排查，不参与定位 —— 但必须与 `otaHotelId` 是同一家店。 */
+describe('AmountChangeReportService —— otaHotelName', () => {
+  function serviceWith(
+    credentialExtra: JsonObject | null,
+    hotelNameOf: (channel: string, otaHotelId: string) => string | null = () => null,
+  ) {
+    const reportAmountChange = vi.fn((_report: OtaAmountChangeReport) => Promise.resolve());
+    const service = new AmountChangeReportService({
+      gateway: { reportAmountChange },
+      identity: createIdentity({
+        credentialByPartition: () => Promise.resolve({ channelAccountId: 'acc', credentialExtra }),
+        hotelNameOf,
+      }),
+      logger: createLogger(),
+    });
+    return {
+      sent: async (observed: OtaAmountChangeObserved) => {
+        await service.report(observed, PARTITION);
+        return reportAmountChange.mock.calls[0]?.[0];
+      },
+    };
+  }
+
+  // ⚠️ 报文是现付侧 ID，名字必须按归一后的 masterHotelId 取，否则永远配不上。
+  it('携程：按归一后的 masterHotelId 取 hotelName', async () => {
+    const { sent } = serviceWith({ masterHotelId: 85068938, hotelName: '银际酒店' });
+    const report = await sent({
+      source: toChannelId('ctrip'),
+      changeType: 'price',
+      endpointId: 'setRCRoomPrice',
+      endpointUrl: 'https://ebooking.ctrip.com/x',
+      otaHotelId: '115348672',
+      changeRaw: { a: 1 },
+    });
+    expect(report?.otaHotelId).toBe('85068938');
+    expect(report?.otaHotelName).toBe('银际酒店');
+  });
+
+  it('美团多门店：取与 otaHotelId 对应的那家', async () => {
+    const { sent } = serviceWith({
+      pois: [
+        { poiId: '1', poiName: '一店' },
+        { poiId: '2', poiName: '二店' },
+      ],
+    });
+    const report = await sent({
+      source: toChannelId('meituan'),
+      changeType: 'price',
+      endpointId: 'calcPriceV2',
+      endpointUrl: 'https://me.meituan.com/x',
+      otaHotelId: '2',
+      changeRaw: { a: 1 },
+    });
+    expect(report?.otaHotelName).toBe('二店');
+  });
+
+  it('otaHotelId 为空时为 null，不去查本地绑定', async () => {
+    const hotelNameOf = vi.fn(() => '不该被用上');
+    const { sent } = serviceWith(null, hotelNameOf);
+    const report = await sent({ ...OBSERVED, otaHotelId: '' });
+    expect(report?.otaHotelName).toBeNull();
+    expect(hotelNameOf).not.toHaveBeenCalled();
+  });
+
+  it('凭证里取不到时回退本地 ota_hotel（抖音）', async () => {
+    const { sent } = serviceWith({ name: '抖音账号' }, (channel, id) =>
+      channel === 'douyin' && id === OBSERVED.otaHotelId ? '美豪丽致酒店(沈阳站太原街店)' : null,
+    );
+    const report = await sent(OBSERVED);
+    expect(report?.otaHotelName).toBe('美豪丽致酒店(沈阳站太原街店)');
   });
 });

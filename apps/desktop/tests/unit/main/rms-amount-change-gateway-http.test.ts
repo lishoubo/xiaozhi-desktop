@@ -14,6 +14,7 @@ const REPORT: OtaAmountChangeReport = {
   changeType: 'price',
   endpointId: 'setRCRoomPrice',
   otaHotelId: '',
+  otaHotelName: '云朵酒店(包头机场店)',
   channelAccountId: '12324831',
   channelAccountName: 'XX酒店',
   changeRaw: {
@@ -60,6 +61,7 @@ describe('HttpRmsAmountChangeGateway', () => {
       changeType: 'price',
       endpointId: 'setRCRoomPrice',
       otaHotelId: '',
+      otaHotelName: '云朵酒店(包头机场店)',
       submitAt: REPORT.submitAt,
     });
   });

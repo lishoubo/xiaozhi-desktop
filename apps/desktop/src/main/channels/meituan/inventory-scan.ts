@@ -317,8 +317,19 @@ export function createMeituanInventoryScan(
           timeoutMs,
         );
         const listParsed = parseMeituanResponse(listRaw);
-        if (listParsed.kind === 'failed') return listParsed;
         const listBody = asObject(listRaw);
+        if (listParsed.kind === 'failed') {
+          // ⚠️ 打出业务码与提示语：判据只认有样本的失效码，其余一律归 PARSE_ERROR ——
+          // 新的失效码只能从这里的 `code` 积累样本（见 `session-expiry.ts`）。
+          deps.logger.warn('Meituan scan: room list fetch failed', {
+            poiId,
+            reason: listParsed.reason,
+            code: listBody?.code ?? null,
+            msg: listBody?.msg ?? listBody?.message ?? null,
+            rawType: listRaw === null ? 'null' : typeof listRaw,
+          });
+          return listParsed;
+        }
         const catalog = pickMeituanRoomCatalog(listBody?.data);
 
         if (catalog.roomIds.length === 0) {
@@ -434,6 +445,7 @@ export function createMeituanInventoryScan(
       deps.logger.warn('Meituan scan: price fetch failed', {
         poiId: args.poiId,
         reason: parsed.reason,
+        code: asObject(raw)?.code ?? null,
       });
       return parsed;
     }
@@ -473,6 +485,7 @@ export function createMeituanInventoryScan(
       deps.logger.warn('Meituan scan: room status fetch failed', {
         poiId: args.poiId,
         reason: parsed.reason,
+        code: asObject(raw)?.code ?? null,
       });
       return parsed;
     }

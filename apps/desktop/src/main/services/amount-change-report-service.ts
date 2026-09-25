@@ -16,6 +16,7 @@ import type {
 } from '../../shared/types/amount-change';
 import type { JsonObject } from '../../shared/types/json';
 import { channelAccountNameOf } from '../channels/bind-extra';
+import { otaHotelNameOf } from '../channels/ota-hotel-name';
 import type { RmsAmountChangeGateway } from '../gateway/rms/types';
 
 /**
@@ -34,6 +35,11 @@ export type AmountChangeIdentityLookup = Readonly<{
     channelAccountId: string | null;
     credentialExtra: JsonObject | null;
   } | null>;
+  /**
+   * 本地 `ota_hotel` 里这家门店的名字 —— 凭证里取不到名字时的兜底（抖音凭证不带门店名）。
+   * 只按 `(channel, otaHotelId)` 精确查，查不到返回 null。
+   */
+  hotelNameOf: (channel: string, otaHotelId: string) => string | null;
 }>;
 
 export type AmountChangeReportServiceDependencies = Readonly<{
@@ -69,10 +75,16 @@ export class AmountChangeReportService {
     }
 
     const otaHotelId = this.resolveOtaHotelId(observed, credential?.credentialExtra ?? null);
+    const otaHotelName = this.resolveOtaHotelName(
+      observed.source,
+      otaHotelId,
+      credential?.credentialExtra ?? null,
+    );
 
     const report: OtaAmountChangeReport = {
       ...observed,
       otaHotelId,
+      otaHotelName,
       // ⚠️ 发起方给了 traceId 就复用它当 operationId —— 这样扫描那一轮的取数、比对、
       // 上报日志与 RMS 台账里的这条记录**是同一个 ID**，排查时能直接串起来。
       operationId: observed.traceId ?? randomUUID(),
@@ -129,6 +141,32 @@ export class AmountChangeReportService {
    * ⚠️ 只改顶层提示字段，`changeRaw` 原样保留 —— 一次操作可能涉及多家门店，全量清单
    * 始终以 `changeRaw` 为准（见 `channels/ctrip/room-status-payload.ts`）。
    */
+  /**
+   * 门店名：凭证优先（随登录刷新），其次本地 `ota_hotel`（只有确认过的绑定）。
+   *
+   * ⚠️ 必须用**归一后**的 ID：携程报文里可能是预付/现付另一侧的 hotelID，拿它配
+   * `hotelName` 会配不上。查名字失败不阻断上报 —— 名字只是排查辅助。
+   */
+  private resolveOtaHotelName(
+    source: string,
+    otaHotelId: string,
+    credentialExtra: JsonObject | null,
+  ): string | null {
+    if (otaHotelId === '') return null;
+    const fromCredential = otaHotelNameOf(source, otaHotelId, credentialExtra);
+    if (fromCredential !== null) return fromCredential;
+    try {
+      return this.deps.identity.hotelNameOf(source, otaHotelId);
+    } catch (error) {
+      this.deps.logger.warn('Amount change report: hotel name lookup failed', {
+        source,
+        otaHotelId,
+        error: safeLogErrorDetails(error),
+      });
+      return null;
+    }
+  }
+
   private resolveOtaHotelId(
     observed: OtaAmountChangeObserved,
     credentialExtra: JsonObject | null,

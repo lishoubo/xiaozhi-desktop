@@ -40,6 +40,7 @@ import { installPrivateCaTrust, loadPackagedPrivateCa } from '../server-client/p
 import { StaffAuthService } from '../services/staff-auth-service';
 import { CalendarService } from '../services/calendar-service';
 import { CookieImportService } from '../services/cookie-import-service';
+import { toChannelId, toOtaHotelId } from '../ids';
 import { AmountChangeWatcher } from '../channels/amount-change-watcher';
 import { InventoryReadbackDispatcher } from '../channels/inventory-readback-dispatcher';
 import {
@@ -73,6 +74,7 @@ type WindowScopeDependencies = Pick<
   | 'sessionFactory'
   | 'calendarRepository'
   | 'otaCredentialRepository'
+  | 'otaHotelRepository'
   | 'snapshotWriteQueue'
   | 'hotelManagementService'
   | 'otaCredentialService'
@@ -135,6 +137,11 @@ export function createWindowScope(scope: WindowScopeDependencies): WindowScope {
     notifyManualUpdate: (update) => {
       if (!window.isDestroyed()) {
         window.webContents.send(IPC_CHANNELS.updater.manualUpdateAvailable, update);
+      }
+    },
+    notifyCredentialExpiry: (summary) => {
+      if (!window.isDestroyed()) {
+        window.webContents.send(IPC_CHANNELS.otaCredential.expiryScanned, summary);
       }
     },
   });
@@ -207,6 +214,10 @@ export function createWindowScope(scope: WindowScopeDependencies): WindowScope {
             : null,
         );
       },
+      // 非法 ID 会抛 —— service 层兜住并记 warn，名字缺了不阻断上报。
+      hotelNameOf: (channel, otaHotelId) =>
+        scope.otaHotelRepository.findByChannelAndHotelId(toChannelId(channel), toOtaHotelId(otaHotelId))
+          ?.otaHotelName ?? null,
     },
     logger,
   });

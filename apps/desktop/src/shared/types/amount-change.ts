@@ -199,6 +199,14 @@ export type OtaAmountChangeReport = Readonly<{
    * 保留报文原值。`changeRaw` 始终是原始报文，不受此影响。
    */
   otaHotelId: string;
+  /**
+   * 与 `otaHotelId` **同一家**门店的名称，纯记录 —— 只为 RMS 台账排查时看清是哪家店，
+   * 不参与定位（门店名可改名、可重名）。`otaHotelId` 为空或取不到时 null。
+   *
+   * 由 service 层按**归一后**的 `otaHotelId` 精确取（见 `channels/ota-hotel-name.ts`），
+   * 取不到再查本地 `ota_hotel`。⚠️ 只按已知 ID 取名，不为补名字反推门店。
+   */
+  otaHotelName: string | null;
 
   /** 渠道账号 ID —— 用哪个 OTA 账号改的（`OtaCredential.channelAccountId`）。 */
   channelAccountId: string | null;
@@ -246,6 +254,7 @@ export type OtaAmountChangeObserved = Omit<
   | 'loginUserName'
   | 'channelAccountId'
   | 'channelAccountName'
+  | 'otaHotelName'
 > &
   Readonly<{
     /**

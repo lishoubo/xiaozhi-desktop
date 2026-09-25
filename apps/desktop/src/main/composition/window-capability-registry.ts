@@ -1,4 +1,5 @@
 import type { ChannelId } from '../ids';
+import type { OtaCredentialExpiryScannedEvent } from '../../shared/browser';
 import type { ManualUpdate } from '../../shared/updater';
 
 /** 架构约束：不 import `browser/` 实现，用类型查询表达结构依赖。 */
@@ -25,6 +26,11 @@ export type WindowCapabilities = Readonly<{
   notifyUpdateReady(): void;
   /** 同上，但用于不能自动更新的平台（macOS）：提示用户手动下载。 */
   notifyManualUpdate(update: ManualUpdate): void;
+  /**
+   * 定时扫描一轮的登录失效汇总。同 `notifyUpdateReady`，调用方走 `current()`：
+   * 窗口关着时丢弃即可，下一轮扫描会再推。
+   */
+  notifyCredentialExpiry(summary: OtaCredentialExpiryScannedEvent): void;
 }>;
 
 export type WindowCapabilityRegistration = Readonly<{

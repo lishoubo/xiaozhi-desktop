@@ -360,8 +360,13 @@ describe('createMeituanInventoryReadback', () => {
       expect(await run(null)).toEqual({ kind: 'failed', reason: 'NETWORK_ERROR' });
     });
 
-    // 不猜哪个 code 代表失效 —— 等真实样本
-    it('业务码非 10000 → PARSE_ERROR', async () => {
+    // 两次真机样本（2026-09-21、09-25），均与账号发现拿不到身份互证
+    it('业务码 606 → COOKIE_EXPIRED', async () => {
+      expect(await run({ code: 606 })).toEqual({ kind: 'failed', reason: 'COOKIE_EXPIRED' });
+    });
+
+    // 其余码不猜 —— 没有样本
+    it('其余业务码非 10000 → PARSE_ERROR', async () => {
       expect(await run({ code: 401, data: [] })).toEqual({ kind: 'failed', reason: 'PARSE_ERROR' });
       expect(await run({ code: 200, data: [] })).toEqual({ kind: 'failed', reason: 'PARSE_ERROR' });
     });

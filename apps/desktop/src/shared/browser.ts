@@ -163,6 +163,32 @@ export const otaDiscoveryCompletedEventSchema = z.strictObject({
 
 export type OtaDiscoveryCompletedEvent = Readonly<z.infer<typeof otaDiscoveryCompletedEventSchema>>;
 
+/**
+ * 定时扫描一轮下来「哪些渠道账号登录失效了」—— 主进程**每轮**推一次，界面据此展示或
+ * 收起单一的失效提醒。
+ *
+ * ⚠️ 只含**确定的**登录失效（渠道判据归为 `COOKIE_EXPIRED`），断网、403、解析失败都不在
+ * 里面 —— 那些重新登录解决不了。
+ *
+ * `accounts` 为空也会推：界面据此收起上一轮还没关掉的提醒。
+ */
+export const otaCredentialExpiryScannedEventSchema = z.strictObject({
+  accounts: z.array(
+    z.strictObject({
+      /** 渠道 ID（`ctrip` / `meituan`），界面自己映射成显示名。 */
+      channel: nonEmptyStringSchema,
+      /** 人能认出来的账号名；凭证里取不到时是账号 ID，再没有就是 partition 名。 */
+      accountName: nonEmptyStringSchema,
+      /** 本轮失效的门店名。取不到名字的门店不出现，可以是空数组。 */
+      hotelNames: z.array(nonEmptyStringSchema),
+    }),
+  ),
+});
+
+export type OtaCredentialExpiryScannedEvent = Readonly<
+  z.infer<typeof otaCredentialExpiryScannedEventSchema>
+>;
+
 /** 探测出的候选酒店，尚未保存。 */
 export const probedHotelSchema = z.strictObject({
   otaHotelId: nonEmptyStringSchema,

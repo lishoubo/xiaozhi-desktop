@@ -12,28 +12,26 @@
  * 渠道所有形态」的参数化函数会把判据挤回调用方，或逼出一个怪物。携程那边同名文件
  * （`ctrip/session-expiry.ts`）是同一手法的另一份。
  *
- * ## 失效判据只判有确定语义的三种
+ * ## 失效判据只判有确定语义的四种
  *
  * - HTTP 401 → `COOKIE_EXPIRED`
  * - HTTP 403 → `FORBIDDEN`（**403 ≠ 401**：身份认了但没权限，重登解决不了，
  *   归成 `COOKIE_EXPIRED` 会掩盖真因并触发一轮无意义的重新登录）
- * - `code !== 10000` → `PARSE_ERROR`（**不猜哪个 code 代表失效**，见下）
+ * - 业务码 `606` → `COOKIE_EXPIRED`（见下）
+ * - 其余 `code !== 10000` → `PARSE_ERROR`（**不猜其他 code**，没有样本）
  *
- * ## ⚠️ 已观测到的失效码：`606`，但刻意不硬编码
- *
- * 2026-09-21 连通性验证时，一个已失效的凭证返回：
+ * ## 失效码 `606`：两次真机样本
  *
  * ```
- * status 200   contentType application/json   bodyLength 34   code 606
+ * 2026-09-21  连通性验证     status 200  application/json  bodyLength 34  code 606
+ * 2026-09-25  定时扫描       code 606  无 msg 字段
+ *             同一账号打开标签页时账号发现拿不到身份（outcome: none）—— 独立印证已掉线
  * ```
  *
- * 两个结论：
+ * 结论：**美团失效时返回 200 + JSON + 业务码**，不是 HTML 登录页。
  *
- * 1. **美团失效时返回 200 + JSON + 业务码**，不是 HTML 登录页 —— 所以携程那套
- *    「200 + 登录页 HTML」的判据对美团确实不需要（下面那段的判断成立）。
- * 2. ⚠️ **但不把 `606` 单独认成失效**：只有一个样本，拿它去猜整张码表没有依据。
- *    既有的 `code !== 10000 → PARSE_ERROR` 已经覆盖了它，行为上没有区别 ——
- *    差别只在日志里那个词。等积累到足够样本再决定要不要细分。
+ * ⚠️ 判成 `COOKIE_EXPIRED` 会让用户看到「登录已过期」提醒（定时扫描按轮汇总）——
+ * 判错的代价是一次误提醒，所以只收有印证的码，不按码段猜。
  *
  * ## ⚠️ 「200 + 登录页 HTML」刻意不判
  *
@@ -54,6 +52,9 @@ import type { ReadbackFailureReason } from '../types';
  * （`BaseResp.StatusCode === 0`）都不同。判据按端点钉死，不做形状自辨。
  */
 export const MEITUAN_SUCCESS_CODE = 10000;
+
+/** 美团登录失效的业务码。来历见文件头「失效码 `606`」。 */
+const MEITUAN_EXPIRED_CODE = 606;
 
 export type MeituanParsedResponse =
   /**
@@ -90,6 +91,7 @@ export function parseMeituanResponse(raw: unknown): MeituanParsedResponse {
   if (body.__httpStatus === 403) return { kind: 'failed', reason: 'FORBIDDEN' };
   if (body.__httpStatus === 401) return { kind: 'failed', reason: 'COOKIE_EXPIRED' };
 
+  if (body.code === MEITUAN_EXPIRED_CODE) return { kind: 'failed', reason: 'COOKIE_EXPIRED' };
   if (body.code !== MEITUAN_SUCCESS_CODE) return { kind: 'failed', reason: 'PARSE_ERROR' };
 
   // `data` 缺失才算失败；形状对不对由调用方按自己那个端点判。

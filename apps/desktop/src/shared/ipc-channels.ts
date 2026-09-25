@@ -57,6 +57,11 @@ export const IPC_CHANNELS = {
   otaCredential: {
     listByChannel: 'ota-credential:list-by-channel',
     discoveryCompleted: 'ota-credential:discovery-completed',
+    /**
+     * 定时扫描每轮结束推一次登录失效汇总（可为空）。只有主进程往渲染进程推 ——
+     * 提醒只告知，不触发任何重新登录动作。
+     */
+    expiryScanned: 'ota-credential:expiry-scanned',
   },
   otaTab: {
     openExisting: 'ota-tab:open-existing',

@@ -380,3 +380,46 @@ describe('窗口透传', () => {
     expect(h.onRows).toHaveBeenLastCalledWith(expect.anything(), expect.anything(), 7);
   });
 });
+
+describe('轮末汇总', () => {
+  // ⚠️ 只收登录失效：断网时所有账号一起失败，混进来会让「登录已过期」提醒失去可信度。
+  it('只把 COOKIE_EXPIRED 的目标交出去', async () => {
+    const outcomes: InventoryScanOutcome[] = [
+      { kind: 'failed', reason: 'COOKIE_EXPIRED' },
+      { kind: 'failed', reason: 'NETWORK_ERROR' },
+      { kind: 'failed', reason: 'COOKIE_EXPIRED' },
+    ];
+    const onRoundCompleted = vi.fn();
+    const h = createHarness({
+      scans: new Map([[CTRIP, { scan: async () => outcomes.shift() ?? { kind: 'ok', rows: [] } }]]),
+      listTargets: () => [
+        target({ otaHotelId: 'a' }),
+        target({ otaHotelId: 'b' }),
+        target({ otaHotelId: 'c' }),
+      ],
+      onRoundCompleted,
+    });
+    h.dispatcher.start();
+    await h.fire();
+    expect(onRoundCompleted).toHaveBeenCalledTimes(1);
+    const [summary] = onRoundCompleted.mock.calls[0] ?? [];
+    expect(summary.expired.map((t: ScanTarget) => t.otaHotelId)).toEqual(['a', 'c']);
+  });
+
+  // 空汇总也要交出去 —— 上层据此收起上一轮的提醒。
+  it('无失效时交出空数组', async () => {
+    const onRoundCompleted = vi.fn();
+    const h = createHarness({ onRoundCompleted });
+    h.dispatcher.start();
+    await h.fire();
+    expect(onRoundCompleted).toHaveBeenCalledWith({ expired: [] });
+  });
+
+  it('总闸关闭时不回调', async () => {
+    const onRoundCompleted = vi.fn();
+    const h = createHarness({ config: () => config({ enabled: false }), onRoundCompleted });
+    h.dispatcher.start();
+    await h.fire();
+    expect(onRoundCompleted).not.toHaveBeenCalled();
+  });
+});

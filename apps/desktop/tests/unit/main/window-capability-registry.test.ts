@@ -11,6 +11,7 @@ function capabilities(): WindowCapabilities {
     webContentsForPartition: vi.fn(() => null),
     notifyUpdateReady: vi.fn(),
     notifyManualUpdate: vi.fn(),
+    notifyCredentialExpiry: vi.fn(),
   };
 }
 

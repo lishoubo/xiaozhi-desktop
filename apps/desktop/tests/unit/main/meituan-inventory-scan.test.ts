@@ -376,7 +376,7 @@ describe('createMeituanInventoryScan', () => {
     // ⚠️ 价格与房态是两类独立事实，一类读不到不该让另一类也丢。
     it('② 失败但 ③ 成功时仍产出房态行', async () => {
       const responses = happyResponses();
-      responses[MEITUAN_PRICE_INVENTORY_URL] = { code: 606 };
+      responses[MEITUAN_PRICE_INVENTORY_URL] = { code: 500 };
       const { scan } = createScan(responses);
 
       const outcome = await scan.scan(PARTITION, 2, EXTRA);
@@ -387,7 +387,7 @@ describe('createMeituanInventoryScan', () => {
 
     it('③ 失败但 ② 成功时仍产出价格行', async () => {
       const responses = happyResponses();
-      responses[MEITUAN_ROOM_STATUS_URL] = { code: 606 };
+      responses[MEITUAN_ROOM_STATUS_URL] = { code: 500 };
       const { scan } = createScan(responses);
 
       const outcome = await scan.scan(PARTITION, 2, EXTRA);
@@ -398,8 +398,8 @@ describe('createMeituanInventoryScan', () => {
 
     it('②③ 都失败才算本门店失败', async () => {
       const responses = happyResponses();
-      responses[MEITUAN_PRICE_INVENTORY_URL] = { code: 606 };
-      responses[MEITUAN_ROOM_STATUS_URL] = { code: 606 };
+      responses[MEITUAN_PRICE_INVENTORY_URL] = { code: 500 };
+      responses[MEITUAN_ROOM_STATUS_URL] = { code: 500 };
       const { scan } = createScan(responses);
 
       expect(await scan.scan(PARTITION, 2, EXTRA)).toEqual({

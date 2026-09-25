@@ -36,13 +36,14 @@ import { AmountChangeReportService } from '../services/amount-change-report-serv
 import { HttpRmsAmountChangeGateway } from '../gateway/rms/rms-amount-change-gateway-http';
 import { StaffAuthService } from '../services/staff-auth-service';
 import { createScanTargetsOf } from './scan-targets';
+import { toCredentialExpirySummary } from './credential-expiry-summary';
 import { readOrCreateDeviceId } from '../file-store/device-id';
 import { updatePartitionState } from '../file-store/partition-ledger';
 import { cleanupOrphanPartitions, cleanupRetiredPartitions } from '../browser/partition-cleanup';
 import { reportError } from '../error-reporting/report-error';
 import { HttpRmsHotelGateway } from '../gateway/rms/rms-hotel-gateway-http';
 import { HttpRmsOtaAccountGateway } from '../gateway/rms/rms-ota-account-gateway-http';
-import { toChannelId, type ChannelId } from '../ids';
+import { toChannelId, toOtaHotelId, type ChannelId } from '../ids';
 import { SessionFactory } from '../browser/session-factory';
 import { collectCookieSnapshot } from '../browser/cookie-snapshot/collect-cookie-snapshot';
 import { createElectronSessionFetch } from '../server-client/trpc-client';
@@ -370,6 +371,10 @@ export function createAppScope(logger: AppLogger): AppScope {
             : null,
         );
       },
+      // 非法 ID 会抛 —— service 层兜住并记 warn，名字缺了不阻断上报。
+      hotelNameOf: (channel, otaHotelId) =>
+        otaHotelRepository.findByChannelAndHotelId(toChannelId(channel), toOtaHotelId(otaHotelId))
+          ?.otaHotelName ?? null,
     },
     logger,
   });
@@ -443,6 +448,20 @@ export function createAppScope(logger: AppLogger): AppScope {
       baselineFreshnessMs: () => appConfig.get().inventoryScan.baselineFreshnessMs,
       logger,
     }),
+    // 轮末汇总登录失效 → 界面单一提醒。窗口关着时丢弃，下一轮会再推。
+    onRoundCompleted: ({ expired }) => {
+      const summary = toCredentialExpirySummary(expired, (partitionName) =>
+        otaCredentialRepository.findByPartitionName(partitionName),
+      );
+      if (summary.accounts.length > 0) {
+        logger.info('Inventory scan found expired credentials', {
+          accountCount: summary.accounts.length,
+          channels: summary.accounts.map((account) => account.channel),
+          partitionNames: [...new Set(expired.map((target) => target.partitionName))],
+        });
+      }
+      windowCapabilities.current()?.notifyCredentialExpiry(summary);
+    },
     reportError,
   });
   inventoryScanDispatcher.start();

@@ -7,7 +7,8 @@
   import StaffLoginPage from './pages/StaffLoginPage.svelte';
   import { clearStaffSession, setStaffSession, type StaffSession } from './staff-auth';
   import { setGreetingIdentity } from './session-greeting.svelte';
-  import { showAppNotification } from './notifications';
+  import { dismissAppNotification, showAppNotification } from './notifications';
+  import { CREDENTIAL_EXPIRY_NOTICE_ID, toCredentialExpiryNotice } from './credential-expiry-notice';
   import { routes } from './routes';
 
   type Session = StaffSession;
@@ -112,10 +113,27 @@
     });
   });
 
+  /**
+   * 定时扫描每轮推一次登录失效汇总。只告知、不操作 —— 重新登录由用户自己去标签页做。
+   *
+   * 同一个 id：提醒还开着时原地替换并重新计时，界面任一时刻至多一条；本轮没有失效
+   * 就收起（账号恢复后不必等 10 秒自动关）。
+   */
+  const unsubscribeCredentialExpiry = window.hotelButler.otaCredential.onExpiryScanned((summary) => {
+    const notice = toCredentialExpiryNotice(summary);
+    if (notice === null) {
+      dismissAppNotification(CREDENTIAL_EXPIRY_NOTICE_ID);
+      return;
+    }
+    log.info('OTA credential expiry notice shown', { accountCount: summary.accounts.length });
+    showAppNotification(notice);
+  });
+
   onDestroy(() => {
     window.removeEventListener('hotel-butler:logout', handleLogout);
     unsubscribeUpdateReady();
     unsubscribeManualUpdate();
+    unsubscribeCredentialExpiry();
   });
 </script>
 
