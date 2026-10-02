@@ -211,11 +211,23 @@ export function createScanResultHandler(
       return;
     }
 
-    // ⚠️ **「变了」不等于「该报」**：房量会因正常销售持续变动（卖出一间 → 已售 +1、
-    // 剩余 −1），这类噪音不上报。房态与价格维持「变了就报」。判据见
-    // `inventory-report-gate.ts`，渠道房量口径见 `quantity-reading.ts`。
+    // 房态与价格维持「变了就报」；限量房量按可售整数变化上报。
     const quantityReader = deps.quantityReaders.get(target.channel);
-    const reportable = changed.filter((change) => shouldReport(change, quantityReader));
+    const unreliable = { unknownMode: 0, invalidAvailable: 0 };
+    const reportable = changed.filter((change) =>
+      shouldReport(change, quantityReader, (reason) => {
+        if (reason === 'unknown-mode') unreliable.unknownMode += 1;
+        else unreliable.invalidAvailable += 1;
+      }),
+    );
+    if (unreliable.unknownMode > 0 || unreliable.invalidAvailable > 0) {
+      deps.logger.warn('Inventory scan quantity reading unreliable', {
+        traceId,
+        channel: target.channel,
+        otaHotelId: target.otaHotelId,
+        ...unreliable,
+      });
+    }
 
     // ⚠️ **不打基线总数**（`baseline.length`）。它是「窗口内库里有多少格」，包含本轮
     // 压根没取的格子 —— 自然读会写入扫描范围之外的东西（例如钟点房商品，扫描侧按
@@ -241,7 +253,7 @@ export function createScanResultHandler(
       compared: latest.length - added.length,
       changed: countByType(changed.map((c) => c.latest)),
       reported: countByType(reportable.map((c) => c.latest)),
-      // 被判据滤掉的房量噪音 —— 这个数字大就说明收窄正在起作用。
+      // 指纹变化但可售量未变（或不限量哨兵变化）的格子数量。
       suppressed: changed.length - reportable.length,
     });
 

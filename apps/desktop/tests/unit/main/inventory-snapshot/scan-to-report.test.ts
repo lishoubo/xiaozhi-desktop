@@ -132,8 +132,7 @@ function baselineCellWith(roomTypeID: number, date: string, itemData: JsonObject
 }
 
 describe('上报判据接线', () => {
-  // ⭐ 本次收窄要解决的核心噪音：有订单的房型每轮都在变，但不该每轮都报。
-  it('⭐ 卖出一间（总房量未变、未售罄）不上报，但仍写基线', () => {
+  it('卖出一间（总房量未变）上报最新原始行，并写基线', () => {
     const { handle, enqueued, reported } = create([
       baselineCellWith(1, '2026-10-20', {
         roomStatus: 'G',
@@ -149,11 +148,41 @@ describe('上报判据接线', () => {
       statusRow(1, '2026-10-20', { canUsedQuantity: 4, freeSale: 'F', hasInventory: true }),
     ]);
 
-    expect(reported).toHaveLength(0);
+    expect(reported).toHaveLength(1);
+    const raw = (reported[0].observed as { changeRaw: JsonObject }).changeRaw;
+    expect(raw.cells).toEqual([{
+      roomTypeID: 1,
+      effectDate: '2026-10-20',
+      roomStatus: 'G',
+      limitSale: 'T',
+      totalQuantity: 5,
+      canUsedQuantity: 4,
+      freeSale: 'F',
+      hasInventory: true,
+      itemType: 'roomStatus',
+    }]);
     expect(enqueued[0]).toHaveLength(1);
   });
 
-  it('⭐ 总房量变化仍上报', () => {
+  it('可售量不可读时保守上报并留下可关联的排障日志', () => {
+    const { handle, reported, logger } = create([
+      baselineCellWith(1, '2026-10-20', {
+        ...statusRow(1, '2026-10-20', { freeSale: 'F', canUsedQuantity: 5 }),
+      }),
+    ]);
+    handle(TARGET, [statusRow(1, '2026-10-20', { freeSale: 'F', canUsedQuantity: -1 })]);
+
+    expect(reported).toHaveLength(1);
+    expect(logger.warn).toHaveBeenCalledWith('Inventory scan quantity reading unreliable', {
+      traceId: 'trace-1',
+      channel: 'ctrip',
+      otaHotelId: '122244992',
+      unknownMode: 0,
+      invalidAvailable: 1,
+    });
+  });
+
+  it('总房量变化但可售不变时不上报', () => {
     const { handle, reported } = create([
       baselineCellWith(1, '2026-10-20', {
         roomStatus: 'G',
@@ -169,7 +198,7 @@ describe('上报判据接线', () => {
       statusRow(1, '2026-10-20', { totalQuantity: 8, freeSale: 'F', hasInventory: true }),
     ]);
 
-    expect(reported).toHaveLength(1);
+    expect(reported).toHaveLength(0);
   });
 
   it('⭐ 房态变化仍上报', () => {
@@ -191,7 +220,7 @@ describe('上报判据接线', () => {
     expect(reported).toHaveLength(1);
   });
 
-  // ⚠️ changed 与 reported 的差额就是被滤掉的销售噪音，日志上要看得出来。
+  // changed 与 reported 按 itemType 分开；普通销售现在也属于应上报变化。
   it('日志同时打 changed 与 reported', () => {
     const { handle, logger } = create([
       baselineCellWith(1, '2026-10-20', {
@@ -213,8 +242,8 @@ describe('上报判据接线', () => {
       expect.objectContaining({
         traceId: 'trace-1',
         changed: { roomStatus: 1, price: 0 },
-        reported: { roomStatus: 0, price: 0 },
-        suppressed: 1,
+        reported: { roomStatus: 1, price: 0 },
+        suppressed: 0,
       }),
     );
   });
@@ -447,10 +476,7 @@ describe('边界', () => {
     handle(TARGET, [{ nonsense: true }]);
     expect(enqueued).toHaveLength(0);
     expect(reported).toHaveLength(0);
-    expect(logger.info).toHaveBeenCalledWith(
-      'Inventory scan produced no cells',
-      expect.anything(),
-    );
+    expect(logger.info).toHaveBeenCalledWith('Inventory scan produced no cells', expect.anything());
   });
 
   it('未注册的渠道直接跳过', () => {

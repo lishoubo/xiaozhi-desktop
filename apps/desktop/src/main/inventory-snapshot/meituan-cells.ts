@@ -99,16 +99,16 @@ export const MEITUAN_SOURCE = 'meituan';
  *
  * ⚠️ **总房量 = `limitRemain + usedCount`**（本地快照库 201 行实测）：云憩大床房
  * 15 个日期上该和恒为 20，其间 `usedCount` 从 0 变到 5 —— 卖出一间时
- * `limitRemain` −1、`usedCount` +1，和不变。上报判据据此区分「用户改配额」与
- * 「正常销售」，实现见 `quantity-reading.ts`。
+ * `limitRemain` −1、`usedCount` +1，和不变。当前 scan 上报判据直接比较
+ * `limitRemain`（可售房量），因此普通销售也会上报。
  *
  * ## ⛔ 为什么**不含 `remainCount`**（2026-09-22 移除）
  *
  * 它是**预留房量**，不是「剩余可卖」，与配额（`limitRemain + usedCount`）**无算术关系**
  * —— 实测多为 0、偶尔 1~2，而同格 `limitRemain` 可达 39。
  *
- * 留在指纹里的唯一效果是**制造噪音**：它一抖动，格子就被判成 `changed`，而上报判据
- * 只看配额变化与售罄跃迁，两者都没发生 → 又被判据滤掉。真机实测 2026-09-22 的
+ * 留在指纹里的唯一效果是**制造噪音**：它一抖动，格子就被判成 `changed`，而当前判据
+ * 只看可售量变化 → 仍被滤掉。真机实测 2026-09-22 的
  * 19:06 与 19:51 各出现一次这种「白比对一场」（`changed: 1 → reported: 0`）。
  *
  * ⚠️ 移除它会让**全部既有美团基线的 hash 失效**（拼接段数从 6 变 5）。这在过去是
@@ -123,10 +123,8 @@ export const MEITUAN_SOURCE = 'meituan';
  * ⛔ **不含 `shareType`**：语义未踩点，不确定它变化是否构成事实变更。
  * ⛔ **不含 `date` / `roomId`**：已经在格子键里。
  *
- * ⚠️ `usedCount` **必须参与** —— 少了它，「卖出一间的同时配额加一间」（`limitRemain`
- * 不变、`usedCount` +1）这种变化测不出来。它只有 `queryRoomStatusInfo` 才返回，
- * 而 `queryPriceInventoryStatusInfo` 的 `goodsStatusMap` 里没有 —— 扫描之所以额外发
- * 一次前者而不复用后者，正是为了它（见 `channels/meituan/inventory-scan.ts` 文件头）。
+ * ⚠️ `usedCount` 仍保留在原有内容指纹中，不改字段与顺序；它只有
+ * `queryRoomStatusInfo` 返回，而 `queryPriceInventoryStatusInfo` 的 `goodsStatusMap` 里没有。
  */
 const ROOM_STATUS_HASH_FIELDS: readonly string[] = [
   'roomStatus',

@@ -1,10 +1,3 @@
-/**
- * 房量口径的单测。
- *
- * ⚠️ **样本取自本地快照库的真实行**（2026-09-22，携程 755 行 / 美团 201 行），
- * 不是自造的。自造样本容易「比真实数据更干净」，恰好绕开渠道的反直觉约定 ——
- * 而那些约定正是本模块存在的理由。
- */
 import { describe, expect, it } from 'vitest';
 import {
   readCtripQuantity,
@@ -12,167 +5,79 @@ import {
 } from '../../../../src/main/inventory-snapshot/quantity-reading';
 
 describe('readCtripQuantity', () => {
-  it('限量房读出总房量，可售大于 0 时不算售罄', () => {
-    // 真实行：limitSale=T freeSale=F total=4 canUsed=2（库里 150 条同形状）
-    expect(
-      readCtripQuantity({
-        limitSale: 'T',
-        freeSale: 'F',
-        totalQuantity: 4,
-        canUsedQuantity: 2,
-        hasInventory: true,
-      }),
-    ).toEqual({ total: 4, soldOut: false });
-  });
-
-  // ⭐ 真实行：limitSale=T total=4 canUsed=0 roomStatus=N（关房且可售为 0），库里 3 条。
-  // ⚠️ 注意 hasInventory 仍是 true —— 限量场景下它恒为 true，不能拿它判售罄。
-  it('⭐ 限量房 canUsedQuantity=0 判为售罄（此时 hasInventory 仍为 true）', () => {
-    expect(
-      readCtripQuantity({
-        limitSale: 'T',
-        freeSale: 'F',
-        totalQuantity: 4,
-        canUsedQuantity: 0,
-        hasInventory: true,
-      }),
-    ).toEqual({ total: 4, soldOut: true });
-  });
-
-  // ⭐ 本模块的立论：这类行在库里有 68 条，房量字段全是 0，
-  // 但渠道文档明写「实际有房」。不先判不限量就会把它们全判成售罄。
-  it('⭐ freeSale=T 的不限量房：房量 0 仍不判售罄', () => {
-    expect(
-      readCtripQuantity({
-        limitSale: 'F',
-        freeSale: 'T',
-        totalQuantity: 0,
-        canUsedQuantity: 0,
-        hasInventory: false,
-      }),
-    ).toEqual({ total: null, soldOut: false });
-  });
-
-  it('limitSale=F 的不限量房同样不判售罄', () => {
-    expect(
-      readCtripQuantity({
-        limitSale: 'F',
-        freeSale: 'F',
-        totalQuantity: 0,
-        canUsedQuantity: 0,
-        hasInventory: false,
-      }),
-    ).toEqual({ total: null, soldOut: false });
-  });
-
-  it('限量但 totalQuantity 缺失时 total 为 null，不臆造数字', () => {
-    expect(readCtripQuantity({ limitSale: 'T', canUsedQuantity: 3 })).toEqual({
-      total: null,
-      soldOut: false,
+  it('限量时读取可售整数，包括 0 和数字字符串', () => {
+    expect(readCtripQuantity({ limitSale: 'T', freeSale: 'F', canUsedQuantity: '4' })).toEqual({
+      mode: 'limited',
+      available: 4,
+    });
+    expect(readCtripQuantity({ limitSale: 'T', canUsedQuantity: 0 })).toEqual({
+      mode: 'limited',
+      available: 0,
     });
   });
 
-  // ⚠️ canUsedQuantity 缺失 ≠ 售罄。缺字段要朝「多报」方向失效，不能判成售罄。
-  it('限量但 canUsedQuantity 缺失时不判售罄', () => {
-    expect(readCtripQuantity({ limitSale: 'T', totalQuantity: 5 })).toEqual({
-      total: 5,
-      soldOut: false,
+  it('先判不限量，忽略哨兵数字', () => {
+    expect(readCtripQuantity({ limitSale: 'T', freeSale: 'T', canUsedQuantity: 0 })).toEqual({
+      mode: 'unlimited',
+      available: null,
+    });
+    expect(readCtripQuantity({ limitSale: 'F', canUsedQuantity: 999 })).toEqual({
+      mode: 'unlimited',
+      available: null,
     });
   });
 
-  it('枚举是字符串 T/F，不认布尔（渠道原样透传，不做归一）', () => {
-    // limitSale 若被写成布尔 true，说明上游做了转换 —— 按不限量处理，不误判房量。
-    expect(readCtripQuantity({ limitSale: true, totalQuantity: 5 })).toEqual({
-      total: null,
-      soldOut: false,
+  it('未知限量类型与非法可售值不臆造成 0', () => {
+    expect(readCtripQuantity({ limitSale: true, canUsedQuantity: 5 })).toEqual({
+      mode: 'unknown',
+      available: null,
     });
+    expect(readCtripQuantity({ limitSale: 'T' })).toEqual({
+      mode: 'limited',
+      available: null,
+    });
+    for (const canUsedQuantity of [-1, 1.5, 'abc']) {
+      expect(readCtripQuantity({ limitSale: 'T', canUsedQuantity })).toEqual({
+        mode: 'limited',
+        available: null,
+      });
+    }
   });
 });
 
 describe('readMeituanQuantity', () => {
-  it('限量房：总房量 = limitRemain + usedCount（配额，非物理房量）', () => {
-    // 真实行：云舒双床房 limitRemain=39 usedCount=1 → 配额 40
-    // ⚠️ remainCount=1 是**预留房量**，与配额无关 —— 拿它参与总量计算会算成 2。
-    expect(
-      readMeituanQuantity({
-        limitType: 1,
-        limitRemain: 39,
-        remainCount: 1,
-        usedCount: 1,
-      }),
-    ).toEqual({ total: 40, soldOut: false });
-  });
-
-  // ⭐ 「有订单不误报」所依赖的不变量：卖出一间，配额不变。
-  it('⭐ 卖出一间：limitRemain −1、usedCount +1，总房量不变', () => {
-    const before = readMeituanQuantity({ limitType: 1, limitRemain: 20, usedCount: 0 });
-    const after = readMeituanQuantity({ limitType: 1, limitRemain: 19, usedCount: 1 });
-    expect(before.total).toBe(20);
-    expect(after.total).toBe(20);
-  });
-
-  it('limitRemain=0 判为售罄', () => {
-    // 真实行：奢华雅致双床房 10-02，limitRemain=0 usedCount=10（真卖光）
-    expect(
-      readMeituanQuantity({
-        limitType: 1,
-        limitRemain: 0,
-        remainCount: 0,
-        usedCount: 10,
-      }),
-    ).toEqual({ total: 10, soldOut: true });
-  });
-
-  // ⭐ remainCount 是预留房量，为 0 只说明没预留，与售罄无关。
-  // 库里这类行有 32 条，配额都还有剩；真售罄只有 1 条。
-  it('⭐ remainCount=0（无预留）但配额有剩：不判售罄', () => {
-    expect(
-      readMeituanQuantity({
-        limitType: 1,
-        limitRemain: 22,
-        remainCount: 0,
-        usedCount: 0,
-      }),
-    ).toEqual({ total: 22, soldOut: false });
-  });
-
-  // ⚠️ 文档记的哨兵是 998/999，本地库实测到 1002 —— 哨兵不是固定几个值，
-  // 所以判 limitType 而不是判具体数字。
-  it('⚠️ 不限量（limitType=2）：哨兵值 1002 不当作总房量', () => {
-    expect(
-      readMeituanQuantity({
-        limitType: 2,
-        limitRemain: 1002,
-        remainCount: 3,
-        usedCount: 0,
-      }),
-    ).toEqual({ total: null, soldOut: false });
-  });
-
-  it('未见过的 limitType 按不限量处理，不拿数字比大小', () => {
-    expect(readMeituanQuantity({ limitType: 9, limitRemain: 5, usedCount: 0 })).toEqual({
-      total: null,
-      soldOut: false,
+  it('限量时只取 limitRemain，不再由 usedCount 推总量', () => {
+    expect(readMeituanQuantity({ limitType: 1, limitRemain: '4', usedCount: 1 })).toEqual({
+      mode: 'limited',
+      available: 4,
+    });
+    expect(readMeituanQuantity({ limitType: 1, limitRemain: 0 })).toEqual({
+      mode: 'limited',
+      available: 0,
     });
   });
 
-  it('usedCount 缺失时算不出配额，total 为 null', () => {
-    expect(readMeituanQuantity({ limitType: 1, limitRemain: 5 })).toEqual({
-      total: null,
-      soldOut: false,
+  it('不限量时忽略哨兵，未知类型不按限量处理', () => {
+    expect(readMeituanQuantity({ limitType: 2, limitRemain: 1002 })).toEqual({
+      mode: 'unlimited',
+      available: null,
+    });
+    expect(readMeituanQuantity({ limitType: 9, limitRemain: 5 })).toEqual({
+      mode: 'unknown',
+      available: null,
     });
   });
 
-  it('limitRemain 缺失时 total 为 null 且不判售罄', () => {
-    expect(readMeituanQuantity({ limitType: 1, usedCount: 2 })).toEqual({
-      total: null,
-      soldOut: false,
+  it('缺失、负数和小数可售值不可读', () => {
+    expect(readMeituanQuantity({ limitType: 1 })).toEqual({
+      mode: 'limited',
+      available: null,
     });
-  });
-
-  it('字符串数字也能读（渠道偶尔回字符串）', () => {
-    expect(
-      readMeituanQuantity({ limitType: '1', limitRemain: '19', usedCount: '1' }),
-    ).toEqual({ total: 20, soldOut: false });
+    for (const limitRemain of [-1, 1.5]) {
+      expect(readMeituanQuantity({ limitType: 1, limitRemain })).toEqual({
+        mode: 'limited',
+        available: null,
+      });
+    }
   });
 });

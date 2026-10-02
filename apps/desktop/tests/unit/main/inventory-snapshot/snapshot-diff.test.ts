@@ -85,7 +85,7 @@ describe('diffSnapshots', () => {
     expect(diff.added.map((c) => c.itemDate)).toEqual(['2026-10-22']);
   });
 
-  // ⚠️ 房量判据要比新旧数值（「总房量变了吗」「可售是不是刚变成 0」），
+  // ⚠️ 房量判据要比新旧可售整数，
   // 而 contentHash 是拼接串、反解不出旧值 —— 所以旧格子必须原样交出来。
   it('changed 带上对应的基线格子，新旧值都能拿到', () => {
     const diff = diffSnapshots(
