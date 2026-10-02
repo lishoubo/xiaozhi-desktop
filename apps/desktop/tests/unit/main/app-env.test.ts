@@ -27,6 +27,17 @@ describe('resolveAppEnvironment', () => {
 });
 
 describe('environmentProfile', () => {
+  it('pre 和 online 默认连接同一个 HTTPS RMS，dev 保持本地 HTTP', () => {
+    expect(environmentProfile({ XIAOZHI_APP_ENV: 'dev' }).rmsOrigin).toBe(
+      'http://localhost:8080',
+    );
+    for (const value of ['pre', 'online'] satisfies AppEnvironment[]) {
+      expect(environmentProfile({ XIAOZHI_APP_ENV: value }).rmsOrigin).toBe(
+        'https://47.96.144.176',
+      );
+    }
+  });
+
   it('三套环境的应用标识两两不同，才能并存安装', () => {
     const profiles = (['dev', 'pre', 'online'] satisfies AppEnvironment[]).map((value) =>
       environmentProfile({ XIAOZHI_APP_ENV: value }),

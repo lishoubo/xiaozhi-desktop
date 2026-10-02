@@ -94,6 +94,7 @@ type ManagedTab = {
   title: string;
   url: string;
   loading: boolean;
+  loadStartedAt?: number;
   view: WebContentsView;
   partitionName: string;
   /** 当前故障状态，`null` 表示正常。语义见 `shared/browser.ts`。 */
@@ -259,6 +260,7 @@ export class BrowserManager extends EventEmitter {
       title: '正在加载…',
       url,
       loading: true,
+      loadStartedAt: Date.now(),
       view,
       partitionName,
       failure: null,
@@ -271,7 +273,9 @@ export class BrowserManager extends EventEmitter {
     // `this.bounds`（让位期间就是零），表现为「标题变了但看不见内容」。
     if (options.activate ?? true) this.activate(id);
     this.logger.info('Browser tab created', { channelId, partitionName });
+    this.logCtripNavigation(tab, 'created');
     void view.webContents.loadURL(url).catch((error: unknown) => {
+      if (tab.closed) return;
       tab.loading = false;
       tab.failure = 'load-failed';
       // 这里**只记 name**，是有意的：加载失败的 message 里含用户正在访问的完整
@@ -279,6 +283,9 @@ export class BrowserManager extends EventEmitter {
       // 见同文件测试 "reports page load failures without logging the rejected URL"。
       this.logger.error('Browser page load failed', {
         channelId,
+        errorName: error instanceof Error ? error.name : 'UnknownError',
+      });
+      this.logCtripNavigation(tab, 'load-url-rejected', {
         errorName: error instanceof Error ? error.name : 'UnknownError',
       });
       this.emitStateChanged(tab);
@@ -312,6 +319,7 @@ export class BrowserManager extends EventEmitter {
     }
     this.tabs.delete(tabId);
     this.managedWebContentsIds.delete(tab.view.webContents.id);
+    this.logCtripNavigation(tab, 'closed');
     // 必须在 close() 之前置位：关闭期间仍会有事件回调进来（见 `ManagedTab.closed`）。
     tab.closed = true;
     tab.view.webContents.close();
@@ -403,6 +411,7 @@ export class BrowserManager extends EventEmitter {
     assertWebUrl(url);
     const tab = this.getTab(tabId);
     void tab.view.webContents.loadURL(url).catch((error: unknown) => {
+      if (tab.closed) return;
       this.logger.warn('Browser tab could not load url', {
         channelId: tab.channelId,
         errorName: error instanceof Error ? error.name : 'UnknownError',
@@ -490,6 +499,7 @@ export class BrowserManager extends EventEmitter {
   destroy(): void {
     const tabCount = this.tabs.size;
     for (const tab of this.tabs.values()) {
+      tab.closed = true;
       if (!tab.view.webContents.isDestroyed()) tab.view.webContents.close();
     }
     this.tabs.clear();
@@ -630,6 +640,8 @@ export class BrowserManager extends EventEmitter {
       if (this.activeTabId === tab.id) webContents.reload();
     });
     webContents.on('did-start-loading', () => {
+      tab.loadStartedAt = Date.now();
+      this.logCtripNavigation(tab, 'started');
       tab.loading = true;
       // 重新加载即离开故障态——用户点「重新加载」后必须看到故障提示消失，
       // 否则无从判断这次重试有没有生效。
@@ -637,6 +649,7 @@ export class BrowserManager extends EventEmitter {
       this.emitStateChanged(tab);
     });
     webContents.on('render-process-gone', (_event, details) => {
+      this.logCtripNavigation(tab, 'renderer-gone', { reason: details.reason });
       tab.loading = false;
       tab.failure = 'crashed';
       this.logger.error('Browser tab renderer gone', {
@@ -650,6 +663,7 @@ export class BrowserManager extends EventEmitter {
       // `ERR_ABORTED` (-3) 是单页应用内部导航的常态，把它算作故障会让提示彻底失去
       // 意义——渠道后台每切换一次路由就会报一次。
       if (!isMainFrame || errorCode === ABORTED_ERROR_CODE) return;
+      this.logCtripNavigation(tab, 'main-frame-failed', { errorCode });
       tab.loading = false;
       tab.failure = 'load-failed';
       this.logger.warn('Browser tab main frame failed to load', {
@@ -663,6 +677,7 @@ export class BrowserManager extends EventEmitter {
       // 一旦覆盖，随后的 `responsive` 会把它清成 null（那条只认 unresponsive），
       // 崩溃就此从界面上消失，只剩一块空白页。
       if (tab.failure !== null) return;
+      this.logCtripNavigation(tab, 'unresponsive');
       tab.failure = 'unresponsive';
       this.logger.warn('Browser tab became unresponsive', { channelId: tab.channelId });
       this.emitStateChanged(tab);
@@ -670,16 +685,25 @@ export class BrowserManager extends EventEmitter {
     webContents.on('responsive', () => {
       // 只清「无响应」：页面恢复响应不代表崩溃或加载失败已经解决。
       if (tab.failure !== 'unresponsive') return;
+      this.logCtripNavigation(tab, 'responsive');
       tab.failure = null;
       this.emitStateChanged(tab);
     });
     webContents.on('did-stop-loading', () => {
+      this.logCtripNavigation(tab, 'stopped');
       tab.loading = false;
       tab.url = webContents.getURL() || tab.url;
       tab.title = webContents.getTitle() || tab.title;
       this.emitStateChanged(tab);
     });
+    webContents.on('did-finish-load', () => {
+      this.logCtripNavigation(tab, 'main-frame-finished');
+    });
     webContents.on('did-navigate', (_event, url) => {
+      this.logCtripNavigation(tab, 'navigated', {
+        sameOrigin: URL.canParse(url) && new URL(url).origin === new URL(tab.url).origin,
+        loginPath: URL.canParse(url) && new URL(url).pathname.startsWith('/login'),
+      });
       tab.url = url;
       this.emitTabNavigated(tab, url, webContents);
       this.emitStateChanged(tab);
@@ -692,6 +716,21 @@ export class BrowserManager extends EventEmitter {
     webContents.on('page-title-updated', (_event, title) => {
       tab.title = title || tab.title;
       this.emitStateChanged(tab);
+    });
+  }
+
+  private logCtripNavigation(
+    tab: ManagedTab,
+    phase: string,
+    details: Readonly<Record<string, string | number | boolean>> = {},
+  ): void {
+    if (tab.channelId !== 'ctrip' || tab.closed) return;
+    this.logger.info('Ctrip tab navigation', {
+      tabId: tab.id,
+      partitionName: tab.partitionName,
+      phase,
+      elapsedMs: tab.loadStartedAt === undefined ? undefined : Date.now() - tab.loadStartedAt,
+      ...details,
     });
   }
 

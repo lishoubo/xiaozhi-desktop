@@ -10,8 +10,8 @@
  *
  * 取值优先级：`XIAOZHI_RMS_SERVER_URL` > 当前环境的 profile 默认值（见 app-env.ts）。
  * profile 默认值为 `null`（地址未确定）且未显式指定时，**构建失败**——不兜底。
- * 当前 online profile 暂时与 pre 共用 RMS；该受控例外及明文传输风险记录在 profile
- * 注释和稳定规范中，正式 HTTPS 域名启用后应移除。
+ * 当前 online profile 暂时与 pre 共用 RMS；该数据不隔离的例外记录在 profile
+ * 注释和稳定规范中，正式域名启用后应移除。
  *
  * 明文 HTTP 需要 `XIAOZHI_ALLOW_INSECURE_RMS=1` 显式豁免：JWT 是明文可用的凭证，
  * 裸奔出本机就有被劫持的风险。把豁免做成必须写在命令行上的开关，是为了让

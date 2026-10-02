@@ -87,7 +87,7 @@ export const PROFILES = {
     productName: '小智酒店管家[预发]',
     bundleId: 'com.xiaozhi.hotel.pre',
     squirrelName: 'xiaozhi-hotel-pre',
-    rmsOrigin: 'http://47.96.144.176',
+    rmsOrigin: 'https://47.96.144.176',
     // null = 回落到 rmsOrigin：该机 nginx 同时托管 SPA 根目录与 /api，两者同源。
     rmsWebOrigin: null,
     serverOrigin: PRODUCTION_SERVER_ORIGIN,
@@ -101,11 +101,8 @@ export const PROFILES = {
     productName: '小智酒店管家',
     bundleId: 'com.xiaozhi.hotel',
     squirrelName: 'xiaozhi-hotel',
-    // ⚠️ 当前与 pre 指向同一台 RMS —— 正式域名尚未启用。这意味着**正式包与预发包连的
-    // 是同一个后端**，两者的数据不隔离；且它是明文 HTTP，JWT 会明文传输（打包时会
-    // 每次告警，见 scripts/desktop-make.mjs）。正式域名上 HTTPS 后改这里即可，
-    // 届时告警会自动消失。
-    rmsOrigin: 'http://47.96.144.176',
+    // 当前与 pre 指向同一台 RMS：两者的数据不隔离。正式域名启用后再分别配置。
+    rmsOrigin: 'https://47.96.144.176',
     // null = 回落到 rmsOrigin，同 pre。
     rmsWebOrigin: null,
     serverOrigin: PRODUCTION_SERVER_ORIGIN,

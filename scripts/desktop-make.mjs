@@ -112,9 +112,8 @@ console.log(`应用名: ${profile.productName}（${profile.bundleId} / ${profile
 console.log(`RMS 地址: ${rmsOrigin}`);
 console.log(`目标: ${targetFlag === undefined ? '当前平台' : targetFlag.slice('--target='.length)}`);
 
-// 明文 HTTP 需要显式豁免（见 vite-plugins/rms-origin.ts）。pre 环境的 RMS 目前就是
-// 明文裸 IP，这里替它把豁免打开并**每次都告警**——豁免必须是看得见的，不能藏在
-// 配置默认值里。RMS 上 HTTPS 之后，改 PROFILES 里的地址即可自动恢复强制校验。
+// 明文 HTTP 需要显式豁免（见 vite-plugins/rms-origin.ts）。若构建者覆盖成远端
+// HTTP 地址，这里替它打开豁免并**每次都告警**——豁免必须是看得见的。
 const isLoopback = /^https?:\/\/(localhost|127\.0\.0\.1)(:|$)/.test(rmsOrigin);
 const needsInsecureOptOut = !rmsOrigin.startsWith('https://') && !isLoopback;
 if (needsInsecureOptOut && process.env.XIAOZHI_ALLOW_INSECURE_RMS !== '1') {

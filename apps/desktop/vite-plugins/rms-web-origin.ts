@@ -8,7 +8,7 @@
  *
  * ```
  * dev     API  http://localhost:8080     web  http://localhost:5173  ← vite dev server
- * pre     API  http://47.96.144.176      web  同上（nginx 同源托管）
+ * pre     API  https://47.96.144.176     web  同上（nginx 同源托管）
  * online  同 pre
  * ```
  *

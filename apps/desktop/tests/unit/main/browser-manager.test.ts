@@ -219,13 +219,11 @@ describe('BrowserManager', () => {
         sandbox: true,
       },
     });
-    expect(logger.info.mock.calls).toEqual([
-      [
-        'Browser tab created',
-        { channelId: 'ctrip', partitionName: 'persist:hotel-butler-browser' },
-      ],
-      ['Browser tab closed', { channelId: 'ctrip' }],
-    ]);
+    expect(logger.info).toHaveBeenCalledWith('Browser tab created', {
+      channelId: 'ctrip',
+      partitionName: 'persist:hotel-butler-browser',
+    });
+    expect(logger.info).toHaveBeenCalledWith('Browser tab closed', { channelId: 'ctrip' });
     expect(electron.views[0].webContents.close).toHaveBeenCalledOnce();
   });
 
@@ -265,6 +263,40 @@ describe('BrowserManager', () => {
       }),
     );
     expect(JSON.stringify(logger.error.mock.calls)).not.toContain('private.example');
+  });
+
+  it('does not report a page load failure after its tab is closed', async () => {
+    electron.setNextLoadError(new Error('load interrupted by close'));
+    const logger = createLogger();
+    const manager = createBrowserManager(createWindow(), logger);
+
+    const tab = manager.createWithAlreadyPartition(
+      'persist:test-shared',
+      'ctrip',
+      'https://ebooking.ctrip.com/',
+    );
+    manager.close(tab.id);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(logger.error).not.toHaveBeenCalledWith('Browser page load failed', expect.anything());
+  });
+
+  it('does not report a page load failure after the browser workspace is destroyed', async () => {
+    electron.setNextLoadError(new Error('load interrupted by shutdown'));
+    const logger = createLogger();
+    const manager = createBrowserManager(createWindow(), logger);
+
+    manager.createWithAlreadyPartition(
+      'persist:test-shared',
+      'ctrip',
+      'https://ebooking.ctrip.com/',
+    );
+    manager.destroy();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(logger.error).not.toHaveBeenCalledWith('Browser page load failed', expect.anything());
   });
 
   it('blocks non-web navigation and records only the channel category', () => {
@@ -582,6 +614,42 @@ describe('BrowserManager tab limit', () => {
 
 describe('BrowserManager failure state', () => {
   const CTRIP = 'https://ebooking.ctrip.com/';
+
+  it('records Ctrip loading phases without storing navigation URLs', () => {
+    const logger = createLogger();
+    const manager = createBrowserManager(createWindow(), logger);
+    const tab = manager.createWithAlreadyPartition(
+      'persist:xiaozhi:prod:ctrip:a',
+      'ctrip',
+      CTRIP,
+    );
+    const view = electron.views[0];
+
+    view.handlers.get('did-start-loading')?.();
+    view.handlers.get('did-navigate')?.(
+      {},
+      'https://ebooking.ctrip.com/login/index?secret=do-not-log',
+    );
+    view.handlers.get('did-finish-load')?.();
+    view.handlers.get('did-stop-loading')?.();
+
+    expect(logger.info).toHaveBeenCalledWith(
+      'Ctrip tab navigation',
+      expect.objectContaining({
+        tabId: tab.id,
+        partitionName: 'persist:xiaozhi:prod:ctrip:a',
+        phase: 'navigated',
+        sameOrigin: true,
+        loginPath: true,
+      }),
+    );
+    expect(
+      logger.info.mock.calls
+        .filter(([message]) => message === 'Ctrip tab navigation')
+        .map(([, details]) => (details as { phase: string }).phase),
+    ).toEqual(['created', 'started', 'navigated', 'main-frame-finished', 'stopped']);
+    expect(JSON.stringify(logger.info.mock.calls)).not.toContain('do-not-log');
+  });
 
   function openTab() {
     const window = createWindow();

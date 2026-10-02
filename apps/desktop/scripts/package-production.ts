@@ -14,8 +14,8 @@ import { PROFILES } from '../vite-plugins/app-env-profiles.mjs';
  * 不从 `apps/server/.env.production` 去读：那个文件被 gitignore（含数据库密码、
  * BETTER_AUTH_SECRET 等），每台机器各写一份，同一个地址会散成 N 份且互相不知道对错。
  *
- * ⚠️ RMS 仍是明文 HTTP：正式域名尚未启用 HTTPS，当前与 pre 指向同一台机器
- * （数据不隔离）。因此打包时会每次打印 WARNING。上了 HTTPS 后改 PROFILES 即可。
+ * RMS 当前与 pre 指向同一台机器（数据不隔离），使用 HTTPS。正式域名启用后
+ * 在 PROFILES 中分别配置。
  */
 const onlineProfile = PROFILES.online;
 if (onlineProfile.serverOrigin === null || onlineProfile.rmsOrigin === null) {
@@ -51,7 +51,7 @@ export function parseProductionDesktopCommand(argv: readonly string[]): Readonly
  * 归一化并校验生产 RMS 地址。入参是本文件顶部的常量，不再解析 `.env.production`。
  *
  * 常量已经是仓库自有的事实，这里的校验防的是**将来改错**：改成非 http(s) 协议、
- * 或把凭证写进 URL。明文 http 允许（当前就是），由调用方打印 WARNING 保证可见。
+ * 或把凭证写进 URL。显式覆盖成明文 http 时仍允许，由调用方打印 WARNING 保证可见。
  */
 export function resolveProductionRmsOrigin(rawUrl: string): string {
   const url = new URL(rawUrl);

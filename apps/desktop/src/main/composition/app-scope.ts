@@ -290,6 +290,16 @@ export function createAppScope(logger: AppLogger): AppScope {
     timeoutMs: number,
   ): Promise<unknown> => {
     const controller = new AbortController();
+    const startedAt = Date.now();
+    const requestUrl = URL.canParse(url) ? new URL(url) : null;
+    const ctripEndpoint =
+      requestUrl?.hostname === 'ebooking.ctrip.com' &&
+      requestUrl.pathname === '/ebkovsroom/api/inventory/getRcProductList'
+        ? 'getRcProductList'
+        : requestUrl?.hostname === 'ebooking.ctrip.com' &&
+            requestUrl.pathname === '/ebkovsroom/api/inventory/getRoomInventoryInfo'
+          ? 'getRoomInventoryInfo'
+          : null;
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     try {
       const response = await sessionFactory.sessionForAccount(partitionName).fetch(url, {
@@ -302,6 +312,21 @@ export function createAppScope(logger: AppLogger): AppScope {
         signal: controller.signal,
       });
       const text = await response.text();
+      if (ctripEndpoint) {
+        const contentType = response.headers.get('content-type') ?? '';
+        logger.info('Ctrip scan fetch completed', {
+          partitionName,
+          endpoint: ctripEndpoint,
+          status: response.status,
+          redirected: response.redirected,
+          contentKind: contentType.includes('json')
+            ? 'json'
+            : contentType.includes('html')
+              ? 'html'
+              : 'other',
+          elapsedMs: Date.now() - startedAt,
+        });
+      }
       // ⚠️ **HTTP 状态原样回传，不替渠道翻译成业务码**。
       //
       // 这个 fetcher 服务所有渠道，而「HTTP 401 等价于业务码 401」只对携程成立
@@ -321,9 +346,13 @@ export function createAppScope(logger: AppLogger): AppScope {
       // ⚠️ 超时与网络失败都回 null（调用方判成 NETWORK_ERROR），但要留一条日志 ——
       // 否则「cookie 失效」「渠道超时」「断网」在 GlitchTip 里长得一模一样。
       logger.warn('Ctrip scan fetch failed', {
-        url,
+        partitionName,
+        endpoint: ctripEndpoint ?? 'other',
         timedOut: controller.signal.aborted,
-        error: safeLogErrorDetails(error),
+        elapsedMs: Date.now() - startedAt,
+        errorName: error instanceof Error ? error.name : 'UnknownError',
+        networkErrorCode:
+          error instanceof Error ? (error.message.match(/\bERR_[A-Z_]+\b/)?.[0] ?? null) : null,
       });
       return null;
     } finally {
