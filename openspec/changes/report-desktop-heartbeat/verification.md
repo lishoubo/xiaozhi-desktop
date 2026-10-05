@@ -9,4 +9,4 @@
 
 ## 尚待联调
 
-本次按约定假设 RMS 已提供 `POST /api/v1/app/heartbeat`。尚未对真实服务端执行端到端请求；RMS 所需接口及存储行为在 `docs/rms-heartbeat-server-requirements.md` 单独记录，本任务没有修改 RMS 仓库。
+本次按约定假设 RMS 已提供 `POST /api/v1/app/heartbeat`。尚未对真实服务端执行端到端请求；RMS 所需接口及存储行为在独立的 `openspec/changes/report-rms-heartbeat/` 记录，本任务没有修改 RMS 仓库。

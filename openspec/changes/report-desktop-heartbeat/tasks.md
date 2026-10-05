@@ -13,4 +13,4 @@
 ## 3. 客户端验证
 
 - [x] 3.1 验证已登录客户端的一小时上报行为及未登录、登出时不发送；记录本仓库验证证据。
-- [ ] 3.2 在 RMS 独立接口可用后进行客户端联调；服务端实施与验证任务见 `docs/rms-heartbeat-server-requirements.md`，不在本仓库执行。
+- [ ] 3.2 在 RMS 独立接口可用后进行客户端联调；服务端需求见独立的 `openspec/changes/report-rms-heartbeat/`，不在本仓库执行。

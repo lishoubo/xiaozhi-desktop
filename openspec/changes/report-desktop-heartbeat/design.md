@@ -12,7 +12,7 @@
 
 ### 1. 独立的定期上报接口
 
-桌面端调用预期由 RMS 提供的 `POST /api/v1/app/heartbeat`，沿用现有 Bearer 认证、`X-App-Version` 和 `X-Device-Id`，不发送登录凭证或请求体。路径已表达心跳类型，不再添加 `X-Report-Type`。客户端按标准成功响应判断调用结果；接口服务端需求单独记录在 `docs/rms-heartbeat-server-requirements.md`。`GET /api/v1/me` 仍用于查询身份。
+桌面端调用预期由 RMS 提供的 `POST /api/v1/app/heartbeat`，沿用现有 Bearer 认证、`X-App-Version` 和 `X-Device-Id`，不发送登录凭证或请求体。路径已表达心跳类型，不再添加 `X-Report-Type`。客户端按标准成功响应判断调用结果；接口服务端需求单独记录在 `openspec/changes/report-rms-heartbeat/`。`GET /api/v1/me` 仍用于查询身份。
 
 ### 2. 独立的进程级调度服务，登录后立即上报
 

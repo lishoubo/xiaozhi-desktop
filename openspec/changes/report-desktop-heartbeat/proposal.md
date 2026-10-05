@@ -21,4 +21,4 @@
 ## Impact
 
 - 本仓库：桌面端认证客户端、会话生命周期、进程级定时服务与 `appConfig`。
-- 依赖 RMS 提供独立的上报接口；具体服务端需求见 [RMS 定期上报接口需求](../../../docs/rms-heartbeat-server-requirements.md)，不在本变更实施。
+- 依赖 RMS 提供独立的上报接口；具体服务端需求见独立的 [RMS 心跳 change](../report-rms-heartbeat/proposal.md)，不在本变更实施。
