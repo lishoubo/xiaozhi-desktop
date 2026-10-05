@@ -244,6 +244,12 @@ export type SnapshotCleanupConfig = Readonly<{
   startupDelayMs: number;
 }>;
 
+/** 已登录桌面端心跳的可调间隔。 */
+export type HeartbeatConfig = Readonly<{
+  /** 两次心跳完成后至下一次发起之间的间隔（毫秒）。 */
+  intervalMs: number;
+}>;
+
 export type AppConfig = Readonly<{
   /**
    * 单次渠道请求的超时（毫秒）—— **回读与扫描共用**。
@@ -258,6 +264,7 @@ export type AppConfig = Readonly<{
   inventoryReadback: InventoryReadbackConfig;
   inventoryScan: InventoryScanConfig;
   snapshotCleanup: SnapshotCleanupConfig;
+  heartbeat: HeartbeatConfig;
 }>;
 
 /**

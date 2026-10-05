@@ -35,6 +35,7 @@ import { mapMeituanReadRows } from '../inventory-snapshot/meituan-cells';
 import { AmountChangeReportService } from '../services/amount-change-report-service';
 import { HttpRmsAmountChangeGateway } from '../gateway/rms/rms-amount-change-gateway-http';
 import { StaffAuthService } from '../services/staff-auth-service';
+import { HeartbeatService } from '../services/heartbeat-service';
 import { createScanTargetsOf } from './scan-targets';
 import { toCredentialExpirySummary } from './credential-expiry-summary';
 import { readOrCreateDeviceId } from '../file-store/device-id';
@@ -85,6 +86,7 @@ export type AppScope = Readonly<{
    * 的状态也不能因重开窗口而丢。
    */
   updaterService: UpdaterService;
+  heartbeatService: HeartbeatService;
   /**
    * 运行期可调参数。进程级：与窗口生命周期无关，将来接服务端下发时下发的值也该跨窗口
    * 共享。当前只有内置默认值一层，见 `app-config/types.ts`。
@@ -198,6 +200,11 @@ export function createAppScope(logger: AppLogger): AppScope {
     tokenStore: createStaffTokenStore({ userDataDir, logger }),
     client: rmsAuthClient,
     now: () => Date.now(),
+    logger,
+  });
+  const heartbeatService = new HeartbeatService({
+    report: async () => rmsAuthClient.heartbeat(await rmsTokens.accessToken()),
+    intervalMs: () => appConfig.get().heartbeat.intervalMs,
     logger,
   });
   /** 业务 gateway 的请求出口：拿到它就只写业务请求，不必碰 token。 */
@@ -525,6 +532,7 @@ export function createAppScope(logger: AppLogger): AppScope {
     }),
     otaCredentialService,
     updaterService,
+    heartbeatService,
     appConfig,
     // 每次取值时才读 —— 将来接服务端下发时，运行中改的值才能被读到。
     channelRegistry,
@@ -575,6 +583,7 @@ export function createAppScope(logger: AppLogger): AppScope {
       }
     },
     dispose() {
+      heartbeatService.dispose();
       updaterService.dispose();
       inventoryScanDispatcher.dispose();
       snapshotCleaner.dispose();

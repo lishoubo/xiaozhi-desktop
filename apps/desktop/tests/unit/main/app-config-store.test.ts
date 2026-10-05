@@ -8,6 +8,13 @@ function source(patch: PartialAppConfig | null): AppConfigSource {
 }
 
 describe('AppConfigStore', () => {
+  it('uses a one-hour heartbeat interval and accepts an independent override', () => {
+    expect(new AppConfigStore().get().heartbeat.intervalMs).toBe(3_600_000);
+    const config = new AppConfigStore([source({ heartbeat: { intervalMs: 120_000 } })]).get();
+    expect(config.heartbeat.intervalMs).toBe(120_000);
+    expect(config.inventoryScan.idleMs).toBe(DEFAULT_APP_CONFIG.inventoryScan.idleMs);
+  });
+
   it('没有任何覆盖来源时取内置默认值', () => {
     expect(new AppConfigStore().get()).toEqual(DEFAULT_APP_CONFIG);
   });

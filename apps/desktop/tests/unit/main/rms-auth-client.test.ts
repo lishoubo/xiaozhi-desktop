@@ -93,6 +93,40 @@ describe('createRmsAuthClient login fingerprint headers', () => {
   });
 });
 
+describe('createRmsAuthClient heartbeat', () => {
+  it('posts to the dedicated heartbeat endpoint without changing profile requests', async () => {
+    const identity = {
+      userId: 42,
+      username: 'staff',
+      phone: null,
+      userType: 'STAFF',
+      fullName: 'Staff',
+      role: 'STAFF',
+      orgId: 1,
+      currentHotelId: null,
+      accessibleHotelIds: [],
+      permissions: [],
+    };
+    const { client, fetch } = setup({ code: 0, message: 'ok', data: identity });
+
+    await client.me('access-1');
+    await client.heartbeat('access-1');
+
+    const [profileUrl, profile] = fetch.mock.calls[0] as unknown as [string, RequestInit];
+    const [heartbeatUrl, heartbeat] = fetch.mock.calls[1] as unknown as [string, RequestInit];
+    const headers = heartbeat.headers as Record<string, string>;
+    expect(profileUrl).toBe(`${ORIGIN}/api/v1/me`);
+    expect(profile.method).toBe('GET');
+    expect(heartbeatUrl).toBe(`${ORIGIN}/api/v1/app/heartbeat`);
+    expect(heartbeat.method).toBe('POST');
+    expect(heartbeat.body).toBeUndefined();
+    expect(headers['x-report-type']).toBeUndefined();
+    expect(headers['x-app-version']).toBe('1.2.3');
+    expect(headers['x-device-id']).toBe('device-uuid-1');
+    expect(headers.authorization).toBe('Bearer access-1');
+  });
+});
+
 describe('createRmsAuthClient phone authentication', () => {
   const CODE_RESPONSE = { accepted: true, expiresInSeconds: 300, resendAfterSeconds: 60 } as const;
 
@@ -102,7 +136,10 @@ describe('createRmsAuthClient phone authentication', () => {
     const result = await client.requestPhoneCode('13800138000');
 
     expect(result).toEqual(CODE_RESPONSE);
-    const [url, init] = fetch.mock.calls[0] as unknown as [string, { method: string; body: string }];
+    const [url, init] = fetch.mock.calls[0] as unknown as [
+      string,
+      { method: string; body: string },
+    ];
     expect(url).toBe(`${ORIGIN}/api/v1/auth/sms/request-code`);
     expect(init.method).toBe('POST');
     expect(JSON.parse(init.body)).toEqual({ phone: '13800138000' });
@@ -134,7 +171,10 @@ describe('createRmsAuthClient phone authentication', () => {
     const pair = await client.loginWithPhoneCode('13800138000', '123456');
 
     expect(pair).toEqual(TOKEN_PAIR);
-    const [url, init] = fetch.mock.calls[0] as unknown as [string, { method: string; body: string }];
+    const [url, init] = fetch.mock.calls[0] as unknown as [
+      string,
+      { method: string; body: string },
+    ];
     expect(url).toBe(`${ORIGIN}/api/v1/auth/sms/login`);
     expect(init.method).toBe('POST');
     expect(JSON.parse(init.body)).toEqual({ phone: '13800138000', code: '123456' });

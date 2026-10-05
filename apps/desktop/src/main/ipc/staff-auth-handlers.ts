@@ -34,6 +34,7 @@ type RegisterStaffAuthHandlersOptions = Readonly<{
    * 是旁路不是主链：回调抛错不该让登录失败，所以在这里吞掉并记日志。
    */
   onIdentityResolved?: (identity: StaffIdentity) => void;
+  onSessionEnded?: () => void;
 }>;
 
 export function registerStaffAuthHandlers({
@@ -41,11 +42,24 @@ export function registerStaffAuthHandlers({
   logger,
   window,
   onIdentityResolved,
+  onSessionEnded,
 }: RegisterStaffAuthHandlersOptions): () => void {
   const registry = createHandlerRegistry({ window, logger });
 
+  const notifySessionEnded = (): void => {
+    try {
+      onSessionEnded?.();
+    } catch (error) {
+      logger.warn('Session-ended listener failed', { error });
+    }
+  };
+
   const notifyIdentity = (identity: StaffIdentity | null): void => {
-    if (identity === null || onIdentityResolved === undefined) return;
+    if (identity === null) {
+      notifySessionEnded();
+      return;
+    }
+    if (onIdentityResolved === undefined) return;
     try {
       onIdentityResolved(identity);
     } catch (error) {
@@ -84,9 +98,13 @@ export function registerStaffAuthHandlers({
       return identity;
     },
   );
-  registry.handle(IPC_CHANNELS.staffAuth.logout, z.tuple([]), '登录参数无效', () =>
-    service.logout(),
-  );
+  registry.handle(IPC_CHANNELS.staffAuth.logout, z.tuple([]), '登录参数无效', async () => {
+    try {
+      return await service.logout();
+    } finally {
+      notifySessionEnded();
+    }
+  });
 
   return () => registry.dispose();
 }

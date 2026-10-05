@@ -79,6 +79,7 @@ type WindowScopeDependencies = Pick<
   | 'hotelManagementService'
   | 'otaCredentialService'
   | 'updaterService'
+  | 'heartbeatService'
   | 'channelRegistry'
   | 'rms'
   | 'windowCapabilities'
@@ -367,7 +368,9 @@ export function createWindowScope(scope: WindowScopeDependencies): WindowScope {
        */
       onIdentityResolved: (identity) => {
         void scope.updaterService.checkOnce(identity);
+        scope.heartbeatService.start();
       },
+      onSessionEnded: () => scope.heartbeatService.stop(),
     }),
   );
 

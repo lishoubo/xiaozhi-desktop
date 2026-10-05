@@ -24,6 +24,7 @@ import type { AppConfig } from './types';
 const SCAN_PACE = { idleMs: 5 * 60_000, jitterMs: 60_000 };
 
 export const DEFAULT_APP_CONFIG: AppConfig = {
+  heartbeat: { intervalMs: 60 * 60_000 },
   // 回读与扫描共用。30s 沿用 `rms-rpa-worker` 侧 `inventory.py` 的口径。
   requestTimeoutMs: 30_000,
   inventoryReadback: {

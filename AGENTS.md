@@ -14,6 +14,7 @@
 | `packages/api/` | desktop 与 server 共享的 tRPC contract、schema 和纯类型；不放任一应用的实现细节 |
 
 - 跨端接口先定义共享 contract，再分别实现 server procedure 和 desktop client；不得让 desktop 直接依赖 server 实现。
+- 本仓库任务不跨项目修改代码。涉及相邻项目时，只在本仓库单独记录对方需要提供的能力；对方项目的代码应在对方项目自己的任务中实施。
 - 设计 desktop UI 时以当前任务为中心，控制信息密度，优先渐进披露，避免把辅助信息长期堆在主界面。
 - 设计 server 管理后台时从管理人员的业务任务出发，优先可检索、可比较、可追踪和可恢复，不照搬 desktop 布局。
 - 全仓 UI 原则只维护在根目录 `DESIGN.md`；子项目不复制该文件，有确实独立的规则时写入对应目录的 `AGENTS.md`。

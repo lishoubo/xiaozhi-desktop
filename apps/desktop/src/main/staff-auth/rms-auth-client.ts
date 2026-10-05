@@ -30,6 +30,7 @@ export interface RmsAuthClient {
   loginWithPhoneCode(phone: string, code: string): Promise<RmsTokenPair>;
   refresh(refreshToken: string): Promise<RmsTokenPair>;
   me(accessToken: string): Promise<StaffIdentity>;
+  heartbeat(accessToken: string): Promise<void>;
   logout(accessToken: string): Promise<void>;
 }
 
@@ -281,6 +282,15 @@ export function createRmsAuthClient(deps: RmsAuthClientDependencies): RmsAuthCli
         });
       }
       return parsed.data;
+    },
+
+    heartbeat: async (accessToken) => {
+      await call({
+        operation: 'heartbeat',
+        method: 'POST',
+        path: '/api/v1/app/heartbeat',
+        accessToken,
+      });
     },
 
     logout: async (accessToken) => {
