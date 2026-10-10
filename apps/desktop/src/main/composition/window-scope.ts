@@ -14,7 +14,7 @@ import {
   loginUrlMatchers,
 } from '../channels/registry';
 import { BrowserCookieImporter } from '../cookie-import/browser-cookie-importer';
-import { registerAgentHandlers } from '../ipc/agent-handlers';
+// import { registerAgentHandlers } from '../ipc/agent-handlers';
 import { registerBrowserHandlers } from '../ipc/browser-handlers';
 import { registerCalendarHandlers } from '../ipc/calendar-handlers';
 import { registerCookieHandlers } from '../ipc/cookie-handlers';
@@ -32,10 +32,10 @@ import { registerSystemHandlers } from '../ipc/system-handlers';
 import { LoginDetector, OtaTabService, TabEventBus } from '../ota-tab';
 import { resolveServerOrigin } from '../server-client/config';
 import {
-  createElectronSessionFetch,
-  createServerTrpcStreamingClient,
+  // createElectronSessionFetch,
+  // createServerTrpcStreamingClient,
 } from '../server-client/trpc-client';
-import { createStaffServerFetch } from '../server-client/staff-server-fetch';
+// import { createStaffServerFetch } from '../server-client/staff-server-fetch';
 import { installPrivateCaTrust, loadPackagedPrivateCa } from '../server-client/private-ca-trust';
 import { StaffAuthService } from '../services/staff-auth-service';
 import { CalendarService } from '../services/calendar-service';
@@ -57,7 +57,7 @@ import { HttpRmsAmountChangeGateway } from '../gateway/rms/rms-amount-change-gat
 import { AmountChangeReportService } from '../services/amount-change-report-service';
 import type { UiWaitingResultEnvelope } from '../../shared/types/ui-waiting-result-types';
 import { SystemService } from '../services/system-service';
-import { AgentService } from '../services/agent-service';
+// import { AgentService } from '../services/agent-service';
 import { IPC_CHANNELS } from '../../shared/ipc-channels';
 import { createMainWindow } from '../windows/main-window';
 import type { AppScope } from './app-scope';
@@ -339,8 +339,11 @@ export function createWindowScope(scope: WindowScopeDependencies): WindowScope {
   const apiSession = scope.sessionFactory.sessionForServerApi();
   const privateCa = loadPackagedPrivateCa(app.isPackaged, process.resourcesPath, process.env);
   if (privateCa) installPrivateCaTrust(apiSession, serverOrigin, privateCa);
-  const serverFetch = createElectronSessionFetch(apiSession);
-  const agentFetch = createStaffServerFetch(serverFetch, scope.rms.tokens, logger);
+  // const serverFetch = createElectronSessionFetch(apiSession);
+  // const agentFetch = createStaffServerFetch(serverFetch, scope.rms.tokens, logger);
+  
+  // 屏蔽 Agent 服务的实例化，防止产生多余的后台持续轮询请求（废弃后端的 404）
+  /*
   const agentService = new AgentService(
     createServerTrpcStreamingClient({ baseUrl: serverOrigin, fetch: agentFetch }),
     (envelope) => {
@@ -350,6 +353,8 @@ export function createWindowScope(scope: WindowScopeDependencies): WindowScope {
   );
   onDispose(() => agentService.dispose());
   onDispose(registerAgentHandlers({ window, service: agentService, logger }));
+  */
+  
   // 认证栈建在 app scope：业务 gateway 也要用同一份 token，不能各持一套。
   onDispose(
     registerStaffAuthHandlers({
