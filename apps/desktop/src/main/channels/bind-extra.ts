@@ -43,12 +43,12 @@ export function withChannelAccount(
  *
  * | 渠道 | 键 | 内容 |
  * |---|---|---|
- * | 携程 | `hotelName` | 酒店名（优先使用） / `userName` 兜底 |
+ * | 携程 | `login` | 登录名（优先使用） / `hotelName` / `userName` 兜底 |
  * | 抖音 | `name` | 账号名 |
- * | 美团 | `login` | 登录名（美团既没有 `hotelName` 也没有 `name`） |
+ * | 美团 | `login` | 登录名 |
  *
- * ⚠️ **顺序有意义，`hotelName` 排在最前**：根据最新需求，携程需要优先使用酒店名（`hotelName`）
- * 作为账号显示名。如果取不到再降级取 `userName`。
+ * ⚠️ **顺序有意义**：根据最新需求，携程需要优先使用登录名（`login`）
+ * 作为账号显示名。如果取不到再降级取 `hotelName` 或 `userName`。
  *
  * 其余键名互不重叠，按优先级依次取即可，不必按渠道分支。取不到返回 null——名字只是
  * 展示增强，缺了不该阻断绑定。
@@ -60,10 +60,10 @@ export function withChannelAccount(
 export function channelAccountNameOf(credentialExtra: JsonObject | null): string | null {
   if (credentialExtra === null) return null;
   return (
+    nonBlank(credentialExtra.login) ??
     nonBlank(credentialExtra.hotelName) ??
     nonBlank(credentialExtra.userName) ??
-    nonBlank(credentialExtra.name) ??
-    nonBlank(credentialExtra.login)
+    nonBlank(credentialExtra.name)
   );
 }
 

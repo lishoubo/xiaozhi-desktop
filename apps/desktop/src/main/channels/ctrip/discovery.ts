@@ -56,6 +56,9 @@ export function createCtripDiscovery(logger: AppLogger): DiscoverCtrip {
       logger.info('Ctrip discovery read account identity', {
         identitySource: identity.credentialExtra.identitySource,
         hasHotel: identity.credentialExtra.masterHotelId !== null,
+        userName: identity.credentialExtra.userName,
+        hotelName: identity.credentialExtra.hotelName,
+        rawIdentity: JSON.stringify(raw), // 额外把原始结构打出来，方便排查
       });
       return { kind: 'found', credential: identity };
     } catch (error) {
