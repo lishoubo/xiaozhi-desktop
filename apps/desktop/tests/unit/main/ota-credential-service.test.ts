@@ -103,9 +103,9 @@ describe('OtaCredentialService', () => {
       id: toOtaCredentialId('generated-credential-id'),
       channel: ctripChannel,
       channelAccountId: '12345',
-      // 携程的名字取自 credentialExtra.userName（账号名，不是酒店名）——
+      // 携程的名字优先取自 credentialExtra.hotelName（酒店名）——
       // 渠道差异在写入时抹平，见 channelAccountNameOf。
-      channelAccountName: '携程测试账号',
+      channelAccountName: '携程测试酒店',
       partitionName: ctripPartitionName,
       credentialExtra: {
         huid: '12324831',
@@ -171,7 +171,7 @@ describe('OtaCredentialService', () => {
     expect(deps.credentialRepository.create).not.toHaveBeenCalled();
     expect(deps.credentialRepository.updateIdentity).toHaveBeenCalledWith(existingCredential.id, {
       channelAccountId: '12345',
-      channelAccountName: '携程测试账号',
+      channelAccountName: '携程测试酒店',
       credentialExtra: {
         huid: '12324831',
         userName: '携程测试账号',
