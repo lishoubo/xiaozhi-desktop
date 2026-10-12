@@ -67,6 +67,7 @@ describe('desktop production logging', () => {
         console: { level: 'debug' as string | false },
         file: {
           level: 'debug' as string | false,
+          format: '',
           maxSize: 0,
           inspectOptions: {},
           resolvePathFn: () => 'default.log',
@@ -84,6 +85,9 @@ describe('desktop production logging', () => {
     });
 
     expect(logger.transports.file.level).toBe('info');
+    expect(logger.transports.file.format).toBe(
+      `[{y}-{m}-{d} {h}:{i}:{s}.{ms}] [{level}][mainPid:${process.pid}]{scope} {text}`,
+    );
     expect(logger.transports.file.maxSize).toBe(10 * 1024 * 1024);
     expect(logger.transports.file.resolvePathFn()).toBe(
       path.join('/native/app/logs/staff', 'main.log'),

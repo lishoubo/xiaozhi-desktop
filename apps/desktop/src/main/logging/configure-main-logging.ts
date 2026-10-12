@@ -16,6 +16,7 @@ type MainLoggingTarget = {
     console: { level: string | false };
     file: {
       level: string | false;
+      format: typeof import('electron-log/main').transports.file.format;
       maxSize: number;
       // depth 与 electron-log 的实际签名对齐（它允许 null/undefined 表示「不限制/用默认」），
       // 这里写窄了会让 index.ts 传入真实 logger 时类型不兼容。
@@ -101,6 +102,8 @@ export function configureDesktopLogDirectory(
 export function configureMainLogging(logger: MainLoggingTarget, options: MainLoggingOptions): void {
   const logFilePath = path.join(options.logsDirectory, 'main.log');
   logger.transports.file.level = options.isPackaged ? 'info' : 'debug';
+  // 渲染进程的日志也会汇入 main.log；标记负责写文件的主进程 PID，便于区分并行实例。
+  logger.transports.file.format = `[{y}-{m}-{d} {h}:{i}:{s}.{ms}] [{level}][mainPid:${process.pid}]{scope} {text}`;
   logger.transports.file.maxSize = MAX_LOG_FILE_SIZE;
   logger.transports.file.inspectOptions = { depth: FILE_LOG_INSPECT_DEPTH };
   logger.transports.file.resolvePathFn = () => logFilePath;
