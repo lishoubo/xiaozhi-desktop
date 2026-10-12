@@ -5,7 +5,7 @@
  * 远端 gateway 可以（重新开窗要复用），窗口、BrowserManager、IPC handler 不行。
  * 此前两类混在一起，导致 21 个可空模块变量和两份彼此不一致的清理清单。
  */
-import { app, autoUpdater } from 'electron';
+import { app, autoUpdater, powerSaveBlocker } from 'electron';
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { safeLogErrorDetails, type AppLogger } from '../../shared/logging';
@@ -501,6 +501,17 @@ export function createAppScope(logger: AppLogger): AppScope {
     reportError,
   });
   inventoryScanDispatcher.start();
+  // 应用运行期间保持系统活跃，让后台定时扫描不因空闲自动休眠而中断；屏幕仍可关闭。
+  // 防休眠是辅助能力；系统接口出错时不能让整个应用启动失败。
+  let powerSaveBlockerId: number | null = null;
+  try {
+    powerSaveBlockerId = powerSaveBlocker.start('prevent-app-suspension');
+    logger.info('Automatic sleep prevention requested', { powerSaveBlockerId });
+  } catch (error) {
+    logger.warn('Automatic sleep prevention request failed', {
+      error: safeLogErrorDetails(error),
+    });
+  }
 
   return {
     logger,
@@ -583,6 +594,16 @@ export function createAppScope(logger: AppLogger): AppScope {
       }
     },
     dispose() {
+      if (powerSaveBlockerId !== null) {
+        try {
+          powerSaveBlocker.stop(powerSaveBlockerId);
+          logger.info('Automatic sleep prevention released', { powerSaveBlockerId });
+        } catch (error) {
+          logger.warn('Automatic sleep prevention release failed', {
+            error: safeLogErrorDetails(error),
+          });
+        }
+      }
       heartbeatService.dispose();
       updaterService.dispose();
       inventoryScanDispatcher.dispose();
