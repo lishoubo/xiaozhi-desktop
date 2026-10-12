@@ -8,6 +8,11 @@
 import { z } from 'zod';
 import type { AppLogger } from '../../../shared/logging';
 import { noopErrorReporter, type ErrorReporter } from '../../error-reporting/error-reporter';
+import { RmsApiRequestError } from './types';
+
+function isRetryableStatus(status: number): boolean {
+  return status === 408 || status === 429 || status >= 500;
+}
 
 /**
  * `data` 用 `optional`：错误响应（`ApiResponse.error`）不带这个字段，若要求必填，
@@ -46,11 +51,16 @@ export function createRmsApiCall(deps: RmsApiCallerDependencies): RmsApiCall {
   const { origin, fetch, logger, subject, reportError = noopErrorReporter } = deps;
 
   return async (operation, method, path, body) => {
-    const response = await fetch(`${origin}${path}`, {
-      method,
-      headers: body === undefined ? undefined : { 'content-type': 'application/json' },
-      body: body === undefined ? undefined : JSON.stringify(body),
-    });
+    let response: Response;
+    try {
+      response = await fetch(`${origin}${path}`, {
+        method,
+        headers: body === undefined ? undefined : { 'content-type': 'application/json' },
+        body: body === undefined ? undefined : JSON.stringify(body),
+      });
+    } catch (cause) {
+      throw new RmsApiRequestError(`${subject}请求失败，请稍后重试`, true, { cause });
+    }
 
     let payload: unknown;
     try {
@@ -61,7 +71,11 @@ export function createRmsApiCall(deps: RmsApiCallerDependencies): RmsApiCall {
         subject,
         status: response.status,
       });
-      const error = new Error(`${subject}返回异常，请稍后重试`, { cause });
+      const error = new RmsApiRequestError(
+        `${subject}返回异常，请稍后重试`,
+        isRetryableStatus(response.status),
+        { cause },
+      );
       reportError(error, {
         operation,
         extra: { subject, status: response.status, reason: 'invalid-json' },
@@ -77,7 +91,11 @@ export function createRmsApiCall(deps: RmsApiCallerDependencies): RmsApiCall {
         subject,
         status: response.status,
       });
-      const error = new Error(`${subject}返回异常，请稍后重试`, { cause: envelope.error });
+      const error = new RmsApiRequestError(
+        `${subject}返回异常，请稍后重试`,
+        isRetryableStatus(response.status),
+        { cause: envelope.error },
+      );
       reportError(error, {
         operation,
         extra: { subject, status: response.status, reason: 'unexpected-shape' },
@@ -92,10 +110,25 @@ export function createRmsApiCall(deps: RmsApiCallerDependencies): RmsApiCall {
         rmsCode: envelope.data.code,
       });
       // 远端 message 已是面向人的文案，直接透传比在这里重编一套更准确。
-      const error = new Error(envelope.data.message ?? `${subject}操作失败，请稍后重试`);
+      const error = new RmsApiRequestError(
+        envelope.data.message ?? `${subject}操作失败，请稍后重试`,
+        isRetryableStatus(response.status),
+      );
       reportError(error, {
         operation,
         extra: { subject, rmsCode: envelope.data.code, reason: 'rejected' },
+      });
+      throw error;
+    }
+
+    if (!response.ok) {
+      const error = new RmsApiRequestError(
+        `${subject}请求失败，请稍后重试`,
+        isRetryableStatus(response.status),
+      );
+      reportError(error, {
+        operation,
+        extra: { subject, status: response.status, reason: 'http-error' },
       });
       throw error;
     }

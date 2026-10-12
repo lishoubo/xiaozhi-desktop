@@ -19,7 +19,8 @@
  * ## 什么情况下会抛
  *
  * 只有传输层/结构层失败：网络断、非 `ApiResponse` 形状、`code != 0`（401 无登录态、
- * 400 请求体结构性错误）。抛出后由 `AmountChangeReportService` 重试 1 次再放弃——
+ * 400 请求体结构性错误）。抛出后由 `AmountChangeReportService` 仅对可恢复失败
+ * 按 1s、3s 最多重试 2 次——
  * 那一层已经吞掉异常，不会冒泡成 unhandled rejection。
  */
 import { z } from 'zod';

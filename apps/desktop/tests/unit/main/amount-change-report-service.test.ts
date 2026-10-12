@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { AmountChangeReportService } from '../../../src/main/services/amount-change-report-service';
+import { RmsApiRequestError } from '../../../src/main/gateway/rms/types';
 import { toChannelId } from '../../../src/main/ids';
 import type {
   OtaAmountChangeObserved,
@@ -25,7 +26,11 @@ const PARTITION = 'persist:xiaozhi:prod:douyin:abc123';
 /** 默认的身份查询：登录人 + 渠道账号都查得到。 */
 function createIdentity(
   overrides: Partial<{
-    currentStaff: () => Promise<{ userId: number; username: string; fullName: string | null } | null>;
+    currentStaff: () => Promise<{
+      userId: number;
+      username: string;
+      fullName: string | null;
+    } | null>;
     credentialByPartition: (
       partitionName: string,
     ) => Promise<{ channelAccountId: string | null; credentialExtra: JsonObject | null } | null>;
@@ -159,41 +164,79 @@ describe('AmountChangeReportService', () => {
     );
   });
 
-  it('第一次失败会重试一次，且两次用同一个 operationId（幂等键不能变）', async () => {
-    const reportAmountChange = vi
-      .fn()
-      .mockRejectedValueOnce(new Error('boom'))
-      .mockResolvedValueOnce(undefined);
+  it('瞬时失败后分别等待 1s、3s 重试，三次用同一个 operationId', async () => {
+    vi.useFakeTimers();
+    try {
+      const reportAmountChange = vi
+        .fn()
+        .mockRejectedValueOnce(new RmsApiRequestError('network down', true))
+        .mockRejectedValueOnce(new RmsApiRequestError('server busy', true))
+        .mockResolvedValueOnce(undefined);
+      const service = new AmountChangeReportService({
+        gateway: { reportAmountChange },
+        identity: createIdentity(),
+        logger: createLogger(),
+      });
+
+      const reporting = service.report(OBSERVED, PARTITION);
+      await vi.advanceTimersByTimeAsync(999);
+      expect(reportAmountChange).toHaveBeenCalledTimes(1);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(reportAmountChange).toHaveBeenCalledTimes(2);
+      await vi.advanceTimersByTimeAsync(2999);
+      expect(reportAmountChange).toHaveBeenCalledTimes(2);
+      await vi.advanceTimersByTimeAsync(1);
+      await reporting;
+
+      expect(reportAmountChange).toHaveBeenCalledTimes(3);
+      const first = reportAmountChange.mock.calls[0][0] as Record<string, unknown>;
+      const second = reportAmountChange.mock.calls[1][0] as Record<string, unknown>;
+      expect(second.operationId).toBe(first.operationId);
+      expect((reportAmountChange.mock.calls[2][0] as Record<string, unknown>).operationId).toBe(
+        first.operationId,
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('三次瞬时失败则放弃并告警，不向上抛（没有人在等这个结果）', async () => {
+    vi.useFakeTimers();
+    try {
+      const reportAmountChange = vi.fn(() => Promise.reject(new RmsApiRequestError('boom', true)));
+      const logger = createLogger();
+      const service = new AmountChangeReportService({
+        gateway: { reportAmountChange },
+        identity: createIdentity(),
+        logger,
+      });
+
+      const reporting = service.report(OBSERVED, PARTITION);
+      await vi.advanceTimersByTimeAsync(4000);
+      await expect(reporting).resolves.toBeUndefined();
+
+      expect(reportAmountChange).toHaveBeenCalledTimes(3);
+      expect(logger.warn).toHaveBeenCalledWith(
+        expect.stringContaining('giving up'),
+        expect.anything(),
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('永久性失败不重试', async () => {
+    const reportAmountChange = vi.fn(() =>
+      Promise.reject(new RmsApiRequestError('bad request', false)),
+    );
     const service = new AmountChangeReportService({
       gateway: { reportAmountChange },
       identity: createIdentity(),
       logger: createLogger(),
     });
 
-    await service.report(OBSERVED, PARTITION);
-
-    expect(reportAmountChange).toHaveBeenCalledTimes(2);
-    const first = reportAmountChange.mock.calls[0][0] as Record<string, unknown>;
-    const second = reportAmountChange.mock.calls[1][0] as Record<string, unknown>;
-    expect(second.operationId).toBe(first.operationId);
-  });
-
-  it('两次都失败则放弃并告警，不向上抛（没有人在等这个结果）', async () => {
-    const reportAmountChange = vi.fn(() => Promise.reject(new Error('boom')));
-    const logger = createLogger();
-    const service = new AmountChangeReportService({
-      gateway: { reportAmountChange },
-      identity: createIdentity(),
-      logger,
-    });
-
     await expect(service.report(OBSERVED, PARTITION)).resolves.toBeUndefined();
-
-    expect(reportAmountChange).toHaveBeenCalledTimes(2);
-    expect(logger.warn).toHaveBeenCalledWith(
-      expect.stringContaining('giving up'),
-      expect.anything(),
-    );
+    expect(reportAmountChange).toHaveBeenCalledTimes(1);
   });
 });
 

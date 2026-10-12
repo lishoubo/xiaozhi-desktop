@@ -10,6 +10,18 @@ import type { OtaAmountChangeReport } from '../../../shared/types/amount-change'
 import type { RmsHotel, RmsHotelCreateInput } from '../../../shared/types/rms-hotel';
 import type { RmsOtaAccount } from '../../../shared/types/rms-ota-account';
 
+/** RMS 请求边界提供给调用方的失败分类，不暴露 HTTP 实现细节。 */
+export class RmsApiRequestError extends Error {
+  constructor(
+    message: string,
+    readonly retryable: boolean,
+    options?: ErrorOptions,
+  ) {
+    super(message, options);
+    this.name = 'RmsApiRequestError';
+  }
+}
+
 export interface RmsHotelGateway {
   listHotels(): Promise<readonly RmsHotel[]>;
   createHotel(input: RmsHotelCreateInput): Promise<RmsHotel>;

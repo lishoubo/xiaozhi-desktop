@@ -24,6 +24,38 @@ function createCall(fetchImpl: typeof globalThis.fetch, reportError = vi.fn()) {
 }
 
 describe('createRmsApiCall 的错误上报', () => {
+  it('网络错误与 408/429/5xx 可重试，400 与业务拒绝不可重试', async () => {
+    const cases = [
+      { fetch: () => Promise.reject(new TypeError('network down')), retryable: true },
+      {
+        fetch: () => Promise.resolve(jsonResponse({ code: 408, message: 'timeout' }, 408)),
+        retryable: true,
+      },
+      {
+        fetch: () => Promise.resolve(jsonResponse({ code: 429, message: 'rate limited' }, 429)),
+        retryable: true,
+      },
+      {
+        fetch: () => Promise.resolve(jsonResponse({ code: 503, message: 'busy' }, 503)),
+        retryable: true,
+      },
+      { fetch: () => Promise.resolve(jsonResponse({ code: 0 }, 503)), retryable: true },
+      {
+        fetch: () => Promise.resolve(jsonResponse({ code: 400, message: 'bad' }, 400)),
+        retryable: false,
+      },
+      {
+        fetch: () => Promise.resolve(jsonResponse({ code: 40001, message: 'invalid' })),
+        retryable: false,
+      },
+    ];
+    for (const item of cases) {
+      const { call } = createCall(item.fetch);
+      await expect(call('reportAmountChange', 'POST', '/ota-changes')).rejects.toMatchObject({
+        retryable: item.retryable,
+      });
+    }
+  });
   it('业务码非 0 时上报，并带上 operation 与 rmsCode', async () => {
     const { call, reportError } = createCall(() =>
       Promise.resolve(jsonResponse({ code: 40001, message: '该酒店未开通' })),

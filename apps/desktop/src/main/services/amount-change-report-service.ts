@@ -17,7 +17,9 @@ import type {
 import type { JsonObject } from '../../shared/types/json';
 import { channelAccountNameOf } from '../channels/bind-extra';
 import { otaHotelNameOf } from '../channels/ota-hotel-name';
-import type { RmsAmountChangeGateway } from '../gateway/rms/types';
+import { RmsApiRequestError, type RmsAmountChangeGateway } from '../gateway/rms/types';
+
+const REPORT_RETRY_DELAYS_MS = [1_000, 3_000] as const;
 
 /**
  * 身份补齐所需的两个窄查询。用函数而不是直接注入 service/仓储对象：这里只需要「查一下」
@@ -55,9 +57,9 @@ export class AmountChangeReportService {
    * 上报一次改动。**不抛异常**：调用方是浏览器里的用户操作，没有人在等这个结果，往上抛只会
    * 变成 unhandled rejection。
    *
-   * 失败重试一次后放弃。不落盘重试是有意的取舍：跟价的时效性很强，隔几分钟才补报上去，RMS
-   * 那边可能已经不适用了；而落盘队列会牵出「重启后补报」「顺序保证」一串问题。代价是偶发漏报
-   * —— 已知，日志留痕。
+   * 可恢复失败后分别等待 1s、3s 重试，最多发送三次。不落盘重试是有意的取舍：跟价的时效性
+   * 很强，隔几分钟才补报上去，RMS 那边可能已经不适用了；而落盘队列会牵出「重启后
+   * 补报」「顺序保证」一串问题。代价是偶发漏报 —— 已知，日志留痕。
    */
   async report(observed: OtaAmountChangeObserved, partitionName: string): Promise<void> {
     // 身份查询失败不阻断上报：改价事实本身比「是谁改的」重要得多，缺了身份 RMS 照样能
@@ -68,10 +70,13 @@ export class AmountChangeReportService {
     ]);
 
     if (!staff) {
-      this.deps.logger.warn('Amount change report: no signed-in staff, reporting without operator', {
-        source: observed.source,
-        endpointId: observed.endpointId,
-      });
+      this.deps.logger.warn(
+        'Amount change report: no signed-in staff, reporting without operator',
+        {
+          source: observed.source,
+          endpointId: observed.endpointId,
+        },
+      );
     }
 
     const otaHotelId = this.resolveOtaHotelId(observed, credential?.credentialExtra ?? null);
@@ -95,24 +100,29 @@ export class AmountChangeReportService {
       submitAt: new Date().toISOString(),
     };
 
-    for (let attempt = 1; attempt <= 2; attempt += 1) {
+    for (let attempt = 1; attempt <= REPORT_RETRY_DELAYS_MS.length + 1; attempt += 1) {
       try {
         await this.deps.gateway.reportAmountChange(report);
         return;
       } catch (error) {
-        const isLastAttempt = attempt === 2;
+        const retryDelayMs = REPORT_RETRY_DELAYS_MS[attempt - 1];
+        const shouldRetry =
+          error instanceof RmsApiRequestError && error.retryable && retryDelayMs !== undefined;
         this.deps.logger.warn(
-          isLastAttempt
-            ? 'Amount change report failed, giving up'
-            : 'Amount change report failed, retrying once',
+          shouldRetry
+            ? 'Amount change report failed, retrying'
+            : 'Amount change report failed, giving up',
           {
             operationId: report.operationId,
             source: report.source,
             otaHotelId: report.otaHotelId,
             attempt,
+            retryDelayMs: shouldRetry ? retryDelayMs : null,
             error: safeLogErrorDetails(error),
           },
         );
+        if (!shouldRetry) return;
+        await new Promise<void>((resolve) => setTimeout(resolve, retryDelayMs));
       }
     }
   }
