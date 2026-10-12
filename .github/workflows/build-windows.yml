@@ -23,10 +23,10 @@ jobs:
     timeout-minutes: 45
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       # engines 要求 node >=24 <25，这里跟着仓库约束走，不另立版本。
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: 24
           cache: npm
@@ -81,7 +81,7 @@ jobs:
       # 别漏掉——Forge 收尾会打印 "Artifacts available at:" 指向真实位置。
       # 同时收 nupkg 与 RELEASES：有它们才能做后续增量更新，只留 exe 会丢掉这个能力。
       - name: 上传安装包及诊断脚本
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: windows-${{ inputs.app_env }}
           if-no-files-found: error
