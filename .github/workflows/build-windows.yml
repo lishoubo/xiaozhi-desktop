@@ -63,6 +63,9 @@ jobs:
           # SvelteKit 类型产物（.svelte-kit/），desktop 的 check 会读。
           npm run prepare --workspace @hotel-butler/server || echo ''
 
+      - name: 验证诊断脚本的 Windows 系统依赖
+        run: node --test scripts/tests/windows-install-diagnostic.test.mjs
+
       # 打包脚本自己会校验环境、回显 RMS 地址，非法值当场失败，不必在这里重复判断。
       #
       # HOTEL_BUTLER_PRIVATE_CA_PATH 不能省：客户端靠这份 CA 校验两台自签 HTTPS 服务
@@ -77,7 +80,7 @@ jobs:
       # 产物路径里那层 `staff/` 来自 forge.config.ts 的 `buildIdentifier`，
       # 别漏掉——Forge 收尾会打印 "Artifacts available at:" 指向真实位置。
       # 同时收 nupkg 与 RELEASES：有它们才能做后续增量更新，只留 exe 会丢掉这个能力。
-      - name: 上传安装包
+      - name: 上传安装包及诊断脚本
         uses: actions/upload-artifact@v4
         with:
           name: windows-${{ inputs.app_env }}
@@ -87,3 +90,4 @@ jobs:
             apps/desktop/out/staff/make/squirrel.windows/x64/*.exe
             apps/desktop/out/staff/make/squirrel.windows/x64/*.nupkg
             apps/desktop/out/staff/make/squirrel.windows/x64/RELEASES
+            apps/desktop/out/staff/make/squirrel.windows/x64/*.cmd

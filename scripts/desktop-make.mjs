@@ -16,8 +16,10 @@
  * 应用要装到 Windows，`#!/bin/sh` 在那儿跑不了。
  */
 import { spawnSync } from 'node:child_process';
+import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { createWindowsInstallDiagnostic } from './create-windows-install-diagnostic.mjs';
 
 const repoRoot = fileURLToPath(new URL('..', import.meta.url));
 
@@ -110,7 +112,9 @@ if (rmsOrigin === null) {
 console.log(`环境: ${appEnv}`);
 console.log(`应用名: ${profile.productName}（${profile.bundleId} / ${profile.squirrelName}）`);
 console.log(`RMS 地址: ${rmsOrigin}`);
-console.log(`目标: ${targetFlag === undefined ? '当前平台' : targetFlag.slice('--target='.length)}`);
+console.log(
+  `目标: ${targetFlag === undefined ? '当前平台' : targetFlag.slice('--target='.length)}`,
+);
 
 // 明文 HTTP 需要显式豁免（见 vite-plugins/rms-origin.ts）。若构建者覆盖成远端
 // HTTP 地址，这里替它打开豁免并**每次都告警**——豁免必须是看得见的。
@@ -154,3 +158,37 @@ run(
 // `package` 只出 .app/.exe 目录，`make` 还会打成 zip/Squirrel 安装包。
 const forgeCommand = packageOnly ? 'package' : 'make';
 run('npm', ['run', forgeCommand, '--workspace', '@hotel-butler/desktop', '--', ...forwarded]);
+
+function forwardedOption(name) {
+  const combined = forwarded.find((arg) => arg.startsWith(`${name}=`));
+  if (combined !== undefined) return combined.slice(name.length + 1);
+  const index = forwarded.indexOf(name);
+  return index < 0 ? null : (forwarded[index + 1] ?? null);
+}
+
+// Forge's Squirrel output is created only by a Windows make. Keep support tooling in the
+// same directory so GitHub's existing release artifact contains one flat set of files.
+const targetPlatform = forwardedOption('--platform') ?? process.platform;
+const targetArch = forwardedOption('--arch') ?? process.arch;
+if (!packageOnly && targetPlatform === 'win32' && targetArch === 'x64') {
+  const desktopPackage = JSON.parse(
+    await readFile(path.join(repoRoot, 'apps', 'desktop', 'package.json'), 'utf8'),
+  );
+  const releaseDir = path.join(
+    repoRoot,
+    'apps',
+    'desktop',
+    'out',
+    'staff',
+    'make',
+    'squirrel.windows',
+    targetArch,
+  );
+  const diagnosticPath = await createWindowsInstallDiagnostic({
+    releaseDir,
+    productName: profile.productName,
+    squirrelName: profile.squirrelName,
+    version: desktopPackage.version,
+  });
+  console.log(`诊断安装脚本: ${diagnosticPath}`);
+}
