@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Provide a repeatable support artifact for Windows installation failures so a customer can capture the installation result without locating or sending a log file.
+Provide a repeatable support artifact for Windows installations so a customer can send a diagnostic log after either a successful or failed setup attempt.
 
 ## Requirements
 
@@ -20,20 +20,28 @@ A successful Windows x64 release build SHALL produce a versioned diagnostic comm
 
 ### Requirement: Diagnostic launch exposes setup results
 
-The diagnostic entrypoint SHALL run the bundled Setup.exe and, after it closes, present its exit code, whether the target application version directory exists, and the latest available Squirrel installation log excerpt. On Windows 10 and 11, it SHALL require no separately installed runtime. It SHALL retain a readable command window fallback if a graphical diagnostic dialog cannot open. It SHALL not change the Setup.exe or the Squirrel update feed.
+The diagnostic entrypoint SHALL create or replace a versioned diagnostic log beside the command script at the start of every run, falling back to the temporary directory if that location is not writable. It SHALL verify that the file was created before reporting its path. It SHALL find the sole Setup.exe in the command script's directory independently of the script's filename, run it, and record its path and exit code, whether the target application version directory exists, and the latest available Squirrel installation log excerpt in that file. It SHALL print the saved diagnostic content in its command window on success and failure and wait for a key press before exiting. On Windows 10 and 11, it SHALL require no separately installed runtime. It SHALL not change the Setup.exe or the Squirrel update feed.
+
+#### Scenario: Installer succeeds
+- **WHEN** Setup.exe exits successfully
+- **THEN** a new diagnostic log remains beside the command script with the exit code and installation state
+
+#### Scenario: Installer is missing at runtime
+- **WHEN** a user runs the diagnostic command without the matching Setup.exe beside it
+- **THEN** the diagnostic log and command window show that Setup.exe was missing and list the files beside the script before waiting for a key press
 
 #### Scenario: Installer fails with a Squirrel log
 - **WHEN** Setup.exe exits and a Squirrel installation log is available
-- **THEN** a support user can capture the recent log lines and installation state in a screenshot
+- **THEN** a support user can send the diagnostic log containing recent Squirrel lines and installation state
 
 #### Scenario: Installer fails without a log
 - **WHEN** Setup.exe exits and no Squirrel installation log is available
-- **THEN** the diagnostic result explicitly reports that no log was found and still shows the exit code and installation state
+- **THEN** the diagnostic file explicitly reports that no Squirrel log was found and still records the exit code and installation state
 
-#### Scenario: Other installers are present
-- **WHEN** the diagnostic script runs beside Setup.exe files for multiple environments
-- **THEN** it launches only the Setup.exe matching its own product name
+#### Scenario: Multiple installers are present
+- **WHEN** the diagnostic script runs beside multiple Setup.exe files
+- **THEN** it records the ambiguity and does not launch any installer
 
-#### Scenario: Graphical diagnostic is blocked
-- **WHEN** PowerShell or Windows Forms cannot display the diagnostic popup
-- **THEN** the installer still runs and the command window remains open with the exit code and locations to inspect
+#### Scenario: Diagnostic log cannot be found after collection
+- **WHEN** the diagnostic file disappears before its content can be displayed
+- **THEN** the command window explicitly reports the missing file and still waits for a key press
