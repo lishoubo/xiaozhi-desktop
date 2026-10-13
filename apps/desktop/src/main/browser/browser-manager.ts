@@ -10,6 +10,7 @@ import {
 } from 'electron';
 import { EventEmitter } from 'node:events';
 import { randomUUID } from 'node:crypto';
+import { join } from 'node:path';
 import type { ChannelId } from '../ids';
 import { IPC_CHANNELS } from '../../shared/ipc-channels';
 import {
@@ -245,6 +246,7 @@ export class BrowserManager extends EventEmitter {
         nodeIntegration: false,
         sandbox: true,
         session: tabSession,
+        preload: join(__dirname, 'dialog-preload.js'),
         // OTA 后台是纯浏览与表单操作，拼写检查用不上，每个标签页省一点内存。
         spellcheck: false,
         // 同一个渠道后台会被反复打开，缓存编译结果省下重复的 JS 编译开销。
@@ -267,6 +269,22 @@ export class BrowserManager extends EventEmitter {
     };
     this.tabs.set(id, tab);
     view.webContents.setAudioMuted(this.audioMuted);
+    view.webContents.ipc.on('embedded-web:javascript-dialog', (_event, kind: unknown) => {
+      if (kind !== 'alert' && kind !== 'confirm' && kind !== 'prompt') return;
+      let siteOrigin = 'unknown';
+      try {
+        siteOrigin = new URL(view.webContents.getURL()).origin;
+      } catch {
+        // 加载第一帧之前 URL 可能尚不可用。
+      }
+      this.logger.info('Embedded web dialog opened', {
+        channelId: tab.channelId,
+        tabId: tab.id,
+        siteOrigin,
+        active: this.activeTabId === tab.id,
+        kind,
+      });
+    });
     this.bindTabEvents(tab);
     // 网页自开的标签页传 false：由界面收到 `tab:opened` 后走标准收尾流程激活。
     // 主进程代劳激活的话，界面不知情、无人同步视口尺寸，新视图会拿到过期的

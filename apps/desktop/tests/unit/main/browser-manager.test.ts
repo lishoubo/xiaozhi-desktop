@@ -55,6 +55,11 @@ const electron = vi.hoisted(() => {
       on: vi.fn((event: string, listener: (...args: unknown[]) => void) => {
         this.handlers.set(event, listener);
       }),
+      ipc: {
+        on: vi.fn((event: string, listener: (...args: unknown[]) => void) => {
+          this.handlers.set(`ipc:${event}`, listener);
+        }),
+      },
       reload: vi.fn(),
       setAudioMuted: vi.fn(),
       setWindowOpenHandler: vi.fn((listener: (...args: unknown[]) => unknown) => {
@@ -142,6 +147,43 @@ beforeEach(() => {
 });
 
 describe('BrowserManager', () => {
+  it('logs native dialog source without logging its message or full URL after the view is hidden', () => {
+    const logger = createLogger();
+    const manager = createBrowserManager(createWindow(), logger);
+    const tab = manager.createWithAlreadyPartition(
+      'persist:xiaozhi:online:meituan:account',
+      'meituan',
+      'https://me.meituan.com/',
+    );
+    electron.views[0].webContents.getURL.mockReturnValue('https://me.meituan.com/path?token=secret');
+
+    logger.info.mockClear();
+    electron.views[0].handlers.get('ipc:embedded-web:javascript-dialog')?.({}, 'confirm');
+    expect(logger.info).toHaveBeenLastCalledWith('Embedded web dialog opened', {
+      channelId: 'meituan',
+      tabId: tab.id,
+      siteOrigin: 'https://me.meituan.com',
+      active: true,
+      kind: 'confirm',
+    });
+
+    manager.hide();
+    electron.views[0].handlers.get('ipc:embedded-web:javascript-dialog')?.({}, 'alert', 'private');
+
+    expect(logger.info).toHaveBeenCalledWith('Embedded web dialog opened', {
+      channelId: 'meituan',
+      tabId: tab.id,
+      siteOrigin: 'https://me.meituan.com',
+      active: false,
+      kind: 'alert',
+    });
+    expect(JSON.stringify(logger.info.mock.calls)).not.toContain('secret');
+    expect(JSON.stringify(logger.info.mock.calls)).not.toContain('private');
+    const loggedCalls = logger.info.mock.calls.length;
+    electron.views[0].handlers.get('ipc:embedded-web:javascript-dialog')?.({}, 'unexpected');
+    expect(logger.info).toHaveBeenCalledTimes(loggedCalls);
+  });
+
   it('applies one audio state to every existing tab and lets new tabs inherit it', () => {
     const manager = createBrowserManager(createWindow(), createLogger());
     manager.createWithAlreadyPartition(

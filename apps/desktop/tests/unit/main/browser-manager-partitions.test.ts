@@ -21,6 +21,7 @@ const electron = vi.hoisted(() => {
       on: vi.fn((event: string, listener: (...args: unknown[]) => void) => {
         this.handlers.set(event, listener);
       }),
+      ipc: { on: vi.fn() },
       reload: vi.fn(),
       setAudioMuted: vi.fn(),
       setWindowOpenHandler: vi.fn(),
