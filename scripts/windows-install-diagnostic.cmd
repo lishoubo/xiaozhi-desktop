@@ -3,6 +3,7 @@ setlocal EnableExtensions DisableDelayedExpansion
 set "TARGET_VERSION=__APP_VERSION__"
 set "SQUIRREL_NAME=__SQUIRREL_NAME__"
 set "APP_FOLDER=%LOCALAPPDATA%\%SQUIRREL_NAME%\app-%TARGET_VERSION%"
+set "SQUIRREL_DIR=%LOCALAPPDATA%\SquirrelTemp"
 set "DIAG_LOG=%~dp0install-diagnostic-__APP_VERSION__.log"
 > "%DIAG_LOG%" echo Installation diagnostic for version %TARGET_VERSION%
 if errorlevel 1 goto log_fallback
@@ -38,22 +39,35 @@ for %%F in ("%~dp0*-setup.exe") do if exist "%%~fF" (
 if defined MULTIPLE_SETUP goto multiple_setup
 if not defined SETUP goto setup_missing
 >> "%DIAG_LOG%" echo Setup executable: "%SETUP%"
+for %%F in ("%SETUP%") do >> "%DIAG_LOG%" echo Setup size: %%~zF bytes; modified: %%~tF
+if exist "%APP_FOLDER%" (
+  >> "%DIAG_LOG%" echo App folder existed before install: True
+) else (
+  >> "%DIAG_LOG%" echo App folder existed before install: False
+)
+for %%F in ("%SQUIRREL_DIR%\SquirrelSetup.log" "%SQUIRREL_DIR%\Squirrel-Install.log") do if exist "%%~fF" >> "%DIAG_LOG%" echo Existing Squirrel log before install: "%%~fF"; modified: %%~tF; size: %%~zF bytes
 echo Setup executable: "%SETUP%"
 echo Starting the original installer. Close its result dialog before the diagnostic appears.
-start "" /wait "%SETUP%"
+start "" /wait "%SETUP%" >> "%DIAG_LOG%" 2>&1
 set "INSTALL_EXIT=%ERRORLEVEL%"
 set "RESULT_EXIT=%INSTALL_EXIT%"
 >> "%DIAG_LOG%" echo Installer exit code: %INSTALL_EXIT%
+if "%INSTALL_EXIT%"=="5" >> "%DIAG_LOG%" echo Exit code 5 can mean access denied; the installer may also return 5 itself.
 >> "%DIAG_LOG%" echo Expected app folder: "%APP_FOLDER%"
 if exist "%APP_FOLDER%" (
   >> "%DIAG_LOG%" echo App folder exists: True
 ) else (
   >> "%DIAG_LOG%" echo App folder exists: False
 )
-set "POWERSHELL=%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe"
-if not exist "%POWERSHELL%" goto powershell_missing
-"%POWERSHELL%" -NoProfile -Command "$ErrorActionPreference='Stop'; $root=Join-Path $env:LOCALAPPDATA 'SquirrelTemp'; $files=@('SquirrelSetup.log','Squirrel-Install.log') | ForEach-Object { Join-Path $root $_ } | Where-Object { Test-Path -LiteralPath $_ }; $log=$files | Sort-Object { (Get-Item -LiteralPath $_).LastWriteTimeUtc } -Descending | Select-Object -First 1; $tail=if($log){ (Get-Content -LiteralPath $log -Tail 120 -ErrorAction SilentlyContinue) -join [Environment]::NewLine } else { 'No Squirrel log was found.' }; $stamp=if($log){ (Get-Item -LiteralPath $log).LastWriteTime.ToString('yyyy-MM-dd HH:mm:ss') } else { 'none' }; $logPath=if($log){ $log } else { 'none' }; $details='Squirrel log path: '+$logPath+[Environment]::NewLine+'Squirrel log updated: '+$stamp+[Environment]::NewLine+'Squirrel log tail:'+[Environment]::NewLine+$tail+[Environment]::NewLine; [System.IO.File]::AppendAllText($env:DIAG_LOG,$details,[System.Text.Encoding]::UTF8)"
-if errorlevel 1 goto powershell_failed
+set "SQUIRREL_FOUND="
+for %%F in ("%SQUIRREL_DIR%\SquirrelSetup.log" "%SQUIRREL_DIR%\Squirrel-Install.log") do if exist "%%~fF" (
+  set "SQUIRREL_FOUND=1"
+  >> "%DIAG_LOG%" echo Squirrel log: "%%~fF"; modified: %%~tF; size: %%~zF bytes
+  >> "%DIAG_LOG%" echo ----- Squirrel log content begins -----
+  type "%%~fF" >> "%DIAG_LOG%" 2>&1
+  >> "%DIAG_LOG%" echo ----- Squirrel log content ends -----
+)
+if not defined SQUIRREL_FOUND >> "%DIAG_LOG%" echo No Squirrel log was found in "%SQUIRREL_DIR%".
 goto diagnostic_done
 :multiple_setup
 >> "%DIAG_LOG%" echo Multiple setup executables were found beside this diagnostic launcher.
@@ -61,15 +75,11 @@ set "RESULT_EXIT=4"
 goto diagnostic_done
 :setup_missing
 >> "%DIAG_LOG%" echo Setup executable was not found beside this diagnostic launcher.
+>> "%DIAG_LOG%" echo Extract the entire ZIP before running this script; opening a CMD inside the ZIP extracts only that file.
 >> "%DIAG_LOG%" echo Files beside this diagnostic launcher:
 dir /b /a-d "%~dp0" >> "%DIAG_LOG%" 2>&1
 set "RESULT_EXIT=2"
 goto diagnostic_done
-:powershell_missing
->> "%DIAG_LOG%" echo Squirrel log collection unavailable: Windows PowerShell was not found.
-goto diagnostic_done
-:powershell_failed
->> "%DIAG_LOG%" echo Squirrel log collection failed. Check %LOCALAPPDATA%\SquirrelTemp manually.
 :diagnostic_done
 echo.
 echo ===== Installation diagnostic result =====

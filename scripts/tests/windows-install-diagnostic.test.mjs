@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { copyFile, mkdtemp, readFile, unlink, writeFile } from 'node:fs/promises';
+import { copyFile, mkdir, mkdtemp, readFile, unlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -28,13 +28,15 @@ test('generates a versioned launcher beside the unchanged installer', async () =
   assert.match(content, /set "APP_FOLDER=%LOCALAPPDATA%\\%SQUIRREL_NAME%\\app-%TARGET_VERSION%"/);
   assert.match(content, /SquirrelSetup\.log/);
   assert.match(content, /Squirrel-Install\.log/);
+  assert.match(content, /type "%%~fF" >> "%DIAG_LOG%" 2>&1/);
+  assert.doesNotMatch(content, /powershell\.exe/i);
   assert.match(content, /INSTALL_EXIT/);
   assert.match(content, /set "DIAG_LOG=%~dp0install-diagnostic-1\.0\.6\.log"/);
   assert.ok(content.indexOf('> "%DIAG_LOG%"') < content.indexOf('if not defined SETUP'));
   assert.match(content, /if not exist "%DIAG_LOG%" goto log_fallback/);
-  assert.match(content, /AppendAllText/);
   assert.match(content, /setlocal EnableExtensions DisableDelayedExpansion/);
-  assert.match(content, /%SystemRoot%\\System32\\WindowsPowerShell\\v1\.0\\powershell\.exe/);
+  assert.match(content, /start "" \/wait "%SETUP%" >> "%DIAG_LOG%" 2>&1/);
+  assert.match(content, /App folder existed before install:/);
   assert.match(content, /type "%DIAG_LOG%"/);
   assert.doesNotMatch(content, /MessageBox/);
   assert.ok(content.indexOf('type "%DIAG_LOG%"') < content.lastIndexOf('pause'));
@@ -54,7 +56,7 @@ test('fails when the expected installer is missing', async () => {
 });
 
 test(
-  'runs under native Windows CMD and has built-in PowerShell available',
+  'reports a missing installer under native Windows CMD',
   { skip: process.platform !== 'win32' },
   async () => {
     const releaseDir = await mkdtemp(path.join(os.tmpdir(), 'xiaozhi-diagnostic-test-'));
@@ -84,18 +86,6 @@ test(
       'utf8',
     );
     assert.match(diagnostic, /Setup executable was not found/);
-
-    const powershell = spawnSync(
-      path.join(systemRoot, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe'),
-      [
-        '-NoProfile',
-        '-Command',
-        'Add-Type -AssemblyName System.Windows.Forms -ErrorAction Stop; Write-Output ready',
-      ],
-      { encoding: 'utf8', timeout: 10_000 },
-    );
-    assert.equal(powershell.status, 0, powershell.stderr);
-    assert.match(powershell.stdout, /ready/);
   },
 );
 
@@ -110,6 +100,10 @@ test(
       path.join(systemRoot, 'System32', 'hostname.exe'),
       path.join(releaseDir, '小智酒店管家-setup.exe'),
     );
+    const localAppData = path.join(releaseDir, 'local-app-data');
+    const squirrelTemp = path.join(localAppData, 'SquirrelTemp');
+    await mkdir(squirrelTemp, { recursive: true });
+    await writeFile(path.join(squirrelTemp, 'SquirrelSetup.log'), 'Squirrel diagnostic marker\r\n');
     const launcher = await createWindowsInstallDiagnostic({
       releaseDir,
       productName: '小智酒店管家',
@@ -123,6 +117,7 @@ test(
       path.join(systemRoot, 'System32', 'cmd.exe'),
       ['/d', '/c', renamedLauncher],
       {
+        env: { ...process.env, LOCALAPPDATA: localAppData },
         input: '\r\n',
         encoding: 'utf8',
         timeout: 10_000,
@@ -130,7 +125,8 @@ test(
     );
     assert.equal(cmd.status, 0, cmd.stderr);
     assert.match(cmd.stdout, /Installer exit code: 0/);
-    assert.match(cmd.stdout, /Squirrel log path:/);
+    assert.match(cmd.stdout, /Squirrel log/);
+    assert.match(cmd.stdout, /Squirrel diagnostic marker/);
     const diagnostic = await readFile(
       path.join(releaseDir, 'install-diagnostic-1.0.6.log'),
       'utf8',
@@ -139,5 +135,6 @@ test(
     assert.match(diagnostic, /Setup executable: /);
     assert.match(diagnostic, /App folder exists: (True|False)/);
     assert.match(diagnostic, /Squirrel log/);
+    assert.match(diagnostic, /Squirrel diagnostic marker/);
   },
 );
