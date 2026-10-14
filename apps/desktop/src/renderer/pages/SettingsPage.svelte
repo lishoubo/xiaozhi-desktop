@@ -3,6 +3,8 @@
   import log from 'electron-log/renderer';
   import { errorFields } from '../logging';
   import FileText from '@lucide/svelte/icons/file-text';
+  import FolderOpen from '@lucide/svelte/icons/folder-open';
+  import Copy from '@lucide/svelte/icons/copy';
   import MonitorUp from '@lucide/svelte/icons/monitor-up';
   import Settings2 from '@lucide/svelte/icons/settings-2';
   import { enter, PAGE_ENTER_OPTIONS } from '../motion';
@@ -53,6 +55,32 @@
         ...errorFields(reason),
       });
       showSettingsError('打开日志目录失败，请重试。');
+    }
+  }
+
+  async function openInstallationDirectory(): Promise<void> {
+    try {
+      await window.hotelButler.system.openInstallationDirectory();
+      dismissAppNotification('settings-error');
+    } catch (reason) {
+      log.warn('Installation directory could not be opened', { ...errorFields(reason) });
+      showSettingsError('打开安装目录失败，请重试。');
+    }
+  }
+
+  async function copyInstallationDirectory(): Promise<void> {
+    try {
+      await window.hotelButler.system.copyInstallationDirectory();
+      dismissAppNotification('settings-error');
+      showAppNotification({
+        id: 'installation-directory-copied',
+        title: '安装目录已复制',
+        message: '可粘贴到需要使用该路径的位置。',
+        tone: 'default',
+      });
+    } catch (reason) {
+      log.warn('Installation directory could not be copied', { ...errorFields(reason) });
+      showSettingsError('复制安装目录失败，请重试。');
     }
   }
 
@@ -111,6 +139,36 @@
           <Button variant="outline" size="sm" onclick={() => void openLogsDirectory()}>
             打开日志目录
           </Button>
+        </div>
+        <div class="flex items-center justify-between gap-6 px-6 py-4">
+          <span class="min-w-0 flex-1 text-sm">
+            <span class="flex items-center gap-3">
+              <FolderOpen size={17} class="shrink-0 text-muted-foreground" />
+              安装目录
+            </span>
+            <code class="mt-1 block break-all pl-[29px] text-xs text-muted-foreground select-text"
+              >{preferences?.installationDirectory ?? '正在读取…'}</code
+            >
+          </span>
+          <span class="flex shrink-0 items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={!preferences}
+              onclick={() => void copyInstallationDirectory()}
+            >
+              <Copy size={15} />
+              复制路径
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={!preferences}
+              onclick={() => void openInstallationDirectory()}
+            >
+              打开安装目录
+            </Button>
+          </span>
         </div>
       </div>
     </section>

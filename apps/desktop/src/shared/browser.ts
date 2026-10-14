@@ -309,6 +309,7 @@ export type FindCredentialForAccountInput = Readonly<
 export const systemPreferencesSchema = z.strictObject({
   autoLaunch: z.boolean(),
   version: nonEmptyStringSchema,
+  installationDirectory: nonEmptyStringSchema,
 });
 
 export type SystemPreferences = Readonly<z.infer<typeof systemPreferencesSchema>>;

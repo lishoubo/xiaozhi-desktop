@@ -5,7 +5,7 @@
  * 一份清理清单，两份已经不一致（`otaCredentialService` 只在其中一份被置空），
  * 而且每加一个 handler 就要在三处同步改动（声明、注册、两处清理）。
  */
-import { app, shell, type BrowserWindow } from 'electron';
+import { app, clipboard, shell, type BrowserWindow } from 'electron';
 import { BrowserManager } from '../browser/browser-manager';
 import {
   amountChangeAdapters,
@@ -57,6 +57,7 @@ import { HttpRmsAmountChangeGateway } from '../gateway/rms/rms-amount-change-gat
 import { AmountChangeReportService } from '../services/amount-change-report-service';
 import type { UiWaitingResultEnvelope } from '../../shared/types/ui-waiting-result-types';
 import { SystemService } from '../services/system-service';
+import { resolveInstallationDirectory } from '../services/installation-directory';
 // import { AgentService } from '../services/agent-service';
 import { IPC_CHANNELS } from '../../shared/ipc-channels';
 import { createMainWindow } from '../windows/main-window';
@@ -307,6 +308,8 @@ export function createWindowScope(scope: WindowScopeDependencies): WindowScope {
         app,
         shell,
         logsDirectory: app.getPath('logs'),
+        installationDirectory: resolveInstallationDirectory(process.execPath, process.platform),
+        clipboard,
         logger,
       }),
       logger,

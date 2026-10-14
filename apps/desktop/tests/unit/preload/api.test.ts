@@ -3,6 +3,18 @@ import { IPC_CHANNELS } from '../../../src/shared/ipc-channels';
 import { createDesktopApi } from '../../../src/preload/api';
 
 describe('createDesktopApi', () => {
+  it('exposes fixed installation directory actions without accepting renderer paths', async () => {
+    const invoke = vi.fn(async () => undefined);
+    const api = createDesktopApi({ chrome: '1', electron: '2', node: '3' }, invoke);
+
+    await api.system.openInstallationDirectory();
+    await api.system.copyInstallationDirectory();
+    expect(invoke.mock.calls).toEqual([
+      [IPC_CHANNELS.system.openInstallationDirectory],
+      [IPC_CHANNELS.system.copyInstallationDirectory],
+    ]);
+  });
+
   it('maps the narrow staff auth API without exposing a session token', async () => {
     const identity = {
       userId: 7,

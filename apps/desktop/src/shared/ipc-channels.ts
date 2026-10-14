@@ -100,6 +100,8 @@ export const IPC_CHANNELS = {
     getPreferences: 'system:get-preferences',
     setAutoLaunch: 'system:set-auto-launch',
     openLogsDirectory: 'system:open-logs-directory',
+    openInstallationDirectory: 'system:open-installation-directory',
+    copyInstallationDirectory: 'system:copy-installation-directory',
     openExternal: 'system:open-external',
   },
   updater: {

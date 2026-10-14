@@ -11,6 +11,8 @@ export interface SystemOrchestrator {
   getPreferences(): SystemPreferences;
   setAutoLaunch(enabled: boolean): SystemPreferences;
   openLogsDirectory(): Promise<void>;
+  openInstallationDirectory(): Promise<void>;
+  copyInstallationDirectory(): void;
   openExternal(url: string): Promise<void>;
 }
 
@@ -38,6 +40,18 @@ export function registerSystemHandlers({
   );
   registry.handle(IPC_CHANNELS.system.openLogsDirectory, noArgumentsSchema, '请求参数无效', () =>
     service.openLogsDirectory(),
+  );
+  registry.handle(
+    IPC_CHANNELS.system.openInstallationDirectory,
+    noArgumentsSchema,
+    '请求参数无效',
+    () => service.openInstallationDirectory(),
+  );
+  registry.handle(
+    IPC_CHANNELS.system.copyInstallationDirectory,
+    noArgumentsSchema,
+    '请求参数无效',
+    () => service.copyInstallationDirectory(),
   );
   // 协议白名单在 service 里，不在这里：schema 只管"是不是个字符串"。
   registry.handle(

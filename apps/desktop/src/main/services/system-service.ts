@@ -23,6 +23,8 @@ export type SystemServiceDependencies = Readonly<{
   app: SystemApp;
   shell: SystemShell;
   logsDirectory: string;
+  installationDirectory: string;
+  clipboard: Readonly<{ writeText: (text: string) => void }>;
   logger: AppLogger;
 }>;
 
@@ -33,6 +35,7 @@ export class SystemService {
     return {
       autoLaunch: this.deps.app.getLoginItemSettings().openAtLogin,
       version: this.deps.app.getVersion(),
+      installationDirectory: this.deps.installationDirectory,
     };
   }
 
@@ -61,6 +64,20 @@ export class SystemService {
       throw new Error(`无法打开日志目录：${failure}`);
     }
     this.deps.logger.info('Logs directory opened', { logsDirectory: this.deps.logsDirectory });
+  }
+
+  async openInstallationDirectory(): Promise<void> {
+    const failure = await this.deps.shell.openPath(this.deps.installationDirectory);
+    if (failure) {
+      this.deps.logger.warn('Could not open installation directory', { failure });
+      throw new Error(`无法打开安装目录：${failure}`);
+    }
+    this.deps.logger.info('Installation directory opened');
+  }
+
+  copyInstallationDirectory(): void {
+    this.deps.clipboard.writeText(this.deps.installationDirectory);
+    this.deps.logger.info('Installation directory copied');
   }
 
   /**

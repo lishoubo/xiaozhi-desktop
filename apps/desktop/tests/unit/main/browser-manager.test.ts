@@ -258,7 +258,7 @@ describe('BrowserManager', () => {
       webPreferences: {
         contextIsolation: true,
         nodeIntegration: false,
-        sandbox: false,
+        sandbox: true,
       },
     });
     expect(logger.info).toHaveBeenCalledWith('Browser tab created', {
