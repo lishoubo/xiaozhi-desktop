@@ -67,12 +67,35 @@ if exist "%APP_FOLDER%" (
   >> "%DIAG_LOG%" echo App folder exists: False
 )
 if exist "%APP_FOLDER%" (
-  set "PROBE_DIR=%APP_FOLDER%"
-  set "PROBE_LABEL=Installed app folder"
-  set "PROBE_MODE=installer"
-  goto probe_directory
+  goto installed_app_check
 )
 goto collect_squirrel
+:installed_app_check
+>> "%DIAG_LOG%" echo ----- Installed app folder d3dcompiler_47.dll check -----
+>> "%DIAG_LOG%" echo Directory: "%APP_FOLDER%"
+icacls "%APP_FOLDER%" >> "%DIAG_LOG%" 2>&1
+set "DLL_FILE=%APP_FOLDER%\d3dcompiler_47.dll"
+>> "%DIAG_LOG%" echo Exact DLL path: "%DLL_FILE%"
+if not exist "%DLL_FILE%" goto installed_dll_missing
+>> "%DIAG_LOG%" echo Exact DLL exists: True
+>> "%DIAG_LOG%" echo Exact DLL permissions:
+icacls "%DLL_FILE%" >> "%DIAG_LOG%" 2>&1
+>> "%DIAG_LOG%" echo Exact DLL attributes:
+attrib "%DLL_FILE%" >> "%DIAG_LOG%" 2>&1
+copy /b "%DLL_FILE%" nul > nul 2>> "%DIAG_LOG%"
+>> "%DIAG_LOG%" echo Exact DLL read result code: %ERRORLEVEL%
+>> "%DIAG_LOG%" echo Existing DLL was not modified.
+goto collect_squirrel
+:installed_dll_missing
+>> "%DIAG_LOG%" echo Exact DLL exists: False; there is no file ACL to inspect.
+set "PROBE_FILE=%APP_FOLDER%\install-diagnostic-write-probe-%RANDOM%-%RANDOM%.tmp"
+if exist "%PROBE_FILE%" goto collect_squirrel
+copy /b "%~f0" "%PROBE_FILE%" >> "%DIAG_LOG%" 2>&1
+set "PROBE_EXIT=%ERRORLEVEL%"
+>> "%DIAG_LOG%" echo Directory write probe result code: %PROBE_EXIT%
+if exist "%PROBE_FILE%" del /f /q "%PROBE_FILE%" >> "%DIAG_LOG%" 2>&1
+if exist "%PROBE_FILE%" >> "%DIAG_LOG%" echo Write probe file remains: "%PROBE_FILE%"
+>> "%DIAG_LOG%" echo A successful temporary-file write does not prove Squirrel can write the real DLL or that security software will allow it.
 :collect_squirrel
 >> "%DIAG_LOG%" echo Check each Squirrel log modified time against Started; it may predate this installer attempt.
 set "SQUIRREL_FOUND="
@@ -102,12 +125,27 @@ if not defined APP_EXE goto setup_missing
 for %%F in ("%APP_EXE%") do >> "%DIAG_LOG%" echo App size: %%~zF bytes; modified: %%~tF
 >> "%DIAG_LOG%" echo App executable permissions:
 icacls "%APP_EXE%" >> "%DIAG_LOG%" 2>&1
-set "PROBE_DIR=%~dp0."
-set "PROBE_LABEL=Portable app folder"
-set "PROBE_MODE=portable"
-goto probe_directory
+>> "%DIAG_LOG%" echo ----- Portable app folder d3dcompiler_47.dll check -----
+>> "%DIAG_LOG%" echo Directory: "%~dp0."
+icacls "%~dp0." >> "%DIAG_LOG%" 2>&1
+set "DLL_FILE=%~dp0d3dcompiler_47.dll"
+>> "%DIAG_LOG%" echo Exact DLL path: "%DLL_FILE%"
+if not exist "%DLL_FILE%" goto portable_dll_missing
+>> "%DIAG_LOG%" echo Exact DLL exists: True
+for %%F in ("%DLL_FILE%") do >> "%DIAG_LOG%" echo Exact DLL size: %%~zF bytes; modified: %%~tF
+>> "%DIAG_LOG%" echo Exact DLL permissions:
+icacls "%DLL_FILE%" >> "%DIAG_LOG%" 2>&1
+>> "%DIAG_LOG%" echo Exact DLL attributes:
+attrib "%DLL_FILE%" >> "%DIAG_LOG%" 2>&1
+copy /b "%DLL_FILE%" nul > nul 2>> "%DIAG_LOG%"
+>> "%DIAG_LOG%" echo Exact DLL read result code: %ERRORLEVEL%
+>> "%DIAG_LOG%" echo Existing DLL was not modified.
+goto launch_portable
+:portable_dll_missing
+>> "%DIAG_LOG%" echo Exact DLL exists: False; there is no file ACL to inspect.
 :launch_portable
 echo Starting the portable app once to check whether Windows permits process creation.
+>> "%DIAG_LOG%" echo App launch command started.
 start "" "%APP_EXE%" >> "%DIAG_LOG%" 2>&1
 set "RESULT_EXIT=%ERRORLEVEL%"
 >> "%DIAG_LOG%" echo App launch command exit code: %RESULT_EXIT%
@@ -128,53 +166,6 @@ goto diagnostic_done
 dir /b /a-d "%~dp0" >> "%DIAG_LOG%" 2>&1
 set "RESULT_EXIT=2"
 goto diagnostic_done
-:probe_directory
->> "%DIAG_LOG%" echo ----- %PROBE_LABEL% d3dcompiler_47.dll check -----
->> "%DIAG_LOG%" echo Directory: "%PROBE_DIR%"
-icacls "%PROBE_DIR%" >> "%DIAG_LOG%" 2>&1
-set "DLL_FILE=%PROBE_DIR%\d3dcompiler_47.dll"
->> "%DIAG_LOG%" echo Exact DLL path: "%DLL_FILE%"
-if exist "%DLL_FILE%" goto inspect_existing_dll
->> "%DIAG_LOG%" echo Exact DLL exists: False; there is no file ACL to inspect.
-set "PROBE_FILE=%PROBE_DIR%\install-diagnostic-write-probe-%RANDOM%-%RANDOM%.tmp"
-if exist "%PROBE_FILE%" (
-  >> "%DIAG_LOG%" echo Write probe path already exists; no file was changed: "%PROBE_FILE%"
-  goto probe_done
-)
->> "%DIAG_LOG%" echo Testing a separate temporary file in the DLL directory: "%PROBE_FILE%"
-copy /b "%~f0" "%PROBE_FILE%" >> "%DIAG_LOG%" 2>&1
-set "PROBE_EXIT=%ERRORLEVEL%"
->> "%DIAG_LOG%" echo Directory write probe result code: %PROBE_EXIT%
-if not "%PROBE_EXIT%"=="0" (
-  if exist "%PROBE_FILE%" (
-    del /f /q "%PROBE_FILE%" >> "%DIAG_LOG%" 2>&1
-    if exist "%PROBE_FILE%" >> "%DIAG_LOG%" echo Write probe file remains: "%PROBE_FILE%"
-  )
-  goto probe_done
-)
-if not exist "%PROBE_FILE%" (
-  >> "%DIAG_LOG%" echo Write probe file was not found after write.
-  goto probe_done
-)
-del /f /q "%PROBE_FILE%" >> "%DIAG_LOG%" 2>&1
->> "%DIAG_LOG%" echo Directory write probe cleanup result code: %ERRORLEVEL%
-if exist "%PROBE_FILE%" >> "%DIAG_LOG%" echo Write probe file remains: "%PROBE_FILE%"
->> "%DIAG_LOG%" echo A successful temporary-file write does not prove Squirrel can write the real DLL or that security software will allow it.
-goto probe_done
-:inspect_existing_dll
->> "%DIAG_LOG%" echo Exact DLL exists: True
-for %%F in ("%DLL_FILE%") do >> "%DIAG_LOG%" echo Exact DLL size: %%~zF bytes; modified: %%~tF
->> "%DIAG_LOG%" echo Exact DLL permissions:
-icacls "%DLL_FILE%" >> "%DIAG_LOG%" 2>&1
->> "%DIAG_LOG%" echo Exact DLL attributes:
-attrib "%DLL_FILE%" >> "%DIAG_LOG%" 2>&1
-copy /b "%DLL_FILE%" nul > nul 2>> "%DIAG_LOG%"
->> "%DIAG_LOG%" echo Exact DLL read result code: %ERRORLEVEL%
->> "%DIAG_LOG%" echo Existing DLL was not modified.
-goto probe_done
-:probe_done
-if "%PROBE_MODE%"=="portable" goto launch_portable
-goto collect_squirrel
 :security_events
 >> "%DIAG_LOG%" echo ----- Windows security block events from the last 15 minutes -----
 >> "%DIAG_LOG%" echo Defender ASR and controlled-folder-access blocks:
