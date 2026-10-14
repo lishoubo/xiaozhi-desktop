@@ -238,7 +238,7 @@ describe('BrowserManager', () => {
     });
   });
 
-  it('creates secure managed tabs and releases them explicitly', () => {
+  it('creates managed tabs with isolated web content and releases them explicitly', () => {
     const logger = createLogger();
     const window = createWindow();
     const manager = createBrowserManager(window, logger);
@@ -258,7 +258,7 @@ describe('BrowserManager', () => {
       webPreferences: {
         contextIsolation: true,
         nodeIntegration: false,
-        sandbox: true,
+        sandbox: false,
       },
     });
     expect(logger.info).toHaveBeenCalledWith('Browser tab created', {

@@ -244,7 +244,8 @@ export class BrowserManager extends EventEmitter {
       webPreferences: {
         contextIsolation: true,
         nodeIntegration: false,
-        sandbox: true,
+        // 360 兼容性试验：只对渠道网页标签关闭进程沙箱，主窗口仍保持沙箱。
+        sandbox: false,
         session: tabSession,
         preload: join(__dirname, 'dialog-preload.js'),
         // OTA 后台是纯浏览与表单操作，拼写检查用不上，每个标签页省一点内存。
