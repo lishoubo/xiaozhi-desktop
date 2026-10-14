@@ -17,7 +17,12 @@
 #### Scenario: macOS 应用包
 
 - **WHEN** 可执行文件位于 `.app/Contents/MacOS/` 内
-- **THEN** 设置页显示并打开 `.app` 目录
+- **THEN** 设置页显示并打开 `.app` 所在目录，避免启动应用包
+
+#### Scenario: 本地开发
+
+- **WHEN** 应用运行在未打包的开发模式
+- **THEN** 设置页显示并打开应用项目目录，而非 Electron 框架的可执行文件目录
 
 ### Requirement: 渠道页面沙箱
 

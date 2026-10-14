@@ -15,7 +15,14 @@ describe('installation directory', () => {
     ).toBe('C:\\Users\\viwei\\Desktop\\绿色版');
     expect(
       resolveInstallationDirectory('/Applications/小智酒店管家.app/Contents/MacOS/小智酒店管家', 'darwin'),
-    ).toBe('/Applications/小智酒店管家.app');
+    ).toBe('/Applications');
+    expect(
+      resolveInstallationDirectory(
+        '/Users/lishoubo/project/node_modules/electron/dist/Electron.app/Contents/MacOS/Electron',
+        'darwin',
+        '/Users/lishoubo/project/apps/desktop',
+      ),
+    ).toBe('/Users/lishoubo/project/apps/desktop');
   });
 
   it('opens and copies only the installation directory supplied by the main process', async () => {

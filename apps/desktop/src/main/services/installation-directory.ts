@@ -4,7 +4,9 @@ import path from 'node:path';
 export function resolveInstallationDirectory(
   executablePath: string,
   platform: NodeJS.Platform,
+  developmentAppPath?: string,
 ): string {
+  if (developmentAppPath) return developmentAppPath;
   const paths = platform === 'win32' ? path.win32 : path;
   const executableDirectory = paths.dirname(executablePath);
   if (
@@ -20,7 +22,7 @@ export function resolveInstallationDirectory(
       paths.basename(contentsDirectory) === 'Contents' &&
       paths.basename(appBundleDirectory).endsWith('.app')
     ) {
-      return appBundleDirectory;
+      return paths.dirname(appBundleDirectory);
     }
   }
   return executableDirectory;

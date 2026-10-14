@@ -308,7 +308,11 @@ export function createWindowScope(scope: WindowScopeDependencies): WindowScope {
         app,
         shell,
         logsDirectory: app.getPath('logs'),
-        installationDirectory: resolveInstallationDirectory(process.execPath, process.platform),
+        installationDirectory: resolveInstallationDirectory(
+          process.execPath,
+          process.platform,
+          app.isPackaged ? undefined : app.getAppPath(),
+        ),
         clipboard,
         logger,
       }),
