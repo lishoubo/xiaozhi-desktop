@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { copyFile, mkdir, mkdtemp, readFile, unlink, writeFile } from 'node:fs/promises';
+import { copyFile, mkdir, mkdtemp, readFile, readdir, unlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -37,6 +37,20 @@ test('generates a versioned launcher beside the unchanged installer', async () =
   assert.match(content, /setlocal EnableExtensions DisableDelayedExpansion/);
   assert.match(content, /start "" \/wait "%SETUP%" >> "%DIAG_LOG%" 2>&1/);
   assert.match(content, /App folder existed before install:/);
+  assert.match(content, /call :probe_directory "%APP_FOLDER%" "Installed app folder"/);
+  assert.match(content, /Exact DLL path: "%DLL_FILE%"/);
+  assert.match(content, /Exact DLL permissions:/);
+  assert.match(content, /Exact DLL read result code:/);
+  assert.match(content, /Directory write probe result code:/);
+  assert.match(content, /install-diagnostic-write-probe-%RANDOM%-%RANDOM%\.tmp/);
+  assert.doesNotMatch(content, /copy \/b(?: \/y)? "%~f0" "%DLL_FILE%"/);
+  assert.doesNotMatch(content, /del \/f \/q "%DLL_FILE%"/);
+  assert.match(content, /wevtutil qe "Microsoft-Windows-Windows Defender\/Operational"/);
+  assert.match(content, /wevtutil qe "Microsoft-Windows-CodeIntegrity\/Operational"/);
+  assert.match(content, /wevtutil qe "Microsoft-Windows-AppLocker\/EXE and DLL"/);
+  assert.match(content, /:find_app/);
+  assert.match(content, /if \/I not "%%~nxF"=="squirrel\.exe"/);
+  assert.match(content, /App launch command exit code:/);
   assert.match(content, /type "%DIAG_LOG%"/);
   assert.doesNotMatch(content, /MessageBox/);
   assert.ok(content.indexOf('type "%DIAG_LOG%"') < content.lastIndexOf('pause'));
@@ -75,7 +89,7 @@ test(
     const cmd = spawnSync(path.join(systemRoot, 'System32', 'cmd.exe'), ['/d', '/c', launcher], {
       input: '\r\n',
       encoding: 'utf8',
-      timeout: 10_000,
+      timeout: 30_000,
     });
     assert.equal(cmd.status, 2, cmd.stderr);
     assert.match(cmd.stdout, /Setup executable was not found/);
@@ -86,6 +100,47 @@ test(
       'utf8',
     );
     assert.match(diagnostic, /Setup executable was not found/);
+  },
+);
+
+test(
+  'checks the portable app without launching squirrel.exe on Windows',
+  { skip: process.platform !== 'win32' },
+  async () => {
+    const releaseDir = await mkdtemp(path.join(os.tmpdir(), 'xiaozhi-portable-test-'));
+    const systemRoot = process.env.SystemRoot;
+    assert.ok(systemRoot, 'SystemRoot must be defined on Windows');
+    const hostname = path.join(systemRoot, 'System32', 'hostname.exe');
+    await copyFile(hostname, path.join(releaseDir, '小智酒店管家.exe'));
+    await copyFile(hostname, path.join(releaseDir, 'squirrel.exe'));
+    const dll = path.join(releaseDir, 'd3dcompiler_47.dll');
+    await writeFile(dll, 'existing DLL fixture');
+
+    const installerDir = await mkdtemp(path.join(os.tmpdir(), 'xiaozhi-installer-test-'));
+    await writeFile(path.join(installerDir, '小智酒店管家-setup.exe'), 'fixture');
+    const launcher = await createWindowsInstallDiagnostic({
+      releaseDir: installerDir,
+      productName: '小智酒店管家',
+      squirrelName: 'xiaozhi-hotel',
+      version: '1.0.6',
+    });
+    const portableLauncher = path.join(releaseDir, '诊断启动.cmd');
+    await copyFile(launcher, portableLauncher);
+    const cmd = spawnSync(path.join(systemRoot, 'System32', 'cmd.exe'), ['/d', '/c', portableLauncher], {
+      env: { ...process.env, LOCALAPPDATA: releaseDir },
+      input: '\r\n',
+      encoding: 'utf8',
+      timeout: 30_000,
+    });
+    assert.equal(cmd.status, 0, cmd.stderr);
+    const diagnostic = await readFile(path.join(releaseDir, 'install-diagnostic-1.0.6.log'), 'utf8');
+    assert.match(diagnostic, /No setup executable found; checking the portable app instead/);
+    assert.match(diagnostic, /App executable: .*小智酒店管家\.exe/);
+    assert.match(diagnostic, /Exact DLL exists: True/);
+    assert.match(diagnostic, /Exact DLL permissions:/);
+    assert.match(diagnostic, /Exact DLL read result code: 0/);
+    assert.equal(await readFile(dll, 'utf8'), 'existing DLL fixture');
+    assert.match(diagnostic, /App launch command exit code: 0/);
   },
 );
 
@@ -103,6 +158,9 @@ test(
     const localAppData = path.join(releaseDir, 'local-app-data');
     const squirrelTemp = path.join(localAppData, 'SquirrelTemp');
     await mkdir(squirrelTemp, { recursive: true });
+    await mkdir(path.join(localAppData, 'xiaozhi-hotel', 'app-1.0.6'), {
+      recursive: true,
+    });
     await writeFile(path.join(squirrelTemp, 'SquirrelSetup.log'), 'Squirrel diagnostic marker\r\n');
     const launcher = await createWindowsInstallDiagnostic({
       releaseDir,
@@ -120,7 +178,7 @@ test(
         env: { ...process.env, LOCALAPPDATA: localAppData },
         input: '\r\n',
         encoding: 'utf8',
-        timeout: 10_000,
+        timeout: 30_000,
       },
     );
     assert.equal(cmd.status, 0, cmd.stderr);
@@ -136,5 +194,14 @@ test(
     assert.match(diagnostic, /App folder exists: (True|False)/);
     assert.match(diagnostic, /Squirrel log/);
     assert.match(diagnostic, /Squirrel diagnostic marker/);
+    assert.match(diagnostic, /Exact DLL exists: False; there is no file ACL to inspect/);
+    assert.match(diagnostic, /Directory write probe result code: 0/);
+    await assert.rejects(readFile(path.join(localAppData, 'xiaozhi-hotel', 'app-1.0.6', 'd3dcompiler_47.dll')));
+    assert.deepEqual(
+      (await readdir(path.join(localAppData, 'xiaozhi-hotel', 'app-1.0.6'))).filter((name) =>
+        name.startsWith('install-diagnostic-write-probe-'),
+      ),
+      [],
+    );
   },
 );

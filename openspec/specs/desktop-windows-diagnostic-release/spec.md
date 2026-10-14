@@ -45,3 +45,19 @@ The diagnostic entrypoint SHALL create or replace a versioned diagnostic log bes
 #### Scenario: Diagnostic log cannot be found after collection
 - **WHEN** the diagnostic file disappears before its content can be displayed
 - **THEN** the command window explicitly reports the missing file and still waits for a key press
+
+### Requirement: Diagnostic launch checks executable and DLL access
+
+The diagnostic entrypoint SHALL record the current Windows user, LocalAppData permissions, executable permissions, and relevant recent Windows security block events. For an installed application folder or a portable application directory, it SHALL record the state and permissions of `d3dcompiler_47.dll` when present. When the DLL is absent, it MAY test directory writability using a separate temporary probe file, but SHALL NOT create or overwrite a file named `d3dcompiler_47.dll`.
+
+#### Scenario: Portable application beside the diagnostic script
+- **WHEN** no Setup.exe exists and exactly one application executable exists beside the diagnostic script
+- **THEN** the script records its access details, attempts one launch, and reports that a successful launch command does not prove the app window started
+
+#### Scenario: DLL is absent
+- **WHEN** the target application directory exists but `d3dcompiler_47.dll` is absent
+- **THEN** the script records that no DLL ACL can be inspected and never writes to the DLL path
+
+#### Scenario: DLL is present
+- **WHEN** `d3dcompiler_47.dll` exists
+- **THEN** the script records its permissions, attributes, and read result without modifying it
