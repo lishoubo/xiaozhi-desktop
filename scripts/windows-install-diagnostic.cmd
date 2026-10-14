@@ -96,7 +96,7 @@ if not defined APP_EXE goto setup_missing
 for %%F in ("%APP_EXE%") do >> "%DIAG_LOG%" echo App size: %%~zF bytes; modified: %%~tF
 >> "%DIAG_LOG%" echo App executable permissions:
 icacls "%APP_EXE%" >> "%DIAG_LOG%" 2>&1
-call :probe_directory "%~dp0" "Portable app folder"
+call :probe_directory "%~dp0." "Portable app folder"
 echo Starting the portable app once to check whether Windows permits process creation.
 start "" "%APP_EXE%" >> "%DIAG_LOG%" 2>&1
 set "RESULT_EXIT=%ERRORLEVEL%"

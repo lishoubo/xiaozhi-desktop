@@ -38,6 +38,8 @@ test('generates a versioned launcher beside the unchanged installer', async () =
   assert.match(content, /start "" \/wait "%SETUP%" >> "%DIAG_LOG%" 2>&1/);
   assert.match(content, /App folder existed before install:/);
   assert.match(content, /call :probe_directory "%APP_FOLDER%" "Installed app folder"/);
+  // %~dp0 ends in a backslash; keep the quoted directory argument from ending in one.
+  assert.match(content, /call :probe_directory "%~dp0\." "Portable app folder"/);
   assert.match(content, /Exact DLL path: "%DLL_FILE%"/);
   assert.match(content, /Exact DLL permissions:/);
   assert.match(content, /Exact DLL read result code:/);
