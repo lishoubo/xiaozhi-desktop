@@ -66,7 +66,14 @@ if exist "%APP_FOLDER%" (
 ) else (
   >> "%DIAG_LOG%" echo App folder exists: False
 )
-if exist "%APP_FOLDER%" call :probe_directory "%APP_FOLDER%" "Installed app folder"
+if exist "%APP_FOLDER%" (
+  set "PROBE_DIR=%APP_FOLDER%"
+  set "PROBE_LABEL=Installed app folder"
+  set "PROBE_MODE=installer"
+  goto probe_directory
+)
+goto collect_squirrel
+:collect_squirrel
 >> "%DIAG_LOG%" echo Check each Squirrel log modified time against Started; it may predate this installer attempt.
 set "SQUIRREL_FOUND="
 for %%F in ("%SQUIRREL_DIR%\SquirrelSetup.log" "%SQUIRREL_DIR%\Squirrel-Install.log") do if exist "%%~fF" (
@@ -77,8 +84,7 @@ for %%F in ("%SQUIRREL_DIR%\SquirrelSetup.log" "%SQUIRREL_DIR%\Squirrel-Install.
   >> "%DIAG_LOG%" echo ----- Squirrel log content ends -----
 )
 if not defined SQUIRREL_FOUND >> "%DIAG_LOG%" echo No Squirrel log was found in "%SQUIRREL_DIR%".
-call :security_events
-goto diagnostic_done
+goto security_events
 :find_app
 set "APP_EXE="
 set "MULTIPLE_APP="
@@ -96,14 +102,17 @@ if not defined APP_EXE goto setup_missing
 for %%F in ("%APP_EXE%") do >> "%DIAG_LOG%" echo App size: %%~zF bytes; modified: %%~tF
 >> "%DIAG_LOG%" echo App executable permissions:
 icacls "%APP_EXE%" >> "%DIAG_LOG%" 2>&1
-call :probe_directory "%~dp0." "Portable app folder"
+set "PROBE_DIR=%~dp0."
+set "PROBE_LABEL=Portable app folder"
+set "PROBE_MODE=portable"
+goto probe_directory
+:launch_portable
 echo Starting the portable app once to check whether Windows permits process creation.
 start "" "%APP_EXE%" >> "%DIAG_LOG%" 2>&1
 set "RESULT_EXIT=%ERRORLEVEL%"
 >> "%DIAG_LOG%" echo App launch command exit code: %RESULT_EXIT%
 >> "%DIAG_LOG%" echo A zero launch code does not prove that the app window or renderer started.
-call :security_events
-goto diagnostic_done
+goto security_events
 :multiple_app
 >> "%DIAG_LOG%" echo Multiple app executables were found; no executable was launched.
 set "RESULT_EXIT=4"
@@ -120,21 +129,17 @@ dir /b /a-d "%~dp0" >> "%DIAG_LOG%" 2>&1
 set "RESULT_EXIT=2"
 goto diagnostic_done
 :probe_directory
->> "%DIAG_LOG%" echo ----- %~2 d3dcompiler_47.dll check -----
->> "%DIAG_LOG%" echo Directory: "%~1"
-icacls "%~1" >> "%DIAG_LOG%" 2>&1
-set "DLL_FILE=%~1\d3dcompiler_47.dll"
+>> "%DIAG_LOG%" echo ----- %PROBE_LABEL% d3dcompiler_47.dll check -----
+>> "%DIAG_LOG%" echo Directory: "%PROBE_DIR%"
+icacls "%PROBE_DIR%" >> "%DIAG_LOG%" 2>&1
+set "DLL_FILE=%PROBE_DIR%\d3dcompiler_47.dll"
 >> "%DIAG_LOG%" echo Exact DLL path: "%DLL_FILE%"
-rem Keep the return to :find_app or the installer branch; do not GOTO the sibling label.
-if exist "%DLL_FILE%" (
-  call :inspect_existing_dll
-  exit /b 0
-)
+if exist "%DLL_FILE%" goto inspect_existing_dll
 >> "%DIAG_LOG%" echo Exact DLL exists: False; there is no file ACL to inspect.
-set "PROBE_FILE=%~1\install-diagnostic-write-probe-%RANDOM%-%RANDOM%.tmp"
+set "PROBE_FILE=%PROBE_DIR%\install-diagnostic-write-probe-%RANDOM%-%RANDOM%.tmp"
 if exist "%PROBE_FILE%" (
   >> "%DIAG_LOG%" echo Write probe path already exists; no file was changed: "%PROBE_FILE%"
-  exit /b 0
+  goto probe_done
 )
 >> "%DIAG_LOG%" echo Testing a separate temporary file in the DLL directory: "%PROBE_FILE%"
 copy /b "%~f0" "%PROBE_FILE%" >> "%DIAG_LOG%" 2>&1
@@ -145,17 +150,17 @@ if not "%PROBE_EXIT%"=="0" (
     del /f /q "%PROBE_FILE%" >> "%DIAG_LOG%" 2>&1
     if exist "%PROBE_FILE%" >> "%DIAG_LOG%" echo Write probe file remains: "%PROBE_FILE%"
   )
-  exit /b 0
+  goto probe_done
 )
 if not exist "%PROBE_FILE%" (
   >> "%DIAG_LOG%" echo Write probe file was not found after write.
-  exit /b 0
+  goto probe_done
 )
 del /f /q "%PROBE_FILE%" >> "%DIAG_LOG%" 2>&1
 >> "%DIAG_LOG%" echo Directory write probe cleanup result code: %ERRORLEVEL%
 if exist "%PROBE_FILE%" >> "%DIAG_LOG%" echo Write probe file remains: "%PROBE_FILE%"
 >> "%DIAG_LOG%" echo A successful temporary-file write does not prove Squirrel can write the real DLL or that security software will allow it.
-exit /b 0
+goto probe_done
 :inspect_existing_dll
 >> "%DIAG_LOG%" echo Exact DLL exists: True
 for %%F in ("%DLL_FILE%") do >> "%DIAG_LOG%" echo Exact DLL size: %%~zF bytes; modified: %%~tF
@@ -166,7 +171,10 @@ attrib "%DLL_FILE%" >> "%DIAG_LOG%" 2>&1
 copy /b "%DLL_FILE%" nul > nul 2>> "%DIAG_LOG%"
 >> "%DIAG_LOG%" echo Exact DLL read result code: %ERRORLEVEL%
 >> "%DIAG_LOG%" echo Existing DLL was not modified.
-exit /b 0
+goto probe_done
+:probe_done
+if "%PROBE_MODE%"=="portable" goto launch_portable
+goto collect_squirrel
 :security_events
 >> "%DIAG_LOG%" echo ----- Windows security block events from the last 15 minutes -----
 >> "%DIAG_LOG%" echo Defender ASR and controlled-folder-access blocks:
@@ -176,7 +184,6 @@ wevtutil qe "Microsoft-Windows-CodeIntegrity/Operational" /q:"*[System[(EventID=
 >> "%DIAG_LOG%" echo AppLocker executable and DLL blocks:
 wevtutil qe "Microsoft-Windows-AppLocker/EXE and DLL" /q:"*[System[(EventID=8004) and TimeCreated[timediff(@SystemTime) <= 900000]]]" /rd:true /c:8 /f:text >> "%DIAG_LOG%" 2>&1
 >> "%DIAG_LOG%" echo Other security products may block access without writing to these Windows logs.
-exit /b 0
 :diagnostic_done
 echo.
 echo ===== Installation diagnostic result =====
