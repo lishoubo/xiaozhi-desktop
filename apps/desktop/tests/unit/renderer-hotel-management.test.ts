@@ -1,9 +1,34 @@
 import { describe, expect, it } from 'vitest';
 import {
+  filterHotels,
   formatLastRefreshedAt,
   getOtaAccountBindDetails,
   getOtaAccountPresentation,
 } from '../../src/renderer/hotel-management/model';
+
+describe('filterHotels', () => {
+  const hotels = [
+    { id: 1, name: '杭州西湖店', status: 1 },
+    { id: 2, name: '苏州平江店', status: 0 },
+    { id: 3, name: '杭州东站店', status: 1 },
+  ];
+  const accounts = [
+    { hotelId: 1, source: 'ctrip' },
+    { hotelId: 1, source: 'douyin' },
+    { hotelId: 2, source: 'ctrip' },
+  ];
+
+  it('combines a trimmed name search with a channel filter', () => {
+    expect(filterHotels(hotels, accounts, { name: ' 杭州 ', channel: 'ctrip' })).toEqual([
+      hotels[0],
+    ]);
+  });
+
+  it('keeps hotels of every status when filters are clear and filters by channel', () => {
+    expect(filterHotels(hotels, accounts, { name: '', channel: '' })).toEqual(hotels);
+    expect(filterHotels(hotels, accounts, { name: '', channel: 'douyin' })).toEqual([hotels[0]]);
+  });
+});
 
 describe('hotel management OTA account presentation', () => {
   it('presents a healthy bound account without a recovery action', () => {

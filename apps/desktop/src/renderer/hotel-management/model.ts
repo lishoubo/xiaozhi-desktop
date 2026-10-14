@@ -1,5 +1,24 @@
-import type { RmsOtaAccountDto } from '../../shared/hotel-management';
+import type { RmsHotelDto, RmsOtaAccountDto } from '../../shared/hotel-management';
 import { isActiveBinding } from './account-status';
+
+/** 在分页前筛选酒店；渠道指酒店名下是否有该渠道账号。 */
+export function filterHotels(
+  hotels: readonly RmsHotelDto[],
+  accounts: readonly Pick<RmsOtaAccountDto, 'hotelId' | 'source'>[],
+  filters: Readonly<{ name: string; channel: string }>,
+): readonly RmsHotelDto[] {
+  const name = filters.name.trim().toLocaleLowerCase();
+  const hotelIdsForChannel = new Set(
+    accounts
+      .filter((account) => account.source === filters.channel)
+      .map((account) => account.hotelId),
+  );
+  return hotels.filter(
+    (hotel) =>
+      hotel.name.toLocaleLowerCase().includes(name) &&
+      (filters.channel === '' || hotelIdsForChannel.has(hotel.id)),
+  );
+}
 
 /**
  * 这家酒店已经占用了哪些渠道的绑定位。

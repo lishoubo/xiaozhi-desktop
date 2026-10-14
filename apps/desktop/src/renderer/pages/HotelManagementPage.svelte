@@ -4,6 +4,7 @@
   import ChevronRight from '@lucide/svelte/icons/chevron-right';
   import Plus from '@lucide/svelte/icons/plus';
   import RefreshCw from '@lucide/svelte/icons/refresh-cw';
+  import Search from '@lucide/svelte/icons/search';
   import log from 'electron-log/renderer';
   import { errorFields } from '../logging';
   import { onMount } from 'svelte';
@@ -15,11 +16,13 @@
   import BoundOtaAccountCard from '../components/hotel/BoundOtaAccountCard.svelte';
   import ReauthOtaAccountDialog from '../components/hotel/ReauthOtaAccountDialog.svelte';
   import {
+    filterHotels,
     formatLastRefreshedAt,
     groupOtaAccountsByHotelId,
     paginate,
     type OtaAccountAction,
   } from '../hotel-management/model';
+  import { OTA_CHANNELS } from '../data/ota-channels';
   import { needsAttention } from '../hotel-management/account-status';
   import type { RmsHotelDto, RmsOtaAccountDto } from '../../shared/hotel-management';
   import { enter, PAGE_ENTER_OPTIONS } from '../motion';
@@ -66,10 +69,21 @@
   const attentionAccounts = $derived(
     otaAccounts.filter((account) => needsAttention(account.status)).length,
   );
+  let nameFilter = $state('');
+  let channelFilter = $state('');
+  const availableChannels = $derived([
+    ...new Set([
+      ...otaAccounts.map((account) => account.source),
+      ...(channelFilter ? [channelFilter] : []),
+    ]),
+  ]);
+  const filteredHotels = $derived(
+    filterHotels(hotels, otaAccounts, { name: nameFilter, channel: channelFilter }),
+  );
 
   const PAGE_SIZE = 10;
   let currentPage = $state(1);
-  const pagination = $derived(paginate(hotels, currentPage, PAGE_SIZE));
+  const pagination = $derived(paginate(filteredHotels, currentPage, PAGE_SIZE));
   const safePage = $derived(pagination.safePage);
   const totalPages = $derived(pagination.totalPages);
   const pagedHotels = $derived(pagination.pageItems);
@@ -261,8 +275,43 @@
         >
       </div>
     {:else}
+      <div class="mt-5 flex flex-wrap items-center gap-2" aria-label="酒店列表筛选">
+        <div class="relative min-w-44 flex-1 sm:max-w-60">
+          <Search
+            size={13}
+            class="pointer-events-none absolute top-1/2 left-2.5 -translate-y-1/2 text-muted-foreground"
+            aria-hidden="true"
+          />
+          <input
+            type="search"
+            aria-label="按酒店名称查找"
+            placeholder="搜索酒店名称"
+            class="h-8 w-full rounded-md border border-input bg-card pr-2.5 pl-8 outline-none placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring"
+            style="font-size: 11px"
+            bind:value={nameFilter}
+            oninput={() => (currentPage = 1)}
+          />
+        </div>
+        <select
+          aria-label="按渠道筛选"
+          class="h-8 rounded-md border border-input bg-card px-2.5 text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+          style="font-size: 11px"
+          bind:value={channelFilter}
+          onchange={() => (currentPage = 1)}
+        >
+          <option value="">全部渠道</option>
+          {#each availableChannels as source (source)}
+            <option value={source}>
+              {OTA_CHANNELS.find((channel) => channel.id === source)?.shortName ?? source}
+            </option>
+          {/each}
+        </select>
+        <span class="ml-auto text-[11px] tabular-nums text-muted-foreground">
+          {filteredHotels.length} 家结果
+        </span>
+      </div>
       <div
-        class="mt-5 overflow-visible rounded-[12px] border border-border bg-card shadow-[var(--shadow-card)]"
+        class="mt-3 overflow-visible rounded-[12px] border border-border bg-card shadow-[var(--shadow-card)]"
       >
         <div
           class={[
@@ -284,6 +333,8 @@
         -->
         {#if hotels.length === 0}
           <p class="m-0 px-4 py-10 text-center text-sm text-muted-foreground">暂无酒店</p>
+        {:else if filteredHotels.length === 0}
+          <p class="m-0 px-4 py-10 text-center text-sm text-muted-foreground">没有符合条件的酒店</p>
         {/if}
 
         {#each pagedHotels as hotel}
@@ -347,8 +398,11 @@
       {#if totalPages > 1}
         <nav class="mt-3 flex items-center justify-between gap-3" aria-label="酒店列表翻页">
           <span class="text-[11px] text-muted-foreground">
-            第 {(safePage - 1) * PAGE_SIZE + 1}–{Math.min(safePage * PAGE_SIZE, hotels.length)} 家，共
-            {hotels.length} 家
+            第 {(safePage - 1) * PAGE_SIZE + 1}–{Math.min(
+              safePage * PAGE_SIZE,
+              filteredHotels.length,
+            )} 家，共
+            {filteredHotels.length} 家
           </span>
           <div class="flex items-center gap-1">
             <Button
