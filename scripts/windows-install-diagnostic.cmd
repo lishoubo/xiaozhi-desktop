@@ -55,7 +55,8 @@ if exist "%APP_FOLDER%" (
 for %%F in ("%SQUIRREL_DIR%\SquirrelSetup.log" "%SQUIRREL_DIR%\Squirrel-Install.log") do if exist "%%~fF" >> "%DIAG_LOG%" echo Existing Squirrel log before install: "%%~fF"; modified: %%~tF; size: %%~zF bytes
 echo Setup executable: "%SETUP%"
 echo Starting the original installer. Close its result dialog before the diagnostic appears.
-start "" /wait "%SETUP%" >> "%DIAG_LOG%" 2>&1
+rem Child processes can retain redirected log handles and prevent later log writes.
+start "" /wait "%SETUP%"
 set "INSTALL_EXIT=%ERRORLEVEL%"
 set "RESULT_EXIT=%INSTALL_EXIT%"
 >> "%DIAG_LOG%" echo Installer exit code: %INSTALL_EXIT%
@@ -146,7 +147,8 @@ goto launch_portable
 :launch_portable
 echo Starting the portable app once to check whether Windows permits process creation.
 >> "%DIAG_LOG%" echo App launch command started.
-start "" "%APP_EXE%" >> "%DIAG_LOG%" 2>&1
+rem Keep the log handle out of the child process; show START errors in the console.
+start "" "%APP_EXE%"
 set "RESULT_EXIT=%ERRORLEVEL%"
 >> "%DIAG_LOG%" echo App launch command exit code: %RESULT_EXIT%
 >> "%DIAG_LOG%" echo A zero launch code does not prove that the app window or renderer started.

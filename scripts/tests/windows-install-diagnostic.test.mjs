@@ -35,7 +35,10 @@ test('generates a versioned launcher beside the unchanged installer', async () =
   assert.ok(content.indexOf('> "%DIAG_LOG%"') < content.indexOf('if not defined SETUP'));
   assert.match(content, /if not exist "%DIAG_LOG%" goto log_fallback/);
   assert.match(content, /setlocal EnableExtensions DisableDelayedExpansion/);
-  assert.match(content, /start "" \/wait "%SETUP%" >> "%DIAG_LOG%" 2>&1/);
+  assert.match(content, /start "" \/wait "%SETUP%"\r?\n/);
+  assert.doesNotMatch(content, /start "" \/wait "%SETUP%" >> "%DIAG_LOG%"/);
+  assert.match(content, /start "" "%APP_EXE%"\r?\n/);
+  assert.doesNotMatch(content, /start "" "%APP_EXE%" >> "%DIAG_LOG%"/);
   assert.match(content, /App folder existed before install:/);
   assert.match(content, /:installed_app_check/);
   // %~dp0 ends in a backslash; keep the quoted directory argument from ending in one.
