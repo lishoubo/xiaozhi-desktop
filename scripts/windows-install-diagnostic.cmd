@@ -125,7 +125,11 @@ goto diagnostic_done
 icacls "%~1" >> "%DIAG_LOG%" 2>&1
 set "DLL_FILE=%~1\d3dcompiler_47.dll"
 >> "%DIAG_LOG%" echo Exact DLL path: "%DLL_FILE%"
-if exist "%DLL_FILE%" goto inspect_existing_dll
+rem Keep the return to :find_app or the installer branch; do not GOTO the sibling label.
+if exist "%DLL_FILE%" (
+  call :inspect_existing_dll
+  exit /b 0
+)
 >> "%DIAG_LOG%" echo Exact DLL exists: False; there is no file ACL to inspect.
 set "PROBE_FILE=%~1\install-diagnostic-write-probe-%RANDOM%-%RANDOM%.tmp"
 if exist "%PROBE_FILE%" (
