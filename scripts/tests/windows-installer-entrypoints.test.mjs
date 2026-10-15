@@ -20,6 +20,7 @@ test('keeps the original Setup beside a logged installation launcher', {
       squirrelName: 'xiaozhi-hotel',
     });
     assert.equal(setupPath, path.join(releaseDir, '小智酒店管家安装程序.exe'));
+    assert.equal(uninstallPath, path.join(releaseDir, '应用卸载.cmd'));
     assert.ok((await stat(original)).size > 0);
     const launch = spawnSync(setupPath, ['--no-success-dialog'], { encoding: 'utf8', timeout: 15000 });
     assert.equal(launch.status, 0, launch.error?.message ?? launch.stderr);

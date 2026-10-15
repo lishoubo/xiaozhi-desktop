@@ -6,7 +6,7 @@ import path from 'node:path';
 import test from 'node:test';
 import { createWindowsInstallDiagnostic } from '../create-windows-install-diagnostic.mjs';
 
-test('generates a versioned launcher beside the unchanged installer', async () => {
+test('generates a diagnostic launcher with versioned content beside the unchanged installer', async () => {
   const releaseDir = await mkdtemp(path.join(os.tmpdir(), 'xiaozhi-diagnostic-test-'));
   const installer = path.join(releaseDir, 'setup.exe');
   await writeFile(installer, 'installer bytes');
@@ -18,7 +18,7 @@ test('generates a versioned launcher beside the unchanged installer', async () =
     version: '1.0.6',
   });
 
-  assert.equal(path.basename(launcher), '小智酒店管家-1.0.6-diagnostic-install.cmd');
+  assert.equal(path.basename(launcher), '应用诊断.cmd');
   assert.equal(await readFile(installer, 'utf8'), 'installer bytes');
   const content = await readFile(launcher, 'ascii');
   assert.match(content, /xiaozhi-hotel/);

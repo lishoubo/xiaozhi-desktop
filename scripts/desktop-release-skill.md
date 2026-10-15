@@ -109,13 +109,15 @@ unzip <下载的zip> -d /tmp/win-release
 ls -la /tmp/win-release
 ```
 
-**必须看到以下四个文件**：
+**必须看到以下六个文件**：
 
 ```
 RELEASES                          几十字节，带 UTF-8 BOM
 xiaozhi-hotel-<版本>-full.nupkg    约 150 MB
 setup.exe                           约 150 MB，原始 Squirrel Setup
 小智酒店管家安装程序.exe             发布 ZIP 内的检查与日志入口，需与原始 Setup 同目录
+应用诊断.cmd                       安装及应用启动诊断入口
+应用卸载.cmd                       标准 Squirrel 卸载入口
 ```
 
 核对版本号是否与步骤 2 改的一致：

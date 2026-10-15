@@ -35,7 +35,7 @@ export async function createWindowsInstallerEntrypoints({ releaseDir, productNam
     const result = await stat(path.join(stage, 'wrapped-setup.exe'));
     if (result.size === 0) throw new Error('安装入口大小异常');
     const template = await readFile(UNINSTALL_TEMPLATE, 'ascii');
-    const uninstallPath = path.join(releaseDir, `${productName}-uninstall.cmd`);
+    const uninstallPath = path.join(releaseDir, '应用卸载.cmd');
     const stagedUninstallPath = path.join(stage, 'uninstall.cmd');
     await writeFile(stagedUninstallPath, template.replaceAll('__SQUIRREL_NAME__', squirrelName)
       .replace(/\r?\n/g, '\r\n'), { encoding: 'ascii', flag: 'wx' });

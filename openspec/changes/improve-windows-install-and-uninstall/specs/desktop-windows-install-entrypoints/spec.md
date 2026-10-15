@@ -22,7 +22,7 @@ Windows 发布包 SHALL 同时提供原始 Squirrel `setup.exe` 和同目录的 
 
 ### Requirement: Windows 发布包提供普通卸载入口
 
-Windows 发布包 SHALL 提供可发现的普通卸载入口，调用当前用户的标准 Squirrel 卸载流程。该入口 SHALL 不删除应用用户数据。
+Windows 发布包 SHALL 提供名为 `应用卸载.cmd` 的普通卸载入口，调用当前用户的标准 Squirrel 卸载流程。该入口 SHALL 不删除应用用户数据。发布包中的诊断入口 SHALL 命名为 `应用诊断.cmd`。
 
 #### Scenario: 已安装
 - **WHEN** 用户启动普通卸载入口且当前用户已安装本应用

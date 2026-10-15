@@ -32,7 +32,7 @@ export async function createWindowsInstallDiagnostic({
     .replaceAll('__APP_VERSION__', version)
     .replaceAll('__SQUIRREL_NAME__', squirrelName)
     .replace(/\r?\n/g, '\r\n');
-  const outputPath = path.join(releaseDir, `${productName}-${version}-diagnostic-install.cmd`);
+  const outputPath = path.join(releaseDir, '应用诊断.cmd');
   await writeFile(outputPath, content, { encoding: 'ascii', flag: 'wx' });
   return outputPath;
 }
