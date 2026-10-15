@@ -17,7 +17,7 @@ export async function createWindowsInstallDiagnostic({
     throw new Error(`无效的 Squirrel 应用名: ${squirrelName}`);
   }
 
-  const setupPath = path.join(releaseDir, `${productName}-setup.exe`);
+  const setupPath = path.join(releaseDir, 'setup.exe');
   let setupFile;
   try {
     setupFile = await stat(setupPath);

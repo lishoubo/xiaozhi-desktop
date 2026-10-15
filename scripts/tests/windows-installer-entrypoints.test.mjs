@@ -7,23 +7,27 @@ import test from 'node:test';
 import { setTimeout } from 'node:timers/promises';
 import { createWindowsInstallerEntrypoints } from '../create-windows-installer-entrypoints.mjs';
 
-test('publishes one runnable setup EXE containing the original installer', {
+test('keeps the original Setup beside a logged installation launcher', {
   skip: process.platform !== 'win32',
 }, async () => {
   const releaseDir = await mkdtemp(path.join(os.tmpdir(), 'xiaozhi-wrapper-test-'));
   try {
-    const original = path.join(releaseDir, '小智酒店管家-setup.exe');
+    const original = path.join(releaseDir, 'setup.exe');
     await copyFile(path.join(process.env.WINDIR, 'System32', 'hostname.exe'), original);
-    const originalSize = (await stat(original)).size;
     const { setupPath, uninstallPath } = await createWindowsInstallerEntrypoints({
       releaseDir,
       productName: '小智酒店管家',
       squirrelName: 'xiaozhi-hotel',
     });
-    assert.equal(setupPath, original);
-    assert.ok((await stat(setupPath)).size > originalSize);
-    const launch = spawnSync(setupPath, [], { encoding: 'utf8', timeout: 15000 });
+    assert.equal(setupPath, path.join(releaseDir, '小智酒店管家安装程序.exe'));
+    assert.ok((await stat(original)).size > 0);
+    const launch = spawnSync(setupPath, ['--no-success-dialog'], { encoding: 'utf8', timeout: 15000 });
     assert.equal(launch.status, 0, launch.error?.message ?? launch.stderr);
+    assert.ok((await stat(original)).size > 0, 'original Setup was removed');
+    assert.ok((await stat(setupPath)).size > 0, 'launcher was removed');
+    const log = await readFile(path.join(releaseDir, 'install-launcher.log'), 'utf8');
+    assert.match(log, /Original setup: .*setup\.exe/);
+    assert.match(log, /Installer exit code; code=0/);
 
     const appPath = path.join(releaseDir, '小智酒店管家.exe');
     await copyFile(path.join(process.env.WINDIR, 'System32', 'ping.exe'), appPath);

@@ -10,7 +10,7 @@
  * <某个目录>/
  * ├── RELEASES                          版本清单（带 UTF-8 BOM，勿手改）
  * ├── xiaozhi-hotel-1.0.0-full.nupkg    更新包
- * └── 小智酒店管家-setup.exe              首次安装用
+ * └── setup.exe                           原始 Squirrel Setup，首次安装用
  * ```
  *
  * ## 上传后的 OSS 布局
@@ -22,7 +22,7 @@
  *     ├── RELEASES                      ← 每次覆盖
  *     ├── xiaozhi-hotel-1.0.0-full.nupkg
  *     ├── xiaozhi-hotel-1.0.1-full.nupkg  ← 旧版本保留，不删
- *     └── 小智酒店管家-setup.exe           ← 每次覆盖，给新客户下载
+ *     └── 小智酒店管家-setup.exe           ← 保持旧下载 URL，内容来自本地 setup.exe
  * ```
  *
  * 路径与 `src/main/updater/update-endpoint.ts` 的 `UPDATE_FEED_SUBDIRECTORY`
@@ -261,8 +261,8 @@ async function collectArtifacts(directory) {
     throw new Error(`${directory} 下没有 ${NUPKG_SUFFIX} 文件，没有可上传的更新包。`);
   }
 
-  // setup.exe 可选：它只给新客户首次安装用，不参与更新流程。
-  const installers = files.filter((name) => name.endsWith('.exe'));
+  // 单独下载只提供自包含的原始 Setup。安装入口需要同目录的 Setup，不能单独上传。
+  const installers = files.filter((name) => name === 'setup.exe');
 
   return [releases, ...packages, ...installers];
 }
@@ -434,7 +434,7 @@ async function main() {
       plan.push({
         name,
         filePath,
-        objectKey: `${FEED_PREFIX}/${name}`,
+        objectKey: `${FEED_PREFIX}/${name === 'setup.exe' ? '小智酒店管家-setup.exe' : name}`,
         size: (await stat(filePath)).size,
       });
     }

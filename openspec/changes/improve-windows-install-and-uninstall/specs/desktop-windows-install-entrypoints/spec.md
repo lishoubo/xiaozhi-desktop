@@ -6,7 +6,7 @@
 
 ### Requirement: Windows 发布包提供安装前检查入口
 
-Windows 发布包 SHALL 提供单文件安装 EXE，其中包含原始 Squirrel 安装程序。该 EXE SHALL 在启动内嵌安装程序之前检查本应用是否正在运行，并阻止同一安装入口的并行执行；若发现冲突，SHALL 显示可见提示并停止本次安装。
+Windows 发布包 SHALL 同时提供原始 Squirrel `setup.exe` 和同目录的 `<产品名>安装程序.exe`。入口 SHALL 在启动原始安装程序之前检查本应用是否正在运行，并阻止同一安装入口的并行执行；若发现冲突，SHALL 显示可见提示并停止本次安装。入口 SHALL 将检查结果、原始 Setup 路径及退出码写入可供用户取得的日志，并在失败提示中显示日志路径。入口 SHALL 不删除原始 Setup 或自身。
 
 #### Scenario: 应用正在运行
 - **WHEN** 用户通过安装入口安装且本应用进程仍在运行
@@ -18,7 +18,7 @@ Windows 发布包 SHALL 提供单文件安装 EXE，其中包含原始 Squirrel 
 
 #### Scenario: 可以安装
 - **WHEN** 未检测到冲突进程
-- **THEN** 安装入口运行内嵌的原始安装程序并等待其结束，无需用户另外下载文件
+- **THEN** 安装入口运行同目录的原始安装程序并等待其结束，发布目录中的两个 EXE 均保留
 
 ### Requirement: Windows 发布包提供普通卸载入口
 

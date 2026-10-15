@@ -8,7 +8,7 @@ import { createWindowsInstallDiagnostic } from '../create-windows-install-diagno
 
 test('generates a versioned launcher beside the unchanged installer', async () => {
   const releaseDir = await mkdtemp(path.join(os.tmpdir(), 'xiaozhi-diagnostic-test-'));
-  const installer = path.join(releaseDir, '小智酒店管家-setup.exe');
+  const installer = path.join(releaseDir, 'setup.exe');
   await writeFile(installer, 'installer bytes');
 
   const launcher = await createWindowsInstallDiagnostic({
@@ -23,7 +23,7 @@ test('generates a versioned launcher beside the unchanged installer', async () =
   const content = await readFile(launcher, 'ascii');
   assert.match(content, /xiaozhi-hotel/);
   assert.match(content, /TARGET_VERSION=1\.0\.6/);
-  assert.match(content, /for %%F in \("%~dp0\*-setup\.exe"\)/);
+  assert.match(content, /set "SETUP=%~dp0setup.exe"/);
   assert.doesNotMatch(content, /set "PRODUCT=%~n0"/);
   assert.match(content, /set "APP_FOLDER=%LOCALAPPDATA%\\%SQUIRREL_NAME%\\app-%TARGET_VERSION%"/);
   assert.match(content, /SquirrelSetup\.log/);
@@ -32,7 +32,7 @@ test('generates a versioned launcher beside the unchanged installer', async () =
   assert.doesNotMatch(content, /powershell\.exe/i);
   assert.match(content, /INSTALL_EXIT/);
   assert.match(content, /set "DIAG_LOG=%~dp0install-diagnostic-1\.0\.6\.log"/);
-  assert.ok(content.indexOf('> "%DIAG_LOG%"') < content.indexOf('if not defined SETUP'));
+  assert.ok(content.indexOf('> "%DIAG_LOG%"') < content.indexOf('if not exist "%SETUP%"'));
   assert.match(content, /if not exist "%DIAG_LOG%" goto log_fallback/);
   assert.match(content, /setlocal EnableExtensions DisableDelayedExpansion/);
   assert.match(content, /start "" \/wait "%SETUP%"\r?\n/);
@@ -81,7 +81,7 @@ test(
   { skip: process.platform !== 'win32' },
   async () => {
     const releaseDir = await mkdtemp(path.join(os.tmpdir(), 'xiaozhi-diagnostic-test-'));
-    const installer = path.join(releaseDir, '小智酒店管家-setup.exe');
+    const installer = path.join(releaseDir, 'setup.exe');
     await writeFile(installer, 'fixture');
     const launcher = await createWindowsInstallDiagnostic({
       releaseDir,
@@ -124,7 +124,7 @@ test(
     await writeFile(dll, 'existing DLL fixture');
 
     const installerDir = await mkdtemp(path.join(os.tmpdir(), 'xiaozhi-installer-test-'));
-    await writeFile(path.join(installerDir, '小智酒店管家-setup.exe'), 'fixture');
+    await writeFile(path.join(installerDir, 'setup.exe'), 'fixture');
     const launcher = await createWindowsInstallDiagnostic({
       releaseDir: installerDir,
       productName: '小智酒店管家',
@@ -160,7 +160,7 @@ test(
     assert.ok(systemRoot, 'SystemRoot must be defined on Windows');
     await copyFile(
       path.join(systemRoot, 'System32', 'hostname.exe'),
-      path.join(releaseDir, '小智酒店管家-setup.exe'),
+      path.join(releaseDir, 'setup.exe'),
     );
     const localAppData = path.join(releaseDir, 'local-app-data');
     const squirrelTemp = path.join(localAppData, 'SquirrelTemp');

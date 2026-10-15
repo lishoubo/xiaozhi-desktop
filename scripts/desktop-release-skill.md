@@ -39,7 +39,7 @@ xiaozhi-desktop-release/
 ├── win32/                      Squirrel feed
 │   ├── RELEASES
 │   ├── xiaozhi-hotel-<版本>-full.nupkg
-│   └── 小智酒店管家-setup.exe
+│   └── setup.exe
 └── darwin/                     macOS 安装包，只供人工下载
     ├── 小智酒店管家-darwin-arm64-<版本>.zip
     └── 小智酒店管家-darwin-x64-<版本>.zip
@@ -109,12 +109,13 @@ unzip <下载的zip> -d /tmp/win-release
 ls -la /tmp/win-release
 ```
 
-**必须看到三个文件**：
+**必须看到以下四个文件**：
 
 ```
 RELEASES                          几十字节，带 UTF-8 BOM
 xiaozhi-hotel-<版本>-full.nupkg    约 150 MB
-小智酒店管家-setup.exe              约 150 MB，内嵌 Squirrel Setup，给新客户首次安装
+setup.exe                           约 150 MB，原始 Squirrel Setup
+小智酒店管家安装程序.exe             发布 ZIP 内的检查与日志入口，需与原始 Setup 同目录
 ```
 
 核对版本号是否与步骤 2 改的一致：

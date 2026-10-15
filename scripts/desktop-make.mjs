@@ -190,7 +190,7 @@ if (!packageOnly && targetPlatform === 'win32' && targetArch === 'x64') {
     productName: profile.productName,
     squirrelName: profile.squirrelName,
   });
-  console.log(`安装程序（含运行检查）: ${setupPath}`);
+  console.log(`安装入口（含运行检查与日志，需同目录原始 Setup）: ${setupPath}`);
   console.log(`普通卸载入口: ${uninstallPath}`);
   const diagnosticPath = await createWindowsInstallDiagnostic({
     releaseDir,

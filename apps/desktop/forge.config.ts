@@ -118,7 +118,7 @@ const config: ForgeConfig = {
     // 字符支持不佳，展示名交给 `setupExe` 与 packagerConfig.name。
     new MakerSquirrel({
       name: profile.squirrelName,
-      setupExe: `${profile.productName}-setup.exe`,
+      setupExe: 'setup.exe',
       // NuGet 规范要求 authors 必填，缺了 Squirrel 会在生成 .nuspec 时报
       // "Authors is required" 直接失败。package.json 里没有 author 字段，
       // 在这里显式给出，不为一个 Windows 打包细节去动通用的包元数据。

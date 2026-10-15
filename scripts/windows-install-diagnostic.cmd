@@ -32,17 +32,8 @@ whoami /user >> "%DIAG_LOG%" 2>&1
 icacls "%LOCALAPPDATA%" >> "%DIAG_LOG%" 2>&1
 echo This diagnostic launcher checks permissions and saves installation or app startup details.
 set "RESULT_EXIT=0"
-set "SETUP="
-set "MULTIPLE_SETUP="
-for %%F in ("%~dp0*-setup.exe") do if exist "%%~fF" (
-  if defined SETUP (
-    set "MULTIPLE_SETUP=1"
-  ) else (
-    set "SETUP=%%~fF"
-  )
-)
-if defined MULTIPLE_SETUP goto multiple_setup
-if not defined SETUP goto find_app
+set "SETUP=%~dp0setup.exe"
+if not exist "%SETUP%" goto find_app
 >> "%DIAG_LOG%" echo Setup executable: "%SETUP%"
 for %%F in ("%SETUP%") do >> "%DIAG_LOG%" echo Setup size: %%~zF bytes; modified: %%~tF
 >> "%DIAG_LOG%" echo Setup executable permissions:
@@ -110,6 +101,7 @@ for %%F in ("%SQUIRREL_DIR%\SquirrelSetup.log" "%SQUIRREL_DIR%\Squirrel-Install.
 if not defined SQUIRREL_FOUND >> "%DIAG_LOG%" echo No Squirrel log was found in "%SQUIRREL_DIR%".
 goto security_events
 :find_app
+if exist "%~dp0RELEASES" goto setup_missing
 set "APP_EXE="
 set "MULTIPLE_APP="
 for %%F in ("%~dp0*.exe") do if exist "%%~fF" if /I not "%%~nxF"=="squirrel.exe" if /I not "%%~nxF"=="Update.exe" (
@@ -155,10 +147,6 @@ set "RESULT_EXIT=%ERRORLEVEL%"
 goto security_events
 :multiple_app
 >> "%DIAG_LOG%" echo Multiple app executables were found; no executable was launched.
-set "RESULT_EXIT=4"
-goto diagnostic_done
-:multiple_setup
->> "%DIAG_LOG%" echo Multiple setup executables were found beside this diagnostic launcher.
 set "RESULT_EXIT=4"
 goto diagnostic_done
 :setup_missing

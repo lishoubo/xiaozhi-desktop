@@ -4,7 +4,7 @@ Windows 用户在应用或安装器仍运行时重复启动 Squirrel Setup，可
 
 ## What Changes
 
-- 将 Windows 对外发布的 Setup.exe 封装为单文件 EXE：安装前检查本应用及同一个封装器是否正在运行，并在冲突时提示用户退出后重试；检查通过后运行内嵌的原始 Squirrel Setup。
+- Windows 发布目录将原始 Squirrel 安装器命名为 `setup.exe`，并另加 `小智酒店管家安装程序.exe` 作为用户入口：安装前检查本应用及同一个入口是否正在运行，记录每一步日志；检查通过后运行同目录的原始 Setup。两个 EXE 均不在安装后删除。
 - 在 Windows 发布包中增加普通卸载入口，调用 Squirrel 已有的卸载流程。
 - 明确两个入口都不清理 Electron 用户数据；保留原始 Setup 和现有诊断入口。
 
