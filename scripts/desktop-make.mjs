@@ -20,6 +20,7 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { createWindowsInstallDiagnostic } from './create-windows-install-diagnostic.mjs';
+import { createWindowsInstallerEntrypoints } from './create-windows-installer-entrypoints.mjs';
 
 const repoRoot = fileURLToPath(new URL('..', import.meta.url));
 
@@ -184,6 +185,13 @@ if (!packageOnly && targetPlatform === 'win32' && targetArch === 'x64') {
     'squirrel.windows',
     targetArch,
   );
+  const { setupPath, uninstallPath } = await createWindowsInstallerEntrypoints({
+    releaseDir,
+    productName: profile.productName,
+    squirrelName: profile.squirrelName,
+  });
+  console.log(`安装程序（含运行检查）: ${setupPath}`);
+  console.log(`普通卸载入口: ${uninstallPath}`);
   const diagnosticPath = await createWindowsInstallDiagnostic({
     releaseDir,
     productName: profile.productName,

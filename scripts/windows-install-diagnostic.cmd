@@ -54,7 +54,7 @@ if exist "%APP_FOLDER%" (
 )
 for %%F in ("%SQUIRREL_DIR%\SquirrelSetup.log" "%SQUIRREL_DIR%\Squirrel-Install.log") do if exist "%%~fF" >> "%DIAG_LOG%" echo Existing Squirrel log before install: "%%~fF"; modified: %%~tF; size: %%~zF bytes
 echo Setup executable: "%SETUP%"
-echo Starting the original installer. Close its result dialog before the diagnostic appears.
+echo Starting the release installer. Close its result dialog before the diagnostic appears.
 rem Child processes can retain redirected log handles and prevent later log writes.
 start "" /wait "%SETUP%"
 set "INSTALL_EXIT=%ERRORLEVEL%"

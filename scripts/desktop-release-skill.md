@@ -114,7 +114,7 @@ ls -la /tmp/win-release
 ```
 RELEASES                          几十字节，带 UTF-8 BOM
 xiaozhi-hotel-<版本>-full.nupkg    约 150 MB
-小智酒店管家-setup.exe              约 150 MB，给新客户首次安装
+小智酒店管家-setup.exe              约 150 MB，内嵌 Squirrel Setup，给新客户首次安装
 ```
 
 核对版本号是否与步骤 2 改的一致：

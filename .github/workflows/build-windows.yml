@@ -73,14 +73,20 @@ jobs:
       # 它们的包 —— 失败还是静默的。证书是公开的，随包分发，见 apps/desktop/certs/README.md。
       # 用绝对路径：Forge 在 apps/desktop/ 下解析该值，相对路径会指错。
       - name: 打包
-        run: npm run make:desktop:${{ inputs.app_env }}:win64
+        shell: cmd
+        run: |
+          for /f "usebackq delims=" %%i in (`"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath`) do call "%%i\Common7\Tools\VsDevCmd.bat" -arch=x64 -host_arch=x64
+          where cl.exe || exit /b 1
+          where rc.exe || exit /b 1
+          node --test scripts/tests/windows-installer-entrypoints.test.mjs || exit /b 1
+          npm run make:desktop:${{ inputs.app_env }}:win64
         env:
           HOTEL_BUTLER_PRIVATE_CA_PATH: ${{ github.workspace }}/apps/desktop/certs/private-ca.pem
 
       # 产物路径里那层 `staff/` 来自 forge.config.ts 的 `buildIdentifier`，
       # 别漏掉——Forge 收尾会打印 "Artifacts available at:" 指向真实位置。
       # 同时收 nupkg 与 RELEASES：有它们才能做后续增量更新，只留 exe 会丢掉这个能力。
-      - name: 上传安装包及诊断脚本
+      - name: 上传安装包、卸载及诊断入口
         uses: actions/upload-artifact@v6
         with:
           name: windows-${{ inputs.app_env }}
