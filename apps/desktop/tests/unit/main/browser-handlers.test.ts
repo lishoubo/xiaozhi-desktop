@@ -4,7 +4,7 @@ import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { toChannelId } from '../../../src/main/ids';
 import { IPC_CHANNELS } from '../../../src/shared/ipc-channels';
-import { writeImportedCookies } from '../../../src/main/cookie-import/store';
+import { readImportedCookies, writeImportedCookies } from '../../../src/main/cookie-import/store';
 
 const electron = vi.hoisted(() => {
   const handlers = new Map<string, (event: { sender: unknown }, ...args: unknown[]) => unknown>();
@@ -146,5 +146,28 @@ describe('CookieImportService.listImportedChannels', () => {
     await expect(service.listImportedChannels()).resolves.toEqual([
       { channel: toChannelId('meituan'), importedAt: '2026-08-05T00:00:00.000Z' },
     ]);
+  });
+
+  it('saves the browser UA with each imported channel', async () => {
+    const userDataDir = tempUserDataDir();
+    const userAgent =
+      'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 ' +
+      '(KHTML, like Gecko) Chrome/155.0.0.0 Safari/537.36';
+    const service = new CookieImportService({
+      importer: {
+        listSources: vi.fn(),
+        readCookies: vi.fn().mockResolvedValue({
+          cookiesByChannel: new Map([[toChannelId('ctrip'), [{ name: 'sid', value: 'v' }]]]),
+          failed: 0,
+          userAgent,
+        }),
+      } as never,
+      userDataDir,
+      logger: createLogger(),
+    });
+
+    await expect(service.import('chrome')).resolves.toEqual({ imported: 1, failed: 0 });
+    const imported = await readImportedCookies(userDataDir, toChannelId('ctrip'));
+    expect(imported?.manifest.userAgent).toBe(userAgent);
   });
 });

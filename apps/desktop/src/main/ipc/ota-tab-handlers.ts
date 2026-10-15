@@ -24,7 +24,7 @@ export interface OtaTabOrchestrator {
     url: string,
     intent?: OtaTabIntent,
   ): Promise<BrowserTab>;
-  openExisting(credentialId: string, intent?: OtaTabIntent): BrowserTab;
+  openExisting(credentialId: string, intent?: OtaTabIntent): Promise<BrowserTab>;
   /** 开一份新 partition 并注入原账号 cookie（为什么必须新建见 `OtaTabService`）。 */
   openExistingForBinding(credentialId: string, intent?: OtaTabIntent): Promise<BrowserTab>;
 }

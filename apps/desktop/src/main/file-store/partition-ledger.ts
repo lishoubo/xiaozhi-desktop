@@ -71,6 +71,7 @@ export type PendingPartition = Readonly<{
   channel: ChannelId;
   environment: LedgerEnvironment;
   createdAt: string;
+  userAgent?: string;
 }>;
 
 export type PartitionRecord = Readonly<{
@@ -78,6 +79,7 @@ export type PartitionRecord = Readonly<{
   channel: ChannelId;
   environment: LedgerEnvironment;
   createdAt: string;
+  userAgent?: string;
   state: PartitionState;
 }>;
 
@@ -110,7 +112,9 @@ export function prune(records: readonly PartitionRecord[]): readonly PartitionRe
   const cleared = records
     .filter((record) => record.state.kind === 'cleared')
     .sort((a, b) => clearedAt(b).localeCompare(clearedAt(a)))
-    .filter((record, index) => index < CLEARED_MAX_ENTRIES && notExpired(clearedAt(record), cutoff));
+    .filter(
+      (record, index) => index < CLEARED_MAX_ENTRIES && notExpired(clearedAt(record), cutoff),
+    );
   return [...alive, ...cleared];
 }
 
@@ -150,6 +154,7 @@ export function recordPartitionCreated(
     // 写入侧只产生构建期环境；`'prod'` 只可能来自历史记录，不接受新写入。
     environment: AppEnvironment;
     createdAt: string;
+    userAgent?: string;
   }>,
 ): Promise<void> {
   return withMutex(async () => {

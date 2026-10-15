@@ -39,7 +39,8 @@ import { HeartbeatService } from '../services/heartbeat-service';
 import { createScanTargetsOf } from './scan-targets';
 import { toCredentialExpirySummary } from './credential-expiry-summary';
 import { readOrCreateDeviceId } from '../file-store/device-id';
-import { updatePartitionState } from '../file-store/partition-ledger';
+import { listPartitionRecords, updatePartitionState } from '../file-store/partition-ledger';
+import { safeBrowserUserAgent } from '../browser/user-agent';
 import { cleanupOrphanPartitions, cleanupRetiredPartitions } from '../browser/partition-cleanup';
 import { reportError } from '../error-reporting/report-error';
 import { HttpRmsHotelGateway } from '../gateway/rms/rms-hotel-gateway-http';
@@ -309,7 +310,13 @@ export function createAppScope(logger: AppLogger): AppScope {
           : null;
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     try {
-      const response = await sessionFactory.sessionForAccount(partitionName).fetch(url, {
+      const accountSession = sessionFactory.sessionForAccount(partitionName);
+      const records = await listPartitionRecords(userDataDir);
+      const userAgent = safeBrowserUserAgent(
+        records.find((record) => record.partitionName === partitionName)?.userAgent,
+      );
+      if (userAgent) accountSession.setUserAgent(userAgent);
+      const response = await accountSession.fetch(url, {
         // body 为 null 即 GET —— 美团的门店列表端点是 GET，其余都是 POST。
         method: body === null ? 'GET' : 'POST',
         // 让 Chromium 自己从该 partition 的 cookie jar 带 cookie —— 不手拼 Cookie 头。

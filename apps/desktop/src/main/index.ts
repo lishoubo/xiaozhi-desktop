@@ -18,6 +18,7 @@ import { createAppScope, type AppScope } from './composition/app-scope';
 import { createWindowScope, type WindowScope } from './composition/window-scope';
 import { loadPackagedPrivateCa } from './server-client/private-ca-trust';
 import { resolveRmsOrigin } from './staff-auth/rms-endpoint';
+import { defaultBrowserUserAgent } from './browser/user-agent';
 
 /**
  * ⚠️ **必须是本文件的第一条语句**：`app.getName()` 决定 userData 与日志目录，而
@@ -32,6 +33,7 @@ import { resolveRmsOrigin } from './staff-auth/rms-endpoint';
  * package.json 的 productName，与正式包共用目录。
  */
 app.setName(APP_PRODUCT_NAME);
+app.userAgentFallback = defaultBrowserUserAgent(process.platform);
 
 let appScope: AppScope | null = null;
 let windowScope: WindowScope | null = null;

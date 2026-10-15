@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { toChannelId, toOtaCredentialId } from '../../../src/main/ids';
 import { OtaTabService } from '../../../src/main/ota-tab/ota-tab-service';
 import { readImportedCookies, writeImportedCookies } from '../../../src/main/cookie-import/store';
+import { listPartitionRecords } from '../../../src/main/file-store/partition-ledger';
 
 const temporaryDirectories: string[] = [];
 
@@ -58,10 +59,7 @@ describe('OtaTabService', () => {
 
     await service.openForNewLogin(CTRIP, 'https://ctrip.com');
 
-    expect(browserManager.createAndNewPartition).toHaveBeenCalledWith(
-      CTRIP,
-      'https://ctrip.com',
-    );
+    expect(browserManager.createAndNewPartition).toHaveBeenCalledWith(CTRIP, 'https://ctrip.com');
     // 不带意图时 intent 为 undefined——普通新建账号，登录后不触发任何后续流程。
     expect(loginDetector.register).toHaveBeenCalledWith('tab-1', CTRIP, undefined);
   });
@@ -93,40 +91,79 @@ describe('OtaTabService', () => {
 
     await service.openWithImportedCookie(CTRIP, 'https://ctrip.com');
 
-    expect(browserManager.createAndNewPartition).toHaveBeenCalledWith(
-      CTRIP,
-      'https://ctrip.com',
-      { importedCookies: [{ name: 'a', value: '1' }] },
-    );
+    expect(browserManager.createAndNewPartition).toHaveBeenCalledWith(CTRIP, 'https://ctrip.com', {
+      importedCookies: [{ name: 'a', value: '1' }],
+      userAgent: undefined,
+    });
     await expect(readImportedCookies(userDataDir, CTRIP)).resolves.not.toBeNull();
   });
 
-  it('openExisting() 复用凭据的 partition；不传 intent 也照常登记登录判定', () => {
+  it('preserves an imported UA when reopening an account and creating a binding partition', async () => {
+    const { service, browserManager, userDataDir } = setup({
+      id: toOtaCredentialId('credential-1'),
+      channel: CTRIP,
+      partitionName: 'persist:new',
+    });
+    const userAgent =
+      'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 ' +
+      '(KHTML, like Gecko) Chrome/155.0.0.0 Safari/537.36';
+    await writeImportedCookies(userDataDir, CTRIP, [{ name: 'sid', value: 'v' } as never], {
+      importedAt: new Date().toISOString(),
+      sourceId: 'chrome',
+      userAgent,
+    });
+
+    await service.openWithImportedCookie(CTRIP, 'https://ctrip.com');
+    expect(browserManager.createAndNewPartition).toHaveBeenLastCalledWith(
+      CTRIP,
+      'https://ctrip.com',
+      { importedCookies: [{ name: 'sid', value: 'v' }], userAgent },
+    );
+    expect((await listPartitionRecords(userDataDir))[0]?.userAgent).toBe(userAgent);
+
+    await service.openExisting('credential-1');
+    expect(browserManager.createWithAlreadyPartition).toHaveBeenLastCalledWith(
+      'persist:new',
+      CTRIP,
+      expect.any(String),
+      userAgent,
+    );
+
+    await service.openExistingForBinding('credential-1');
+    expect(browserManager.createAndNewPartition).toHaveBeenLastCalledWith(
+      CTRIP,
+      expect.any(String),
+      { importedCookies: [], userAgent },
+    );
+  });
+
+  it('openExisting() 复用凭据的 partition；不传 intent 也照常登记登录判定', async () => {
     const { service, browserManager, loginDetector } = setup({
       id: toOtaCredentialId('credential-1'),
       channel: CTRIP,
       partitionName: 'persist:existing',
     });
 
-    service.openExisting('credential-1');
+    await service.openExisting('credential-1');
 
     expect(browserManager.createWithAlreadyPartition).toHaveBeenCalledWith(
       'persist:existing',
       CTRIP,
       expect.any(String),
+      undefined,
     );
     // 登录判定与意图无关：不带意图也要判定，只是探测出的候选无人接收。
     expect(loginDetector.register).toHaveBeenCalledWith('tab-1', CTRIP, undefined);
   });
 
-  it('openExisting() 把 intent 透传给登录判定', () => {
+  it('openExisting() 把 intent 透传给登录判定', async () => {
     const { service, loginDetector } = setup({
       id: toOtaCredentialId('credential-1'),
       channel: CTRIP,
       partitionName: 'persist:existing',
     });
 
-    service.openExisting('credential-1', { kind: 'bind-hotel', requestId: 'req-1' });
+    await service.openExisting('credential-1', { kind: 'bind-hotel', requestId: 'req-1' });
 
     expect(loginDetector.register).toHaveBeenCalledWith('tab-1', CTRIP, {
       kind: 'bind-hotel',
@@ -134,10 +171,10 @@ describe('OtaTabService', () => {
     });
   });
 
-  it('openExisting() 找不到凭据时报错', () => {
+  it('openExisting() 找不到凭据时报错', async () => {
     const { service } = setup();
 
-    expect(() => service.openExisting('credential-1')).toThrow('未找到该登录凭据');
+    await expect(service.openExisting('credential-1')).rejects.toThrow('未找到该登录凭据');
   });
 
   /**
@@ -164,11 +201,10 @@ describe('OtaTabService', () => {
     expect(readInjectableCookies).toHaveBeenCalledWith('persist:existing');
     // ……但开的是新 partition，不是复用那一个。
     expect(browserManager.createWithAlreadyPartition).not.toHaveBeenCalled();
-    expect(browserManager.createAndNewPartition).toHaveBeenCalledWith(
-      DOUYIN,
-      expect.any(String),
-      { importedCookies: [{ name: 'sid', value: 'v1' }] },
-    );
+    expect(browserManager.createAndNewPartition).toHaveBeenCalledWith(DOUYIN, expect.any(String), {
+      importedCookies: [{ name: 'sid', value: 'v1' }],
+      userAgent: undefined,
+    });
     expect(loginDetector.register).toHaveBeenCalledWith('tab-1', DOUYIN, {
       kind: 'bind-hotel',
       requestId: 'req-1',
@@ -191,9 +227,7 @@ describe('OtaTabService', () => {
     const ledger = JSON.parse(
       fs.readFileSync(path.join(userDataDir, 'partitions.json'), 'utf8'),
     ) as { partitionName: string; state: { kind: string } }[];
-    expect(ledger).toEqual([
-      expect.objectContaining({ state: { kind: 'pending' } }),
-    ]);
+    expect(ledger).toEqual([expect.objectContaining({ state: { kind: 'pending' } })]);
   });
 
   it('openExistingForBinding() 找不到凭据时报错', async () => {

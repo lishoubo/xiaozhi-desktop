@@ -12,7 +12,8 @@ import { otaChannelLandingUrl } from '../channels/landing-url';
 import type { BrowserTab } from '../../shared/browser';
 import type { AppLogger } from '../../shared/logging';
 import { readImportedCookies } from '../cookie-import/store';
-import { recordPartitionCreated } from '../file-store/partition-ledger';
+import { listPartitionRecords, recordPartitionCreated } from '../file-store/partition-ledger';
+import { safeBrowserUserAgent } from '../browser/user-agent';
 import { APP_ENVIRONMENT } from '../../shared/app-environment';
 import type { LoginDetector } from './login-detector';
 import type { OtaTabIntent } from './intent';
@@ -48,7 +49,11 @@ export class OtaTabService {
    * 「新登录账号」快捷方式带 `bind-hotel` 意图走这条路：新账号可操作的门店未知，
    * 登录成功后必须探测并让用户确认。
    */
-  async openForNewLogin(channel: ChannelId, url: string, intent?: OtaTabIntent): Promise<BrowserTab> {
+  async openForNewLogin(
+    channel: ChannelId,
+    url: string,
+    intent?: OtaTabIntent,
+  ): Promise<BrowserTab> {
     const { tab, partitionName } = await this.deps.browserManager.createAndNewPartition(
       channel,
       url,
@@ -79,10 +84,17 @@ export class OtaTabService {
     const { tab, partitionName } = await this.deps.browserManager.createAndNewPartition(
       channel,
       url,
-      { importedCookies: imported.cookies },
+      {
+        importedCookies: imported.cookies,
+        userAgent: safeBrowserUserAgent(imported.manifest.userAgent) ?? undefined,
+      },
     );
     this.deps.loginDetector.register(tab.id, channel, intent);
-    await this.rememberPendingPartition(partitionName, channel);
+    await this.rememberPendingPartition(
+      partitionName,
+      channel,
+      safeBrowserUserAgent(imported.manifest.userAgent) ?? undefined,
+    );
     return tab;
   }
 
@@ -123,38 +135,53 @@ export class OtaTabService {
     const credential = this.deps.otaCredentialRepository.findById(toOtaCredentialId(credentialId));
     if (!credential) throw new Error('未找到该登录凭据');
 
+    const userAgent = await this.partitionUserAgent(credential.partitionName);
     const cookies = await this.deps.readInjectableCookies(credential.partitionName);
     const { tab, partitionName } = await this.deps.browserManager.createAndNewPartition(
       credential.channel,
       otaChannelLandingUrl(credential.channel),
-      { importedCookies: cookies },
+      { importedCookies: cookies, userAgent: userAgent ?? undefined },
     );
     this.deps.loginDetector.register(tab.id, credential.channel, intent);
     // 登记进账本：这正是 e977c06 当年欠下、本轮补上的那一环。
-    await this.rememberPendingPartition(partitionName, credential.channel);
+    await this.rememberPendingPartition(partitionName, credential.channel, userAgent ?? undefined);
     return tab;
   }
 
-  openExisting(credentialId: string, intent?: OtaTabIntent): BrowserTab {
+  async openExisting(credentialId: string, intent?: OtaTabIntent): Promise<BrowserTab> {
     const credential = this.deps.otaCredentialRepository.findById(toOtaCredentialId(credentialId));
     if (!credential) throw new Error('未找到该登录凭据');
+    const userAgent = await this.partitionUserAgent(credential.partitionName);
     const url = otaChannelLandingUrl(credential.channel);
     const tab = this.deps.browserManager.createWithAlreadyPartition(
       credential.partitionName,
       credential.channel,
       url,
+      userAgent ?? undefined,
     );
     this.deps.loginDetector.register(tab.id, credential.channel, intent);
     return tab;
   }
 
   /** 登记进账本，状态 pending —— 探测成功后由 credential 侧改成 claimed。 */
-  private rememberPendingPartition(partitionName: string, channel: ChannelId): Promise<void> {
+  private rememberPendingPartition(
+    partitionName: string,
+    channel: ChannelId,
+    userAgent?: string,
+  ): Promise<void> {
     return recordPartitionCreated(this.deps.userDataDir, {
       partitionName,
       channel,
       environment: APP_ENVIRONMENT,
       createdAt: new Date().toISOString(),
+      ...(userAgent ? { userAgent } : {}),
     });
+  }
+
+  private async partitionUserAgent(partitionName: string): Promise<string | null> {
+    const records = await listPartitionRecords(this.deps.userDataDir);
+    return safeBrowserUserAgent(
+      records.find((record) => record.partitionName === partitionName)?.userAgent,
+    );
   }
 }

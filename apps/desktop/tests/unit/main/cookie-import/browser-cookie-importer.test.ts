@@ -7,6 +7,7 @@ import {
   BrowserCookieImporter,
   parseSafariCookieStore,
 } from '../../../../src/main/cookie-import/browser-cookie-importer';
+import { toChannelId } from '../../../../src/main/ids';
 
 const temporaryDirectories: string[] = [];
 
@@ -36,6 +37,36 @@ afterEach(() => {
 });
 
 describe('BrowserCookieImporter', () => {
+  it('derives a source UA from the selected Chrome profile version', async () => {
+    const home = temporaryDirectory();
+    const root = path.join(home, '.config', 'google-chrome');
+    const databasePath = path.join(root, 'Default', 'Network', 'Cookies');
+    fs.mkdirSync(path.dirname(databasePath), { recursive: true });
+    fs.writeFileSync(path.join(root, 'Last Version'), '155.0.8059.39\n');
+    const database = new Database(databasePath);
+    database.exec(`
+      CREATE TABLE cookies (
+        host_key TEXT, name TEXT, value TEXT, encrypted_value BLOB, path TEXT,
+        expires_utc INTEGER, is_secure INTEGER, is_httponly INTEGER, samesite INTEGER
+      );
+      CREATE TABLE meta (key TEXT, value TEXT);
+      INSERT INTO meta VALUES ('version', '24');
+      INSERT INTO cookies VALUES ('.ctrip.com', 'sid', 'plain', X'', '/', 0, 1, 1, 1);
+    `);
+    database.close();
+
+    const result = await new BrowserCookieImporter(createLogger(), home, 'linux', {}).readCookies(
+      'chrome',
+    );
+    expect(result.cookiesByChannel.get(toChannelId('ctrip'))).toHaveLength(1);
+    expect(result.userAgent).toContain('Chrome/155.0.0.0 Safari/537.36');
+
+    fs.unlinkSync(path.join(root, 'Last Version'));
+    const withoutVersion = await new BrowserCookieImporter(createLogger(), home, 'linux', {}).readCookies('chrome');
+    expect(withoutVersion.cookiesByChannel.get(toChannelId('ctrip'))).toHaveLength(1);
+    expect(withoutVersion.userAgent).toBeNull();
+  });
+
   it('keeps Safari available on macOS when its cookie store cannot be accessed yet', async () => {
     const home = temporaryDirectory();
 
@@ -135,6 +166,7 @@ describe('BrowserCookieImporter', () => {
     );
 
     expect(result.failed).toBe(0);
+    expect(result.userAgent).toBeNull();
     expect(result.cookiesByChannel).toEqual(
       new Map([
         [

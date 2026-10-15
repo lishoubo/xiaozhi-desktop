@@ -16,6 +16,7 @@ const COOKIE_IMPORTS_DIRNAME = 'cookie-imports';
 export type CookieImportManifest = Readonly<{
   importedAt: string;
   sourceId: BrowserCookieSourceId;
+  userAgent?: string;
 }>;
 
 export type ImportedChannelCookies = Readonly<{

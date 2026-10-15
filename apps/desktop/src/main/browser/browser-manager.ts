@@ -13,18 +13,13 @@ import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 import type { ChannelId } from '../ids';
 import { IPC_CHANNELS } from '../../shared/ipc-channels';
-import {
-  browserWebUrlSchema,
-  type BrowserTab,
-  type BrowserTabFailure,
-} from '../../shared/browser';
+import { browserWebUrlSchema, type BrowserTab, type BrowserTabFailure } from '../../shared/browser';
 import { safeLogErrorDetails, type AppLogger } from '../../shared/logging';
+import { safeBrowserUserAgent } from './user-agent';
 
 export interface BrowserSessionFactory {
   sessionForAccount(partitionName: string): Session;
-  sessionForLogin(
-    channel: ChannelId,
-  ): Readonly<{ session: Session; partitionName: string }>;
+  sessionForLogin(channel: ChannelId): Readonly<{ session: Session; partitionName: string }>;
   clearAccountSession(partitionName: string): Promise<void>;
 }
 
@@ -184,9 +179,14 @@ export class BrowserManager extends EventEmitter {
    * §4）均走这里；是否需要登录判定由调用方（`OtaTabOpener`）订阅
    * `tab:navigated` 自行决定，这里不再关心。
    */
-  createWithAlreadyPartition(partitionName: string, channelId: string, url: string): BrowserTab {
+  createWithAlreadyPartition(
+    partitionName: string,
+    channelId: string,
+    url: string,
+    userAgent?: string,
+  ): BrowserTab {
     const tabSession = this.sessionFactory.sessionForAccount(partitionName);
-    const tab = this.createTab(channelId, url, partitionName, tabSession);
+    const tab = this.createTab(channelId, url, partitionName, tabSession, { userAgent });
     return this.snapshot(tab);
   }
 
@@ -200,18 +200,20 @@ export class BrowserManager extends EventEmitter {
     url: string,
     options: Readonly<{
       importedCookies?: readonly CookiesSetDetails[];
+      userAgent?: string;
     }> = {},
   ): Promise<Readonly<{ tab: BrowserTab; partitionName: string }>> {
     // ⚠️ 必须**先**查上限再建 partition：`sessionForLogin` 会在磁盘上落一份新的
     // 登录态，随后还可能写入 cookie。若等到 `createTab` 才拒绝，这份 partition
     // 既没有标签页引用、也没进账本，就成了孤儿 —— 正是本仓库出过事故的那一类。
     this.assertTabCapacity();
-    const { session: tabSession, partitionName } =
-      this.sessionFactory.sessionForLogin(channelId);
+    const { session: tabSession, partitionName } = this.sessionFactory.sessionForLogin(channelId);
     if (options.importedCookies) {
       await Promise.all(options.importedCookies.map((cookie) => tabSession.cookies.set(cookie)));
     }
-    const tab = this.createTab(channelId, url, partitionName, tabSession);
+    const tab = this.createTab(channelId, url, partitionName, tabSession, {
+      userAgent: options.userAgent,
+    });
     return { tab: this.snapshot(tab), partitionName };
   }
 
@@ -233,11 +235,13 @@ export class BrowserManager extends EventEmitter {
     url: string,
     partitionName: string,
     tabSession: Session,
-    options: Readonly<{ activate?: boolean }> = {},
+    options: Readonly<{ activate?: boolean; userAgent?: string }> = {},
   ): ManagedTab {
     assertWebUrl(url);
     if (!channelId.trim()) throw new Error('渠道标识不能为空');
     this.assertTabCapacity();
+    const userAgent = safeBrowserUserAgent(options.userAgent);
+    if (userAgent) tabSession.setUserAgent(userAgent);
 
     const id = randomUUID();
     const view = new WebContentsView({
@@ -253,6 +257,7 @@ export class BrowserManager extends EventEmitter {
         v8CacheOptions: 'code',
       },
     });
+    if (userAgent) view.webContents.setUserAgent(userAgent);
     // 不设背景色时，视图在首帧绘制前是透明的，切换标签页会闪一下黑。
     view.setBackgroundColor('#ffffff');
     this.managedWebContentsIds.add(view.webContents.id);
@@ -601,9 +606,7 @@ export class BrowserManager extends EventEmitter {
    * 用户看到一次莫名其妙的闪跳。
    */
   private pickSuccessor(closing: ManagedTab): ManagedTab | undefined {
-    const siblings = [...this.tabs.values()].filter(
-      (item) => item.channelId === closing.channelId,
-    );
+    const siblings = [...this.tabs.values()].filter((item) => item.channelId === closing.channelId);
     const index = siblings.findIndex((item) => item.id === closing.id);
     if (index === -1) return undefined;
     const remaining = siblings.filter((item) => item.id !== closing.id);

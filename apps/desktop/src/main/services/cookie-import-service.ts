@@ -64,8 +64,11 @@ export class CookieImportService {
    */
   async import(sourceId: BrowserCookieSourceId): Promise<CookieImportResult> {
     try {
-      const { cookiesByChannel, failed: readFailures } =
-        await this.deps.importer.readCookies(sourceId);
+      const {
+        cookiesByChannel,
+        failed: readFailures,
+        userAgent,
+      } = await this.deps.importer.readCookies(sourceId);
       if (cookiesByChannel.size === 0 && readFailures === 0) {
         throw new Error('所选浏览器中没有找到可导入的 Cookie');
       }
@@ -73,7 +76,11 @@ export class CookieImportService {
       const importedAt = new Date().toISOString();
       await Promise.all(
         Array.from(cookiesByChannel.entries()).map(([channel, cookies]) =>
-          writeImportedCookies(this.deps.userDataDir, channel, cookies, { importedAt, sourceId }),
+          writeImportedCookies(this.deps.userDataDir, channel, cookies, {
+            importedAt,
+            sourceId,
+            ...(userAgent ? { userAgent } : {}),
+          }),
         ),
       );
 

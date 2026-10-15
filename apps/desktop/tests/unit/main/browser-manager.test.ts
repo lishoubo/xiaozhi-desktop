@@ -13,6 +13,7 @@ const electron = vi.hoisted(() => {
     clearCache: vi.fn().mockResolvedValue(undefined),
     clearStorageData: vi.fn().mockResolvedValue(undefined),
     closeAllConnections: vi.fn().mockResolvedValue(undefined),
+    setUserAgent: vi.fn(),
     setPermissionCheckHandler: vi.fn(),
     setPermissionRequestHandler: vi.fn(),
     webRequest: {
@@ -61,6 +62,7 @@ const electron = vi.hoisted(() => {
         }),
       },
       reload: vi.fn(),
+      setUserAgent: vi.fn(),
       setAudioMuted: vi.fn(),
       setWindowOpenHandler: vi.fn((listener: (...args: unknown[]) => unknown) => {
         this.windowOpenHandler.mockImplementation(listener);
@@ -144,9 +146,32 @@ beforeEach(() => {
   electron.browserSession.clearCache.mockClear();
   electron.browserSession.clearStorageData.mockClear();
   electron.browserSession.closeAllConnections.mockClear();
+  electron.browserSession.setUserAgent.mockClear();
 });
 
 describe('BrowserManager', () => {
+  it('applies a saved partition UA before the first load and leaves other tabs on the global fallback', () => {
+    const manager = createBrowserManager(createWindow(), createLogger());
+    const importedUserAgent =
+      'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 ' +
+      '(KHTML, like Gecko) Chrome/154.0.0.0 Safari/537.36';
+    manager.createWithAlreadyPartition(
+      'persist:xiaozhi:dev:ctrip:account',
+      'ctrip',
+      'https://ebooking.ctrip.com/home/mainland',
+      importedUserAgent,
+    );
+    manager.createWithAlreadyPartition(
+      'persist:xiaozhi:dev:meituan:account',
+      'meituan',
+      'https://me.meituan.com/',
+    );
+
+    expect(electron.browserSession.setUserAgent).toHaveBeenCalledWith(importedUserAgent);
+    expect(electron.views[0].webContents.setUserAgent).toHaveBeenCalledWith(importedUserAgent);
+    expect(electron.views[1].webContents.setUserAgent).not.toHaveBeenCalled();
+  });
+
   it('logs native dialog source without logging its message or full URL after the view is hidden', () => {
     const logger = createLogger();
     const manager = createBrowserManager(createWindow(), logger);
@@ -155,7 +180,9 @@ describe('BrowserManager', () => {
       'meituan',
       'https://me.meituan.com/',
     );
-    electron.views[0].webContents.getURL.mockReturnValue('https://me.meituan.com/path?token=secret');
+    electron.views[0].webContents.getURL.mockReturnValue(
+      'https://me.meituan.com/path?token=secret',
+    );
 
     logger.info.mockClear();
     electron.views[0].handlers.get('ipc:embedded-web:javascript-dialog')?.({}, 'confirm');
@@ -533,7 +560,11 @@ describe('BrowserManager viewport visibility', () => {
    */
   it('re-asserts visibility on every activate, even for an already-active tab', () => {
     const manager = createBrowserManager(createWindow(), createLogger());
-    const first = manager.createWithAlreadyPartition('persist:xiaozhi:prod:ctrip:a', 'ctrip', CTRIP);
+    const first = manager.createWithAlreadyPartition(
+      'persist:xiaozhi:prod:ctrip:a',
+      'ctrip',
+      CTRIP,
+    );
     manager.setViewportVisible(false);
     // 让位期间开第二个标签页：它顶掉了 first，此后 setViewportVisible 再也够不到 first。
     manager.createWithAlreadyPartition('persist:xiaozhi:prod:ctrip:b', 'ctrip', CTRIP);
@@ -660,11 +691,7 @@ describe('BrowserManager failure state', () => {
   it('records Ctrip loading phases without storing navigation URLs', () => {
     const logger = createLogger();
     const manager = createBrowserManager(createWindow(), logger);
-    const tab = manager.createWithAlreadyPartition(
-      'persist:xiaozhi:prod:ctrip:a',
-      'ctrip',
-      CTRIP,
-    );
+    const tab = manager.createWithAlreadyPartition('persist:xiaozhi:prod:ctrip:a', 'ctrip', CTRIP);
     const view = electron.views[0];
 
     view.handlers.get('did-start-loading')?.();
@@ -808,11 +835,7 @@ describe('BrowserManager close hand-off', () => {
   it('leaves the content area empty when the last tab of a channel closes', () => {
     const window = createWindow();
     const manager = createBrowserManager(window, createLogger());
-    const only = manager.createWithAlreadyPartition(
-      'persist:xiaozhi:prod:ctrip:a',
-      'ctrip',
-      CTRIP,
-    );
+    const only = manager.createWithAlreadyPartition('persist:xiaozhi:prod:ctrip:a', 'ctrip', CTRIP);
     window.contentView.addChildView.mockClear();
 
     manager.close(only.id);

@@ -14,6 +14,7 @@ import {
   chromiumTimestampToUnix,
   isSupportedCookieDomain,
 } from './cookie-import';
+import { browserUserAgentFromVersion } from '../browser/user-agent';
 
 type SupportedPlatform = NodeJS.Platform;
 
@@ -723,12 +724,14 @@ export class BrowserCookieImporter {
    * 一次性读取该来源里所有受支持渠道的 cookie，按渠道拆分返回——调用方
    * 不需要（也不能）预先指定渠道，见 design.md 决策 1。
    */
-  async readCookies(
-    sourceId: BrowserCookieSourceId,
-  ): Promise<{ cookiesByChannel: Map<ChannelId, CookiesSetDetails[]>; failed: number }> {
+  async readCookies(sourceId: BrowserCookieSourceId): Promise<{
+    cookiesByChannel: Map<ChannelId, CookiesSetDetails[]>;
+    failed: number;
+    userAgent: string | null;
+  }> {
     this.logger.info('Cookie extraction started', { source: sourceId });
     try {
-      const { cookies, failed } = await this.readCookiesFromSource(sourceId);
+      const { cookies, failed, userAgent } = await this.readCookiesFromSource(sourceId);
       const cookiesByChannel = new Map<ChannelId, CookiesSetDetails[]>();
       for (const cookie of cookies) {
         const channel = cookie.domain ? channelForCookieDomain(cookie.domain) : null;
@@ -743,7 +746,7 @@ export class BrowserCookieImporter {
         extracted: cookies.length,
         failed,
       });
-      return { cookiesByChannel, failed };
+      return { cookiesByChannel, failed, userAgent };
     } catch (error: unknown) {
       // 只记 errorName 等于什么都没说：这条路径抛的几乎全是裸 `new Error(...)`，
       // name 恒为 'Error'。用 safeLogErrorDetails 一并落 message 与 stack，它自带
@@ -759,19 +762,23 @@ export class BrowserCookieImporter {
 
   private async readCookiesFromSource(
     sourceId: BrowserCookieSourceId,
-  ): Promise<{ cookies: CookiesSetDetails[]; failed: number }> {
+  ): Promise<{ cookies: CookiesSetDetails[]; failed: number; userAgent: string | null }> {
     if (sourceId === 'safari') {
       if (this.platform !== 'darwin') throw new Error('当前系统不支持 Safari');
       const databasePath = await newestFile(safariPaths(this.homeDirectory));
       if (!databasePath) throw new Error('未找到 Safari Cookie 数据');
-      return { cookies: parseSafariCookieStore(await fs.readFile(databasePath)), failed: 0 };
+      return {
+        cookies: parseSafariCookieStore(await fs.readFile(databasePath)),
+        failed: 0,
+        userAgent: null,
+      };
     }
     if (sourceId === 'firefox') {
       const databasePath = await findFirefoxDatabase(
         firefoxRoot(this.homeDirectory, this.platform, this.environment),
       );
       if (!databasePath) throw new Error('未找到 Mozilla Firefox Cookie 数据');
-      return { cookies: await readFirefoxCookies(databasePath), failed: 0 };
+      return { cookies: await readFirefoxCookies(databasePath), failed: 0, userAgent: null };
     }
     const definition = chromiumDefinitions(
       this.homeDirectory,
@@ -781,12 +788,27 @@ export class BrowserCookieImporter {
     if (!definition) throw new Error('当前系统不支持所选浏览器');
     const databasePath = await findChromiumDefinitionDatabase(definition);
     if (!databasePath) throw new Error(`未找到 ${definition.name} Cookie 数据`);
-    return readChromiumCookies(
+    const result = await readChromiumCookies(
       databasePath,
       definition,
       this.platform,
       this.environment,
       this.logger,
     );
+    let userAgent: string | null = null;
+    if (sourceId === 'chrome' || sourceId === 'edge') {
+      const root = definition.roots.find((candidate) =>
+        databasePath.startsWith(`${candidate}${path.sep}`),
+      );
+      if (root) {
+        try {
+          const version = (await fs.readFile(path.join(root, 'Last Version'), 'utf8')).trim();
+          userAgent = browserUserAgentFromVersion(sourceId, version, this.platform);
+        } catch {
+          // 版本信息是可选元数据；Cookie 读取结果仍可使用全局默认 UA。
+        }
+      }
+    }
+    return { ...result, userAgent };
   }
 }
