@@ -36,7 +36,6 @@ describe('renderer capability derivation', () => {
   it('withholds hotel management without a session', () => {
     expect(capabilitiesOf(null).manageHotel).toBe(false);
   });
-
 });
 
 describe('renderer module visibility by user type', () => {
@@ -63,6 +62,19 @@ describe('renderer module visibility by user type', () => {
   });
 
   it('withholds both capabilities without a session', () => {
-    expect(capabilitiesOf(null)).toEqual({ manageHotel: false, showHotelManagement: false });
+    expect(capabilitiesOf(null)).toEqual({
+      manageHotel: false,
+      showHotelManagement: false,
+      showXiaozhiChannel: false,
+    });
+  });
+});
+
+describe('xiaozhi channel visibility', () => {
+  it('only admits an explicit staff identity', () => {
+    expect(capabilitiesOf(staffWith([], 'STAFF')).showXiaozhiChannel).toBe(true);
+    expect(capabilitiesOf(staffWith([], 'HOTEL')).showXiaozhiChannel).toBe(false);
+    expect(capabilitiesOf(staffWith([])).showXiaozhiChannel).toBe(false);
+    expect(capabilitiesOf(null).showXiaozhiChannel).toBe(false);
   });
 });

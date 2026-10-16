@@ -25,6 +25,7 @@
  * ⚠️ URL 里含令牌，**不得写进日志或错误上报**。
  */
 import { z } from 'zod';
+import type { StaffIdentity } from '@hotel-butler/api';
 import type { BrowserTab } from '../../shared/browser';
 import { IPC_CHANNELS } from '../../shared/ipc-channels';
 import type { AppLogger } from '../../shared/logging';
@@ -80,6 +81,7 @@ export type RegisterInternalPageHandlersOptions = Readonly<{
   rmsWebOrigin: string;
   /** 取一枚当前可用的访问令牌，必要时内部先续期。无有效会话时抛错。 */
   accessToken: () => Promise<string>;
+  currentSession: () => Promise<StaffIdentity | null>;
   partitionName: string;
   logger: AppLogger;
 }>;
@@ -176,6 +178,7 @@ export function registerInternalPageHandlers({
   browserManager,
   rmsWebOrigin,
   accessToken,
+  currentSession,
   partitionName,
   logger,
 }: RegisterInternalPageHandlersOptions): () => void {
@@ -186,6 +189,12 @@ export function registerInternalPageHandlers({
     noArgumentsSchema,
     '请求参数无效',
     async (): Promise<BrowserTab> => {
+      // 必须在复用旧 tab 之前校验，避免换成酒店用户后沿用服务商打开的页面。
+      const identity = await currentSession();
+      if (identity?.userType !== 'STAFF') {
+        logger.warn('Internal page tab blocked: user is not staff');
+        throw new Error('仅服务商用户可打开小智平台');
+      }
       // 已经开着就复用：改价页开多个没有意义，且各自令牌的过期时刻不同会造成困惑。
       const existing = browserManager
         .list()

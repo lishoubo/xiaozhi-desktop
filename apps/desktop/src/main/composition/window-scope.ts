@@ -218,8 +218,10 @@ export function createWindowScope(scope: WindowScopeDependencies): WindowScope {
       },
       // 非法 ID 会抛 —— service 层兜住并记 warn，名字缺了不阻断上报。
       hotelNameOf: (channel, otaHotelId) =>
-        scope.otaHotelRepository.findByChannelAndHotelId(toChannelId(channel), toOtaHotelId(otaHotelId))
-          ?.otaHotelName ?? null,
+        scope.otaHotelRepository.findByChannelAndHotelId(
+          toChannelId(channel),
+          toOtaHotelId(otaHotelId),
+        )?.otaHotelName ?? null,
     },
     logger,
   });
@@ -320,6 +322,11 @@ export function createWindowScope(scope: WindowScopeDependencies): WindowScope {
     }),
   );
   onDispose(registerOtaTabHandlers({ window, service: otaTabService, logger }));
+  const staffAuthService = new StaffAuthService({
+    client: scope.rms.authClient,
+    tokens: scope.rms.tokens,
+    logger,
+  });
   onDispose(
     registerInternalPageHandlers({
       window,
@@ -328,6 +335,7 @@ export function createWindowScope(scope: WindowScopeDependencies): WindowScope {
       browserManager,
       rmsWebOrigin: resolveRmsWebOrigin(),
       accessToken: () => scope.rms.tokens.accessToken(),
+      currentSession: () => staffAuthService.currentSession(),
       partitionName: INTERNAL_PAGE_PARTITION,
       logger,
     }),
@@ -348,7 +356,7 @@ export function createWindowScope(scope: WindowScopeDependencies): WindowScope {
   if (privateCa) installPrivateCaTrust(apiSession, serverOrigin, privateCa);
   // const serverFetch = createElectronSessionFetch(apiSession);
   // const agentFetch = createStaffServerFetch(serverFetch, scope.rms.tokens, logger);
-  
+
   // 屏蔽 Agent 服务的实例化，防止产生多余的后台持续轮询请求（废弃后端的 404）
   /*
   const agentService = new AgentService(
@@ -361,15 +369,11 @@ export function createWindowScope(scope: WindowScopeDependencies): WindowScope {
   onDispose(() => agentService.dispose());
   onDispose(registerAgentHandlers({ window, service: agentService, logger }));
   */
-  
+
   // 认证栈建在 app scope：业务 gateway 也要用同一份 token，不能各持一套。
   onDispose(
     registerStaffAuthHandlers({
-      service: new StaffAuthService({
-        client: scope.rms.authClient,
-        tokens: scope.rms.tokens,
-        logger,
-      }),
+      service: staffAuthService,
       logger,
       window,
       /**
@@ -382,7 +386,11 @@ export function createWindowScope(scope: WindowScopeDependencies): WindowScope {
         void scope.updaterService.checkOnce(identity);
         scope.heartbeatService.start();
       },
-      onSessionEnded: () => scope.heartbeatService.stop(),
+      onSessionEnded: () => {
+        scope.heartbeatService.stop();
+        const internalTab = browserManager.list().find((tab) => tab.channelId === 'xiaozhi');
+        if (internalTab) browserManager.close(internalTab.id);
+      },
     }),
   );
 

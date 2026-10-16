@@ -40,11 +40,16 @@
     type LoginCredentialOption,
   } from './login-credential-options';
   import channelLoginIllustrationUrl from '../../assets/channel-login-illustration.png';
+  import { capabilitiesOf } from '../../permissions';
+  import { readStaffSession } from '../../staff-auth';
 
   // 顶部入口只列已接通监听与探测的渠道；`OTA_CHANNELS` 仍是完整字典，负责把历史
   // 绑定记录里的 `source` 翻译成中文名（理由见 `WORKSPACE_CHANNEL_IDS`）。
-  const workspaceChannels = OTA_CHANNELS.filter((channel) =>
-    WORKSPACE_CHANNEL_IDS.includes(channel.id),
+  const showXiaozhiChannel = capabilitiesOf(readStaffSession()).showXiaozhiChannel;
+  const workspaceChannels = OTA_CHANNELS.filter(
+    (channel) =>
+      WORKSPACE_CHANNEL_IDS.includes(channel.id) &&
+      (channel.id !== 'xiaozhi' || showXiaozhiChannel),
   );
   // 标签页状态归 `browserOtaTabs`（渲染进程侧的 OTA tab 状态层）；本组件只渲染
   // 它、并把视口尺寸注册进去。凭证列表不属于 tab 状态，仍留在本地。
@@ -379,12 +384,15 @@
         .list()
         .then(async (tabs) => {
           if (!mounted) return;
-          browserOtaTabs.hydrate(tabs);
+          const visibleTabs = tabs.filter(
+            (tab) => tab.channelId !== 'xiaozhi' || showXiaozhiChannel,
+          );
+          browserOtaTabs.hydrate(visibleTabs);
           // 兜底激活：带着绑定意图进来时，标签页由 BindHotelDialog 那条链开，
           // 它先起跑但后完成——这里必须让位，否则会把它从内容区顶掉。
           //
           // 目标是「用户上次看的那个」而非固定的第一个渠道，理由见 `restoreTarget`。
-          const target = browserOtaTabs.restoreTarget(tabs);
+          const target = browserOtaTabs.restoreTarget(visibleTabs);
           if (target) await browserOtaTabs.activateIfIdle(target);
         })
         .catch((error: unknown) => {
@@ -645,4 +653,3 @@
 
 <BindHotelDialog />
 <ReauthDialog />
-

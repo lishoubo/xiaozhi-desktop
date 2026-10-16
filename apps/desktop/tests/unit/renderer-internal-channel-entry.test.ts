@@ -1,5 +1,4 @@
 import { describe, expect, it } from 'vitest';
-import { SHOW_XIAOZHI_CHANNEL } from '../../src/renderer/build-features';
 import {
   BINDABLE_CHANNEL_IDS,
   OTA_CHANNELS,
@@ -26,15 +25,12 @@ describe('内部页面渠道条目', () => {
     expect(internal?.kind).toBe('internal');
   });
 
-  it('开关打开时展示在工作区入口且位于首位', () => {
-    // 测试构建是 dev，开关为真。online 构建下这一项整个不进数组，首位落到 ctrip
-    // ——那条分支由 `renderer-build-features.test.ts` 的 `hidesPreviewModules` 守。
-    expect(SHOW_XIAOZHI_CHANNEL).toBe(true);
+  it('所有构建环境都包含入口定义且位于首位', () => {
     expect(WORKSPACE_CHANNEL_IDS[0]).toBe(INTERNAL_ID);
   });
 
-  it('入口摘掉后其余渠道顺序不变，且字典条目仍在', () => {
-    // 这一项是「隐藏」而非「删除」的关键：`OTA_CHANNELS` 里的定义必须一直留着，
+  it('其余渠道顺序不变，且字典条目仍在', () => {
+    // 用户类型过滤入口时，`OTA_CHANNELS` 里的定义必须一直留着，
     // 否则历史绑定记录反查不到中文名。
     expect(WORKSPACE_CHANNEL_IDS.filter((id) => id !== INTERNAL_ID)).toEqual([
       'ctrip',

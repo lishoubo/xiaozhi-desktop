@@ -8,8 +8,12 @@
   import { clearStaffSession, setStaffSession, type StaffSession } from './staff-auth';
   import { setGreetingIdentity } from './session-greeting.svelte';
   import { dismissAppNotification, showAppNotification } from './notifications';
-  import { CREDENTIAL_EXPIRY_NOTICE_ID, toCredentialExpiryNotice } from './credential-expiry-notice';
+  import {
+    CREDENTIAL_EXPIRY_NOTICE_ID,
+    toCredentialExpiryNotice,
+  } from './credential-expiry-notice';
   import { routes } from './routes';
+  import { browserOtaTabs } from './components/browser/browser-ota-tabs.svelte';
 
   type Session = StaffSession;
 
@@ -24,6 +28,7 @@
 
   const clearSession = (): void => {
     clearStaffSession();
+    browserOtaTabs.forgetInternalPage();
   };
 
   const restoreSession = async (): Promise<void> => {
@@ -31,7 +36,7 @@
       const restored = await window.hotelButler.staffAuth.currentSession();
       session = restored;
       if (restored) setStaffSession(restored);
-      else clearStaffSession();
+      else clearSession();
     } catch {
       clearSession();
       session = null;
@@ -119,15 +124,17 @@
    * 同一个 id：提醒还开着时原地替换并重新计时，界面任一时刻至多一条；本轮没有失效
    * 就收起（账号恢复后不必等 10 秒自动关）。
    */
-  const unsubscribeCredentialExpiry = window.hotelButler.otaCredential.onExpiryScanned((summary) => {
-    const notice = toCredentialExpiryNotice(summary);
-    if (notice === null) {
-      dismissAppNotification(CREDENTIAL_EXPIRY_NOTICE_ID);
-      return;
-    }
-    log.info('OTA credential expiry notice shown', { accountCount: summary.accounts.length });
-    showAppNotification(notice);
-  });
+  const unsubscribeCredentialExpiry = window.hotelButler.otaCredential.onExpiryScanned(
+    (summary) => {
+      const notice = toCredentialExpiryNotice(summary);
+      if (notice === null) {
+        dismissAppNotification(CREDENTIAL_EXPIRY_NOTICE_ID);
+        return;
+      }
+      log.info('OTA credential expiry notice shown', { accountCount: summary.accounts.length });
+      showAppNotification(notice);
+    },
+  );
 
   onDestroy(() => {
     window.removeEventListener('hotel-butler:logout', handleLogout);

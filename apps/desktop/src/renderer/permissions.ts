@@ -40,11 +40,17 @@ export type Capabilities = Readonly<{
   manageHotel: boolean;
   /** 按用户类型：酒店管理模块是否对该类用户开放。 */
   showHotelManagement: boolean;
+  /** 仅明确为服务商员工时显示内部改价页。 */
+  showXiaozhiChannel: boolean;
 }>;
 
 const HOTEL_MANAGE = 'hotel:manage';
 
-const NONE: Capabilities = { manageHotel: false, showHotelManagement: false };
+const NONE: Capabilities = {
+  manageHotel: false,
+  showHotelManagement: false,
+  showXiaozhiChannel: false,
+};
 
 /**
  * 从当前会话身份派生能力。未登录、权限码为空都落到「全部不具备」，即默认拒绝。
@@ -56,5 +62,6 @@ export function capabilitiesOf(session: SessionLike | null): Capabilities {
     // 缺 `userType` 时按服务商员工处置（契约层已把未知值一并降级为 undefined）：
     // 宁可多显示一个员工才用的模块，也不能因为字段没读到就把人挡在门外。
     showHotelManagement: session.userType !== 'HOTEL',
+    showXiaozhiChannel: session.userType === 'STAFF',
   };
 }
