@@ -46,7 +46,7 @@ export function createDesktopApi(
     otaCredential: createOtaCredentialApi(validatedInvoke, validatedSubscribe),
     internalPage: createInternalPageApi(validatedInvoke),
     otaTab: createOtaTabApi(validatedInvoke),
-    staffAuth: createStaffAuthApi(validatedInvoke),
+    staffAuth: createStaffAuthApi(validatedInvoke, validatedSubscribe),
     system: createSystemApi(validatedInvoke),
     updater: createUpdaterApi(validatedSubscribe),
     versions: Object.freeze({

@@ -31,6 +31,7 @@ export type WindowCapabilities = Readonly<{
    * 窗口关着时丢弃即可，下一轮扫描会再推。
    */
   notifyCredentialExpiry(summary: OtaCredentialExpiryScannedEvent): void;
+  notifyStaffSessionEnded(): void;
 }>;
 
 export type WindowCapabilityRegistration = Readonly<{

@@ -11,6 +11,7 @@ import type { RmsAuthClient } from '../staff-auth/rms-auth-client';
 import {
   RmsAuthError,
   isAccessTokenRejected,
+  isSessionRejected,
   messageForRmsError,
 } from '../staff-auth/rms-auth-errors';
 import { RmsSessionMissingError } from '../staff-auth/rms-session-missing-error';
@@ -21,10 +22,21 @@ export type StaffAuthServiceDependencies = Readonly<{
   /** token 的读写、过期判断与刷新都归它，本服务不再自己维护一份。 */
   tokens: RmsTokenProvider;
   logger: AppLogger;
+  onSessionEnded?: () => void;
 }>;
 
 export class StaffAuthService {
   constructor(private readonly deps: StaffAuthServiceDependencies) {}
+
+  private notifySessionEnded(): void {
+    try {
+      this.deps.onSessionEnded?.();
+    } catch (error) {
+      this.deps.logger.warn('Staff session-ended listener failed', {
+        errorName: error instanceof Error ? error.name : 'UnknownError',
+      });
+    }
+  }
 
   async login(username: string, password: string): Promise<StaffIdentity> {
     const pair = await this.translate('login', '登录失败，请稍后重试', () =>
@@ -86,13 +98,14 @@ export class StaffAuthService {
       return await this.loadProfile();
     } catch (error) {
       if (error instanceof RmsSessionMissingError) return null;
-      if (!(error instanceof RmsAuthError)) {
-        // 网络抖动之类的临时故障：如实抛出。误判成"登录失效"会白白清掉一个
-        // 有效的登录态。
+      if (!(error instanceof RmsAuthError) || !isSessionRejected(error.code)) {
+        // 网络、响应异常或普通服务错误都不能证明会话失效；误清会让仍有效的
+        // 凭证丢失。
         throw this.toUserFacingError('current-session', '无法验证登录状态，请重试', error);
       }
       if (!isAccessTokenRejected(error.code)) {
         await this.deps.tokens.clear();
+        this.notifySessionEnded();
         return null;
       }
     }
@@ -103,8 +116,12 @@ export class StaffAuthService {
       return await this.loadProfile();
     } catch (error) {
       // 换过 token 仍被拒：登录态确实结束了，清干净并回登录页。
-      if (error instanceof RmsSessionMissingError || error instanceof RmsAuthError) {
+      if (
+        error instanceof RmsSessionMissingError ||
+        (error instanceof RmsAuthError && isSessionRejected(error.code))
+      ) {
         await this.deps.tokens.clear();
+        this.notifySessionEnded();
         return null;
       }
       throw this.toUserFacingError('current-session', '无法验证登录状态，请重试', error);

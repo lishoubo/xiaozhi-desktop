@@ -1,6 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
 import { StaffAuthService } from '../../../src/main/services/staff-auth-service';
-import { RMS_ERROR, RmsAuthError } from '../../../src/main/staff-auth/rms-auth-errors';
+import {
+  RMS_ERROR,
+  RMS_TRANSPORT_ERROR_CODE,
+  RmsAuthError,
+} from '../../../src/main/staff-auth/rms-auth-errors';
 import { RmsSessionMissingError } from '../../../src/main/staff-auth/rms-token-provider';
 
 const IDENTITY = {
@@ -32,6 +36,7 @@ function setup(
   } = {},
 ) {
   const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
+  const onSessionEnded = vi.fn();
   const client = {
     login: vi.fn(),
     requestPhoneCode: vi.fn(async () => CODE_RESPONSE),
@@ -46,8 +51,8 @@ function setup(
     adopt: vi.fn(async () => undefined),
     clear: vi.fn(async () => undefined),
   };
-  const service = new StaffAuthService({ client: client as never, tokens, logger });
-  return { service, client, tokens };
+  const service = new StaffAuthService({ client: client as never, tokens, logger, onSessionEnded });
+  return { service, client, tokens, onSessionEnded };
 }
 
 describe('StaffAuthService.currentSession', () => {
@@ -84,11 +89,12 @@ describe('StaffAuthService.currentSession', () => {
     const me = vi.fn(async () => {
       throw new RmsAuthError(RMS_ERROR.tokenInvalid, 'token 无效');
     });
-    const { service, tokens } = setup({ me });
+    const { service, tokens, onSessionEnded } = setup({ me });
 
     await expect(service.currentSession()).resolves.toBeNull();
     expect(me).toHaveBeenCalledTimes(2);
     expect(tokens.clear).toHaveBeenCalledOnce();
+    expect(onSessionEnded).toHaveBeenCalledOnce();
   });
 
   it('surfaces a transient failure instead of silently signing the user out', async () => {
@@ -96,10 +102,59 @@ describe('StaffAuthService.currentSession', () => {
     const me = vi.fn(async () => {
       throw new Error('network down');
     });
-    const { service, tokens } = setup({ me });
+    const { service, tokens, onSessionEnded } = setup({ me });
 
     await expect(service.currentSession()).rejects.toThrow('无法验证登录状态，请重试');
     expect(tokens.clear).not.toHaveBeenCalled();
+    expect(onSessionEnded).not.toHaveBeenCalled();
+  });
+
+  it('keeps the session when the identity request cannot reach RMS', async () => {
+    const me = vi.fn(async () => {
+      throw new RmsAuthError(RMS_TRANSPORT_ERROR_CODE, '登录服务暂时不可用，请稍后重试');
+    });
+    const { service, tokens, onSessionEnded } = setup({ me });
+
+    await expect(service.currentSession()).rejects.toThrow('无法验证登录状态，请重试');
+    expect(tokens.clear).not.toHaveBeenCalled();
+    expect(onSessionEnded).not.toHaveBeenCalled();
+  });
+
+  it('keeps the session when the identity retry cannot reach RMS', async () => {
+    const me = vi
+      .fn()
+      .mockRejectedValueOnce(new RmsAuthError(RMS_ERROR.tokenExpired, 'token 已过期'))
+      .mockRejectedValueOnce(
+        new RmsAuthError(RMS_TRANSPORT_ERROR_CODE, '登录服务暂时不可用，请稍后重试'),
+      );
+    const { service, tokens, onSessionEnded } = setup({ me });
+
+    await expect(service.currentSession()).rejects.toThrow('无法验证登录状态，请重试');
+    expect(tokens.clear).not.toHaveBeenCalled();
+    expect(onSessionEnded).not.toHaveBeenCalled();
+  });
+
+  it('keeps the session when RMS reports a temporary server failure', async () => {
+    const me = vi.fn(async () => {
+      throw new RmsAuthError(10000, '服务暂时不可用');
+    });
+    const { service, tokens, onSessionEnded } = setup({ me });
+
+    await expect(service.currentSession()).rejects.toThrow('无法验证登录状态，请重试');
+    expect(tokens.clear).not.toHaveBeenCalled();
+    expect(onSessionEnded).not.toHaveBeenCalled();
+  });
+
+  it('keeps the session when the identity retry meets a server failure', async () => {
+    const me = vi
+      .fn()
+      .mockRejectedValueOnce(new RmsAuthError(RMS_ERROR.tokenExpired, 'token 已过期'))
+      .mockRejectedValueOnce(new RmsAuthError(10000, '服务暂时不可用'));
+    const { service, tokens, onSessionEnded } = setup({ me });
+
+    await expect(service.currentSession()).rejects.toThrow('无法验证登录状态，请重试');
+    expect(tokens.clear).not.toHaveBeenCalled();
+    expect(onSessionEnded).not.toHaveBeenCalled();
   });
 });
 

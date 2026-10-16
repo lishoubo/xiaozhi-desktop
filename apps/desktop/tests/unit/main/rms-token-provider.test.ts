@@ -23,6 +23,7 @@ function setup(
   } = {},
 ) {
   const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
+  const onSessionEnded = vi.fn();
   const store = {
     read: vi.fn(async () => ('stored' in overrides ? (overrides.stored ?? null) : tokens())),
     write: vi.fn(async () => undefined),
@@ -43,8 +44,9 @@ function setup(
     client: client as never,
     now: () => NOW,
     logger,
+    onSessionEnded,
   });
-  return { provider, store, client, logger };
+  return { provider, store, client, logger, onSessionEnded };
 }
 
 describe('createRmsTokenProvider', () => {
@@ -86,9 +88,10 @@ describe('createRmsTokenProvider', () => {
   });
 
   it('throws when there is no stored session at all', async () => {
-    const { provider } = setup({ stored: null });
+    const { provider, onSessionEnded } = setup({ stored: null });
 
     await expect(provider.accessToken()).rejects.toThrow();
+    expect(onSessionEnded).toHaveBeenCalledOnce();
   });
 
   it('exchanges the rejected token for a new one instead of re-reading the same value', async () => {
@@ -105,12 +108,26 @@ describe('createRmsTokenProvider', () => {
 
   it('clears the stored credentials once the refresh token itself has expired', async () => {
     // 不清理的话，这对死凭证会永久留在盘上，之后每次调用都白读一次。
-    const { provider, store } = setup({
+    const { provider, store, onSessionEnded } = setup({
       stored: tokens({ accessExpiresAt: NOW - 1, refreshExpiresAt: NOW - 1 }),
     });
 
     await expect(provider.accessToken()).rejects.toThrow();
     expect(store.clear).toHaveBeenCalledOnce();
+    expect(onSessionEnded).toHaveBeenCalledOnce();
+  });
+
+  it('does not end the session when refresh cannot reach RMS', async () => {
+    const refresh = vi.fn(async () => {
+      throw new RmsAuthError(-1, 'network down');
+    });
+    const { provider, onSessionEnded } = setup({
+      stored: tokens({ accessExpiresAt: NOW - 1 }),
+      refresh,
+    });
+
+    await expect(provider.accessToken()).rejects.toThrow('network down');
+    expect(onSessionEnded).not.toHaveBeenCalled();
   });
 
   it('does not refresh twice with a refresh token the first call already consumed', async () => {

@@ -99,6 +99,7 @@ export type AppScope = Readonly<{
     origin: string;
     authClient: ReturnType<typeof createRmsAuthClient>;
     tokens: RmsTokenProvider;
+    notifySessionEnded(): void;
     /** 已注入 Bearer / UA、并在 401 时重试一次的 fetch。 */
     fetch: typeof globalThis.fetch;
   }>;
@@ -197,11 +198,22 @@ export function createAppScope(logger: AppLogger): AppScope {
     appVersion: app.getVersion(),
     deviceId,
   });
+  const windowCapabilities = createWindowCapabilityRegistry();
+  let sessionEndedNotified = false;
+  const notifySessionEnded = (): void => {
+    if (sessionEndedNotified) return;
+    sessionEndedNotified = true;
+    windowCapabilities.current()?.notifyStaffSessionEnded();
+  };
   const rmsTokens = createRmsTokenProvider({
     tokenStore: createStaffTokenStore({ userDataDir, logger }),
     client: rmsAuthClient,
     now: () => Date.now(),
     logger,
+    onSessionEnded: notifySessionEnded,
+    onSessionAdopted: () => {
+      sessionEndedNotified = false;
+    },
   });
   const heartbeatService = new HeartbeatService({
     report: async () => rmsAuthClient.heartbeat(await rmsTokens.accessToken()),
@@ -214,8 +226,6 @@ export function createAppScope(logger: AppLogger): AppScope {
     provider: rmsTokens,
     logger,
   });
-
-  const windowCapabilities = createWindowCapabilityRegistry();
 
   const otaCredentialService = new OtaCredentialService({
     discoverCtrip: createCtripDiscovery(logger),
@@ -395,6 +405,7 @@ export function createAppScope(logger: AppLogger): AppScope {
           client: rmsAuthClient,
           tokens: rmsTokens,
           logger,
+          onSessionEnded: notifySessionEnded,
         }).currentSession();
         if (!identity) return null;
         return {
@@ -559,6 +570,7 @@ export function createAppScope(logger: AppLogger): AppScope {
       origin: rmsOrigin,
       authClient: rmsAuthClient,
       tokens: rmsTokens,
+      notifySessionEnded,
       fetch: authenticatedRmsFetch,
     },
     /**

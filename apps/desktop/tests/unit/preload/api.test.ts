@@ -3,6 +3,24 @@ import { IPC_CHANNELS } from '../../../src/shared/ipc-channels';
 import { createDesktopApi } from '../../../src/preload/api';
 
 describe('createDesktopApi', () => {
+  it('delivers an empty staff-session-ended event to the renderer', () => {
+    const subscribe = vi.fn((_channel: string, listener: (value: unknown) => void) => {
+      listener(undefined);
+      return vi.fn();
+    });
+    const api = createDesktopApi({ chrome: '1', electron: '2', node: '3' }, vi.fn(), subscribe);
+    const listener = vi.fn();
+
+    const unsubscribe = api.staffAuth.onSessionEnded(listener);
+
+    expect(subscribe).toHaveBeenCalledWith(
+      IPC_CHANNELS.staffAuth.sessionEnded,
+      expect.any(Function),
+    );
+    expect(listener).toHaveBeenCalledOnce();
+    unsubscribe();
+  });
+
   it('exposes fixed installation directory actions without accepting renderer paths', async () => {
     const invoke = vi.fn(async () => undefined);
     const api = createDesktopApi({ chrome: '1', electron: '2', node: '3' }, invoke);

@@ -27,6 +27,7 @@ export const IPC_CHANNELS = {
     loginWithPhoneCode: 'staff-auth:login-with-phone-code',
     logout: 'staff-auth:logout',
     requestPhoneCode: 'staff-auth:request-phone-code',
+    sessionEnded: 'staff-auth:session-ended',
   },
   browser: {
     activate: 'browser:activate',

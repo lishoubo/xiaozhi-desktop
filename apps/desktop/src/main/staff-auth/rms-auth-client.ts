@@ -14,7 +14,7 @@ import {
 import { z } from 'zod';
 import type { AppLogger } from '../../shared/logging';
 import { randomUUID } from 'node:crypto';
-import { RmsAuthError } from './rms-auth-errors';
+import { RMS_TRANSPORT_ERROR_CODE, RmsAuthError } from './rms-auth-errors';
 import { executeLoggedRmsFetch } from './rms-http-logging';
 
 export type RmsTokenPair = Readonly<{
@@ -50,9 +50,6 @@ export type RmsAuthClientDependencies = Readonly<{
   now?: () => number;
   requestIdFactory?: () => string;
 }>;
-
-/** 非业务码：网络/解析/契约层面的失败，RMS 那边没有对应枚举。 */
-const TRANSPORT_ERROR_CODE = -1;
 
 /**
  * 覆盖 Electron 的默认 UA。
@@ -156,7 +153,7 @@ export function createRmsAuthClient(deps: RmsAuthClientDependencies): RmsAuthCli
       logger.warn('RMS authentication request failed to reach the server', {
         operation: spec.operation,
       });
-      throw new RmsAuthError(TRANSPORT_ERROR_CODE, '登录服务暂时不可用，请稍后重试', { cause });
+      throw new RmsAuthError(RMS_TRANSPORT_ERROR_CODE, '登录服务暂时不可用，请稍后重试', { cause });
     }
 
     let payload: unknown;
@@ -167,7 +164,7 @@ export function createRmsAuthClient(deps: RmsAuthClientDependencies): RmsAuthCli
         operation: spec.operation,
         status: response.status,
       });
-      throw new RmsAuthError(TRANSPORT_ERROR_CODE, '登录服务返回异常，请稍后重试', { cause });
+      throw new RmsAuthError(RMS_TRANSPORT_ERROR_CODE, '登录服务返回异常，请稍后重试', { cause });
     }
 
     if (!isApiEnvelope(payload)) {
@@ -176,7 +173,7 @@ export function createRmsAuthClient(deps: RmsAuthClientDependencies): RmsAuthCli
         operation: spec.operation,
         status: response.status,
       });
-      throw new RmsAuthError(TRANSPORT_ERROR_CODE, '登录服务返回异常，请稍后重试');
+      throw new RmsAuthError(RMS_TRANSPORT_ERROR_CODE, '登录服务返回异常，请稍后重试');
     }
 
     if (payload.code !== 0) {
@@ -193,7 +190,7 @@ export function createRmsAuthClient(deps: RmsAuthClientDependencies): RmsAuthCli
   const requireTokenPair = (operation: string, data: unknown): RmsTokenPair => {
     if (!isTokenPair(data)) {
       logger.warn('RMS token response was missing required fields', { operation });
-      throw new RmsAuthError(TRANSPORT_ERROR_CODE, '登录服务返回异常，请稍后重试');
+      throw new RmsAuthError(RMS_TRANSPORT_ERROR_CODE, '登录服务返回异常，请稍后重试');
     }
     return data;
   };
@@ -210,7 +207,7 @@ export function createRmsAuthClient(deps: RmsAuthClientDependencies): RmsAuthCli
         operation,
         issues: describeSchemaIssues(parsed.error),
       });
-      throw new RmsAuthError(TRANSPORT_ERROR_CODE, '验证码发送失败，请稍后再试', {
+      throw new RmsAuthError(RMS_TRANSPORT_ERROR_CODE, '验证码发送失败，请稍后再试', {
         cause: parsed.error,
       });
     }
@@ -277,7 +274,7 @@ export function createRmsAuthClient(deps: RmsAuthClientDependencies): RmsAuthCli
           operation: 'me',
           issues: describeSchemaIssues(parsed.error),
         });
-        throw new RmsAuthError(TRANSPORT_ERROR_CODE, '登录服务返回异常，请稍后重试', {
+        throw new RmsAuthError(RMS_TRANSPORT_ERROR_CODE, '登录服务返回异常，请稍后重试', {
           cause: parsed.error,
         });
       }

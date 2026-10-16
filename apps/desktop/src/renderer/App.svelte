@@ -19,6 +19,7 @@
 
   let session = $state<Session | null>(null);
   let restoringSession = $state(true);
+  let sessionRevision = 0;
 
   // 会话是所有登录变体的共同出口，欢迎语的身份就跟着它走——登录、恢复、登出
   // 三条路径各自维护一遍容易漏。
@@ -32,12 +33,15 @@
   };
 
   const restoreSession = async (): Promise<void> => {
+    const revision = sessionRevision;
     try {
       const restored = await window.hotelButler.staffAuth.currentSession();
+      if (revision !== sessionRevision) return;
       session = restored;
       if (restored) setStaffSession(restored);
       else clearSession();
     } catch {
+      if (revision !== sessionRevision) return;
       clearSession();
       session = null;
     } finally {
@@ -63,6 +67,12 @@
     log.info('User session created');
   };
   const handleLogout = (): void => void logout();
+  const unsubscribeSessionEnded = window.hotelButler.staffAuth.onSessionEnded(() => {
+    sessionRevision += 1;
+    clearSession();
+    session = null;
+    log.info('Staff session ended; returned to sign-in');
+  });
   window.addEventListener('hotel-butler:logout', handleLogout);
   void restoreSession();
 
@@ -138,6 +148,7 @@
 
   onDestroy(() => {
     window.removeEventListener('hotel-butler:logout', handleLogout);
+    unsubscribeSessionEnded();
     unsubscribeUpdateReady();
     unsubscribeManualUpdate();
     unsubscribeCredentialExpiry();

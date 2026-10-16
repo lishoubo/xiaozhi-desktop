@@ -17,9 +17,21 @@ export const RMS_ERROR = {
   phoneCodeSendFailed: 11013,
 } as const;
 
+/** 无远端业务码时的本地传输/响应错误；不能据此判定会话失效。 */
+export const RMS_TRANSPORT_ERROR_CODE = -1;
+
 /** access token 失效——调用方应据此触发一次 refresh，而不是直接把用户踢回登录页。 */
 export function isAccessTokenRejected(code: number): boolean {
   return code === RMS_ERROR.tokenExpired || code === RMS_ERROR.tokenInvalid;
+}
+
+/** 只有这些认证码能证明会话已结束；其他业务码和本地传输错误不能清凭证。 */
+export function isSessionRejected(code: number): boolean {
+  return (
+    isAccessTokenRejected(code) ||
+    code === RMS_ERROR.unauthorized ||
+    code === RMS_ERROR.refreshTokenInvalid
+  );
 }
 
 export class RmsAuthError extends Error {

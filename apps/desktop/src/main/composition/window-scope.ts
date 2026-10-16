@@ -31,10 +31,6 @@ import { registerStaffAuthHandlers } from '../ipc/staff-auth-handlers';
 import { registerSystemHandlers } from '../ipc/system-handlers';
 import { LoginDetector, OtaTabService, TabEventBus } from '../ota-tab';
 import { resolveServerOrigin } from '../server-client/config';
-import {
-  // createElectronSessionFetch,
-  // createServerTrpcStreamingClient,
-} from '../server-client/trpc-client';
 // import { createStaffServerFetch } from '../server-client/staff-server-fetch';
 import { installPrivateCaTrust, loadPackagedPrivateCa } from '../server-client/private-ca-trust';
 import { StaffAuthService } from '../services/staff-auth-service';
@@ -62,6 +58,7 @@ import { resolveInstallationDirectory } from '../services/installation-directory
 import { IPC_CHANNELS } from '../../shared/ipc-channels';
 import { createMainWindow } from '../windows/main-window';
 import type { AppScope } from './app-scope';
+import { createStaffSessionEndedHandler } from './staff-session-ended';
 
 export type WindowScope = Readonly<{
   window: BrowserWindow;
@@ -121,6 +118,17 @@ export function createWindowScope(scope: WindowScopeDependencies): WindowScope {
   });
   onDispose(() => browserManager.destroy());
 
+  const endStaffSession = createStaffSessionEndedHandler({
+    stopHeartbeat: () => scope.heartbeatService.stop(),
+    closeInternalPage: () => {
+      const tab = browserManager.list().find((entry) => entry.channelId === 'xiaozhi');
+      if (tab) browserManager.close(tab.id);
+    },
+    notifyRenderer: () => {
+      if (!window.isDestroyed()) window.webContents.send(IPC_CHANNELS.staffAuth.sessionEnded);
+    },
+  });
+
   const windowCapabilityRegistration = scope.windowCapabilities.attach({
     retirePartition: (partitionName) => browserManager.retirePartition(partitionName),
     // cookie 快照采集走 CDP 需要一个标签页 webContents；标签页由本层持有。
@@ -146,6 +154,7 @@ export function createWindowScope(scope: WindowScopeDependencies): WindowScope {
         window.webContents.send(IPC_CHANNELS.otaCredential.expiryScanned, summary);
       }
     },
+    notifyStaffSessionEnded: endStaffSession,
   });
   onDispose(() => windowCapabilityRegistration.dispose());
 
@@ -326,6 +335,7 @@ export function createWindowScope(scope: WindowScopeDependencies): WindowScope {
     client: scope.rms.authClient,
     tokens: scope.rms.tokens,
     logger,
+    onSessionEnded: scope.rms.notifySessionEnded,
   });
   onDispose(
     registerInternalPageHandlers({
@@ -386,11 +396,7 @@ export function createWindowScope(scope: WindowScopeDependencies): WindowScope {
         void scope.updaterService.checkOnce(identity);
         scope.heartbeatService.start();
       },
-      onSessionEnded: () => {
-        scope.heartbeatService.stop();
-        const internalTab = browserManager.list().find((tab) => tab.channelId === 'xiaozhi');
-        if (internalTab) browserManager.close(internalTab.id);
-      },
+      onSessionEnded: endStaffSession,
     }),
   );
 

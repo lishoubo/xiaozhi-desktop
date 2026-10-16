@@ -40,6 +40,8 @@ export type RmsTokenProviderDependencies = Readonly<{
   client: Pick<RmsAuthClient, 'refresh'>;
   now: () => number;
   logger: AppLogger;
+  onSessionEnded?: () => void;
+  onSessionAdopted?: () => void;
 }>;
 
 export function createRmsTokenProvider(deps: RmsTokenProviderDependencies): RmsTokenProvider {
@@ -64,6 +66,16 @@ export function createRmsTokenProvider(deps: RmsTokenProviderDependencies): RmsT
 
   /** 服务端已明确拒绝当前 access token，下次取用前必须先换一个。 */
   let forceRefresh = false;
+
+  const notify = (listener: (() => void) | undefined): void => {
+    try {
+      listener?.();
+    } catch (error) {
+      logger.warn('RMS session listener failed', {
+        errorName: error instanceof Error ? error.name : 'UnknownError',
+      });
+    }
+  };
 
   const isExpired = (expiresAt: number): boolean => expiresAt - EXPIRY_SKEW_MS <= now();
 
@@ -105,7 +117,10 @@ export function createRmsTokenProvider(deps: RmsTokenProviderDependencies): RmsT
   return {
     accessToken: async () => {
       const current = cached ?? (await tokenStore.read());
-      if (!current) throw new RmsSessionMissingError();
+      if (!current) {
+        notify(deps.onSessionEnded);
+        throw new RmsSessionMissingError();
+      }
       cached = current;
 
       const mustRefresh = forceRefresh || isExpired(current.accessExpiresAt);
@@ -118,6 +133,7 @@ export function createRmsTokenProvider(deps: RmsTokenProviderDependencies): RmsT
         forceRefresh = false;
         cached = null;
         await tokenStore.clear();
+        notify(deps.onSessionEnded);
         throw new RmsSessionMissingError();
       }
 
@@ -138,6 +154,7 @@ export function createRmsTokenProvider(deps: RmsTokenProviderDependencies): RmsT
       // 刚登录换来的 token 一定是新鲜的，之前的"必须刷新"标记就此作废。
       forceRefresh = false;
       await persist(pair);
+      notify(deps.onSessionAdopted);
     },
 
     clear: async () => {

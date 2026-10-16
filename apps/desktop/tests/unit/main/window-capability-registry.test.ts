@@ -12,6 +12,7 @@ function capabilities(): WindowCapabilities {
     notifyUpdateReady: vi.fn(),
     notifyManualUpdate: vi.fn(),
     notifyCredentialExpiry: vi.fn(),
+    notifyStaffSessionEnded: vi.fn(),
   };
 }
 
@@ -37,7 +38,9 @@ describe('WindowCapabilityRegistry', () => {
     const registry = createWindowCapabilityRegistry();
     const first = registry.attach(capabilities());
 
-    expect(() => registry.attach(capabilities())).toThrow('Window capabilities are already attached');
+    expect(() => registry.attach(capabilities())).toThrow(
+      'Window capabilities are already attached',
+    );
 
     first.dispose();
     expect(() => registry.attach(capabilities())).not.toThrow();
