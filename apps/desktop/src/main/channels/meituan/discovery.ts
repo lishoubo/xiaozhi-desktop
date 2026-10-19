@@ -1,45 +1,36 @@
-/**
- * 美团渠道账号身份读取。
- *
- * ## ⚠️ 这里会读一次门店列表，但**不是**绑定流程那条路
- *
- * `split-ota-hotel-prob-feature` 决策 3 把「门店/酒店探测」整体移进了
- * `hotel-prob.ts` —— 那条路产出**候选**，交给用户确认后才写 `ota_hotel`，
- * 本文件不碰它，那条边界仍然成立。
- *
- * 这里读门店是**给定时扫描用的**：扫描由定时器触发，没有任何用户请求可以取
- * `poiId`（改价上报、回读、自然读都从报文里取，只有扫描取不到），所以门店清单
- * 必须在登录时就记下来。
- *
- * ```
- * hotel-prob.ts   探测 → 候选 → 用户确认 → ota_hotel      绑定关系（用户事实）
- * 本文件          探测 → credentialExtra.pois             取数入参（渠道事实）
- * ```
- *
- * 两者同源（都调 `poiInfos`）但去向不同，互不替代。
- *
- * ⚠️ 读门店**失败不阻断登录** —— 账号身份才是这一步的交付物，门店清单缺了只是
- * 扫描不跑，下次登录会重新写。
- */
+/** Identify the current Meituan session without issuing account requests in page JS. */
 import type { WebContents } from 'electron';
+import type { DiscoveryContext } from '../types';
 import type { JsonObject } from '../../../shared/types/json';
-import { safeLogErrorDetails, type AppLogger } from '../../../shared/logging';
+import type { AppLogger } from '../../../shared/logging';
 import { isTrustedHotelUrl } from '../trusted-hotel-url';
 import {
-  FETCH_MEITUAN_ACCOUNT_IDENTITY_EXPRESSION,
-  parseMeituanAccountIdentityCandidates,
+  parseMeituanAccountDetail,
+  parseMeituanCandidateIds,
+  READ_MEITUAN_ACCOUNT_CANDIDATES_EXPRESSION,
 } from './account-identity';
 import {
-  FETCH_MEITUAN_POI_INFOS_EXPRESSION,
+  ME_API_APPKEY,
+  ME_API_LOGIN_TYPE,
+  MEITUAN_POI_INFOS_URL,
   MEITUAN_POIS_FIELD,
   parseMeituanPoiInfos,
   toPoiEntries,
 } from './poi-infos';
 
 const MEITUAN_HOTEL_HOSTNAME = 'me.meituan.com';
+const REQUEST_TIMEOUT_MS = 5000;
+const REQUEST_HEADERS = {
+  Accept: 'application/json',
+  'X-Requested-With': 'XMLHttpRequest',
+  'M-APPKEY': ME_API_APPKEY,
+  locale: 'zh-CN',
+  logintype: ME_API_LOGIN_TYPE,
+};
 
 export type MeituanDiscoveryResult =
   | Readonly<{ kind: 'none' }>
+  | Readonly<{ kind: 'identity-unavailable' }>
   | Readonly<{
       kind: 'found';
       credential: Readonly<{
@@ -52,69 +43,178 @@ export type DiscoverMeituan = (
   partitionName: string,
   landingUrl: string,
   webContents: WebContents,
+  context?: DiscoveryContext,
 ) => Promise<MeituanDiscoveryResult>;
 
-export function createMeituanDiscovery(logger: AppLogger): DiscoverMeituan {
-  return async (_partitionName, _landingUrl, webContents) => {
-    if (!isTrustedHotelUrl(webContents.getURL(), MEITUAN_HOTEL_HOSTNAME)) {
-      logger.warn('Meituan discovery rejected untrusted current URL');
+export type PartitionFetch = (
+  partitionName: string,
+  url: string,
+  options: RequestInit,
+) => Promise<Response>;
+
+export function createMeituanDiscovery(
+  logger: AppLogger,
+  partitionFetch: PartitionFetch,
+): DiscoverMeituan {
+  return async (partitionName, _landingUrl, webContents, context) => {
+    const startedAt = Date.now();
+    const selectedId = context?.identityClues?.switchToFreshDiscovery
+      ? undefined
+      : context?.expectedChannelAccountId?.trim();
+    const mode = selectedId ? 'selected' : 'unknown';
+    const current = () =>
+      !webContents.isDestroyed() &&
+      isTrustedHotelUrl(webContents.getURL(), MEITUAN_HOTEL_HOSTNAME) &&
+      !context?.signal?.aborted &&
+      (context?.isCurrent?.() ?? true);
+    const finish = (kind: string) => {
+      logger.info('Meituan identity discovery completed', {
+        tabId: context?.tabId,
+        requestId: context?.requestId,
+        mode,
+        kind,
+        elapsedMs: Date.now() - startedAt,
+      });
+    };
+    if (!current()) {
+      finish('stale-page');
       return { kind: 'none' };
     }
 
     try {
-      const rawIdentity: unknown = await webContents.executeJavaScript(
-        FETCH_MEITUAN_ACCOUNT_IDENTITY_EXPRESSION,
+      let candidateId = selectedId ?? '';
+      let rawPois: unknown = null;
+      if (!candidateId) {
+        const clues = context?.identityClues;
+        if (!context?.freshPartition && clues?.baseline === null) {
+          if (clues.sawLoginPage) {
+            await clues.baselinePending;
+            if (clues.baseline === null) {
+              finish('identity-unavailable');
+              return { kind: 'identity-unavailable' };
+            }
+          } else {
+            const rawBaseline: unknown = await webContents.executeJavaScript(
+              READ_MEITUAN_ACCOUNT_CANDIDATES_EXPRESSION,
+            );
+            if (current()) clues.baseline = parseMeituanCandidateIds(rawBaseline);
+            finish('await-login-transition');
+            return { kind: 'none' };
+          }
+        }
+        if (!context?.freshPartition && (!clues?.sawLoginPage || !clues.baseline)) {
+          finish('identity-unavailable');
+          return { kind: 'identity-unavailable' };
+        }
+        rawPois = await requestJson(MEITUAN_POI_INFOS_URL, 'session-preflight');
+        if (!current() || parseMeituanPoiInfos(rawPois) === null) {
+          finish('session-invalid');
+          return { kind: 'none' };
+        }
+        const rawCandidates: unknown = await webContents.executeJavaScript(
+          READ_MEITUAN_ACCOUNT_CANDIDATES_EXPRESSION,
+        );
+        if (!current()) {
+          finish('stale-page');
+          return { kind: 'none' };
+        }
+        const candidates = parseMeituanCandidateIds(rawCandidates).filter(
+          (id) => context?.freshPartition || !clues?.baseline?.includes(id),
+        );
+        if (candidates.length !== 1) {
+          finish('identity-unavailable');
+          return { kind: 'identity-unavailable' };
+        }
+        candidateId = candidates[0];
+      }
+
+      const query = new URLSearchParams({
+        beQueriedAccountId: candidateId,
+        doQueryAccountId: candidateId,
+      });
+      const rawIdentity = await requestJson(
+        `https://me.meituan.com/api/gw/v1/base/account/getDetail?${query.toString()}`,
+        'account-detail',
       );
-      const identity = parseMeituanAccountIdentityCandidates(rawIdentity);
+      if (!current()) {
+        finish('stale-page');
+        return { kind: 'none' };
+      }
+      const identity = parseMeituanAccountDetail(candidateId, rawIdentity);
       if (!identity) {
-        // 与下面 catch 的区别：这里请求发出去了、也拿到了响应，只是里面没有能用的
-        // 账号（多半是接口变了或未登录）；catch 那条是请求本身没成。
-        logger.warn('Meituan discovery: identity response held no usable account', {
-          hasResponse: rawIdentity != null,
-        });
+        finish('session-invalid');
         return { kind: 'none' };
       }
 
-      // 门店清单：扫描的枚举口径读它。失败不阻断登录 —— 见文件头。
-      const pois = await discoverPois(webContents);
+      if (rawPois === null) rawPois = await requestJson(MEITUAN_POI_INFOS_URL, 'poi-list');
+      if (!current()) {
+        finish('stale-page');
+        return { kind: 'none' };
+      }
+      const hotels = parseMeituanPoiInfos(rawPois);
+      if (hotels === null)
+        logger.warn('Meituan discovery: poiInfos unavailable, scan will have no target');
+      const pois = toPoiEntries(hotels ?? []);
+      finish('found');
       return {
         kind: 'found',
         credential: {
           ...identity,
-          credentialExtra: { ...identity.credentialExtra, [MEITUAN_POIS_FIELD]: pois },
+          credentialExtra: {
+            ...identity.credentialExtra,
+            [MEITUAN_POIS_FIELD]: pois as readonly JsonObject[],
+          },
         },
       };
     } catch (error) {
-      logger.warn('Meituan discovery failed', {
-        error: safeLogErrorDetails(error),
+      logger.warn('Meituan discovery request failed', {
+        tabId: context?.tabId,
+        requestId: context?.requestId,
+        mode,
+        errorType: error instanceof Error ? error.name : 'unknown',
       });
+      finish('request-failed');
       return { kind: 'none' };
     }
-  };
 
-  /**
-   * 读该账号名下的门店清单。
-   *
-   * ⚠️ **取到几家写几家**，不做「取第一家」的取舍 —— 多店账号天然产出多个扫描目标。
-   * 取不到时写空数组而不是省略该键：空数组说明「探测过，这个账号没有门店」，
-   * 省略说明「没探测过」，两者对排查的意义不同。
-   */
-  async function discoverPois(webContents: WebContents): Promise<readonly JsonObject[]> {
-    try {
-      const raw: unknown = await webContents.executeJavaScript(FETCH_MEITUAN_POI_INFOS_EXPRESSION);
-      const hotels = parseMeituanPoiInfos(raw);
-      if (hotels === null) {
-        logger.warn('Meituan discovery: poiInfos response unusable, scan will have no target');
-        return [];
-      }
-      const entries = toPoiEntries(hotels);
-      logger.info('Meituan discovery: poi list recorded', { poiCount: entries.length });
-      return entries as unknown as readonly JsonObject[];
-    } catch (error) {
-      logger.warn('Meituan discovery: poiInfos failed, scan will have no target', {
-        error: safeLogErrorDetails(error),
+    async function requestJson(url: string, stage: string): Promise<unknown> {
+      const controller = new AbortController();
+      const onCancelled = () => controller.abort();
+      context?.signal?.addEventListener('abort', onCancelled, { once: true });
+      if (context?.signal?.aborted) controller.abort();
+      let timeout: ReturnType<typeof setTimeout> | undefined;
+      const deadline = new Promise<null>((resolve) => {
+        timeout = setTimeout(() => {
+          controller.abort();
+          resolve(null);
+        }, REQUEST_TIMEOUT_MS);
       });
-      return [];
+      try {
+        const result = await Promise.race([
+          (async () => {
+            const response = await partitionFetch(partitionName, url, {
+              method: 'GET',
+              headers: REQUEST_HEADERS,
+              signal: controller.signal,
+            });
+            if (!response.ok) return null;
+            return (await response.json()) as unknown;
+          })(),
+          deadline,
+        ]);
+        logger.info('Meituan discovery stage completed', {
+          tabId: context?.tabId,
+          requestId: context?.requestId,
+          mode,
+          stage,
+          kind: result === null ? 'unavailable' : 'response',
+          elapsedMs: Date.now() - startedAt,
+        });
+        return result;
+      } finally {
+        if (timeout) clearTimeout(timeout);
+        context?.signal?.removeEventListener('abort', onCancelled);
+      }
     }
-  }
+  };
 }

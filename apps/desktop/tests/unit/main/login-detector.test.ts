@@ -2,6 +2,7 @@ import { EventEmitter } from 'node:events';
 import { describe, expect, it, vi } from 'vitest';
 import { toChannelId } from '../../../src/main/ids';
 import { LoginDetector } from '../../../src/main/ota-tab/login-detector';
+import type { DiscoveryContext } from '../../../src/main/channels/types';
 import { TabEventBus } from '../../../src/main/ota-tab/tab-event-bus';
 
 /** 真实 EventEmitter 充当 mock BrowserManager，保留 tab:navigated/tab:closed 订阅语义。 */
@@ -17,6 +18,7 @@ async function flush(): Promise<void> {
 }
 
 const CTRIP = toChannelId('ctrip');
+const MEITUAN = toChannelId('meituan');
 
 function setup(options: { isPastLogin?: (url: string) => boolean; registered?: boolean } = {}) {
   const browserManager = createBrowserManagerStub();
@@ -42,13 +44,262 @@ function setup(options: { isPastLogin?: (url: string) => boolean; registered?: b
       partitionName: 'persist:xiaozhi:prod:ctrip:abc',
       channelId: CTRIP,
       url,
-      webContents: {} as never,
+      webContents: { isDestroyed: () => false, getURL: () => url } as never,
     });
 
   return { detector, browserManager, triggerDiscovery, checked, navigate };
 }
 
 describe('LoginDetector', () => {
+  it('美团旧会话在首次跳转登录页前返回无身份时，不结束重登等待', async () => {
+    const browserManager = createBrowserManagerStub();
+    const tabEventBus = new TabEventBus();
+    const checked: unknown[] = [];
+    tabEventBus.on('tab:credential-checked', (event) => checked.push(event));
+    const detector = new LoginDetector({
+      browserManager: browserManager as never,
+      tabEventBus,
+      loginUrlMatchers: new Map([
+        [MEITUAN, { channel: MEITUAN, isPastLogin: (url) => url.includes('/ebooking/') }],
+      ]),
+      triggerDiscovery: vi.fn().mockResolvedValue(null),
+    });
+    detector.register(
+      'tab-1',
+      MEITUAN,
+      { kind: 'reauth-ota', requestId: 'req-1', expectedChannelAccountId: '274615733' },
+      { expectedChannelAccountId: '274615733', freshPartition: false },
+    );
+    browserManager.emit('tab:navigated', {
+      tabId: 'tab-1',
+      partitionName: 'p',
+      channelId: MEITUAN,
+      url: 'https://me.meituan.com/ebooking/merchant/ebIframe',
+      webContents: {
+        getURL: () => 'https://me.meituan.com/ebooking/merchant/ebIframe',
+        isDestroyed: () => false,
+      } as never,
+    });
+    await flush();
+    expect(checked).toEqual([expect.objectContaining({ outcome: { kind: 'not-yet-past-login' } })]);
+  });
+
+  it('普通美团标签成功后重新进入登录页会重新发现账号', async () => {
+    const browserManager = createBrowserManagerStub();
+    const triggerDiscovery = vi
+      .fn()
+      .mockResolvedValueOnce({ id: 'cred-1' })
+      .mockResolvedValueOnce(null);
+    const detector = new LoginDetector({
+      browserManager: browserManager as never,
+      tabEventBus: new TabEventBus(),
+      loginUrlMatchers: new Map([
+        [MEITUAN, { channel: MEITUAN, isPastLogin: (url) => url.includes('/ebooking/') }],
+      ]),
+      triggerDiscovery,
+    });
+    detector.register('tab-1', MEITUAN, undefined, {
+      expectedChannelAccountId: '274615733',
+      freshPartition: false,
+    });
+    let currentUrl = 'https://me.meituan.com/ebooking/index.html';
+    const webContents = {
+      getURL: () => currentUrl,
+      isDestroyed: () => false,
+      executeJavaScript: vi.fn().mockResolvedValue(['274615733']),
+    };
+    const navigate = () =>
+      browserManager.emit('tab:navigated', {
+        tabId: 'tab-1',
+        partitionName: 'p',
+        channelId: MEITUAN,
+        url: currentUrl,
+        webContents: webContents as never,
+      });
+    navigate();
+    await flush();
+    currentUrl = 'https://me.meituan.com/login/index.html';
+    navigate();
+    currentUrl = 'https://me.meituan.com/ebooking/index.html';
+    navigate();
+    await flush();
+    expect(triggerDiscovery).toHaveBeenCalledTimes(2);
+    expect(triggerDiscovery.mock.calls[1][4].identityClues.switchToFreshDiscovery).toBe(true);
+  });
+
+  it('普通旧账号首次失效后仍保留所选 ID，允许用户重新登录同一账号', async () => {
+    const browserManager = createBrowserManagerStub();
+    const triggerDiscovery = vi.fn().mockResolvedValue(null);
+    const detector = new LoginDetector({
+      browserManager: browserManager as never,
+      tabEventBus: new TabEventBus(),
+      loginUrlMatchers: new Map([
+        [MEITUAN, { channel: MEITUAN, isPastLogin: (url) => url.includes('/ebooking/') }],
+      ]),
+      triggerDiscovery,
+    });
+    detector.register('tab-1', MEITUAN, undefined, {
+      expectedChannelAccountId: '274615733',
+      freshPartition: false,
+    });
+    let currentUrl = 'https://me.meituan.com/ebooking/merchant/ebIframe';
+    const webContents = {
+      getURL: () => currentUrl,
+      isDestroyed: () => false,
+      executeJavaScript: vi.fn().mockResolvedValue(['274615733']),
+    };
+    const navigate = () =>
+      browserManager.emit('tab:navigated', {
+        tabId: 'tab-1',
+        partitionName: 'p',
+        channelId: MEITUAN,
+        url: currentUrl,
+        webContents: webContents as never,
+      });
+    navigate();
+    await flush();
+    currentUrl = 'https://me.meituan.com/login/index.html';
+    navigate();
+    currentUrl = 'https://me.meituan.com/ebooking/index.html';
+    navigate();
+    await flush();
+    expect(triggerDiscovery).toHaveBeenCalledTimes(2);
+    expect(triggerDiscovery.mock.calls[1][4].identityClues.switchToFreshDiscovery).toBe(false);
+  });
+
+  it('美团请求期间返回登录页时作废迟到结果，且不广播已核验', async () => {
+    const browserManager = createBrowserManagerStub();
+    const tabEventBus = new TabEventBus();
+    const checked: unknown[] = [];
+    tabEventBus.on('tab:credential-checked', (event) => checked.push(event));
+    let complete: ((value: null) => void) | undefined;
+    let signal: AbortSignal | undefined;
+    const triggerDiscovery = vi.fn(
+      (
+        _partition: string,
+        _channel: unknown,
+        _url: string,
+        _page: unknown,
+        context?: DiscoveryContext,
+      ) => {
+        signal = context?.signal;
+        return new Promise<null>((resolve) => {
+          complete = resolve;
+        });
+      },
+    );
+    const detector = new LoginDetector({
+      browserManager: browserManager as never,
+      tabEventBus,
+      loginUrlMatchers: new Map([
+        [MEITUAN, { channel: MEITUAN, isPastLogin: (url) => url.includes('/ebooking/') }],
+      ]),
+      triggerDiscovery,
+    });
+    let currentUrl = 'https://me.meituan.com/ebooking/merchant/ebIframe';
+    const webContents = {
+      getURL: () => currentUrl,
+      isDestroyed: () => false,
+      executeJavaScript: vi.fn().mockResolvedValue([]),
+    };
+    detector.register('tab-1', MEITUAN, undefined, {
+      expectedChannelAccountId: '274615733',
+      freshPartition: false,
+    });
+    const navigate = () =>
+      browserManager.emit('tab:navigated', {
+        tabId: 'tab-1',
+        partitionName: 'meituan-partition',
+        channelId: MEITUAN,
+        url: currentUrl,
+        webContents: webContents as never,
+      });
+    navigate();
+    currentUrl = 'https://me.meituan.com/login/index.html';
+    navigate();
+    expect(signal?.aborted).toBe(true);
+    complete?.(null);
+    await flush();
+    expect(checked).not.toContainEqual(
+      expect.objectContaining({ outcome: expect.objectContaining({ kind: 'checked' }) }),
+    );
+  });
+
+  it('旧美团 partition 无 ID 时先记线索，登录页转移后再探测', async () => {
+    const browserManager = createBrowserManagerStub();
+    const tabEventBus = new TabEventBus();
+    const checked: unknown[] = [];
+    tabEventBus.on('tab:credential-checked', (event) => checked.push(event));
+    const triggerDiscovery = vi.fn().mockResolvedValue(null);
+    const detector = new LoginDetector({
+      browserManager: browserManager as never,
+      tabEventBus,
+      loginUrlMatchers: new Map([
+        [MEITUAN, { channel: MEITUAN, isPastLogin: (url) => url.includes('/ebooking/') }],
+      ]),
+      triggerDiscovery,
+    });
+    detector.register('tab-1', MEITUAN, undefined, { freshPartition: false });
+    const navigate = (url: string) =>
+      browserManager.emit('tab:navigated', {
+        tabId: 'tab-1',
+        partitionName: 'meituan-partition',
+        channelId: MEITUAN,
+        url,
+        webContents: {
+          getURL: () => url,
+          isDestroyed: () => false,
+          executeJavaScript: vi.fn().mockResolvedValue([]),
+        } as never,
+      });
+    navigate('https://me.meituan.com/ebooking/merchant/ebIframe');
+    await flush();
+    expect(checked[0]).toEqual(
+      expect.objectContaining({ outcome: { kind: 'not-yet-past-login' } }),
+    );
+    navigate('https://me.meituan.com/login/index.html');
+    navigate('https://me.meituan.com/ebooking/index.html');
+    await flush();
+    expect(triggerDiscovery).toHaveBeenCalledTimes(2);
+    const secondContext = triggerDiscovery.mock.calls[1][4];
+    expect(secondContext.identityClues.sawLoginPage).toBe(true);
+  });
+
+  it('把美团已选账号提示传给发现层，而不是只保存在标签记录里', async () => {
+    const browserManager = createBrowserManagerStub();
+    const triggerDiscovery = vi.fn().mockResolvedValue(null);
+    const detector = new LoginDetector({
+      browserManager: browserManager as never,
+      tabEventBus: new TabEventBus(),
+      loginUrlMatchers: new Map([[MEITUAN, { channel: MEITUAN, isPastLogin: () => true }]]),
+      triggerDiscovery,
+    });
+    const webContents = {
+      isDestroyed: () => false,
+      getURL: () => 'https://me.meituan.com/ebooking/merchant/ebIframe',
+    } as never;
+    detector.register('tab-1', MEITUAN, undefined, {
+      expectedChannelAccountId: '274615733',
+      freshPartition: false,
+    });
+
+    browserManager.emit('tab:navigated', {
+      tabId: 'tab-1',
+      partitionName: 'persist:xiaozhi:dev:meituan:abc',
+      channelId: MEITUAN,
+      url: 'https://me.meituan.com/ebooking/merchant/ebIframe',
+      webContents,
+    });
+    await flush();
+
+    expect(triggerDiscovery).toHaveBeenCalledWith(
+      'persist:xiaozhi:dev:meituan:abc',
+      MEITUAN,
+      'https://me.meituan.com/ebooking/merchant/ebIframe',
+      webContents,
+      expect.objectContaining({ expectedChannelAccountId: '274615733', freshPartition: false }),
+    );
+  });
   it('register 传入的 intent 随广播带出', async () => {
     const { detector, checked, navigate } = setup();
 
@@ -148,7 +399,7 @@ describe('LoginDetector', () => {
       partitionName: 'p',
       channelId: CTRIP,
       url: 'https://ebooking.ctrip.com/home',
-      webContents: {} as never,
+      webContents: { isDestroyed: () => false } as never,
     });
     await flush();
 
@@ -234,7 +485,7 @@ describe('LoginDetector', () => {
         partitionName: 'p',
         channelId: CTRIP,
         url,
-        webContents: {} as never,
+        webContents: { isDestroyed: () => false } as never,
       });
 
     navigate('https://ebooking.ctrip.com/home');

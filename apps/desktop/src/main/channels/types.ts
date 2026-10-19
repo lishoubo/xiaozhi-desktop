@@ -22,6 +22,22 @@ export interface LoginUrlMatcher {
   isPastLogin(url: string): boolean;
 }
 
+/** A per-tab hint and freshness guard for Meituan session discovery. */
+export type DiscoveryContext = Readonly<{
+  tabId?: string;
+  requestId?: string;
+  expectedChannelAccountId?: string;
+  freshPartition: boolean;
+  isCurrent?: () => boolean;
+  signal?: AbortSignal;
+  identityClues?: {
+    baseline: readonly string[] | null;
+    baselinePending?: Promise<void>;
+    sawLoginPage: boolean;
+    switchToFreshDiscovery: boolean;
+  };
+}>;
+
 export type ProbedHotel = Readonly<{
   otaHotelId: OtaHotelId;
   otaHotelName: string | null;
@@ -196,11 +212,7 @@ export type AmountParseResult =
 
 /** 回读失败的原因。403 与登录失效**必须分开** —— 见 `InventoryReadback`。 */
 export type ReadbackFailureReason =
-  | 'COOKIE_EXPIRED'
-  | 'FORBIDDEN'
-  | 'PARSE_ERROR'
-  | 'NETWORK_ERROR'
-  | 'UNEXPECTED';
+  'COOKIE_EXPIRED' | 'FORBIDDEN' | 'PARSE_ERROR' | 'NETWORK_ERROR' | 'UNEXPECTED';
 
 /**
  * 回读的结果。**三态分开，不用「空数组表示失败」**。

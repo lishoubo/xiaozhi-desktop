@@ -2,8 +2,6 @@ import { z } from 'zod';
 import type { JsonObject } from '../../../shared/types/json';
 
 const MEITUAN_SUCCESS_CODE = 10000;
-const ME_API_APPKEY = 'fe_com.sankuai.fetalos.web.hotelfeme';
-const ME_API_LOGIN_TYPE = 'Epassport';
 
 const stringLikeSchema = z.union([z.string(), z.number()]);
 const optionalStringLikeSchema = stringLikeSchema.nullish();
@@ -23,15 +21,7 @@ const accountDetailResponseSchema = z.object({
     .optional(),
 });
 
-const accountIdentityCandidatesSchema = z.object({
-  kind: z.literal('completed'),
-  candidates: z.array(
-    z.object({
-      candidateAccountId: z.string(),
-      response: z.unknown(),
-    }),
-  ),
-});
+const candidateIdsSchema = z.array(z.string());
 
 export type MeituanCredentialIdentity = Readonly<{
   channelAccountId: string;
@@ -69,20 +59,15 @@ export function parseMeituanAccountDetail(
   };
 }
 
-export function parseMeituanAccountIdentityCandidates(
-  raw: unknown,
-): MeituanCredentialIdentity | null {
-  const parsed = accountIdentityCandidatesSchema.safeParse(raw);
-  if (!parsed.success) return null;
-  for (const candidate of parsed.data.candidates) {
-    const identity = parseMeituanAccountDetail(candidate.candidateAccountId, candidate.response);
-    if (identity) return identity;
-  }
-  return null;
+export function parseMeituanCandidateIds(raw: unknown): readonly string[] {
+  const parsed = candidateIdsSchema.safeParse(raw);
+  if (!parsed.success) return [];
+  return [...new Set(parsed.data.map((id) => id.trim()).filter(Boolean))];
 }
 
-export const FETCH_MEITUAN_ACCOUNT_IDENTITY_EXPRESSION = `
-  (async () => {
+/** Reads cached account clues only. No network calls execute in the page. */
+export const READ_MEITUAN_ACCOUNT_CANDIDATES_EXPRESSION = `
+  (() => {
     try {
       const marker = 'req:announcementEB,key:';
       const readAccountIds = () => {
@@ -132,45 +117,9 @@ export const FETCH_MEITUAN_ACCOUNT_IDENTITY_EXPRESSION = `
         return accountIds;
       };
 
-      let accountIds = [];
-      for (let attempt = 0; attempt < 20 && accountIds.length === 0; attempt += 1) {
-        accountIds = readAccountIds();
-        if (accountIds.length === 0) {
-          await new Promise((resolve) => setTimeout(resolve, 500));
-        }
-      }
-      if (accountIds.length === 0) return { kind: 'missing-account-candidate' };
-
-      const candidates = [];
-      for (const candidateAccountId of accountIds) {
-        const query = new URLSearchParams({
-          beQueriedAccountId: candidateAccountId,
-          doQueryAccountId: candidateAccountId,
-        });
-        const response = await new Promise((resolve) => {
-          const xhr = new XMLHttpRequest();
-          xhr.open('GET', '/api/gw/v1/base/account/getDetail?' + query.toString(), true);
-          xhr.withCredentials = true;
-          xhr.setRequestHeader('Accept', 'application/json');
-          xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
-          xhr.setRequestHeader('M-APPKEY', ${JSON.stringify(ME_API_APPKEY)});
-          xhr.setRequestHeader('locale', 'zh-CN');
-          xhr.setRequestHeader('logintype', ${JSON.stringify(ME_API_LOGIN_TYPE)});
-          xhr.onload = () => {
-            try {
-              resolve(JSON.parse(xhr.responseText));
-            } catch (error) {
-              resolve(null);
-            }
-          };
-          xhr.onerror = () => resolve(null);
-          xhr.send(null);
-        });
-        candidates.push({ candidateAccountId, response });
-      }
-      return { kind: 'completed', candidates };
+      return readAccountIds();
     } catch (error) {
-      return { kind: 'failed' };
+      return [];
     }
   })()
 `;

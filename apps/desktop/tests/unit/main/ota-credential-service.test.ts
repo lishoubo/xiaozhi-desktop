@@ -55,6 +55,90 @@ function createDeps(
 }
 
 describe('OtaCredentialService', () => {
+  it('美团同一进程再次显式打开时也验证会话，不返回 bound 里的旧凭证', async () => {
+    const old = credential({
+      channel: meituanChannel,
+      partitionName: meituanPartitionName,
+      channelAccountId: '274615733',
+    });
+    const discoverMeituan = vi
+      .fn()
+      .mockResolvedValueOnce({
+        kind: 'found',
+        credential: { channelAccountId: '274615733', credentialExtra: {} },
+      })
+      .mockResolvedValueOnce({ kind: 'none' });
+    const deps = createDeps({ discoverMeituan });
+    vi.mocked(deps.credentialRepository.findByPartitionName).mockReturnValue(old);
+    vi.mocked(deps.credentialRepository.updateIdentity).mockReturnValue(old);
+    const service = new OtaCredentialService(deps);
+    const context = { expectedChannelAccountId: '274615733', freshPartition: false };
+    await service.trigger(
+      meituanPartitionName,
+      meituanChannel,
+      'https://me.meituan.com/ebooking/index.html',
+      {} as never,
+      context,
+    );
+    await expect(
+      service.trigger(
+        meituanPartitionName,
+        meituanChannel,
+        'https://me.meituan.com/ebooking/index.html',
+        {} as never,
+        context,
+      ),
+    ).resolves.toBeNull();
+    expect(discoverMeituan).toHaveBeenCalledTimes(2);
+  });
+
+  it('美团探测返回前导航失效时不写凭证', async () => {
+    const deps = createDeps({
+      discoverMeituan: vi
+        .fn()
+        .mockResolvedValue({
+          kind: 'found',
+          credential: { channelAccountId: '274615733', credentialExtra: {} },
+        }),
+    });
+    const service = new OtaCredentialService(deps);
+    await expect(
+      service.trigger(
+        meituanPartitionName,
+        meituanChannel,
+        'https://me.meituan.com/ebooking/index.html',
+        {} as never,
+        {
+          expectedChannelAccountId: '274615733',
+          freshPartition: false,
+          isCurrent: () => false,
+        },
+      ),
+    ).resolves.toBeNull();
+    expect(deps.credentialRepository.create).not.toHaveBeenCalled();
+    expect(deps.credentialRepository.updateIdentity).not.toHaveBeenCalled();
+  });
+
+  it('美团发现接收所选渠道账号提示', async () => {
+    const discoverMeituan = vi.fn().mockResolvedValue({ kind: 'none' });
+    const service = new OtaCredentialService(createDeps({ discoverMeituan }));
+    const webContents = {} as never;
+
+    await service.trigger(
+      meituanPartitionName,
+      meituanChannel,
+      'https://me.meituan.com/ebooking/merchant/ebIframe',
+      webContents,
+      { expectedChannelAccountId: '274615733', freshPartition: false },
+    );
+
+    expect(discoverMeituan).toHaveBeenCalledWith(
+      meituanPartitionName,
+      'https://me.meituan.com/ebooking/merchant/ebIframe',
+      webContents,
+      { expectedChannelAccountId: '274615733', freshPartition: false },
+    );
+  });
   it('渠道未注册 discovery 时直接跳过', async () => {
     const deps = createDeps();
     const discoverAndCreate = new OtaCredentialService(deps);
@@ -661,7 +745,8 @@ describe('OtaCredentialService', () => {
         'https://me.meituan.com/',
         {} as never,
       );
-      return (deps.credentialRepository.updateIdentity as ReturnType<typeof vi.fn>).mock.calls[0]?.[1];
+      return (deps.credentialRepository.updateIdentity as ReturnType<typeof vi.fn>).mock
+        .calls[0]?.[1];
     }
 
     it('探测到空数组而库里有清单时，保留旧清单', async () => {

@@ -14,7 +14,11 @@
  */
 import type { WebContents } from 'electron';
 import type { ChannelId } from '../ids';
-import type { LoginUrlMatcher } from '../channels/types';
+import type { DiscoveryContext, LoginUrlMatcher } from '../channels/types';
+import {
+  parseMeituanCandidateIds,
+  READ_MEITUAN_ACCOUNT_CANDIDATES_EXPRESSION,
+} from '../channels/meituan/account-identity';
 import type { OtaCredential } from '../../shared/types/ota-credential';
 import { TabEventBus } from './tab-event-bus';
 import type { OtaTabIntent } from './intent';
@@ -28,6 +32,7 @@ type LoginTabState = Readonly<{
   loginUrlMatcher: LoginUrlMatcher;
   /** 这次打开的意图，随广播带给下游；tab 关闭时随本记录一起消失。 */
   intent?: OtaTabIntent;
+  discoveryContext?: DiscoveryContext;
 }>;
 
 export type LoginDetectorDependencies = Readonly<{
@@ -43,6 +48,7 @@ export type LoginDetectorDependencies = Readonly<{
     channel: ChannelId,
     landingUrl: string,
     webContents: WebContents,
+    context?: DiscoveryContext,
   ) => Promise<OtaCredential | null>;
 }>;
 
@@ -62,6 +68,11 @@ export class LoginDetector {
    * 态不要被并发探测」。两者语义不同，不要合并成一个。
    */
   private readonly triggered = new Set<string>();
+  private readonly navigationGeneration = new Map<string, number>();
+  private readonly pendingNavigation = new Map<string, TabNavigatedEvent>();
+  private readonly activeRequests = new Map<string, AbortController>();
+  private readonly loginPageSeen = new Set<string>();
+  private readonly confirmedIdentity = new Set<string>();
 
   constructor(private readonly deps: LoginDetectorDependencies) {
     this.deps.browserManager.on('tab:navigated', (event: TabNavigatedEvent) => {
@@ -70,6 +81,12 @@ export class LoginDetector {
     this.deps.browserManager.on('tab:closed', (event: TabClosedEvent) => {
       this.loginTabs.delete(event.tabId);
       this.triggered.delete(event.tabId);
+      this.activeRequests.get(event.tabId)?.abort();
+      this.activeRequests.delete(event.tabId);
+      this.navigationGeneration.delete(event.tabId);
+      this.pendingNavigation.delete(event.tabId);
+      this.loginPageSeen.delete(event.tabId);
+      this.confirmedIdentity.delete(event.tabId);
     });
   }
 
@@ -77,14 +94,37 @@ export class LoginDetector {
    * 登记「这个标签页需要登录判定」。渠道未注册 matcher 时不参与 URL 触发。
    * `intent` 说明这次打开是为了做什么，会随广播带给下游订阅者。
    */
-  register(tabId: string, channel: ChannelId, intent?: OtaTabIntent): void {
+  register(
+    tabId: string,
+    channel: ChannelId,
+    intent?: OtaTabIntent,
+    discoveryContext?: DiscoveryContext,
+  ): void {
     const loginUrlMatcher = this.deps.loginUrlMatchers.get(channel);
     if (!loginUrlMatcher) return;
-    this.loginTabs.set(tabId, { channel, loginUrlMatcher, intent });
+    const context =
+      discoveryContext && channel === 'meituan' && !discoveryContext.freshPartition
+        ? {
+            ...discoveryContext,
+            identityClues: {
+              baseline: null,
+              sawLoginPage: false,
+              switchToFreshDiscovery: false,
+            },
+          }
+        : discoveryContext;
+    this.loginTabs.set(tabId, { channel, loginUrlMatcher, intent, discoveryContext: context });
+    this.navigationGeneration.set(tabId, 0);
+    this.pendingNavigation.delete(tabId);
+    this.loginPageSeen.delete(tabId);
+    this.confirmedIdentity.delete(tabId);
   }
 
   private async handleTabNavigated(event: TabNavigatedEvent): Promise<void> {
     const state = this.loginTabs.get(event.tabId);
+    this.activeRequests.get(event.tabId)?.abort();
+    const generation = (this.navigationGeneration.get(event.tabId) ?? 0) + 1;
+    if (state) this.navigationGeneration.set(event.tabId, generation);
     const baseEvent = {
       tabId: event.tabId,
       partitionName: event.partitionName,
@@ -94,7 +134,14 @@ export class LoginDetector {
       intent: state?.intent,
     };
 
-    if (!state || this.triggered.has(event.tabId)) {
+    if (
+      !state ||
+      (this.triggered.has(event.tabId) &&
+        !(state.channel === 'meituan' && !state.loginUrlMatcher.isPastLogin(event.url)))
+    ) {
+      if (state && this.triggered.has(event.tabId) && state.channel === 'meituan') {
+        this.pendingNavigation.set(event.tabId, event);
+      }
       this.deps.tabEventBus.emitCredentialChecked({
         ...baseEvent,
         outcome: { kind: 'not-applicable' },
@@ -104,6 +151,33 @@ export class LoginDetector {
 
     const isPastLogin = state.loginUrlMatcher.isPastLogin(event.url);
     if (!isPastLogin) {
+      if (state.channel === 'meituan') {
+        this.loginPageSeen.add(event.tabId);
+        this.triggered.delete(event.tabId);
+        if (
+          !state.intent &&
+          this.confirmedIdentity.has(event.tabId) &&
+          state.discoveryContext?.identityClues
+        ) {
+          state.discoveryContext.identityClues.switchToFreshDiscovery = true;
+        }
+      }
+      if (state.channel === 'meituan' && state.discoveryContext?.identityClues) {
+        state.discoveryContext.identityClues.sawLoginPage = true;
+        const clues = state.discoveryContext.identityClues;
+        if (
+          clues.baseline === null &&
+          !clues.baselinePending &&
+          event.url.startsWith('https://me.meituan.com/')
+        ) {
+          clues.baselinePending = event.webContents
+            .executeJavaScript(READ_MEITUAN_ACCOUNT_CANDIDATES_EXPRESSION)
+            .then((raw: unknown) => {
+              clues.baseline = parseMeituanCandidateIds(raw);
+            })
+            .catch(() => undefined);
+        }
+      }
       this.deps.tabEventBus.emitCredentialChecked({
         ...baseEvent,
         outcome: { kind: 'not-yet-past-login' },
@@ -112,6 +186,8 @@ export class LoginDetector {
     }
 
     this.triggered.add(event.tabId);
+    const controller = state.channel === 'meituan' ? new AbortController() : null;
+    if (controller) this.activeRequests.set(event.tabId, controller);
     let credential: OtaCredential | null = null;
     try {
       // 必须 await：广播早于写库会让下游查到 null，永久错过探测机会。
@@ -120,11 +196,70 @@ export class LoginDetector {
         state.channel,
         event.url,
         event.webContents,
+        state.discoveryContext && {
+          ...state.discoveryContext,
+          tabId: event.tabId,
+          requestId: state.intent?.requestId,
+          signal: controller?.signal,
+          isCurrent: () =>
+            this.loginTabs.get(event.tabId) === state &&
+            this.navigationGeneration.get(event.tabId) === generation &&
+            !event.webContents.isDestroyed() &&
+            state.loginUrlMatcher.isPastLogin(event.webContents.getURL()),
+        },
       );
+      if (
+        credential &&
+        state.channel === 'meituan' &&
+        this.navigationGeneration.get(event.tabId) === generation
+      ) {
+        this.confirmedIdentity.add(event.tabId);
+      }
+      if (
+        credential &&
+        state.channel === 'meituan' &&
+        !state.intent &&
+        state.discoveryContext?.identityClues
+      ) {
+        const clues = state.discoveryContext.identityClues;
+        clues.baselinePending = event.webContents
+          .executeJavaScript(READ_MEITUAN_ACCOUNT_CANDIDATES_EXPRESSION)
+          .then((raw: unknown) => {
+            clues.baseline = parseMeituanCandidateIds(raw);
+          })
+          .catch(() => undefined);
+      }
     } finally {
+      if (controller && this.activeRequests.get(event.tabId) === controller) {
+        this.activeRequests.delete(event.tabId);
+      }
       // 没探出凭证就把门重新打开，让这个 tab 的下一次导航还能再试。抛错走同一条
       // 路——探测崩了更应该允许重试，而不是把标签页永久判死。
       if (!credential) this.triggered.delete(event.tabId);
+    }
+    if (!credential && this.loginTabs.get(event.tabId) === state) {
+      const pending = this.pendingNavigation.get(event.tabId);
+      this.pendingNavigation.delete(event.tabId);
+      if (
+        pending &&
+        !pending.webContents.isDestroyed() &&
+        state.loginUrlMatcher.isPastLogin(pending.webContents.getURL())
+      ) {
+        void this.handleTabNavigated(pending);
+      }
+    }
+    if (
+      this.loginTabs.get(event.tabId) !== state ||
+      (state.channel === 'meituan' && this.navigationGeneration.get(event.tabId) !== generation) ||
+      event.webContents.isDestroyed()
+    )
+      return;
+    if (!credential && state.channel === 'meituan' && !this.loginPageSeen.has(event.tabId)) {
+      this.deps.tabEventBus.emitCredentialChecked({
+        ...baseEvent,
+        outcome: { kind: 'not-yet-past-login' },
+      });
+      return;
     }
     this.deps.tabEventBus.emitCredentialChecked({
       ...baseEvent,

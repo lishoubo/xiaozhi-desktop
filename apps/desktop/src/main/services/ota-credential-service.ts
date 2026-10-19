@@ -22,6 +22,7 @@ import { safeLogErrorDetails, type AppLogger } from '../../shared/logging';
 import type { DiscoverCtrip } from '../channels/ctrip/discovery';
 import type { DiscoverDouyin } from '../channels/douyin/discovery';
 import type { DiscoverMeituan } from '../channels/meituan/discovery';
+import type { DiscoveryContext } from '../channels/types';
 
 const CTRIP_CHANNEL = 'ctrip';
 const DOUYIN_CHANNEL = 'douyin';
@@ -59,12 +60,13 @@ export class OtaCredentialService {
     channel: ChannelId,
     landingUrl: string,
     webContents: WebContents,
+    context?: DiscoveryContext,
   ): Promise<OtaCredential | null> {
     // 已探测过的 partition 不重复探测身份，但**必须把已有凭证返回**：下游
     // （`HotelProbeDispatcher`）拿 `credential === null` 当「这次导航没登录成
     // 功」处理，直接跳过酒店探测。返回 null 会让「对已登录账号发起绑定」这条
     // 最常见的路径必然失效——绑定选的就是已登录账号，`bound` 里几乎总有它。
-    if (this.bound.has(partitionName)) {
+    if (this.bound.has(partitionName) && !(channel === MEITUAN_CHANNEL && context)) {
       return this.deps.credentialRepository.findByPartitionName(partitionName);
     }
     // 探测进行中：这一次导航让它去，避免同一 partition 并发探测。
@@ -108,9 +110,18 @@ export class OtaCredentialService {
         return credential;
       }
       if (isMeituan) {
-        const result = await this.deps.discoverMeituan(partitionName, landingUrl, webContents);
+        const result = await this.deps.discoverMeituan(
+          partitionName,
+          landingUrl,
+          webContents,
+          context,
+        );
         this.deps.logger.info('Meituan discovery outcome', { kind: result.kind });
-        if (result.kind === 'none') return null;
+        if (result.kind !== 'found') return null;
+        if (context?.isCurrent && !context.isCurrent()) {
+          this.deps.logger.info('Meituan discovery discarded after navigation');
+          return null;
+        }
         const credential = await this.persistIdentifiedResult(
           partitionName,
           channel,

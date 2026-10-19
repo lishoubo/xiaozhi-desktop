@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   parseMeituanAccountDetail,
-  parseMeituanAccountIdentityCandidates,
+  parseMeituanCandidateIds,
 } from '../../../src/main/channels/meituan/account-identity';
 
 describe('parseMeituanAccountDetail', () => {
@@ -48,27 +48,8 @@ describe('parseMeituanAccountDetail', () => {
     ).toBeNull();
   });
 
-  it('从同源脚本结果中选择首个可校验的账号候选', () => {
-    expect(
-      parseMeituanAccountIdentityCandidates({
-        kind: 'completed',
-        candidates: [
-          { candidateAccountId: 'stale', response: { code: 500 } },
-          {
-            candidateAccountId: '274615733',
-            response: { code: 10000, data: { bizAcctId: '274615733' } },
-          },
-        ],
-      }),
-    ).toEqual({
-      channelAccountId: '274615733',
-      credentialExtra: {
-        partnerId: null,
-        login: null,
-        accountType: null,
-        accountStatus: null,
-        maskedPhone: null,
-      },
-    });
+  it('缓存线索只去重，不代替当前账号核验', () => {
+    expect(parseMeituanCandidateIds(['old', 'old', 'new'])).toEqual(['old', 'new']);
+    expect(parseMeituanCandidateIds({ candidates: ['old'] })).toEqual([]);
   });
 });

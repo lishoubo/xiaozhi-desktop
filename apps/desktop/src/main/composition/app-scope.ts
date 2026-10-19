@@ -230,7 +230,9 @@ export function createAppScope(logger: AppLogger): AppScope {
   const otaCredentialService = new OtaCredentialService({
     discoverCtrip: createCtripDiscovery(logger),
     discoverDouyin: createDouyinDiscovery(logger),
-    discoverMeituan: createMeituanDiscovery(logger),
+    discoverMeituan: createMeituanDiscovery(logger, (partitionName, url, options) =>
+      sessionFactory.sessionForAccount(partitionName).fetch(url, options),
+    ),
     credentialRepository: otaCredentialRepository,
     generateCredentialId: () => randomUUID(),
     // 探测成功 = 这份 partition 被某条 credential 认领了。此前这里是把它从

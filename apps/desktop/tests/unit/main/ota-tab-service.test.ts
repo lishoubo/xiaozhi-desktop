@@ -23,6 +23,7 @@ afterEach(() => {
 
 const CTRIP = toChannelId('ctrip');
 const DOUYIN = toChannelId('douyin');
+const MEITUAN = toChannelId('meituan');
 
 function setup(credential?: unknown) {
   const userDataDir = tempUserDataDir();
@@ -169,6 +170,29 @@ describe('OtaTabService', () => {
       kind: 'bind-hotel',
       requestId: 'req-1',
     });
+  });
+
+  it('已有美团凭证只把渠道账号 ID 作为发现提示，本地凭证 ID 不进入发现', async () => {
+    const { service, loginDetector } = setup({
+      id: toOtaCredentialId('local-credential-1'),
+      channel: MEITUAN,
+      channelAccountId: '274615733',
+      partitionName: 'persist:xiaozhi:dev:meituan:abc',
+    });
+
+    await service.openExisting('local-credential-1', {
+      kind: 'reauth-by-hotel',
+      requestId: 'req-1',
+      expectedOtaHotelId: 'hotel-1',
+      otaAccountId: 1,
+    });
+
+    expect(loginDetector.register).toHaveBeenCalledWith(
+      'tab-1',
+      MEITUAN,
+      expect.objectContaining({ kind: 'reauth-by-hotel' }),
+      { expectedChannelAccountId: '274615733', freshPartition: false },
+    );
   });
 
   it('openExisting() 找不到凭据时报错', async () => {

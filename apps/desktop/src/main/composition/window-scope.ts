@@ -284,8 +284,8 @@ export function createWindowScope(scope: WindowScopeDependencies): WindowScope {
     browserManager,
     tabEventBus,
     loginUrlMatchers: loginUrlMatchers(scope.channelRegistry),
-    triggerDiscovery: (partitionName, channel, landingUrl, webContents) =>
-      scope.otaCredentialService.trigger(partitionName, channel, landingUrl, webContents),
+    triggerDiscovery: (partitionName, channel, landingUrl, webContents, context) =>
+      scope.otaCredentialService.trigger(partitionName, channel, landingUrl, webContents, context),
   });
   const otaTabService = new OtaTabService({
     userDataDir: scope.userDataDir,

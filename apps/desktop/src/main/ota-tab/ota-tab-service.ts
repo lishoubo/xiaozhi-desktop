@@ -58,7 +58,11 @@ export class OtaTabService {
       channel,
       url,
     );
-    this.deps.loginDetector.register(tab.id, channel, intent);
+    if (channel === 'meituan') {
+      this.deps.loginDetector.register(tab.id, channel, intent, { freshPartition: true });
+    } else {
+      this.deps.loginDetector.register(tab.id, channel, intent);
+    }
     await this.rememberPendingPartition(partitionName, channel);
     return tab;
   }
@@ -89,7 +93,11 @@ export class OtaTabService {
         userAgent: safeBrowserUserAgent(imported.manifest.userAgent) ?? undefined,
       },
     );
-    this.deps.loginDetector.register(tab.id, channel, intent);
+    if (channel === 'meituan') {
+      this.deps.loginDetector.register(tab.id, channel, intent, { freshPartition: true });
+    } else {
+      this.deps.loginDetector.register(tab.id, channel, intent);
+    }
     await this.rememberPendingPartition(
       partitionName,
       channel,
@@ -142,7 +150,14 @@ export class OtaTabService {
       otaChannelLandingUrl(credential.channel),
       { importedCookies: cookies, userAgent: userAgent ?? undefined },
     );
-    this.deps.loginDetector.register(tab.id, credential.channel, intent);
+    if (credential.channel === 'meituan') {
+      this.deps.loginDetector.register(tab.id, credential.channel, intent, {
+        expectedChannelAccountId: credential.channelAccountId?.trim() || undefined,
+        freshPartition: true,
+      });
+    } else {
+      this.deps.loginDetector.register(tab.id, credential.channel, intent);
+    }
     // 登记进账本：这正是 e977c06 当年欠下、本轮补上的那一环。
     await this.rememberPendingPartition(partitionName, credential.channel, userAgent ?? undefined);
     return tab;
@@ -159,7 +174,14 @@ export class OtaTabService {
       url,
       userAgent ?? undefined,
     );
-    this.deps.loginDetector.register(tab.id, credential.channel, intent);
+    if (credential.channel === 'meituan') {
+      this.deps.loginDetector.register(tab.id, credential.channel, intent, {
+        expectedChannelAccountId: credential.channelAccountId?.trim() || undefined,
+        freshPartition: false,
+      });
+    } else {
+      this.deps.loginDetector.register(tab.id, credential.channel, intent);
+    }
     return tab;
   }
 
