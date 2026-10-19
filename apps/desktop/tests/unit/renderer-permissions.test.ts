@@ -5,6 +5,7 @@ import type { StaffSession } from '../../src/renderer/staff-auth';
 function staffWith(
   permissions: readonly string[],
   userType?: StaffSession['userType'],
+  accessibleHotelIds: readonly number[] = [],
 ): StaffSession {
   return {
     userId: 7,
@@ -13,7 +14,7 @@ function staffWith(
     role: 'HOTEL_STAFF',
     orgId: 42,
     userType,
-    accessibleHotelIds: [],
+    accessibleHotelIds: [...accessibleHotelIds],
     permissions: [...permissions],
   };
 }
@@ -71,9 +72,19 @@ describe('renderer module visibility by user type', () => {
 });
 
 describe('xiaozhi channel visibility', () => {
-  it('only admits an explicit staff identity', () => {
+  it('admits an explicit staff identity without requiring hotel access', () => {
     expect(capabilitiesOf(staffWith([], 'STAFF')).showXiaozhiChannel).toBe(true);
-    expect(capabilitiesOf(staffWith([], 'HOTEL')).showXiaozhiChannel).toBe(false);
+  });
+
+  it('admits a hotel user only with the grant and an accessible hotel', () => {
+    expect(capabilitiesOf(staffWith(['xiaozhi:access'], 'HOTEL', [8])).showXiaozhiChannel).toBe(
+      true,
+    );
+    expect(capabilitiesOf(staffWith(['xiaozhi:access'], 'HOTEL')).showXiaozhiChannel).toBe(false);
+    expect(capabilitiesOf(staffWith([], 'HOTEL', [8])).showXiaozhiChannel).toBe(false);
+  });
+
+  it('rejects unknown or missing identity type', () => {
     expect(capabilitiesOf(staffWith([])).showXiaozhiChannel).toBe(false);
     expect(capabilitiesOf(null).showXiaozhiChannel).toBe(false);
   });

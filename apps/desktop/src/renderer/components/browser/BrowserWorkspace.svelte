@@ -41,15 +41,17 @@
   } from './login-credential-options';
   import channelLoginIllustrationUrl from '../../assets/channel-login-illustration.png';
   import { capabilitiesOf } from '../../permissions';
-  import { readStaffSession } from '../../staff-auth';
+  import { readStaffSession, setStaffSession } from '../../staff-auth';
 
   // 顶部入口只列已接通监听与探测的渠道；`OTA_CHANNELS` 仍是完整字典，负责把历史
   // 绑定记录里的 `source` 翻译成中文名（理由见 `WORKSPACE_CHANNEL_IDS`）。
-  const showXiaozhiChannel = capabilitiesOf(readStaffSession()).showXiaozhiChannel;
-  const workspaceChannels = OTA_CHANNELS.filter(
-    (channel) =>
-      WORKSPACE_CHANNEL_IDS.includes(channel.id) &&
-      (channel.id !== 'xiaozhi' || showXiaozhiChannel),
+  let showXiaozhiChannel = $state(capabilitiesOf(readStaffSession()).showXiaozhiChannel);
+  let workspaceChannels = $derived(
+    OTA_CHANNELS.filter(
+      (channel) =>
+        WORKSPACE_CHANNEL_IDS.includes(channel.id) &&
+        (channel.id !== 'xiaozhi' || showXiaozhiChannel),
+    ),
   );
   // 标签页状态归 `browserOtaTabs`（渲染进程侧的 OTA tab 状态层）；本组件只渲染
   // 它、并把视口尺寸注册进去。凭证列表不属于 tab 状态，仍留在本地。
@@ -124,7 +126,20 @@
     try {
       await browserOtaTabs.openInternalPage();
     } catch (error) {
-      reportBrowserFailure('Internal page could not be opened', '页面打开失败，请重试', error);
+      // 主进程打开时重新取 /me；若授权刚被撤销，同步收起本地旧标签与入口。
+      try {
+        const identity = await window.hotelButler.staffAuth.currentSession();
+        if (identity) setStaffSession(identity);
+        showXiaozhiChannel = capabilitiesOf(identity).showXiaozhiChannel;
+        if (!showXiaozhiChannel) browserOtaTabs.forgetInternalPage();
+      } catch {
+        // 网络错误不能证明授权已撤销，保留原入口并呈现最初的打开错误。
+      }
+      reportBrowserFailure(
+        'Internal page could not be opened',
+        showXiaozhiChannel ? '页面打开失败，请重试' : '当前账号无权打开小智平台',
+        error,
+      );
     }
   }
 

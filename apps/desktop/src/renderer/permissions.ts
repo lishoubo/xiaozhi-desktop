@@ -10,7 +10,7 @@
  * | 判据 | 回答的问题 | 数据源 |
  * |---|---|---|
  * | `userType` | 这个模块对该类用户开放吗 | 服务端 `MeResponse.userType` |
- * | 权限码 | 进到模块里能不能写 | `role_permission` 表 |
+ * | 权限码 | 用户具备什么能力 | 服务端 `MeResponse.permissions` |
  *
  * 用权限码当模块开关会误伤 OPERATOR——他是服务商员工，该看到酒店管理，但权限矩阵里
  * 没有 `hotel:manage`。反过来用 `userType` 当写操作开关，则会让只读的酒店用户拿到
@@ -22,6 +22,8 @@
  *   角色码相同而期望相反，按它判断必然把两类人混在一起。
  * - **`hotel:view`**：四个角色全都有，判不出任何东西。
  *
+ * 小智平台对酒店用户另需 `xiaozhi:access` 和至少一家可访问酒店；服务商延续原规则。
+ *
  * ## 不判断的那一条
  *
  * 「能操作哪几家酒店」不在这里判——服务端每次调用都重查 `hotel_user_access` 收敛范围，
@@ -31,6 +33,7 @@
  * 不把用户无权执行的入口摆在他面前。
  */
 import type { StaffSession } from './staff-auth';
+import { canAccessXiaozhiPlatform } from '../shared/xiaozhi-access';
 
 export type SessionLike = StaffSession;
 
@@ -40,7 +43,7 @@ export type Capabilities = Readonly<{
   manageHotel: boolean;
   /** 按用户类型：酒店管理模块是否对该类用户开放。 */
   showHotelManagement: boolean;
-  /** 仅明确为服务商员工时显示内部改价页。 */
+  /** 服务商或获授权且有可访问酒店的酒店用户可见内部改价页。 */
   showXiaozhiChannel: boolean;
 }>;
 
@@ -62,6 +65,6 @@ export function capabilitiesOf(session: SessionLike | null): Capabilities {
     // 缺 `userType` 时按服务商员工处置（契约层已把未知值一并降级为 undefined）：
     // 宁可多显示一个员工才用的模块，也不能因为字段没读到就把人挡在门外。
     showHotelManagement: session.userType !== 'HOTEL',
-    showXiaozhiChannel: session.userType === 'STAFF',
+    showXiaozhiChannel: canAccessXiaozhiPlatform(session),
   };
 }

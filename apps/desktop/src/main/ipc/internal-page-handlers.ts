@@ -27,6 +27,7 @@
 import { z } from 'zod';
 import type { StaffIdentity } from '@hotel-butler/api';
 import type { BrowserTab } from '../../shared/browser';
+import { canAccessXiaozhiPlatform } from '../../shared/xiaozhi-access';
 import { IPC_CHANNELS } from '../../shared/ipc-channels';
 import type { AppLogger } from '../../shared/logging';
 import { createHandlerRegistry, type TrustedWindow } from './create-handler-registry';
@@ -189,11 +190,15 @@ export function registerInternalPageHandlers({
     noArgumentsSchema,
     '请求参数无效',
     async (): Promise<BrowserTab> => {
-      // 必须在复用旧 tab 之前校验，避免换成酒店用户后沿用服务商打开的页面。
+      // 必须在复用旧 tab 之前校验，避免换用户或授权撤销后沿用旧页面。
       const identity = await currentSession();
-      if (identity?.userType !== 'STAFF') {
-        logger.warn('Internal page tab blocked: user is not staff');
-        throw new Error('仅服务商用户可打开小智平台');
+      if (!canAccessXiaozhiPlatform(identity)) {
+        const staleTab = browserManager
+          .list()
+          .find((tab) => tab.channelId === INTERNAL_PAGE_CHANNEL_ID);
+        if (staleTab) browserManager.close(staleTab.id);
+        logger.warn('Internal page tab blocked: user lacks access');
+        throw new Error('当前账号无权打开小智平台');
       }
       // 已经开着就复用：改价页开多个没有意义，且各自令牌的过期时刻不同会造成困惑。
       const existing = browserManager

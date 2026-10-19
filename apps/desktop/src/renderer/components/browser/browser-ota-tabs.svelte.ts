@@ -25,7 +25,7 @@ type ViewportReader = () => DOMRect;
 class BrowserOtaTabsStore {
   tabsByChannel = $state<Record<string, BrowserTab[]>>({});
   activeTabIds = $state<Record<string, string>>({});
-  // 小智平台只对服务商显示；默认选所有用户都能看到的携程。
+  // 小智平台按登录授权显示；默认选所有用户都能看到的携程。
   activeChannelId = $state<string>('ctrip');
 
   /** 登出时忘记内部页；下一位登录用户不得继承它的标签状态。 */

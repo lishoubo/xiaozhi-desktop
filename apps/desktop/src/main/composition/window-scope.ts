@@ -56,6 +56,7 @@ import { SystemService } from '../services/system-service';
 import { resolveInstallationDirectory } from '../services/installation-directory';
 // import { AgentService } from '../services/agent-service';
 import { IPC_CHANNELS } from '../../shared/ipc-channels';
+import { canAccessXiaozhiPlatform } from '../../shared/xiaozhi-access';
 import { createMainWindow } from '../windows/main-window';
 import type { AppScope } from './app-scope';
 import { createStaffSessionEndedHandler } from './staff-session-ended';
@@ -395,6 +396,10 @@ export function createWindowScope(scope: WindowScopeDependencies): WindowScope {
       onIdentityResolved: (identity) => {
         void scope.updaterService.checkOnce(identity);
         scope.heartbeatService.start();
+        if (!canAccessXiaozhiPlatform(identity)) {
+          const tab = browserManager.list().find((entry) => entry.channelId === 'xiaozhi');
+          if (tab) browserManager.close(tab.id);
+        }
       },
       onSessionEnded: endStaffSession,
     }),
