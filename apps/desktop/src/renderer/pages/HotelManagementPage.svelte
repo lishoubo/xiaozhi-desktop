@@ -31,26 +31,13 @@
   import { capabilitiesOf } from '../permissions';
 
   /**
-   * 界面能力。会话在一次页面生命周期内不会变——变了必然经过登出、整页重建，
+   * 模块可见性。会话在一次页面生命周期内不会变——变了必然经过登出、整页重建，
    * 所以读一次就够，不需要响应式 store。
-   *
-   * 两个登录变体各有各的会话存放处，这里按编译期变体取对应的那个；`capabilitiesOf`
-   * 对两种身份形状都做默认拒绝。
    */
   const capabilities = capabilitiesOf(readStaffSession());
-  /** 写操作入口的开关（按权限码）。 */
-  const canManage = capabilities.manageHotel;
 
-  /**
-   * 表头与数据行必须用同一份列定义，否则两者错位。无写权限时第三列（操作）整列
-   * 没有内容，留着宽度会在每行右侧空出一段。
-   *
-   * 56px 是按当前仅剩的一个 `icon-sm`（32px）按钮量的；原先 88px 对应的是「新增
-   * 绑定账号 + 删除酒店」两个按钮，删除酒店入口下线后不缩回来会右侧留白。
-   */
-  const gridColumns = canManage
-    ? 'grid-cols-[minmax(180px,0.8fr)_minmax(360px,2fr)_56px]'
-    : 'grid-cols-[minmax(180px,0.8fr)_minmax(360px,2fr)]';
+  /** 表头与数据行共用列定义；操作列容纳一个 32px 的新增绑定按钮。 */
+  const gridColumns = 'grid-cols-[minmax(180px,0.8fr)_minmax(360px,2fr)_56px]';
 
   let loading = $state(true);
   let loadError = $state(false);
@@ -322,9 +309,7 @@
         >
           <span>酒店</span>
           <span>绑定的 OTA 账号</span>
-          {#if canManage}
-            <span class="text-right">操作</span>
-          {/if}
+          <span class="text-right">操作</span>
         </div>
 
         <!--
@@ -362,7 +347,6 @@
                 {#each accounts.slice(0, 3) as account}
                   <BoundOtaAccountCard
                     {account}
-                    {canManage}
                     onAction={showAccountAction}
                     onUnbind={(target, channelName) =>
                       (unbindTarget = { account: target, channelName })}
@@ -378,19 +362,17 @@
               {/if}
             </div>
 
-            {#if canManage}
-              <div class="flex justify-end gap-1">
-                <Button
-                  size="icon-sm"
-                  variant="ghost"
-                  title="新增绑定账号"
-                  aria-label={`新增绑定账号 - ${hotel.name}`}
-                  onclick={() => (addBindingTarget = hotel)}
-                >
-                  <Plus />
-                </Button>
-              </div>
-            {/if}
+            <div class="flex justify-end gap-1">
+              <Button
+                size="icon-sm"
+                variant="ghost"
+                title="新增绑定账号"
+                aria-label={`新增绑定账号 - ${hotel.name}`}
+                onclick={() => (addBindingTarget = hotel)}
+              >
+                <Plus />
+              </Button>
+            </div>
           </section>
         {/each}
       </div>

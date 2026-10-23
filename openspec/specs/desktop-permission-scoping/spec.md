@@ -2,74 +2,58 @@
 
 ## Purpose
 
-约束桌面端如何按 RMS 下发的权限码收敛界面上的写操作入口，使只读用户看不到自己无权
-执行的动作。界面收口是可用性措施，服务端始终是权限的最终防线。
+酒店管理写操作由 RMS 服务端接口判断权限。桌面端不按 `hotel:manage` 隐藏操作入口，
+避免在 App 中重复维护服务端权限规则。模块可见性仍遵循既有用户类型规则。
 
 ## Requirements
 
-### Requirement: Desktop derives capabilities from RMS permission codes
+### Requirement: Hotel management write authorization belongs to the server
 
-桌面端 SHALL 把登录身份中的权限码集合收敛成具名能力判断，并以该判断作为界面渲染依据。
-界面各处 SHALL NOT 各自比较权限码字符串。
+桌面端 SHALL NOT 根据登录身份中的 `hotel:manage` 权限码隐藏新增绑定账号、解绑账号、
+重新认证账号或补选门店入口。实际操作 SHALL 通过既有接口提交，由服务端决定是否允许；
+服务端拒绝时，桌面端 SHALL 沿用既有错误反馈。
 
-未持有某项能力对应权限码的用户 SHALL 被视为不具备该能力；权限码集合为空时，所有写能力
-SHALL 判定为否。
+本要求 SHALL NOT 恢复因服务端未开放而下线的新增酒店、删除酒店入口。
 
-#### Scenario: Identity carries the management permission code
+#### Scenario: User opens hotel management without a management permission code
 
-- **WHEN** 登录身份的权限码集合包含 `hotel:manage`
-- **THEN** 酒店管理写能力判定为「具备」
+- **WHEN** 可访问酒店管理页的用户不持有 `hotel:manage`，或权限码集合为空
+- **THEN** 每家酒店显示新增绑定账号入口，账号详情显示解绑入口
+- **AND** 重新登录和补选门店入口按账号状态展示，不再受权限码限制
 
-#### Scenario: Identity carries only read permission codes
+#### Scenario: Server refuses a write operation
 
-- **WHEN** 登录身份的权限码集合只含只读权限码（如 `hotel:view`）
-- **THEN** 酒店管理写能力判定为「不具备」
+- **WHEN** 用户提交酒店管理写操作且服务端拒绝
+- **THEN** 桌面端沿用既有错误反馈，不将该操作视为成功
 
-#### Scenario: Identity carries no permission codes
+### Requirement: Login and session restore use the same entry visibility
 
-- **WHEN** 登录身份的权限码集合为空
-- **THEN** 酒店管理写能力判定为「不具备」
+桌面端 SHALL 在完成登录和恢复既有会话后使用相同的酒店管理操作入口展示规则，
+两条路径均 SHALL NOT 按 `hotel:manage` 隐藏入口。
 
-### Requirement: Capabilities are available on both login and session restore
+#### Scenario: User restores a session without a management permission code
 
-桌面端 SHALL 在「用户完成登录」与「启动时恢复既有会话」两条路径上都取得相同的能力判断
-结果。SHALL NOT 出现某条路径下能力判断缺失而被当作「具备」的情况。
+- **WHEN** 可访问酒店管理页的用户恢复了不含 `hotel:manage` 的既有会话
+- **THEN** 酒店管理操作入口与新登录时相同
 
-#### Scenario: Capabilities after a fresh login
+### Requirement: Account status continues to determine recovery actions
 
-- **WHEN** 用户完成登录且身份权限码不含 `hotel:manage`
-- **THEN** 酒店管理写操作入口不出现
+桌面端 SHALL 保留既有账号状态展示：绑定缺少门店时提供补选门店入口；门店完整且状态为
+`LOGIN_FAILED`、`LOGIN_EXPIRED` 或 `UNBOUND` 时提供重新登录入口。
+正常绑定、流程处理中及需管理员处理的状态 SHALL NOT 因移除权限判断而新增重新登录入口。
 
-#### Scenario: Capabilities after restoring a stored session
+#### Scenario: Account has an expired login and a bound hotel
 
-- **WHEN** 应用启动并恢复出一个权限码不含 `hotel:manage` 的既有会话
-- **THEN** 酒店管理写操作入口同样不出现
-
-### Requirement: Hotel management write entries are hidden without the management capability
-
-不具备酒店管理写能力时，酒店管理界面 SHALL 隐藏全部写操作入口——新增酒店、删除酒店、
-新增绑定账号、解绑账号、重新认证账号。这些入口 SHALL 被隐藏而非以禁用态展示。
-
-酒店列表、已绑定账号及其状态等只读信息 SHALL 照常展示。
-
-#### Scenario: Read-only user opens hotel management
-
-- **WHEN** 不具备酒店管理写能力的用户打开酒店管理页
-- **THEN** 上述五个写操作入口均不出现
-- **AND** 酒店与已绑定账号的只读信息照常展示
-
-#### Scenario: User with the management capability opens hotel management
-
-- **WHEN** 具备酒店管理写能力的用户打开酒店管理页
-- **THEN** 五个写操作入口均照常出现
+- **WHEN** 账号关联了 OTA 门店且状态为 `LOGIN_EXPIRED`
+- **THEN** 账号详情显示重新登录入口，无需 `hotel:manage`
 
 ### Requirement: Empty hotel list renders without remediation guidance
 
 当用户可见的酒店列表为空时，界面 SHALL 展示朴素空态，SHALL NOT 展示引导用户联系管理员
 开通权限一类的文案，也 SHALL NOT 借空态暴露写操作入口。
 
-#### Scenario: Read-only user has no accessible hotels
+#### Scenario: User has no accessible hotels
 
-- **WHEN** 不具备酒店管理写能力的用户可见酒店列表为空
-- **THEN** 界面展示朴素空态，不含开通/联系管理员一类引导文案
-- **AND** 不出现任何写操作入口
+- **WHEN** 用户可见的酒店列表为空
+- **THEN** 界面展示朴素空态，不含开通或联系管理员一类引导文案
+- **AND** 不出现酒店行或账号的写操作入口

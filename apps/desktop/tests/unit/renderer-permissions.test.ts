@@ -20,22 +20,14 @@ function staffWith(
 }
 
 describe('renderer capability derivation', () => {
-  it('grants hotel management when the code is present', () => {
-    expect(capabilitiesOf(staffWith(['hotel:view', 'hotel:manage'])).manageHotel).toBe(true);
-  });
-
-  it('withholds hotel management for read-only codes', () => {
-    expect(
-      capabilitiesOf(staffWith(['inventory:read', 'hotel:view', 'pricing:view'])).manageHotel,
-    ).toBe(false);
-  });
-
-  it('withholds hotel management when no codes are granted', () => {
-    expect(capabilitiesOf(staffWith([])).manageHotel).toBe(false);
-  });
-
-  it('withholds hotel management without a session', () => {
-    expect(capabilitiesOf(null).manageHotel).toBe(false);
+  it('leaves hotel write authorization to the API regardless of permission codes', () => {
+    const expected = {
+      showHotelManagement: true,
+      showXiaozhiChannel: true,
+    };
+    expect(capabilitiesOf(staffWith(['hotel:view', 'hotel:manage'], 'STAFF'))).toEqual(expected);
+    expect(capabilitiesOf(staffWith(['hotel:view'], 'STAFF'))).toEqual(expected);
+    expect(capabilitiesOf(staffWith([], 'STAFF'))).toEqual(expected);
   });
 });
 
@@ -55,16 +47,12 @@ describe('renderer module visibility by user type', () => {
   });
 
   it('opens hotel management for a staff user without any permission codes', () => {
-    // OPERATOR 的形状：是服务商员工，但权限矩阵里没有 hotel:manage。
-    // 模块要开放，写入口要关掉——这正是两条判据不能合并的原因。
     const caps = capabilitiesOf(staffWith([], 'STAFF'));
     expect(caps.showHotelManagement).toBe(true);
-    expect(caps.manageHotel).toBe(false);
   });
 
-  it('withholds both capabilities without a session', () => {
+  it('hides modules without a session', () => {
     expect(capabilitiesOf(null)).toEqual({
-      manageHotel: false,
       showHotelManagement: false,
       showXiaozhiChannel: false,
     });
